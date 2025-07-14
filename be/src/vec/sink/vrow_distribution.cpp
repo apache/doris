@@ -209,7 +209,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
 
 void VRowDistribution::_get_tablet_ids(vectorized::Block* block, int32_t index_idx,
                                        std::vector<int64_t>& tablet_ids) {
-    tablet_ids.reserve(block->rows());
+    tablet_ids.resize(block->rows());
     for (int row_idx = 0; row_idx < block->rows(); row_idx++) {
         if (_skip[row_idx]) {
             continue;

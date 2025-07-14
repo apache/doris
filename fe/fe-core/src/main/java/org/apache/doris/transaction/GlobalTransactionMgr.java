@@ -164,16 +164,16 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             switch (sourceType) {
                 case BACKEND_STREAMING:
                     checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
-                            Config.min_load_timeout_second);
+                            Config.min_load_timeout_second, sourceType);
                     break;
                 default:
                     checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second,
-                            Config.min_load_timeout_second);
+                            Config.min_load_timeout_second, sourceType);
             }
 
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
             return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
-                coordinator, sourceType, listenerId, timeoutSecond);
+                    coordinator, sourceType, listenerId, timeoutSecond);
         } catch (DuplicatedRequestException e) {
             throw e;
         } catch (Exception e) {

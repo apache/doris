@@ -240,7 +240,7 @@ suite("grace_period") {
             o_orderdate,
             l_partkey,
             l_suppkey""",
-            15,
+            150000,
             "l_shipdate")
 
     sql """
@@ -260,7 +260,7 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_partition_allow_staleness_name, true,
+        """, mv_partition_allow_staleness_name,
             is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     // allow 10s staleness when partition table, and query doesn't use the partition changed, should success
     mv_rewrite_success ("""
@@ -274,7 +274,7 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_partition_allow_staleness_name, true,
+        """, mv_partition_allow_staleness_name,
             is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     sql "SET enable_materialized_view_rewrite=false"
     // allow 10s staleness when partition table, and query use the partition changed, should success,
@@ -308,7 +308,9 @@ suite("grace_period") {
         l_suppkey;
         """, mv_partition_allow_staleness_name)
     sql "SET enable_materialized_view_rewrite=true"
-    Thread.sleep(15000);
+
+    sql """ALTER MATERIALIZED VIEW ${mv_partition_allow_staleness_name} set('grace_period'='0');"""
+
     // after 10s when partition table, and query use the partition changed, should fail
     mv_not_part_in(
         """
@@ -335,7 +337,7 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_partition_allow_staleness_name, true,
+        """, mv_partition_allow_staleness_name,
             is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_partition_allow_staleness_name}"""
 
@@ -372,7 +374,7 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_un_partition_allow_staleness_name, true,
+        """, mv_un_partition_allow_staleness_name,
             is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))
     // allow 10s staleness when un partition table, should success
     mv_rewrite_success (
@@ -387,7 +389,7 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_un_partition_allow_staleness_name, true,
+        """, mv_un_partition_allow_staleness_name,
             is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))
     sql "SET enable_materialized_view_rewrite=false"
     // allow 10s staleness when un partition table, but disable materialized view rewrite, should fail

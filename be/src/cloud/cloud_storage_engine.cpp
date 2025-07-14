@@ -89,10 +89,11 @@ int get_base_thread_num() {
     return std::min(std::max(int(num_cores * config::base_compaction_thread_num_factor), 1), 10);
 }
 
-CloudStorageEngine::CloudStorageEngine(const UniqueId& backend_uid)
-        : BaseStorageEngine(Type::CLOUD, backend_uid),
+CloudStorageEngine::CloudStorageEngine(const EngineOptions& options)
+        : BaseStorageEngine(Type::CLOUD, options.backend_uid),
           _meta_mgr(std::make_unique<cloud::CloudMetaMgr>()),
-          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)) {
+          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)),
+          _options(options) {
     _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =
             std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>();
     _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
@@ -190,7 +191,7 @@ struct RefreshFSVaultVisitor {
 };
 
 Status CloudStorageEngine::open() {
-    sync_storage_vault(config::enable_check_storage_vault);
+    sync_storage_vault();
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
@@ -225,6 +226,9 @@ Status CloudStorageEngine::open() {
     RETURN_NOT_OK_STATUS_WITH_WARN(
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),
             "init StreamLoadRecorder failed");
+
+    // check cluster id
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_all_root_path_cluster_id(), "fail to check cluster id");
 
     return ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
             .set_max_threads(config::sync_load_for_tablets_thread)
@@ -336,30 +340,28 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
     return Status::OK();
 }
 
-void CloudStorageEngine::sync_storage_vault(bool check_storage_vault) {
+void CloudStorageEngine::sync_storage_vault() {
     cloud::StorageVaultInfos vault_infos;
     bool enable_storage_vault = false;
-    auto st = Status::OK();
-    while (true) {
-        st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
-        if (st.ok()) {
-            break;
-        }
 
-        if (!check_storage_vault) {
-            LOG(WARNING) << "failed to get storage vault info. err=" << st;
-            return;
-        }
-
-        LOG(WARNING) << "failed to get storage vault info from ms, err=" << st
-                     << " sleep 200ms retry or add enable_check_storage_vault=false to be.conf"
-                     << " to skip the check.";
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to get storage vault info. err=" << st;
+        return;
     }
 
     if (vault_infos.empty()) {
         LOG(WARNING) << "empty storage vault info";
         return;
+    }
+
+    bool check_storage_vault = false;
+    bool expected = false;
+    if (first_sync_storage_vault.compare_exchange_strong(expected, true)) {
+        check_storage_vault = config::enable_check_storage_vault;
+        LOG(INFO) << "first sync storage vault info, BE try to check iam role connectivity, "
+                     "check_storage_vault="
+                  << check_storage_vault;
     }
 
     for (auto& [id, vault_info, path_format] : vault_infos) {
@@ -1140,6 +1142,73 @@ Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tabl
                 "delete_bitmap_lock_initiator={}",
                 tablet->tablet_id(), stop_token->initiator());
     }
+    return Status::OK();
+}
+
+Status CloudStorageEngine::_check_all_root_path_cluster_id() {
+    // Check if all root paths have the same cluster id
+    std::set<int32_t> cluster_ids;
+    for (const auto& path : _options.store_paths) {
+        auto cluster_id_path = fmt::format("{}/{}", path.path, CLUSTER_ID_PREFIX);
+        bool exists = false;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
+        if (exists) {
+            io::FileReaderSPtr reader;
+            RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cluster_id_path, &reader));
+            size_t fsize = reader->size();
+            if (fsize > 0) {
+                std::string content;
+                content.resize(fsize, '\0');
+                size_t bytes_read = 0;
+                RETURN_IF_ERROR(reader->read_at(0, {content.data(), fsize}, &bytes_read));
+                DCHECK_EQ(fsize, bytes_read);
+                int32_t tmp_cluster_id = std::stoi(content);
+                cluster_ids.insert(tmp_cluster_id);
+            }
+        }
+    }
+    _effective_cluster_id = config::cluster_id;
+    // first init
+    if (cluster_ids.empty()) {
+        // not set configured cluster id
+        if (_effective_cluster_id == -1) {
+            return Status::OK();
+        } else {
+            // If no cluster id file exists, use the configured cluster id
+            RETURN_IF_ERROR(set_cluster_id(_effective_cluster_id));
+        }
+    }
+    if (cluster_ids.size() > 1) {
+        return Status::InternalError(
+                "All root paths must have the same cluster id, but you have "
+                "different cluster ids: {}",
+                fmt::join(cluster_ids, ", "));
+    }
+    if (_effective_cluster_id != -1 && *cluster_ids.begin() != _effective_cluster_id) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::Corruption("multiple cluster ids is not equal. config::cluster_id={}, "
+                                   "storage path cluster_id={}",
+                                   _effective_cluster_id, *cluster_ids.begin()),
+                "cluster id not equal");
+    }
+    return Status::OK();
+}
+
+Status CloudStorageEngine::set_cluster_id(int32_t cluster_id) {
+    std::lock_guard<std::mutex> l(_store_lock);
+    for (auto& path : _options.store_paths) {
+        auto cluster_id_path = fmt::format("{}/{}", path.path, CLUSTER_ID_PREFIX);
+        bool exists = false;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
+        if (!exists) {
+            io::FileWriterPtr file_writer;
+            RETURN_IF_ERROR(
+                    io::global_local_filesystem()->create_file(cluster_id_path, &file_writer));
+            RETURN_IF_ERROR(file_writer->append(std::to_string(cluster_id)));
+            RETURN_IF_ERROR(file_writer->close());
+        }
+    }
+    _effective_cluster_id = cluster_id;
     return Status::OK();
 }
 

@@ -440,7 +440,7 @@ public:
         void sort() {
             size_t dict_size = _dict_data->size();
 
-            _code_convert_table.reserve(dict_size);
+            _code_convert_table.resize(dict_size);
             _perm.resize(dict_size);
             for (size_t i = 0; i < dict_size; ++i) {
                 _perm[i] = i;
@@ -509,6 +509,8 @@ public:
         IColumn::Permutation _perm;
         size_t _total_str_len;
     };
+
+    size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 private:
     size_t _reserve_size;

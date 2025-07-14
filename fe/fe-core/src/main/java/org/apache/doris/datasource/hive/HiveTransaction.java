@@ -63,8 +63,8 @@ public class HiveTransaction {
 
     public Map<String, String> getValidWriteIds(HMSCachedClient client) {
         if (txnValidIds == null) {
-            TableName tableName = new TableName(hiveTable.getCatalog().getName(), hiveTable.getDbName(),
-                    hiveTable.getName());
+            TableName tableName = new TableName(hiveTable.getCatalog().getName(), hiveTable.getRemoteDbName(),
+                    hiveTable.getRemoteName());
             client.acquireSharedLock(queryId, txnId, user, tableName, partitionNames, 5000);
             txnValidIds = client.getValidWriteIds(tableName.getDb() + "." + tableName.getTbl(), txnId);
         }

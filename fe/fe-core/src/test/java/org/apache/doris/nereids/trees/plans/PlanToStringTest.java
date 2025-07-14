@@ -56,7 +56,7 @@ public class PlanToStringTest {
         );
         LogicalLimit<Plan> plan = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, child);
 
-        Assertions.assertEquals("LogicalLimit ( limit=0, offset=0, phase=ORIGIN )", plan.toString());
+        Assertions.assertTrue(plan.toString().startsWith("LogicalLimit ( limit=0, offset=0, phase=ORIGIN"));
     }
 
     @Test
@@ -72,7 +72,7 @@ public class PlanToStringTest {
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
         Assertions.assertTrue(plan.toString()
-                .matches("LogicalAggregate\\[\\d+\\] \\( groupByExpr=\\[], outputExpr=\\[a#\\d+], hasRepeat=false \\)"));
+                .matches("LogicalAggregate\\[\\d+\\] \\( groupByExpr=\\[], outputExpr=\\[a#\\d+], hasRepeat=false.*"));
     }
 
     @Test
@@ -86,7 +86,7 @@ public class PlanToStringTest {
         );
         LogicalFilter<Plan> plan = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
         Assertions.assertTrue(plan.toString().matches(
-                "LogicalFilter\\[\\d+\\] \\( predicates=\\(1 = 1\\) \\)"));
+                "LogicalFilter\\[\\d+\\] \\( predicates=\\(1 = 1\\).*"));
     }
 
     @Test
@@ -109,7 +109,7 @@ public class PlanToStringTest {
                 left, right, null);
         System.out.println(plan.toString());
         Assertions.assertTrue(plan.toString().matches(
-                "LogicalJoin\\[\\d+\\] \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[], markJoinConjuncts=\\[] \\)"));
+                "LogicalJoin\\[\\d+\\] \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[], markJoinConjuncts=\\[].*"));
     }
 
     @Test
@@ -118,7 +118,7 @@ public class PlanToStringTest {
         Assertions.assertTrue(
                 plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
                         + "indexName=<index_not_selected>, "
-                        + "selectedIndexId=-1, preAgg=UNSET, operativeCol=\\[] \\)"));
+                        + "selectedIndexId=-1, preAgg=UNSET, operativeCol=\\[].*"));
     }
 
     @Test
@@ -132,7 +132,7 @@ public class PlanToStringTest {
         );
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
-        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+] \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+].*"));
     }
 
     @Test

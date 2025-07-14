@@ -327,6 +327,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     CloudGen
     Common
     MetaService
+    MetaStore
     ResourceManager
     Recycler
     RateLimiter
@@ -481,6 +482,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/gen-cpp)
 add_subdirectory(${SRC_DIR}/meta-service)
+add_subdirectory(${SRC_DIR}/meta-store)
 add_subdirectory(${SRC_DIR}/recycler)
 add_subdirectory(${SRC_DIR}/rate-limiter)
 add_subdirectory(${SRC_DIR}/resource-manager)
@@ -530,6 +532,9 @@ install(FILES
 
 install(FILES
     ${BASE_DIR}/conf/doris_cloud.conf
+    ${BASE_DIR}/conf/asan_suppr.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
+    ${BASE_DIR}/conf/ubsan_suppr.conf
     DESTINATION ${OUTPUT_DIR}/conf)
 
 install(FILES

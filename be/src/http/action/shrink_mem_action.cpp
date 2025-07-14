@@ -36,6 +36,8 @@ void ShrinkMemAction::handle(HttpRequest* req) {
     MemoryReclamation::revoke_process_memory("ShrinkMemAction");
     LOG(INFO) << "shrink memory triggered, using Process GC Free Memory";
     HttpChannel::send_reply(req, HttpStatus::OK, "shrinking");
+
+    ExecEnv::GetInstance()->set_is_upgrading();
 }
 
 } // namespace doris

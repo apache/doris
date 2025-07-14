@@ -232,7 +232,6 @@ public class CloudIndexTest {
 
         ctx = new ConnectContext();
         ctx.setEnv(masterEnv);
-        ctx.setQualifiedUser("root");
         UserIdentity rootUser = new UserIdentity("root", "%");
         rootUser.setIsAnalyzed();
         ctx.setCurrentUserIdentity(rootUser);

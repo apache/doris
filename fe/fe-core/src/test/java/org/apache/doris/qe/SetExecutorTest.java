@@ -54,7 +54,6 @@ public class SetExecutorTest {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         ctx = new ConnectContext();
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
-        ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
         UserIdentity currentUser = new UserIdentity("root", "192.168.1.1");
         currentUser.setIsAnalyzed();

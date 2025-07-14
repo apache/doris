@@ -554,7 +554,7 @@ public class MetadataViewer {
                     for (int i = 0; i < tabletIds.size(); i++) {
                         Tablet tablet = mIndex.getTablet(tabletIds.get(i));
                         long rowCount = tablet.getRowCount(true);
-                        long dataSize = tablet.getDataSize(true);
+                        long dataSize = tablet.getDataSize(true, false);
                         rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
                         dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
                         totalSize += dataSize;
@@ -633,7 +633,7 @@ public class MetadataViewer {
                     for (int i = 0; i < tabletIds.size(); i++) {
                         Tablet tablet = mIndex.getTablet(tabletIds.get(i));
                         long rowCount = tablet.getRowCount(true);
-                        long dataSize = tablet.getDataSize(true);
+                        long dataSize = tablet.getDataSize(true, false);
                         rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
                         dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
                         totalSize += dataSize;

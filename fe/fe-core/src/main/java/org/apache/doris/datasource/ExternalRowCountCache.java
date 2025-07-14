@@ -87,9 +87,15 @@ public class ExternalRowCountCache {
                 TableIf table = StatisticsUtil.findTable(rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
                 return Optional.of(table.fetchRowCount());
             } catch (Exception e) {
-                LOG.warn("Failed to get table row count with catalogId {}, dbId {}, tableId {}. Reason {}",
+                String message = String.format("Failed to get table row count with catalogId %s, dbId %s, tableId %s. "
+                                + "Reason %s",
                         rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId, e.getMessage());
-                LOG.debug(e);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(message, e);
+                } else {
+                    LOG.warn(message);
+                }
+
                 // Return Optional.empty() will cache this empty value in memory,
                 // so we can't try to load the row count until the cache expire.
                 // Throw an exception here will cause too much stack log in fe.out.

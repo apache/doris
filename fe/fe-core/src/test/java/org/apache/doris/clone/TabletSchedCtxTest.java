@@ -160,34 +160,53 @@ public class TabletSchedCtxTest extends TestWithFeService {
 
     @Test
     public void testVersionCountComparator() {
-        TabletSchedCtx.VersionCountComparator countComparator = new TabletSchedCtx.VersionCountComparator();
+        TabletSchedCtx.CloneSrcComparator countComparator
+                = new TabletSchedCtx.CloneSrcComparator();
         List<Replica> replicaList = Lists.newArrayList();
         Replica replica1 = new Replica();
         replica1.setVisibleVersionCount(100);
         replica1.setState(Replica.ReplicaState.NORMAL);
+        // user drop true
+        replica1.setUserDropTime(System.currentTimeMillis());
 
         Replica replica2 = new Replica();
         replica2.setVisibleVersionCount(50);
         replica2.setState(Replica.ReplicaState.NORMAL);
+        // user drop false
+        replica2.setUserDropTime(-1);
 
         Replica replica3 = new Replica();
         replica3.setVisibleVersionCount(-1);
         replica3.setState(Replica.ReplicaState.NORMAL);
+        // user drop false
+        replica3.setUserDropTime(-1);
 
         Replica replica4 = new Replica();
         replica4.setVisibleVersionCount(200);
         replica4.setState(Replica.ReplicaState.NORMAL);
+        // user drop false
+        replica4.setUserDropTime(-1);
+
+        Replica replica5 = new Replica();
+        replica5.setVisibleVersionCount(-1);
+        replica5.setState(Replica.ReplicaState.NORMAL);
+        // user drop true
+        replica5.setUserDropTime(System.currentTimeMillis());
 
         replicaList.add(replica1);
         replicaList.add(replica2);
         replicaList.add(replica3);
         replicaList.add(replica4);
+        replicaList.add(replica5);
 
         Collections.sort(replicaList, countComparator);
+        // user drop false
         Assert.assertEquals(50, replicaList.get(0).getVisibleVersionCount());
-        Assert.assertEquals(100, replicaList.get(1).getVisibleVersionCount());
-        Assert.assertEquals(200, replicaList.get(2).getVisibleVersionCount());
-        Assert.assertEquals(-1, replicaList.get(3).getVisibleVersionCount());
+        Assert.assertEquals(200, replicaList.get(1).getVisibleVersionCount());
+        Assert.assertEquals(-1, replicaList.get(2).getVisibleVersionCount());
+        // user drop true
+        Assert.assertEquals(100, replicaList.get(3).getVisibleVersionCount());
+        Assert.assertEquals(-1, replicaList.get(4).getVisibleVersionCount());
     }
 
     @Test

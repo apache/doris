@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.BarrierLog;
@@ -1034,19 +1035,18 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // case2: exclude table ref
         if (command.isExclude()) {
             for (TableRefInfo tableRefInfo : command.getTableRefInfos()) {
-                TableRef tableRef = tableRefInfo.translateToLegacyTableRef();
-                String tblName = tableRef.getName().getTbl();
+                String tblName = tableRefInfo.getTableNameInfo().getTbl();
                 TableType tableType = jobInfo.getTypeByTblName(tblName);
                 if (tableType == null) {
                     LOG.info("Ignore error : exclude table " + tblName + " does not exist in snapshot "
                             + jobInfo.name);
                     continue;
                 }
-                if (tableRef.hasExplicitAlias()) {
+                if (tableRefInfo.hasAlias()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                             "The table alias in exclude clause does not make sense");
                 }
-                jobInfo.removeTable(tableRef, tableType);
+                jobInfo.removeTable(tableRefInfo, tableType);
             }
             return;
         }
@@ -1056,8 +1056,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         Set<String> viewNames = Sets.newHashSet();
         Set<String> odbcTableNames = Sets.newHashSet();
         for (TableRefInfo tableRefInfo : command.getTableRefInfos()) {
-            TableRef tblRef = tableRefInfo.translateToLegacyTableRef();
-            String tblName = tblRef.getName().getTbl();
+            String tblName = tableRefInfo.getTableNameInfo().getTbl();
             TableType tableType = jobInfo.getTypeByTblName(tblName);
             if (tableType == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
@@ -1065,7 +1064,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
             switch (tableType) {
                 case OLAP:
-                    checkAndFilterRestoreOlapTableExistInSnapshot(jobInfo.backupOlapTableObjects, tblRef);
+                    checkAndFilterRestoreOlapTableExistInSnapshot(jobInfo.backupOlapTableObjects, tableRefInfo);
                     olapTableNames.add(tblName);
                     break;
                 case VIEW:
@@ -1079,8 +1078,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
 
             // set alias
-            if (tblRef.hasExplicitAlias()) {
-                jobInfo.setAlias(tblName, tblRef.getExplicitAlias());
+            if (tableRefInfo.hasAlias()) {
+                jobInfo.setAlias(tblName, tableRefInfo.getTableAlias());
             }
         }
         jobInfo.retainOlapTables(olapTableNames);
@@ -1151,6 +1150,28 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
 
+    public void checkAndFilterRestoreOlapTableExistInSnapshot(Map<String, BackupOlapTableInfo> backupOlapTableInfoMap,
+                                                              TableRefInfo tableRefInfo) throws DdlException {
+        String tblName = tableRefInfo.getTableNameInfo().getTbl();
+        BackupOlapTableInfo tblInfo = backupOlapTableInfoMap.get(tblName);
+        PartitionNamesInfo partitionNamesInfo = tableRefInfo.getPartitionNamesInfo();
+        if (partitionNamesInfo != null) {
+            if (partitionNamesInfo.isTemp()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Do not support restoring temporary partitions in table " + tblName);
+            }
+            // check the selected partitions
+            for (String partName : partitionNamesInfo.getPartitionNames()) {
+                if (!tblInfo.containsPart(partName)) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Partition " + partName + " of table " + tblName
+                            + " does not exist in snapshot");
+                }
+            }
+        }
+        // only retain restore partitions
+        tblInfo.retainPartitions(partitionNamesInfo == null ? null : partitionNamesInfo.getPartitionNames());
+    }
 
     public void checkAndFilterRestoreOlapTableExistInSnapshot(Map<String, BackupOlapTableInfo> backupOlapTableInfoMap,
                                                               TableRef tableRef) throws DdlException {

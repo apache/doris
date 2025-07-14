@@ -63,6 +63,21 @@ TEST(FunctionLikeTest, like) {
             {{std::string("abc"), Null()}, Null()},
             {{Null(), std::string("_x__ab%")}, Null()},
             // escape chars
+            {{std::string("\\"), std::string("\\")}, uint8_t(1)},
+            {{std::string("\\a"), std::string("\\")}, uint8_t(0)},
+            {{std::string("\b"), std::string("\b")}, uint8_t(1)},
+            {{std::string("b\\"), std::string("b\\")}, uint8_t(1)},
+            {{std::string("b"), std::string("\\b")}, uint8_t(0)},
+            {{std::string("\\b"), std::string("\\b")}, uint8_t(1)},
+            {{std::string("\\b"), std::string("b")}, uint8_t(0)},
+            {{std::string("\\\\b"), std::string("\\\\b")}, uint8_t(0)},
+            {{std::string("\\b"), std::string("\\\\b")}, uint8_t(1)},
+            {{std::string("b"), std::string("\\\\b")}, uint8_t(0)},
+            {{std::string("\\\\b"), std::string("b")}, uint8_t(0)},
+            {{std::string("%"), std::string("\\%")}, uint8_t(1)},
+            {{std::string("a"), std::string("\\%")}, uint8_t(0)},
+            {{std::string("\\%"), std::string("\\%")}, uint8_t(0)},
+            {{std::string("\\\\%"), std::string("\\\\%")}, uint8_t(1)},
             {{std::string("facebook_10008_T1+T2-ALL_AAA-VO_LowestCost_20230830_HSJ"),
               std::string("%facebook_10008_T1+T2%")},
              uint8_t(1)},
@@ -77,8 +92,8 @@ TEST(FunctionLikeTest, like) {
     // pattern is constant value
     InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
                                               PrimitiveType::TYPE_VARCHAR};
-    static_cast<void>(
-            check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types, data_set));
+    static_cast<void>(check_function_all_arg_comb<DataTypeUInt8, true>(
+            func_name, const_pattern_input_types, data_set));
 }
 
 TEST(FunctionLikeTest, regexp) {

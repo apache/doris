@@ -67,6 +67,8 @@ public class InternalSchema {
                 new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         TABLE_STATS_SCHEMA.add(
                 new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+        TABLE_STATS_SCHEMA.add(
+                new ColumnDef("hot_value", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
 
         // partition statistics table
         PARTITION_STATS_SCHEMA = new ArrayList<>();
@@ -133,7 +135,7 @@ public class InternalSchema {
         AUDIT_SCHEMA.add(new ColumnDef("user",
                 TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("frontend_ip",
-                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+                TypeDef.createVarchar(1024), ColumnNullableType.NULLABLE));
         // default ctl and db
         AUDIT_SCHEMA.add(new ColumnDef("catalog",
                 TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));

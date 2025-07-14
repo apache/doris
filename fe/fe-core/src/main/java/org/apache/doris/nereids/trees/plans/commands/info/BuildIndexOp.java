@@ -40,8 +40,6 @@ import java.util.Map;
  * BuildIndexOp
  */
 public class BuildIndexOp extends AlterTableOp {
-    // in which table the index on, only used when alter = false
-    private final TableNameInfo tableName;
     // index definition class
     private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx

@@ -27,7 +27,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CacheException;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -78,7 +77,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public PaimonExternalTable(long id, String name, String remoteName, PaimonExternalCatalog catalog,
             PaimonExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.PAIMON_EXTERNAL_TABLE);
-        this.paimonTable = catalog.getPaimonTable(dbName, name);
+        this.paimonTable = catalog.getPaimonTable(getOrBuildNameMapping());
     }
 
     public String getPaimonCatalogType() {
@@ -96,21 +95,10 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getTable();
     }
 
-    public PaimonSchemaCacheValue getPaimonSchemaCacheValue(long schemaId) {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new PaimonSchemaCacheKey(dbName, name, schemaId));
-        if (!schemaCacheValue.isPresent()) {
-            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-                    null, catalog.getName(), dbName, name, schemaId);
-        }
-        return (PaimonSchemaCacheValue) schemaCacheValue.get();
-    }
-
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue() {
         makeSureInitialized();
         return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
-                .getPaimonSnapshot(catalog, dbName, name);
+                .getPaimonSnapshot(this);
     }
 
     @Override
@@ -251,7 +239,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         makeSureInitialized();
         PaimonSchemaCacheKey paimonSchemaCacheKey = (PaimonSchemaCacheKey) key;
         try {
-            Table table = ((PaimonExternalCatalog) getCatalog()).getPaimonTable(key.getDbName(), name);
+            Table table = ((PaimonExternalCatalog) getCatalog()).getPaimonTable(getOrBuildNameMapping());
             TableSchema tableSchema = ((DataTable) table).schemaManager().schema(paimonSchemaCacheKey.getSchemaId());
             List<DataField> columns = tableSchema.fields();
             List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());
@@ -260,7 +248,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             for (DataField field : columns) {
                 Column column = new Column(field.name().toLowerCase(),
                         PaimonUtil.paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
-                        field.id());
+                        -1);
+                PaimonUtil.updatePaimonColumnUniqueId(column, field);
                 dorisColumns.add(column);
                 if (partitionColumnNames.contains(field.name())) {
                     partitionColumns.add(column);
@@ -269,15 +258,16 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return Optional.of(new PaimonSchemaCacheValue(dorisColumns, partitionColumns, tableSchema));
         } catch (Exception e) {
             throw new CacheException("failed to initSchema for: %s.%s.%s.%s",
-                    null, getCatalog().getName(), key.getDbName(), key.getTblName(),
+                    null, getCatalog().getName(), key.getNameMapping().getLocalDbName(),
+                    key.getNameMapping().getLocalTblName(),
                     paimonSchemaCacheKey.getSchemaId());
         }
-
     }
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
         PaimonSnapshotCacheValue snapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
-        return getPaimonSchemaCacheValue(snapshotCacheValue.getSnapshot().getSchemaId());
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+                .getPaimonSchemaCacheValue(getOrBuildNameMapping(), snapshotCacheValue.getSnapshot().getSchemaId());
     }
 
     private PaimonSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {

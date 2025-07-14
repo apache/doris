@@ -78,7 +78,7 @@ inline std::string replace_pattern_by_escape(const StringRef& pattern, char esca
 // TODO: replace with std::string_view when `LikeSearchState.substring_pattern` can
 // construct from std::string_view.
 struct LikeSearchState {
-    char escape_char;
+    static constexpr char escape_char = '\\';
 
     /// Holds the string the StringRef points to and is set any time StringRef is
     /// used.
@@ -125,7 +125,7 @@ struct LikeSearchState {
         return 1;
     }
 
-    LikeSearchState() : escape_char('\\') {}
+    LikeSearchState() = default;
 
     Status clone(LikeSearchState& cloned);
 

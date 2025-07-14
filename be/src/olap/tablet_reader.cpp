@@ -121,7 +121,6 @@ TabletReader::~TabletReader() {
 
 Status TabletReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
-    _predicate_arena = std::make_unique<vectorized::Arena>();
 
     Status res = _init_params(read_params);
     if (!res.ok()) {
@@ -538,8 +537,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         const auto& column = *DORIS_TRY(_tablet_schema->column(tmp_cond.column_name));
         const auto& mcolumn = materialize_column(column);
         uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
-        ColumnPredicate* predicate =
-                parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena.get());
+        ColumnPredicate* predicate = parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena);
         // record condition value into predicate_params in order to pushdown segment_iterator,
         // _gen_predicate_result_sign will build predicate result unique sign with condition value
         predicate->attach_profile_counter(param.runtime_filter_id, param.filtered_rows_counter,

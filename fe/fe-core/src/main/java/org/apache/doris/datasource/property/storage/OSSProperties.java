@@ -20,12 +20,14 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -70,8 +72,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
      * <p>
      */
-    private static final Pattern ENDPOINT_PATTERN = Pattern
-            .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
+    private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
+            .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$"));
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
@@ -98,7 +100,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
-    protected Pattern endpointPattern() {
+    protected Set<Pattern> endpointPatterns() {
         return ENDPOINT_PATTERN;
     }
 

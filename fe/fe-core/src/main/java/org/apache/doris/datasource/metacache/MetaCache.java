@@ -103,6 +103,14 @@ public class MetaCache<T> {
         return val;
     }
 
+    public Optional<T> tryGetMetaObj(String name) {
+        Optional<T> val = metaObjCache.getIfPresent(name);
+        if (val == null || !val.isPresent()) {
+            return Optional.empty();
+        }
+        return val;
+    }
+
     public Optional<T> getMetaObjById(long id) {
         String name = idToName.get(id);
         return name == null ? Optional.empty() : getMetaObj(name, id);
@@ -143,5 +151,11 @@ public class MetaCache<T> {
     @VisibleForTesting
     public LoadingCache<String, Optional<T>> getMetaObjCache() {
         return metaObjCache;
+    }
+
+    @VisibleForTesting
+    public void addObjForTest(long id, String name, T db) {
+        idToName.put(id, name);
+        metaObjCache.put(name, Optional.of(db));
     }
 }

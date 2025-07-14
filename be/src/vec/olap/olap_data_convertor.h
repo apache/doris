@@ -131,7 +131,10 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorObject not support get_data_at");
+        }
 
     protected:
         PaddedPODArray<Slice> _slice;
@@ -225,7 +228,10 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorAggState not support get_data_at");
+        }
         Status convert_to_olap() override;
 
     private:
@@ -440,7 +446,10 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorStruct not support get_data_at");
+        }
         Status convert_to_olap() override;
 
     private:
@@ -461,9 +470,8 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                                   "now not support get_data_at for OlapColumnDataConvertorArray");
-            __builtin_unreachable();
-        };
+                                   "OlapColumnDataConvertorArray not support get_data_at");
+        }
         Status convert_to_olap() override;
 
     private:
@@ -491,8 +499,8 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                                   "now not support get_data_at for OlapColumnDataConvertorMap");
-        };
+                                   "OlapColumnDataConvertorMap not support get_data_at");
+        }
 
     private:
         Status convert_to_olap(const ColumnMap* column_map);
@@ -513,7 +521,10 @@ private:
         Status convert_to_olap() override;
 
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorVariant not support get_data_at");
+        }
 
     private:
         // // encodes sparsed columns

@@ -804,7 +804,7 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
 }
 
 TEST_F(ColumnArrayTest, IsDefaultAtTest) {
-    // default means meet empty array row in column_array, now just only used in ColumnObject.
+    // default means meet empty array row in column_array, now just only used in ColumnVariant.
     // test is_default_at
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(

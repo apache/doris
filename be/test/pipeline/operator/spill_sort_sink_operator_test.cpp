@@ -57,7 +57,7 @@ TEST_F(SpillSortSinkOperatorTest, Basic) {
     ASSERT_TRUE(shared_state != nullptr);
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -109,7 +109,7 @@ TEST_F(SpillSortSinkOperatorTest, Sink) {
             sink_operator->operator_id(), sink_operator->node_id(), "SpillSortSinkOperatorTest");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -206,7 +206,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
             sink_operator->operator_id(), sink_operator->node_id(), "SpillSortSinkOperatorTest");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -284,7 +284,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill2) {
             sink_operator->operator_id(), sink_operator->node_id(), "SpillSortSinkOperatorTest");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -346,7 +346,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpillError) {
                                            "SpillSortSinkOperatorTest");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},

@@ -197,42 +197,64 @@ void ColumnMap::insert_many_from(const IColumn& src, size_t position, size_t len
 }
 
 StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
-    size_t array_size = size_at(n);
-    size_t offset = offset_at(n);
-
-    char* pos = arena.alloc_continue(sizeof(array_size), begin);
-    memcpy(pos, &array_size, sizeof(array_size));
-    StringRef res(pos, sizeof(array_size));
-
-    for (size_t i = 0; i < array_size; ++i) {
-        auto value_ref = get_keys().serialize_value_into_arena(offset + i, arena, begin);
-        res.data = value_ref.data - res.size;
-        res.size += value_ref.size;
-    }
-
-    for (size_t i = 0; i < array_size; ++i) {
-        auto value_ref = get_values().serialize_value_into_arena(offset + i, arena, begin);
-        res.data = value_ref.data - res.size;
-        res.size += value_ref.size;
-    }
-
-    return res;
+    char* pos = arena.alloc_continue(serialize_size_at(n), begin);
+    return {pos, serialize_impl(pos, n)};
 }
 
-const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
-    size_t array_size = unaligned_load<size_t>(pos);
-    pos += sizeof(array_size);
+size_t ColumnMap::serialize_impl(char* pos, const size_t row) const {
+    size_t array_size = size_at(row);
+    size_t offset = offset_at(row);
 
+    memcpy_fixed<size_t>(pos, (char*)&array_size);
+    size_t sz = sizeof(array_size);
     for (size_t i = 0; i < array_size; ++i) {
-        pos = get_keys().deserialize_and_insert_from_arena(pos);
+        sz += get_keys().serialize_impl(pos + sz, offset + i);
     }
 
     for (size_t i = 0; i < array_size; ++i) {
-        pos = get_values().deserialize_and_insert_from_arena(pos);
+        sz += get_values().serialize_impl(pos + sz, offset + i);
+    }
+
+    DCHECK_EQ(sz, serialize_size_at(row));
+    return sz;
+}
+
+size_t ColumnMap::serialize_size_at(size_t row) const {
+    size_t array_size = size_at(row);
+    size_t offset = offset_at(row);
+
+    size_t sz = 0;
+
+    for (size_t i = 0; i < array_size; ++i) {
+        sz += get_keys().serialize_size_at(offset + i);
+    }
+
+    for (size_t i = 0; i < array_size; ++i) {
+        sz += get_values().serialize_size_at(offset + i);
+    }
+
+    return sz + sizeof(size_t);
+}
+
+size_t ColumnMap::deserialize_impl(const char* pos) {
+    size_t sz = 0;
+    size_t array_size = unaligned_load<size_t>(pos);
+    sz += sizeof(array_size);
+
+    for (size_t i = 0; i < array_size; ++i) {
+        sz += get_keys().deserialize_impl(pos + sz);
+    }
+
+    for (size_t i = 0; i < array_size; ++i) {
+        sz += get_values().deserialize_impl(pos + sz);
     }
 
     get_offsets().push_back(get_offsets().back() + array_size);
-    return pos;
+    return sz;
+}
+
+const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
+    return pos + deserialize_impl(pos);
 }
 
 int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {

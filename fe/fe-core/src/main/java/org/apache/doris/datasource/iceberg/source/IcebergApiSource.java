@@ -56,9 +56,7 @@ public class IcebergApiSource implements IcebergSource {
         this.icebergExtTable = table;
 
         this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
-                icebergExtTable.getCatalog(),
-                icebergExtTable.getRemoteDbName(),
-                icebergExtTable.getRemoteName());
+                icebergExtTable);
 
         this.desc = desc;
     }

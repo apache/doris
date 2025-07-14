@@ -50,14 +50,13 @@ public class JsonObject extends ScalarFunction implements CustomSignature, Alway
     public FunctionSignature customSignature() {
         List<DataType> arguments = new ArrayList<>();
         for (int i = 0; i < arity(); i++) {
-            if ((i & 1) == 1 && (getArgumentType(i).isComplexType() || getArgumentType(i).isJsonType())) {
-                // keep origin type for BE Serialization
-                arguments.add(JsonType.INSTANCE);
+            if (i % 2 == 1) {
+                arguments.add(getArgumentType(i));
             } else {
                 arguments.add(VarcharType.SYSTEM_DEFAULT);
             }
         }
-        return FunctionSignature.of(VarcharType.SYSTEM_DEFAULT, arguments);
+        return FunctionSignature.of(JsonType.INSTANCE, arguments);
     }
 
     @Override

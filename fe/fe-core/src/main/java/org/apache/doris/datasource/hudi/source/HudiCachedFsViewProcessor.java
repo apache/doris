@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hudi.source;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalTable;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
@@ -75,9 +76,9 @@ public class HudiCachedFsViewProcessor {
         });
     }
 
-    public void invalidateTableCache(String dbName, String tbName) {
+    public void invalidateTableCache(ExternalTable dorisTable) {
         fsViewCache.asMap().forEach((k, v) -> {
-            if (k.getDbName().equals(dbName) && k.getTbName().equals(tbName)) {
+            if (k.getDbName().equals(dorisTable.getDbName()) && k.getTbName().equals(dorisTable.getName())) {
                 fsViewCache.invalidate(k);
             }
         });

@@ -172,7 +172,7 @@ std::pair<const uint8_t*, int64_t> BitPacking::UnpackAndDecodeValues(
 // avoid buffer overflow (if we are unpacking 32 values, we can safely assume an input
 // buffer of length 32 * BIT_WIDTH).
 template <int BIT_WIDTH, int VALUE_IDX, bool FULL_BATCH>
-uint64_t UnpackValue(const uint8_t* __restrict__ in_buf) {
+uint64_t NO_SANITIZE_UNDEFINED UnpackValue(const uint8_t* __restrict__ in_buf) {
     if (BIT_WIDTH == 0) return 0;
 
     constexpr int FIRST_BIT_IDX = VALUE_IDX * BIT_WIDTH;

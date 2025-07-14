@@ -45,11 +45,11 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "resource-manager/resource_manager.h"
 
@@ -1979,7 +1979,8 @@ TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
     std::stringstream final_json;
     final_json << "original_value_hex=" << hex(initial_rowset_meta.SerializeAsString()) << "\n"
                << "key_hex=" << hex(initial_key) << "\n"
-               << "original_value_json=" << proto_to_json(initial_rowset_meta) << "\n";
+               << "original_value_json=" << proto_to_json(initial_rowset_meta) << "\n"
+               << "changed_value_hex=" << hex(new_rowset_meta.SerializeAsString()) << "\n";
     // std::cout << "xxx " << final_json.str() << std::endl;
     EXPECT_EQ(response.body, final_json.str());
 

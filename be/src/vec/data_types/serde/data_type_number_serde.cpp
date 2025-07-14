@@ -265,6 +265,70 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 }
 
 template <PrimitiveType T>
+constexpr bool can_write_to_jsonb_from_number() {
+    return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+           T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE;
+}
+
+template <PrimitiveType T>
+bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer) {
+    if constexpr (T == TYPE_BOOLEAN) {
+        return writer.writeBool(data);
+    } else if constexpr (T == TYPE_TINYINT) {
+        return writer.writeInt8(data);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        return writer.writeInt16(data);
+    } else if constexpr (T == TYPE_INT) {
+        return writer.writeInt32(data);
+    } else if constexpr (T == TYPE_BIGINT) {
+        return writer.writeInt64(data);
+    } else if constexpr (T == TYPE_LARGEINT) {
+        return writer.writeInt128(data);
+    } else if constexpr (T == TYPE_FLOAT) {
+        return writer.writeFloat(data);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        return writer.writeDouble(data);
+    } else {
+        return false;
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                         int64_t row_num,
+                                                         JsonbWriter& writer) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    }
+    const auto& data = assert_cast<const ColumnType&>(from_column).get_element(row_num);
+    if (!write_to_jsonb_from_number<T>(data, writer)) {
+        return Status::InvalidArgument("DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed");
+    }
+
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                ColumnString& to_column) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    }
+    const auto size = from_column.size();
+    JsonbWriter writer;
+    const auto& data = assert_cast<const ColumnType&>(from_column).get_data();
+    for (int i = 0; i < size; i++) {
+        writer.reset();
+        if (!write_to_jsonb_from_number<T>(data[i], writer)) {
+            return Status::InvalidArgument(
+                    "DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed for row {}", i);
+        }
+        to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
                                                                      uint64_t times) const {
     if (times < 1) [[unlikely]] {
@@ -360,17 +424,40 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
 
     if constexpr (T == TYPE_LARGEINT) { // largeint
         auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
-
-        INIT_MEMORY_FOR_ORC_WRITER()
-
+        // First pass: calculate total memory needed and collect serialized values
+        size_t total_size = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
                 std::string value_str = fmt::format("{}", col_data[row_id]);
                 size_t len = value_str.size();
-
-                REALLOC_MEMORY_FOR_ORC_WRITER()
-
-                strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
+                total_size += len;
+            }
+        }
+        // Allocate continues memory based on calculated size
+        char* ptr = (char*)malloc(total_size);
+        if (!ptr) {
+            return Status::InternalError(
+                    "malloc memory {} error when write variant column data to orc file.",
+                    total_size);
+        }
+        StringRef bufferRef;
+        bufferRef.data = ptr;
+        bufferRef.size = total_size;
+        buffer_list.emplace_back(bufferRef);
+        // Second pass: fill the data and update the batch
+        size_t offset = 0;
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                std::string value_str = fmt::format("{}", col_data[row_id]);
+                size_t len = value_str.size();
+                if (offset + len > total_size) {
+                    return Status::InternalError(
+                            "Buffer overflow when writing column data to ORC file. offset {} with "
+                            "len {} exceed total_size {} . ",
+                            offset, len, total_size);
+                }
+                // do not use strcpy here, because this buffer is not null-terminated
+                memcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str(), len);
                 cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
                 cur_batch->length[row_id] = len;
                 offset += len;
@@ -423,7 +510,7 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
 template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
                                                      JsonbWriterT<JsonbOutStream>& result,
-                                                     Arena* mem_pool, int32_t col_id,
+                                                     Arena& mem_pool, int32_t col_id,
                                                      int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     StringRef data_ref = column.get_data_at(row_num);

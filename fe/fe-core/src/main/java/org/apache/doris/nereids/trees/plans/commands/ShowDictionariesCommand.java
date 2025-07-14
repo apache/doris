@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
@@ -99,6 +100,12 @@ public class ShowDictionariesCommand extends ShowCommand {
         }
 
         return new ShowResultSet(getMetaData(), rows);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // Dictionary's status will not sync to follower. so we must forward the query to the master.
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 
     @Override

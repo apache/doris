@@ -173,7 +173,7 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
                 _failed_channels[the_tablet_id].insert(node_id);
                 _failed_channels_msgs.emplace(the_tablet_id,
                                               err + ", host: " + node_channel->host());
-                if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
+                if (_failed_channels[the_tablet_id].size() > _max_failed_replicas(the_tablet_id)) {
                     _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                             _failed_channels_msgs[the_tablet_id]);
                 }
@@ -181,12 +181,21 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
         } else {
             _failed_channels[tablet_id].insert(node_id);
             _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
-            if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
+            if (_failed_channels[tablet_id].size() > _max_failed_replicas(tablet_id)) {
                 _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                         _failed_channels_msgs[tablet_id]);
             }
         }
     }
+}
+
+int IndexChannel::_max_failed_replicas(int64_t tablet_id) {
+    auto [total_replicas_num, load_required_replicas_num] =
+            _parent->_tablet_replica_info[tablet_id];
+    int max_failed_replicas = total_replicas_num == 0
+                                      ? (_parent->_num_replicas - 1) / 2
+                                      : total_replicas_num - load_required_replicas_num;
+    return max_failed_replicas;
 }
 
 Status IndexChannel::check_intolerable_failure() {
@@ -1314,7 +1323,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_vpartition->init());
 
     _state = state;
-    _profile = profile;
+    _operator_profile = profile;
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
@@ -1408,6 +1417,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
                 tablet_with_partition.partition_id = part->id;
                 tablet_with_partition.tablet_id = tablet;
                 tablets.emplace_back(std::move(tablet_with_partition));
+                _build_tablet_replica_info(tablet, part);
             }
         }
         if (tablets.empty() && !_vpartition->is_auto_partition()) {
@@ -1440,6 +1450,7 @@ Status VTabletWriter::_incremental_open_node_channel(
                 tablet_with_partition.partition_id = part->id;
                 tablet_with_partition.tablet_id = tablet;
                 tablets.emplace_back(std::move(tablet_with_partition));
+                _build_tablet_replica_info(tablet, part);
             }
             DCHECK(!tablets.empty()) << "incremental open got nothing!";
         }
@@ -1474,6 +1485,22 @@ Status VTabletWriter::_incremental_open_node_channel(
     }
 
     return Status::OK();
+}
+
+void VTabletWriter::_build_tablet_replica_info(const int64_t tablet_id,
+                                               VOlapTablePartition* partition) {
+    if (partition != nullptr) {
+        int total_replicas_num =
+                partition->total_replica_num == 0 ? _num_replicas : partition->total_replica_num;
+        int load_required_replicas_num = partition->load_required_replica_num == 0
+                                                 ? (_num_replicas + 1) / 2
+                                                 : partition->load_required_replica_num;
+        _tablet_replica_info.emplace(
+                tablet_id, std::make_pair(total_replicas_num, load_required_replicas_num));
+    } else {
+        _tablet_replica_info.emplace(tablet_id,
+                                     std::make_pair(_num_replicas, (_num_replicas + 1) / 2));
+    }
 }
 
 void VTabletWriter::_cancel_all_channel(Status status) {
@@ -1514,7 +1541,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
 
     // must before set _try_close
     if (status.ok()) {
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
         _row_distribution._deal_batched = true;
         status = _send_new_partition_batch();
     }
@@ -1526,7 +1553,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
 
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
         for (const auto& index_channel : _channels) {
             // two-step mark close. first we send close_origin to recievers to close all originly exist TabletsChannel.
             // when they all closed, we are sure all Writer of instances called _do_try_close. that means no new channel
@@ -1611,7 +1638,7 @@ Status VTabletWriter::close(Status exec_status) {
     }
 
     SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
 
     // will make the last batch of request-> close_wait will wait this finished.
     _do_try_close(_state, exec_status);
@@ -1794,7 +1821,7 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
     if (UNLIKELY(rows == 0)) {
         return status;
     }
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
     SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;

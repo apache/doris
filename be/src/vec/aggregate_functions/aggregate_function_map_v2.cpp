@@ -54,6 +54,7 @@ AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& nam
     case PrimitiveType::TYPE_DATETIME:
     case PrimitiveType::TYPE_DATEV2:
     case PrimitiveType::TYPE_DATETIMEV2:
+    case PrimitiveType::TYPE_TIMEV2:
         return create_agg_function_map_agg_v2(argument_types, result_is_nullable);
     default:
         LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",

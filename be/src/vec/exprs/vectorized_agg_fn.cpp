@@ -200,6 +200,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                          _fn.name.function_name);
         }
     } else {
+        // Here, only foreachv1 needs special treatment, and v2 can follow the normal code logic.
         if (AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types,
@@ -224,7 +225,10 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                                    _sort_description, state);
     }
 
-    if (!AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
+    // Foreachv2, like foreachv1, does not check the return type,
+    // because its return type is related to the internal agg.
+    if (!AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name) &&
+        !AggregateFunctionSimpleFactory::is_foreachv2(_fn.name.function_name)) {
         if (state->be_exec_version() >= BE_VERSION_THAT_SUPPORT_NULLABLE_CHECK) {
             RETURN_IF_ERROR(
                     _function->verify_result_type(_without_key, argument_types, _data_type));
@@ -246,35 +250,35 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
     _function->destroy(place);
 }
 
-Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
+Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
 }
 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
-                                         Arena* arena, bool agg_many) {
+                                         Arena& arena, bool agg_many) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
     return Status::OK();
 }
 
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
-                                                  AggregateDataPtr* places, Arena* arena) {
+                                                  AggregateDataPtr* places, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
     return Status::OK();
 }
 
 Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
-                                               const size_t num_rows, Arena* arena) {
+                                               const size_t num_rows, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
     return Status::OK();
 }
 
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
-                                                         const size_t num_rows, Arena* arena) {
+                                                         const size_t num_rows, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
     return Status::OK();

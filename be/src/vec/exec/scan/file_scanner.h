@@ -62,6 +62,10 @@ class FileScanner : public Scanner {
 public:
     static constexpr const char* NAME = "FileScanner";
 
+    // sub profile name (for parquet/orc)
+    static const std::string FileReadBytesProfile;
+    static const std::string FileReadTimeProfile;
+
     FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
@@ -89,12 +93,11 @@ public:
               _col_name_to_slot_id(colname_to_slot_id),
               _real_tuple_desc(tuple_desc) {};
 
-    Status read_one_line_from_range(const TFileRangeDesc& range, const segment_v2::rowid_t rowid,
-                                    Block* result_block,
-                                    const ExternalFileMappingInfo& external_info,
-                                    int64_t* init_reader_ms, int64_t* get_block_ms);
+    Status read_lines_from_range(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
+                                 Block* result_block, const ExternalFileMappingInfo& external_info,
+                                 int64_t* init_reader_ms, int64_t* get_block_ms);
 
-    Status prepare_for_read_one_line(const TFileRangeDesc& range);
+    Status prepare_for_read_lines(const TFileRangeDesc& range);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -119,14 +122,12 @@ protected:
     TFileRangeDesc _current_range;
 
     std::unique_ptr<GenericReader> _cur_reader;
-    bool _cur_reader_eof;
+    bool _cur_reader_eof = false;
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
-    // column id to name map. Collect from FE slot descriptor.
-    std::unordered_map<int32_t, std::string> _col_id_name_map;
 
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
@@ -149,14 +150,12 @@ protected:
     std::unordered_map<std::string, size_t> _src_block_name_to_idx;
 
     // Get from GenericReader, save the existing columns in file to their type.
-    std::unordered_map<std::string, DataTypePtr> _name_to_col_type;
+    std::unordered_map<std::string, DataTypePtr> _slot_lower_name_to_col_type;
     // Get from GenericReader, save columns that required by scan but not exist in file.
     // These columns will be filled by default value or null.
     std::unordered_set<std::string> _missing_cols;
 
-    //  The col names and types of source file, such as parquet, orc files.
-    std::vector<std::string> _source_file_col_names;
-    std::vector<DataTypePtr> _source_file_col_types;
+    // The col lowercase name of source file to type of source file.
     std::map<std::string, DataTypePtr> _source_file_col_name_types;
 
     // For load task
