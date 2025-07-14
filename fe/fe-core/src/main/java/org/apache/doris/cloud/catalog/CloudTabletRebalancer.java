@@ -157,7 +157,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
         public Tablet pickedTablet;
         public long srcBe;
         public long destBe;
-        public boolean isGlobal;
         public Map<Long, Set<Tablet>> beToTablets;
         public long startTimestamp;
         BalanceType balanceType;
@@ -168,23 +167,18 @@ public class CloudTabletRebalancer extends MasterDaemon {
         public long destBe;
         public long minTabletsNum;
         public long maxTabletsNum;
-        public boolean srcDecommissioned;
     }
 
     public Set<Long> getSnapshotTabletsInPrimaryByBeId(Long beId) {
         Set<Long> tabletIds = Sets.newHashSet();
-        Set<Tablet> tablets = beToTabletsGlobal.get(beId);
-        if (tablets != null) {
-            for (Tablet tablet : tablets) {
-                tabletIds.add(tablet.getId());
-            }
+        Set<Tablet> tablets = new HashSet<>(beToTabletsGlobal.get(beId)); // Create a copy
+        for (Tablet tablet : tablets) {
+            tabletIds.add(tablet.getId());
         }
 
-        tablets = beToColocateTabletsGlobal.get(beId);
-        if (tablets != null) {
-            for (Tablet tablet : tablets) {
-                tabletIds.add(tablet.getId());
-            }
+        tablets = new HashSet<>(beToColocateTabletsGlobal.get(beId)); // Create a copy
+        for (Tablet tablet : tablets) {
+            tabletIds.add(tablet.getId());
         }
 
         return tabletIds;
@@ -192,11 +186,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     public Set<Long> getSnapshotTabletsInSecondaryByBeId(Long beId) {
         Set<Long> tabletIds = Sets.newHashSet();
-        Set<Tablet> tablets = beToTabletsGlobalInSecondary.get(beId);
-        if (tablets != null) {
-            for (Tablet tablet : tablets) {
-                tabletIds.add(tablet.getId());
-            }
+        Set<Tablet> tablets = new HashSet<>(beToTabletsGlobalInSecondary.get(beId)); // Create a copy
+        for (Tablet tablet : tablets) {
+            tabletIds.add(tablet.getId());
         }
         return tabletIds;
     }
@@ -209,11 +201,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public int getTabletNumByBackendId(long beId) {
-        Set<Tablet> tablets = beToTabletsGlobal.get(beId);
-        Set<Tablet> colocateTablets = beToColocateTabletsGlobal.get(beId);
+        Set<Tablet> tablets = new HashSet<>(beToTabletsGlobal.get(beId));
+        Set<Tablet> colocateTablets = new HashSet<>(beToColocateTabletsGlobal.get(beId));
 
-        return (tablets == null ? 0 : tablets.size())
-                + (colocateTablets == null ? 0 : colocateTablets.size());
+        return tablets.size() + colocateTablets.size();
     }
 
     // 1 build cluster to backends info
