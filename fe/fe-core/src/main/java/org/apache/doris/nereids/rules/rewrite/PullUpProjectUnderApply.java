@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -60,7 +59,7 @@ public class PullUpProjectUnderApply extends OneRewriteRuleFactory {
                     LogicalProject<Plan> project = apply.right();
                     Plan newCorrelate = apply.withChildren(apply.left(), project.child());
                     List<NamedExpression> newProjects = new ArrayList<>(apply.left().getOutput());
-                    if (apply.getSubqueryExpr() instanceof ScalarSubquery) {
+                    if (apply.isScalar()) {
                         Preconditions.checkState(project.getProjects().size() == 1,
                                 "ScalarSubquery should only have one output column");
                         newProjects.add(project.getProjects().get(0));
