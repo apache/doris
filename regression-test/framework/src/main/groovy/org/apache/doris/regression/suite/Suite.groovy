@@ -2477,8 +2477,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success_without_check_chosen(query_sql, mv_name, true,
-                expected_pre_rewrite_strategys)
+        mv_rewrite_success_without_check_chosen(query_sql, mv_name, expected_pre_rewrite_strategys)
     }
 
 
