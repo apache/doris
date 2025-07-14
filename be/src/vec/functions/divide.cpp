@@ -67,9 +67,9 @@ public:
         auto& column_left = block.get_by_position(arguments[0]).column;
         auto& column_right = block.get_by_position(arguments[1]).column;
         const auto* type_left = assert_cast<const typename Impl::DataTypeA*>(
-                remove_nullable(block.get_by_position(arguments[0]).type).get());
+                block.get_by_position(arguments[0]).type.get());
         const auto* type_right = assert_cast<const typename Impl::DataTypeB*>(
-                remove_nullable(block.get_by_position(arguments[1]).type).get());
+                block.get_by_position(arguments[1]).type.get());
         const auto& res_data_type = remove_nullable(block.get_by_position(result).type);
         bool is_const_left = is_column_const(*column_left);
         bool is_const_right = is_column_const(*column_right);
@@ -406,9 +406,8 @@ struct DivideDecimalImpl {
 
     template <PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static inline typename PrimitiveTypeTraits<ResultType>::CppNativeType impl(ArgNativeTypeA a,
-                                                                               ArgNativeTypeB b,
-                                                                               UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppNativeType
+            impl(ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null) {
         is_null = b == 0;
         return static_cast<typename PrimitiveTypeTraits<ResultType>::CppNativeType>(a) /
                (b + is_null);
@@ -424,9 +423,18 @@ struct DivideDecimalImpl {
         auto column_result = ColumnDecimal<ResultType>::create(1, res_data_type.get_scale());
 
         auto null_map = ColumnUInt8::create(1, 0);
-        column_result->get_element(0) = typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                apply<ResultType>(a.value, b.value, null_map->get_element(0), max_result_number,
-                                  check_overflow_for_decimal));
+        if (check_overflow_for_decimal) {
+            column_result->get_element(0) =
+                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
+                            apply<true, ResultType>(a.value, b.value, null_map->get_element(0),
+                                                    max_result_number));
+        } else {
+            column_result->get_element(0) =
+                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
+                            apply<false, ResultType>(a.value, b.value, null_map->get_element(0),
+                                                     max_result_number));
+        }
+
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
 
@@ -447,10 +455,18 @@ struct DivideDecimalImpl {
         const auto& c = column_result->get_data().data();
         auto& n = null_map->get_data();
         auto sz = column_left->size();
-        for (size_t i = 0; i < sz; ++i) {
-            c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<ResultType>(
-                    a[i].value, b.value, n[i], max_result_number, check_overflow_for_decimal));
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a[i].value, b.value, n[i], max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a[i].value, b.value, n[i], max_result_number));
+            }
         }
+
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
 
@@ -471,10 +487,18 @@ struct DivideDecimalImpl {
         const auto& c = column_result->get_data().data();
         auto& n = null_map->get_data();
         auto sz = column_right->size();
-        for (size_t i = 0; i < sz; ++i) {
-            c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<ResultType>(
-                    a.value, b[i].value, n[i], max_result_number, check_overflow_for_decimal));
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a.value, b[i].value, n[i], max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a.value, b[i].value, n[i], max_result_number));
+            }
         }
+
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
 
@@ -500,33 +524,44 @@ struct DivideDecimalImpl {
         auto& n = null_map->get_data();
         auto sz = column_right->size();
         if constexpr (TypeA == TYPE_DECIMALV2) {
-            for (size_t i = 0; i < sz; ++i) {
-                c[i] = Decimal128V2(apply<TYPE_DECIMALV2>(a[i].value, b[i].value, n[i],
-                                                          max_result_number,
-                                                          check_overflow_for_decimal));
+            if (check_overflow_for_decimal) {
+                for (size_t i = 0; i < sz; ++i) {
+                    c[i] = Decimal128V2(apply<true, TYPE_DECIMALV2>(a[i].value, b[i].value, n[i],
+                                                                    max_result_number));
+                }
+            } else {
+                for (size_t i = 0; i < sz; ++i) {
+                    c[i] = Decimal128V2(apply<false, TYPE_DECIMALV2>(a[i].value, b[i].value, n[i],
+                                                                     max_result_number));
+                }
             }
         } else {
-            for (size_t i = 0; i < sz; ++i) {
-                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
-                        apply<ResultType>(a[i].value, b[i].value, n[i], max_result_number,
-                                          check_overflow_for_decimal));
+            if (check_overflow_for_decimal) {
+                for (size_t i = 0; i < sz; ++i) {
+                    c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<true, ResultType>(
+                            a[i].value, b[i].value, n[i], max_result_number));
+                }
+            } else {
+                for (size_t i = 0; i < sz; ++i) {
+                    c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<false, ResultType>(
+                            a[i].value, b[i].value, n[i], max_result_number));
+                }
             }
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
 
-    template <PrimitiveType ResultType>
+    template <bool check_overflow_for_decimal, PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
-            ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
-            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
-            bool check_overflow_for_decimal) {
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType
+            apply(ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
+                  const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
         if constexpr (TypeA == TYPE_DECIMALV2) {
             DecimalV2Value l(a);
             DecimalV2Value r(b);
             auto ans = impl(l, r, is_null);
             using ANS_TYPE = std::decay_t<decltype(ans)>;
-            if (check_overflow_for_decimal) {
+            if constexpr (check_overflow_for_decimal) {
                 if constexpr (std::is_same_v<ANS_TYPE, DecimalV2Value>) {
                     if (ans.value() > max_result_number.value() ||
                         ans.value() < -max_result_number.value()) {
