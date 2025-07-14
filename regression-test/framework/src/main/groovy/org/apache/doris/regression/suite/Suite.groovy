@@ -361,7 +361,7 @@ class Suite implements GroovyInterceptable {
                     "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
             cluster.jdbcUrl = jdbcUrl
-            connext.threadLocalConn.remove()
+            context.threadLocalConn.remove()
             actionSupplier.call()
         } finally {
             if (originConnection == null) {
