@@ -3017,6 +3017,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
                 }
                 // Drop table column stats after light schema change finished.
+                Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
                 Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
 
                 if (isDropIndex) {
@@ -3047,6 +3048,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
                 // Drop table column stats after light schema change finished.
+                Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
                 Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
@@ -3086,6 +3088,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(tableId);
         olapTable.writeLock();
         try {
             modifyTableLightSchemaChange("", db, olapTable, indexSchemaMap, indexes, null, false, jobId, true);
@@ -3236,6 +3239,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(tableId);
         olapTable.writeLock();
         try {
             modifyTableLightSchemaChange("", db, olapTable, indexSchemaMap, newIndexes,

@@ -54,6 +54,8 @@ public class TruncateTableInfo implements Writable {
     private String rawSql = "";
     @SerializedName(value = "op")
     private Map<Long, String> oldPartitions = new HashMap<>();
+    @SerializedName(value = "ur")
+    private Map<Long, Long> updateRecords;
 
     public TruncateTableInfo() {
 
@@ -61,7 +63,7 @@ public class TruncateTableInfo implements Writable {
 
     // for internal table
     public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
-            boolean isEntireTable, String rawSql, List<Partition> oldPartitions) {
+            boolean isEntireTable, String rawSql, List<Partition> oldPartitions, Map<Long, Long> updateRecords) {
         this.dbId = dbId;
         this.db = db;
         this.tblId = tblId;
@@ -72,6 +74,7 @@ public class TruncateTableInfo implements Writable {
         for (Partition partition : oldPartitions) {
             this.oldPartitions.put(partition.getId(), partition.getName());
         }
+        this.updateRecords = updateRecords;
     }
 
     // for external table
@@ -120,6 +123,10 @@ public class TruncateTableInfo implements Writable {
 
     public String getRawSql() {
         return rawSql;
+    }
+
+    public Map<Long, Long> getUpdateRecords() {
+        return updateRecords;
     }
 
     public static TruncateTableInfo read(DataInput in) throws IOException {
