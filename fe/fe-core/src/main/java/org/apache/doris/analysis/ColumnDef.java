@@ -27,11 +27,14 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -509,6 +512,23 @@ public class ColumnDef {
 
         if (type.isScalarType() && defaultValue.isSet && defaultValue.value != null) {
             validateDefaultValue(type, defaultValue.value, defaultValue.defaultValueExprDef);
+        }
+        if (type.getPrimitiveType() == PrimitiveType.VARIANT) {
+            VariantType variantType = (VariantType) type;
+            int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
+                    ConnectContext.get().getSessionVariable().getGlobalVariantMaxSubcolumnsCount();
+            boolean enableTypedPathsToSparse = ConnectContext.get() == null ? false :
+                    ConnectContext.get().getSessionVariable().getGlobalEnableTypedPathsToSparse();
+            try {
+                variantMaxSubcolumnsCount = PropertyAnalyzer
+                            .analyzeVariantMaxSubcolumnsCount(variantType.getProperties(), variantMaxSubcolumnsCount);
+                enableTypedPathsToSparse = PropertyAnalyzer
+                            .analyzeEnableTypedPathsToSparse(variantType.getProperties(), enableTypedPathsToSparse);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage());
+            }
+            variantType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+            variantType.setEnableTypedPathsToSparse(enableTypedPathsToSparse);
         }
         validateGeneratedColumnInfo();
     }

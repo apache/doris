@@ -314,6 +314,7 @@ PROPERTIES (
 
     sql "DROP TABLE IF EXISTS test_ddl_table"
     sql "set global_variant_max_subcolumns_count = 10"
+    sql "set global_variant_enable_typed_paths_to_sparse = false"
     sql """CREATE TABLE test_ddl_table (
         `id` bigint NULL,
         `var` variant NULL
@@ -321,4 +322,14 @@ PROPERTIES (
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
     qt_sql "desc test_ddl_table"
+
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant NULL,
+        INDEX idx_ab (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT ''
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql "create index idx_ab2 on test_ddl_table (var) using inverted"
 }

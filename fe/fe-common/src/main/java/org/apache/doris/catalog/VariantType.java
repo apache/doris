@@ -46,6 +46,8 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "enableTypedPathsToSparse")
     private boolean enableTypedPathsToSparse = false;
 
+    private Map<String, String> properties = Maps.newHashMap();
+
     public VariantType() {
         super(PrimitiveType.VARIANT);
         this.predefinedFields = Lists.newArrayList();
@@ -65,13 +67,7 @@ public class VariantType extends ScalarType {
     public VariantType(Map<String, String> properties) {
         super(PrimitiveType.VARIANT);
         this.predefinedFields = Lists.newArrayList();
-        if (properties.containsKey("variant_max_subcolumns_count")) {
-            this.variantMaxSubcolumnsCount = Integer.parseInt(properties.get("variant_max_subcolumns_count"));
-        }
-        if (properties.containsKey("variant_enable_typed_paths_to_sparse")) {
-            this.enableTypedPathsToSparse = Boolean
-                                        .parseBoolean(properties.get("variant_enable_typed_paths_to_sparse"));
-        }
+        this.properties = properties;
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -81,13 +77,7 @@ public class VariantType extends ScalarType {
         for (VariantField predefinedField : this.predefinedFields) {
             fieldMap.put(predefinedField.getPattern(), predefinedField);
         }
-        if (properties.containsKey("variant_max_subcolumns_count")) {
-            this.variantMaxSubcolumnsCount = Integer.parseInt(properties.get("variant_max_subcolumns_count"));
-        }
-        if (properties.containsKey("variant_enable_typed_paths_to_sparse")) {
-            this.enableTypedPathsToSparse = Boolean
-                                        .parseBoolean(properties.get("variant_enable_typed_paths_to_sparse"));
-        }
+        this.properties = properties;
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
@@ -189,5 +179,13 @@ public class VariantType extends ScalarType {
 
     public boolean getEnableTypedPathsToSparse() {
         return enableTypedPathsToSparse;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public void setEnableTypedPathsToSparse(boolean enableTypedPathsToSparse) {
+        this.enableTypedPathsToSparse = enableTypedPathsToSparse;
     }
 }
