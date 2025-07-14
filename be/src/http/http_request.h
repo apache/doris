@@ -32,10 +32,7 @@ namespace doris {
 
 class HttpHandler;
 
-enum SendReplyType {
-    REPLY_SYNC = 0,
-    REPLY_ASYNC = 1
-};
+enum SendReplyType { REPLY_SYNC = 0, REPLY_ASYNC = 1 };
 
 class HttpRequest {
 public:
@@ -84,13 +81,9 @@ public:
 
     const char* remote_host() const;
 
-    void mark_send_reply(SendReplyType type = REPLY_ASYNC) {
-        _send_reply_type = type;
-    }
+    void mark_send_reply(SendReplyType type = REPLY_ASYNC) { _send_reply_type = type; }
 
-    void finish_send_reply() {
-        promise.set_value(true);
-    }
+    void finish_send_reply() { promise.set_value(true); }
 
     void wait_finish_send_reply() {
         if (_send_reply_type == REPLY_SYNC) {
