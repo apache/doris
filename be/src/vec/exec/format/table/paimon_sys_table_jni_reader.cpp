@@ -34,7 +34,7 @@ PaimonSysTableJniReader::PaimonSysTableJniReader(
     std::vector<std::string> required_types;
     for (const auto& desc : _file_slot_descs) {
         required_fields.emplace_back(desc->col_name());
-        required_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
+        required_types.emplace_back(JniConnector::get_jni_type(desc->type()));
     }
 
     std::map<std::string, std::string> params;
