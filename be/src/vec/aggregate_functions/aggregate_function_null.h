@@ -59,35 +59,36 @@ protected:
 
     static void init_flag(AggregateDataPtr __restrict place) noexcept {
         if constexpr (result_is_nullable) {
-            place[0] = false;
+            unaligned_store<bool>(place, false);
         }
     }
 
     static void set_flag(AggregateDataPtr __restrict place) noexcept {
         if constexpr (result_is_nullable) {
-            place[0] = true;
+            unaligned_store<bool>(place, true);
         }
     }
 
     static bool get_flag(ConstAggregateDataPtr __restrict place) noexcept {
-        return result_is_nullable ? place[0] : true;
+        return result_is_nullable ? unaligned_load<bool>(place) : true;
     }
 
     static void init_null_count(AggregateDataPtr __restrict place) noexcept {
         if constexpr (result_is_nullable) {
-            *reinterpret_cast<int32_t*>(place) = 0; // Initialize null count to 0
+            unaligned_store<int32_t>(place, 0);
         }
     }
 
     static void update_null_count(AggregateDataPtr __restrict place, bool incremental) noexcept {
         if constexpr (result_is_nullable) {
-            auto* ptr = reinterpret_cast<int32_t*>(place);
-            incremental ? (*ptr)++ : (*ptr)--;
+            auto null_count = unaligned_load<int32_t>(place);
+            incremental ? null_count++ : null_count--;
+            unaligned_store<int32_t>(place, null_count);
         }
     }
 
     static int32_t get_null_count(ConstAggregateDataPtr __restrict place) noexcept {
-        return result_is_nullable ? *reinterpret_cast<const int32_t*>(place) : 0;
+        return result_is_nullable ? unaligned_load<int32_t>(place) : 0;
     }
 
 public:
@@ -97,22 +98,13 @@ public:
               nested_function {assert_cast<NestFunction*>(nested_function_)} {
         DCHECK(nested_function_ != nullptr);
         if (result_is_nullable) {
-            // flag|-------padding-------|--------------null_count-------|--nested_data----|
-            // [0] :[1...(prefix_size-1)]:[prefix_size...(prefix_size+3)]:[prefix_size+4...]
+            // flag|---null_count----|-------padding-------|--nested_data----|
             size_t nested_align = nested_function->align_of_data();
-            size_t null_count_align = alignof(int32_t);
             prefix_size = 1;
             null_count_size = sizeof(int32_t);
-            // firstly calculate the prefix_size to align with null_count_size
-            if (prefix_size % null_count_align != 0) {
-                prefix_size += (null_count_align - (prefix_size % null_count_align));
-            }
-
-            // （flag + padding + null_count）
             size_t total_before_nested = prefix_size + null_count_size;
-            // secondly, calculate the total size to align with nested_align
             if (total_before_nested % nested_align != 0) {
-                prefix_size += (nested_align - (total_before_nested % nested_align));
+                null_count_size += (nested_align - (total_before_nested % nested_align));
             }
         } else {
             prefix_size = 0;
@@ -155,15 +147,19 @@ public:
     }
 
     size_t size_of_data() const override {
-        size_t raw_size = prefix_size + null_count_size + nested_function->size_of_data();
-        size_t alignment = align_of_data();
-
-        if (raw_size % alignment == 0) {
-            return raw_size;
-        }
-        // If not aligned, we need to pad it.
-        return raw_size + (alignment - (raw_size % alignment));
+        return prefix_size + null_count_size + nested_function->size_of_data();
     }
+
+    // size_t size_of_data() const override {
+    //     size_t raw_size = prefix_size + null_count_size + nested_function->size_of_data();
+    //     size_t alignment = align_of_data();
+
+    //     if (raw_size % alignment == 0) {
+    //         return raw_size;
+    //     }
+    //     // If not aligned, we need to pad it.
+    //     return raw_size + (alignment - (raw_size % alignment));
+    // }
 
     size_t align_of_data() const override {
         return std::max(nested_function->align_of_data(), alignof(int32_t));
