@@ -37,12 +37,22 @@ suite("variant_nested_type_load", "p0"){
                     DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
                     properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
                 """
-            exception "Disable to create table with `VARIANT` type column enable flatten nested"
+            exception "If you want to enable variant flatten nested, please set session variable"
         }
         
 
         // set disable_variant_flatten_nested = false to enable variant flatten nested
         sql """ set disable_variant_flatten_nested = false """
+        sql """
+                    CREATE TABLE IF NOT EXISTS ${table_name} (
+                        k bigint,
+                        v variant
+                    )
+                    DUPLICATE KEY(`k`)
+                    DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
+                    properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
+                """
+        sql """ insert into ${table_name} values (1, '{"nested": [{"a": 1, "c": 1.1}, {"b": "1"}]}'); """ 
         
         def desc_table = { tn ->
             sql """ set describe_extend_variant_column = true """
@@ -78,6 +88,12 @@ suite("variant_nested_type_load", "p0"){
 
         }
 
+        def sql_test_cast_to_scalar = { tn ->
+            qt_sql_17 """select cast(v['nested']['a'] as int), cast(v['nested']['b'] as int), cast(v['nested']['c'] as int) from ${tn} order by k"""
+            qt_sql_18 """select cast(v['nested']['a'] as string), cast(v['nested']['b'] as string), cast(v['nested']['c'] as string) from ${tn} order by k"""
+            qt_sql_19 """select cast(v['nested']['a'] as double), cast(v['nested']['b'] as double), cast(v['nested']['c'] as double) from ${tn} order by k"""
+        }
+
         /// insert a array of object for a, b, c 
         // insert structure conflict in one row
         //  a , b, c is Nested array,
@@ -102,6 +118,7 @@ suite("variant_nested_type_load", "p0"){
         desc_table(table_name_1)
         sql_select_batch(table_name_1)
         sql_test_cast_to_array(table_name_1)
+        sql_test_cast_to_scalar(table_name_1)
         // insert structure conflict in one row
         test {
             sql """
@@ -128,6 +145,13 @@ suite("variant_nested_type_load", "p0"){
         desc_table(table_name_1)
         sql_select_batch(table_name_1)
         sql_test_cast_to_array(table_name_1)
+        sql_test_cast_to_scalar(table_name_1)
+        // trigger and wait compaction
+        trigger_and_wait_compaction("${table_name_1}", "full")
+        sql_select_batch(table_name_1)
+        sql_test_cast_to_array(table_name_1)    
+        sql_test_cast_to_scalar(table_name_1)
+
         // truncate table
         sql """ truncate table ${table_name_1} """
         // insert scalar data first then insert structure conflict in one row
@@ -137,6 +161,7 @@ suite("variant_nested_type_load", "p0"){
         desc_table(table_name_1)
         sql_select_batch(table_name_1)
         sql_test_cast_to_array(table_name_1)
+        sql_test_cast_to_scalar(table_name_1)
         // insert structure conflict in one row:  a array of object for a, b, c
         test {
             sql """
@@ -163,10 +188,12 @@ suite("variant_nested_type_load", "p0"){
         desc_table(table_name_1)
         sql_select_batch(table_name_1)
         sql_test_cast_to_array(table_name_1)
+        sql_test_cast_to_scalar(table_name_1)
         // trigger and wait compaction
         trigger_and_wait_compaction("${table_name_1}", "full")
         sql_select_batch(table_name_1)
         sql_test_cast_to_array(table_name_1)    
+        sql_test_cast_to_scalar(table_name_1)
 
     } finally {
     }

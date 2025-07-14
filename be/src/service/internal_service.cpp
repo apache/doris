@@ -1215,6 +1215,7 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                                                                       merged_schema);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
+                    st = Status::InternalError("Failed to get least common schema: {}", st.to_string());
                 }
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 merged_schema->reserve_extracted_columns();
@@ -1255,6 +1256,7 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                                                                           merged_schema);
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
+                        st = Status::InternalError("Failed to get least common schema: {}", st.to_string());
                     }
                     merged_schema->to_schema_pb(response->mutable_merged_schema());
                     VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
