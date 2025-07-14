@@ -154,15 +154,13 @@ class SuiteContext implements Closeable {
     }
 
     Connection getConnectionByDbName(String dbName) {
-        def dbUrl = Connfig.buildUrlWithDb(getJdbcUrl(), dbName)
+        def dbUrl = Config.buildUrlWithDb(getJdbcUrl(), dbName)
         def conn = DriverManager.getConnection(dbUrl, config.jdbcUser, config.jdbcPassword)
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
             log.info("Try to create db, sql: ${sql}".toString())
             if (!config.dryRun) {
-                conn.withCloseable { c ->
-                    JdbcUtils.executeToList(c, sql)
-                }
+                JdbcUtils.executeToList(conn, sql)
             }
         } catch (Throwable t) {
             throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
