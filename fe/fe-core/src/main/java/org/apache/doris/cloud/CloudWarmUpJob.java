@@ -343,7 +343,7 @@ public class CloudWarmUpJob implements Writable {
                 TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
                 request.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
                 request.setJobId(jobId);
-                LOG.info("send warm up request. request_type=CLEAR_JOB");
+                LOG.info("send warm up request. job_id={}, request_type=CLEAR_JOB", jobId);
                 entry.getValue().warmUpTablets(request);
             }
         } catch (Exception e) {
@@ -422,7 +422,7 @@ public class CloudWarmUpJob implements Writable {
                 for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
                     TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
                     request.setType(TWarmUpTabletsRequestType.GET_CURRENT_JOB_STATE_AND_LEASE);
-                    LOG.info("send warm up request. request_type=GET_CURRENT_JOB_STATE_AND_LEASE");
+                    LOG.info("send warm up request. job_id={}, request_type=GET_CURRENT_JOB_STATE_AND_LEASE", jobId);
                     TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                     if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                         if (!response.getStatus().getErrorMsgs().isEmpty()) {
@@ -473,7 +473,7 @@ public class CloudWarmUpJob implements Writable {
                             TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
                             request.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
                             request.setJobId(jobId);
-                            LOG.info("send warm up request. request_type=CLEAR_JOB");
+                            LOG.info("send warm up request. job_id={}, request_type=CLEAR_JOB", jobId);
                             entry.getValue().warmUpTablets(request);
                         }
                         this.finishedTimeMs = System.currentTimeMillis();
@@ -491,7 +491,7 @@ public class CloudWarmUpJob implements Writable {
                     TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
                     request.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
                     request.setJobId(jobId);
-                    LOG.info("send warm up request. request_type=CLEAR_JOB");
+                    LOG.info("send warm up request. job_id={}, request_type=CLEAR_JOB", jobId);
                     entry.getValue().warmUpTablets(request);
                 }
                 this.finishedTimeMs = System.currentTimeMillis();
