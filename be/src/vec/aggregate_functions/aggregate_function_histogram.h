@@ -94,30 +94,30 @@ struct AggregateFunctionHistogramData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(max_num_buckets, buf);
+        buf.write_binary(max_num_buckets);
         auto element_number = (size_t)ordered_map.size();
-        write_binary(element_number, buf);
+        buf.write_binary(element_number);
 
         auto pair_vector = map_to_vector();
 
         for (auto i = 0; i < element_number; i++) {
             auto element = pair_vector[i];
-            write_binary(element.second, buf);
-            write_binary(element.first, buf);
+            buf.write_binary(element.second);
+            buf.write_binary(element.first);
         }
     }
 
     void read(BufferReadable& buf) {
-        read_binary(max_num_buckets, buf);
+        buf.read_binary(max_num_buckets);
 
         size_t element_number = 0;
-        read_binary(element_number, buf);
+        buf.read_binary(element_number);
 
         ordered_map.clear();
         std::pair<typename PrimitiveTypeTraits<T>::ColumnItemType, size_t> element;
         for (auto i = 0; i < element_number; i++) {
-            read_binary(element.first, buf);
-            read_binary(element.second, buf);
+            buf.read_binary(element.first);
+            buf.read_binary(element.second);
             ordered_map.insert(element);
         }
     }
@@ -179,7 +179,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         if constexpr (has_input_param) {
             Int32 input_max_num_buckets =
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
@@ -208,7 +208,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -217,7 +217,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

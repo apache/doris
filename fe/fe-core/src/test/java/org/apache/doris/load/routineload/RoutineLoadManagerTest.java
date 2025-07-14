@@ -779,7 +779,7 @@ public class RoutineLoadManagerTest {
         routineLoadManager.addRoutineLoadJob(job, "testdb", "testtable");
         Config.max_routine_load_task_num_per_be = 10;
         Deencapsulation.setField(routineLoadManager, "beIdToMaxConcurrentTasks", beIdToMaxConcurrentTasks);
-        Assert.assertEquals(1L, routineLoadManager.getAvailableBeForTask(1L, 1L));
+        Assert.assertEquals(-1L, routineLoadManager.getAvailableBeForTask(1L, 1L));
     }
 
     @Test

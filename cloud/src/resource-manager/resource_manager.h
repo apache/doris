@@ -23,8 +23,8 @@
 #include <shared_mutex>
 #include <string>
 
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
 

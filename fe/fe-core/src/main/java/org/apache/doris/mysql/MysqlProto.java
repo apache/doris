@@ -58,7 +58,6 @@ public class MysqlProto {
             tmpUser = strList[0];
         }
 
-        context.setQualifiedUser(tmpUser);
         return tmpUser;
     }
 

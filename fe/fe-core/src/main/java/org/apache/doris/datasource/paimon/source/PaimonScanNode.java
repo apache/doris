@@ -18,16 +18,19 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -41,7 +44,6 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -54,12 +56,9 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
-import org.apache.paimon.types.DataField;
-import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -136,6 +135,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
 
+    // The schema information involved in the current query process (including historical schema).
+    protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
+
     public PaimonScanNode(PlanNodeId id,
             TupleDescriptor desc,
             boolean needCheckColumnPriv,
@@ -147,9 +149,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         source = new PaimonSource(desc);
-        serializedTable = encodeObjectToString(source.getPaimonTable());
-        Preconditions.checkNotNull(source);
-        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
+        serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
+        // Todo: Get the current schema id of the table, instead of using -1.
+        ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
     }
 
     @VisibleForTesting
@@ -164,17 +166,6 @@ public class PaimonScanNode extends FileQueryScanNode {
         predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
     }
 
-    private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
-
-    public static <T> String encodeObjectToString(T t) {
-        try {
-            byte[] bytes = InstantiationUtil.serializeObject(t);
-            return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (split instanceof PaimonSplit) {
@@ -187,15 +178,13 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
-    private Map<Integer, String> getSchemaInfo(Long schemaId) {
-        PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
-        TableSchema tableSchema = table.getPaimonSchemaCacheValue(schemaId).getTableSchema();
-        Map<Integer, String> columnIdToName = new HashMap<>(tableSchema.fields().size());
-        for (DataField dataField : tableSchema.fields()) {
-            columnIdToName.put(dataField.id(), dataField.name().toLowerCase());
+    private void putHistorySchemaInfo(Long schemaId) {
+        if (currentQuerySchema.putIfAbsent(schemaId, Boolean.TRUE) == null) {
+            PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
+            TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+                    .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
+            params.addToHistorySchemaInfo(PaimonUtil.getSchemaInfo(tableSchema));
         }
-
-        return columnIdToName;
     }
 
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
@@ -208,7 +197,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (split != null) {
             // use jni reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            fileDesc.setPaimonSplit(encodeObjectToString(split));
+            fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
@@ -219,11 +208,12 @@ public class PaimonScanNode extends FileQueryScanNode {
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }
+
+            putHistorySchemaInfo(paimonSplit.getSchemaId());
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
-            params.history_schema_info.computeIfAbsent(paimonSplit.getSchemaId(), this::getSchemaInfo);
         }
         fileDesc.setFileFormat(fileFormat);
-        fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
+        fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
         fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
                 .collect(Collectors.joining(",")));
         fileDesc.setDbName(((PaimonExternalTable) source.getTargetTable()).getDbName());
@@ -377,13 +367,13 @@ public class PaimonScanNode extends FileQueryScanNode {
             return Collections.emptyList();
         }
         int[] projected = desc.getSlots().stream().mapToInt(
-            slot -> source.getPaimonTable().rowType()
-                    .getFieldNames()
-                    .stream()
-                    .map(String::toLowerCase)
-                    .collect(Collectors.toList())
-                    .indexOf(slot.getColumn().getName()))
-                    .toArray();
+                        slot -> source.getPaimonTable().rowType()
+                                .getFieldNames()
+                                .stream()
+                                .map(String::toLowerCase)
+                                .collect(Collectors.toList())
+                                .indexOf(slot.getColumn().getName()))
+                .toArray();
         Table paimonTable = source.getPaimonTable();
         Map<String, String> incrReadParams = getIncrReadParams();
         paimonTable = paimonTable.copy(incrReadParams);

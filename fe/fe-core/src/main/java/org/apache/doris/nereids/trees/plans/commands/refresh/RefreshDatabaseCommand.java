@@ -18,18 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands.refresh;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -96,32 +90,10 @@ public class RefreshDatabaseCommand extends Command implements ForwardWithSync {
         invalidCache = invalidConfig == null || invalidConfig.equalsIgnoreCase("true");
     }
 
-    /**
-     * Refresh database
-     */
-    public void handleRefreshDb() throws DdlException {
-        Env env = Env.getCurrentEnv();
-        CatalogIf catalog = catalogName != null ? env.getCatalogMgr().getCatalog(catalogName) : env.getCurrentCatalog();
-        if (catalog == null) {
-            throw new DdlException("Catalog " + catalogName + " doesn't exist.");
-        }
-        if (!(catalog instanceof ExternalCatalog)) {
-            throw new DdlException("Only support refresh database in external catalog");
-        }
-        DatabaseIf db = catalog.getDbOrDdlException(dbName);
-        ((ExternalDatabase<?>) db).setUnInitialized(invalidCache);
-
-        ExternalObjectLog log = new ExternalObjectLog();
-        log.setCatalogId(catalog.getId());
-        log.setDbId(db.getId());
-        log.setInvalidCache(invalidCache);
-        Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
-    }
-
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        handleRefreshDb();
+        Env.getCurrentEnv().getRefreshManager().handleRefreshDb(catalogName, dbName, invalidCache);
     }
 
     @Override

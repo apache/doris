@@ -80,6 +80,10 @@ suite("test_hot_value") {
     wait_row_count_reported("test_hot_value", "test1", 0, 4, "10000")
     wait_row_count_reported("test_hot_value", "test2", 0, 4, "10000")
     sql """analyze table test1 with sync"""
+    explain {
+        sql("memo plan select * from test1")
+        contains "hotValues=(null)"
+    }
     def result = sql """show column stats test1(key1)"""
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
@@ -152,6 +156,10 @@ suite("test_hot_value") {
     assertEquals(1, result.size())
     assertEquals("5.0", result[0][2])
     assertEquals("aaa:22.33", result[0][17])
+    explain {
+        sql("memo plan select * from test1")
+        contains "hotValues=(aaa:22.33)"
+    }
 
     sql """alter table test1 modify column value1 set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='34.0', 'min_value'='AFRICA', 'max_value'='MIDDLE EAST', 'hot_values'='a \\\\;a \\\\:a :22.33');"""
     result = sql """show column stats test1(value1)"""
@@ -162,6 +170,10 @@ suite("test_hot_value") {
     assertEquals(1, result.size())
     assertEquals("5.0", result[0][2])
     assertEquals("a ;a :a:22.33", result[0][17])
+    explain {
+        sql("memo plan select * from test1")
+        contains "hotValues=(a ;a :a:22.33)"
+    }
 
     sql """analyze table test2 with sample rows 100 with sync"""
     result = sql """show column stats test2(value1)"""

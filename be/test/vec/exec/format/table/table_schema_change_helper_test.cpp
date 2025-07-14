@@ -21,451 +21,819 @@
 #include <unordered_map>
 #include <vector>
 
-#include "common/status.h"
+#include "testutil/desc_tbl_builder.h"
 #include "vec/columns/column_string.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/table_format_reader.h"
 
 namespace doris::vectorized {
-class MockTableSchemaChangeHelper : public TableSchemaChangeHelper {
-public:
-    MockTableSchemaChangeHelper(std::map<int, std::string> file_schema, bool exist_schema = true)
-            : _file_schema(std::move(file_schema)), _exist_schema(exist_schema) {}
+class MockTableSchemaChangeHelper : public TableSchemaChangeHelper {};
 
-    Status get_file_col_id_to_name(bool& exist_schema,
-                                   std::map<int, std::string>& file_col_id_to_name) override {
-        exist_schema = _exist_schema;
-        if (_exist_schema) {
-            file_col_id_to_name = _file_schema;
+TEST(MockTableSchemaChangeHelper, OrcNameNoSchemaChange) {
+    std::vector<DataTypePtr> data_types;
+    std::vector<std::string> column_names;
+
+    SlotDescriptor slot1;
+    slot1._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, true);
+    slot1._col_name = "col1";
+
+    SlotDescriptor slot2;
+    slot2._type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {vectorized::DataTypeFactory::instance().create_data_type(
+                                              PrimitiveType::TYPE_BIGINT, true),
+                                      vectorized::DataTypeFactory::instance().create_data_type(
+                                              PrimitiveType::TYPE_BIGINT, true)},
+            Strings {"a", "b"});
+    slot2._col_name = "col2";
+
+    SlotDescriptor slot3;
+    slot3._type =
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot3._col_name = "col3";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+    tuple_desc.add_slot(&slot2);
+    tuple_desc.add_slot(&slot3);
+
+    std::cout << tuple_desc.debug_string() << "\n";
+
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<col1:int,col2:struct<a:int,b:int>,col3:int>"));
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(&tuple_desc,
+                                                                         orc_type.get(), ans_node)
+                        .ok());
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1 (file: col1)\n"
+              "    ScalarNode\n"
+              "  col2 (file: col2)\n"
+              "    StructNode\n"
+              "      a (file: a)\n"
+              "        ScalarNode\n"
+              "      b (file: b)\n"
+              "        ScalarNode\n"
+              "  col3 (file: col3)\n"
+              "    ScalarNode\n");
+}
+
+TEST(MockTableSchemaChangeHelper, OrcNameSchemaChange1) {
+    std::vector<DataTypePtr> data_types;
+    std::vector<std::string> column_names;
+
+    SlotDescriptor slot1;
+    slot1._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, true);
+    slot1._col_name = "col1";
+
+    SlotDescriptor slot2;
+    slot2._type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {vectorized::DataTypeFactory::instance().create_data_type(
+                                              PrimitiveType::TYPE_BIGINT, true),
+                                      vectorized::DataTypeFactory::instance().create_data_type(
+                                              PrimitiveType::TYPE_BIGINT, true)},
+            Strings {"a", "b"});
+    slot2._col_name = "col2";
+
+    SlotDescriptor slot3;
+    slot3._type =
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot3._col_name = "col3";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+    tuple_desc.add_slot(&slot2);
+    tuple_desc.add_slot(&slot3);
+
+    std::cout << tuple_desc.debug_string() << "\n";
+    {
+        std::unique_ptr<orc::Type> orc_type(
+                orc::Type::buildTypeFromString("struct<col1:int,col2:struct<a:int>,col3:int>"));
+
+        std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+        ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
+                            &tuple_desc, orc_type.get(), ans_node)
+                            .ok());
+        std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+        ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+                  "StructNode\n"
+                  "  col1 (file: col1)\n"
+                  "    ScalarNode\n"
+                  "  col2 (file: col2)\n"
+                  "    StructNode\n"
+                  "      a (file: a)\n"
+                  "        ScalarNode\n"
+                  "      b (not exists)\n"
+                  "  col3 (file: col3)\n"
+                  "    ScalarNode\n");
+    }
+    {
+        std::unique_ptr<orc::Type> orc_type(
+                orc::Type::buildTypeFromString("struct<col111:int,COL2:struct<A:int>,Col3:int>"));
+
+        std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+        ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
+                            &tuple_desc, orc_type.get(), ans_node)
+                            .ok());
+        std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+        ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+                  "StructNode\n"
+                  "  col1 (not exists)\n"
+                  "  col2 (file: COL2)\n"
+                  "    StructNode\n"
+                  "      a (file: A)\n"
+                  "        ScalarNode\n"
+                  "      b (not exists)\n"
+                  "  col3 (file: Col3)\n"
+                  "    ScalarNode\n");
+    }
+
+    {
+        std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString(
+                "struct<col111:int,col1:int,CoL3:int,COL2:struct<A:int>>"));
+        std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+        ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
+                            &tuple_desc, orc_type.get(), ans_node)
+                            .ok());
+        std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+        ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+                  "StructNode\n"
+                  "  col1 (file: col1)\n"
+                  "    ScalarNode\n"
+                  "  col2 (file: COL2)\n"
+                  "    StructNode\n"
+                  "      a (file: A)\n"
+                  "        ScalarNode\n"
+                  "      b (not exists)\n"
+                  "  col3 (file: CoL3)\n"
+                  "    ScalarNode\n");
+    }
+
+    {
+        std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString("struct<col111:int>"));
+        std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+        ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
+                            &tuple_desc, orc_type.get(), ans_node)
+                            .ok());
+        std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+        ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+                  "StructNode\n"
+                  "  col1 (not exists)\n"
+                  "  col2 (not exists)\n"
+                  "  col3 (not exists)\n");
+    }
+}
+
+TEST(MockTableSchemaChangeHelper, ParquetNameSchemaChange) {
+    std::vector<DataTypePtr> data_types;
+    std::vector<std::string> column_names;
+
+    SlotDescriptor slot1;
+    slot1._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, true);
+    slot1._col_name = "col1";
+
+    SlotDescriptor slot2;
+    slot2._type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {vectorized::DataTypeFactory::instance().create_data_type(
+                                              PrimitiveType::TYPE_BIGINT, true),
+                                      vectorized::DataTypeFactory::instance().create_data_type(
+                                              PrimitiveType::TYPE_BIGINT, true)},
+            Strings {"a", "b"});
+    slot2._col_name = "col2";
+
+    SlotDescriptor slot3;
+    slot3._type =
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot3._col_name = "col3";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+    tuple_desc.add_slot(&slot2);
+    tuple_desc.add_slot(&slot3);
+
+    FieldDescriptor parquet_field;
+
+    FieldSchema parquet_field_col1;
+    {
+        parquet_field_col1.name = "col1";
+        parquet_field_col1.data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_BIGINT, true);
+        parquet_field_col1.field_id = -1;
+        parquet_field._fields.emplace_back(parquet_field_col1);
+    }
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
+                        &tuple_desc, parquet_field, ans_node)
+                        .ok());
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1 (file: col1)\n"
+              "    ScalarNode\n"
+              "  col2 (not exists)\n"
+              "  col3 (not exists)\n");
+}
+
+TEST(MockTableSchemaChangeHelper, IcebergParquetSchemaChange) {
+    schema::external::TStructField root_field;
+    {
+        TColumnType int_type;
+        int_type.type = TPrimitiveType::INT;
+
+        TColumnType struct_type;
+        struct_type.type = TPrimitiveType::STRUCT;
+
+        {
+            auto col1_field = std::make_shared<schema::external::TField>();
+            col1_field->name = "col1";
+            col1_field->id = 1;
+            col1_field->type = int_type;
+
+            schema::external::TFieldPtr col1_ptr;
+            col1_ptr.field_ptr = col1_field;
+            root_field.fields.emplace_back(col1_ptr);
         }
-        return Status::OK();
+
+        {
+            auto col2_field = std::make_shared<schema::external::TField>();
+            col2_field->name = "col2";
+            col2_field->id = 2;
+            col2_field->type = struct_type;
+
+            schema::external::TStructField struct_field;
+            {
+                auto a_field = std::make_shared<schema::external::TField>();
+                a_field->name = "a";
+                a_field->id = 3;
+                a_field->type = int_type;
+                schema::external::TFieldPtr a_ptr;
+                a_ptr.field_ptr = a_field;
+                struct_field.fields.emplace_back(a_ptr);
+            }
+
+            col2_field->nestedField.struct_field = struct_field;
+            schema::external::TFieldPtr col2_ptr;
+            col2_ptr.field_ptr = col2_field;
+            root_field.fields.emplace_back(col2_ptr);
+        }
     }
 
-    bool has_schema_change() const { return _has_schema_change; }
-    const std::vector<std::string>& all_required_col_names() const {
-        return _all_required_col_names;
+    FieldDescriptor parquet_field;
+    {
+        {
+            FieldSchema parquet_field_col1;
+            parquet_field_col1.name = "col1";
+            parquet_field_col1.data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    PrimitiveType::TYPE_BIGINT, true);
+            parquet_field_col1.field_id = 1;
+            parquet_field._fields.emplace_back(parquet_field_col1);
+        }
+
+        {
+            FieldSchema parquet_field_col2;
+            parquet_field_col2.name = "coL1";
+
+            std::vector<DataTypePtr> sub_data_type;
+            Strings sub_names;
+
+            {
+                FieldSchema b_field;
+                b_field.name = "b5555555";
+                b_field.field_id = 4;
+                b_field.data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                        PrimitiveType::TYPE_BIGINT, true);
+                sub_data_type.emplace_back(b_field.data_type);
+                sub_names.emplace_back(b_field.name);
+                parquet_field_col2.children.emplace_back(b_field);
+            }
+            {
+                FieldSchema a_field;
+                a_field.name = "a33333333";
+                a_field.field_id = 3;
+                a_field.data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                        PrimitiveType::TYPE_BIGINT, true);
+                sub_data_type.emplace_back(a_field.data_type);
+                sub_names.emplace_back(a_field.name);
+
+                parquet_field_col2.children.emplace_back(a_field);
+            }
+            parquet_field_col2.data_type =
+                    std::make_shared<DataTypeStruct>(sub_data_type, sub_names);
+            parquet_field_col2.field_id = 2;
+
+            parquet_field._fields.emplace_back(parquet_field_col2);
+        }
     }
-    const std::vector<std::string>& not_in_file_col_names() const { return _not_in_file_col_names; }
-    const std::unordered_map<std::string, std::string>& file_col_to_table_col() const {
-        return _file_col_to_table_col;
+    bool exist_field_id = true;
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
+                        root_field, parquet_field, ans_node, exist_field_id)
+                        .ok());
+    ASSERT_TRUE(exist_field_id);
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1 (file: col1)\n"
+              "    ScalarNode\n"
+              "  col2 (file: coL1)\n"
+              "    StructNode\n"
+              "      a (file: a33333333)\n"
+              "        ScalarNode\n"
+
+    );
+}
+
+TEST(MockTableSchemaChangeHelper, IcebergOrcSchemaChange) {
+    schema::external::TStructField root_field;
+    {
+        TColumnType int_type;
+        int_type.type = TPrimitiveType::INT;
+
+        TColumnType struct_type;
+        struct_type.type = TPrimitiveType::STRUCT;
+
+        {
+            auto col1_field = std::make_shared<schema::external::TField>();
+            col1_field->name = "col1";
+            col1_field->id = 1;
+            col1_field->type = int_type;
+            schema::external::TFieldPtr col1_ptr;
+            col1_ptr.field_ptr = col1_field;
+            root_field.fields.emplace_back(col1_ptr);
+        }
+
+        {
+            auto col2_field = std::make_shared<schema::external::TField>();
+            col2_field->name = "col2";
+            col2_field->id = 2;
+            col2_field->type = struct_type;
+
+            schema::external::TStructField struct_field;
+            {
+                auto a_field = std::make_shared<schema::external::TField>();
+                a_field->name = "a";
+                a_field->id = 3;
+                a_field->type = int_type;
+                schema::external::TFieldPtr a_ptr;
+                a_ptr.field_ptr = a_field;
+                struct_field.fields.emplace_back(a_ptr);
+            }
+
+            {
+                auto b_field = std::make_shared<schema::external::TField>();
+                b_field->name = "b";
+                b_field->id = 4;
+                b_field->type = int_type;
+                schema::external::TFieldPtr b_ptr;
+                b_ptr.field_ptr = b_field;
+                struct_field.fields.emplace_back(b_ptr);
+            }
+
+            col2_field->nestedField.struct_field = struct_field;
+            schema::external::TFieldPtr col2_ptr;
+            col2_ptr.field_ptr = col2_field;
+            root_field.fields.emplace_back(col2_ptr);
+        }
     }
-    const std::unordered_map<std::string, std::string>& table_col_to_file_col() const {
-        return _table_col_to_file_col;
+
+    std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString(
+            "struct<col1:int,col1122:struct<a:int,aa:int>,COL369:int>"));
+    const auto& attribute = IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE;
+    orc_type->getSubtype(0)->setAttribute(attribute, "1");
+    orc_type->getSubtype(1)->setAttribute(attribute, "2");
+    orc_type->getSubtype(1)->getSubtype(0)->setAttribute(attribute, "3");
+    orc_type->getSubtype(1)->getSubtype(1)->setAttribute(attribute, "4");
+    orc_type->getSubtype(2)->setAttribute(attribute, "5");
+
+    bool exist_field_id = true;
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
+                        root_field, orc_type.get(), attribute, ans_node, exist_field_id)
+                        .ok());
+    ASSERT_TRUE(exist_field_id);
+
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1 (file: col1)\n"
+              "    ScalarNode\n"
+              "  col2 (file: col1122)\n"
+              "    StructNode\n"
+              "      a (file: a)\n"
+              "        ScalarNode\n"
+              "      b (file: aa)\n"
+              "        ScalarNode\n");
+}
+
+TEST(MockTableSchemaChangeHelper, NestedMapArrayStruct) {
+    // struct<col1:map<array<int>, struct<a:int, b:int>>>
+    SlotDescriptor slot1;
+    slot1._type = std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeArray>(
+                    vectorized::DataTypeFactory::instance().create_data_type(
+                            PrimitiveType::TYPE_INT, true)),
+            std::make_shared<DataTypeStruct>(
+                    std::vector<DataTypePtr> {
+                            vectorized::DataTypeFactory::instance().create_data_type(
+                                    PrimitiveType::TYPE_INT, true),
+                            vectorized::DataTypeFactory::instance().create_data_type(
+                                    PrimitiveType::TYPE_INT, true)},
+                    Strings {"a", "b"}));
+    slot1._col_name = "col1";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<COl1:map<array<int>,struct<A:int,B:int>>>"));
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(&tuple_desc,
+                                                                         orc_type.get(), ans_node)
+                        .ok());
+
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1 (file: COl1)\n"
+              "    MapNode\n"
+              "      Key:\n"
+              "        ArrayNode\n"
+              "          Element:\n"
+              "            ScalarNode\n"
+              "      Value:\n"
+              "        StructNode\n"
+              "          a (file: A)\n"
+              "            ScalarNode\n"
+              "          b (file: B)\n"
+              "            ScalarNode\n");
+}
+
+TEST(MockTableSchemaChangeHelper, NestedArrayStruct) {
+    //  struct<col1:array<struct<a:int, b:array<int>>>>
+    SlotDescriptor slot1;
+    slot1._type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {
+                    vectorized::DataTypeFactory::instance().create_data_type(
+                            PrimitiveType::TYPE_INT, true),
+                    std::make_shared<DataTypeArray>(
+                            vectorized::DataTypeFactory::instance().create_data_type(
+                                    PrimitiveType::TYPE_INT, true))},
+            Strings {"a", "b"}));
+    slot1._col_name = "col1";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<coL1:array<struct<a:int,B:array<int>>>>"));
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(&tuple_desc,
+                                                                         orc_type.get(), ans_node)
+                        .ok());
+
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1 (file: coL1)\n"
+              "    ArrayNode\n"
+              "      Element:\n"
+              "        StructNode\n"
+              "          a (file: a)\n"
+              "            ScalarNode\n"
+              "          b (file: B)\n"
+              "            ArrayNode\n"
+              "              Element:\n"
+              "                ScalarNode\n");
+}
+
+TEST(MockTableSchemaChangeHelper, NestedMapStruct) {
+    //  struct<col1:map<int, struct<a:int, b:map<int, int>>>>
+    SlotDescriptor slot1;
+    slot1._type = std::make_shared<DataTypeMap>(
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true),
+            std::make_shared<DataTypeStruct>(
+                    std::vector<DataTypePtr> {
+                            vectorized::DataTypeFactory::instance().create_data_type(
+                                    PrimitiveType::TYPE_INT, true),
+                            std::make_shared<DataTypeMap>(
+                                    vectorized::DataTypeFactory::instance().create_data_type(
+                                            PrimitiveType::TYPE_INT, true),
+                                    vectorized::DataTypeFactory::instance().create_data_type(
+                                            PrimitiveType::TYPE_INT, true))},
+                    Strings {"a", "b"}));
+    slot1._col_name = "col1";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<col1:map<int,struct<AA:int,b:map<int,int>>>>"));
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(&tuple_desc,
+                                                                         orc_type.get(), ans_node)
+                        .ok());
+
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1 (file: col1)\n"
+              "    MapNode\n"
+              "      Key:\n"
+              "        ScalarNode\n"
+              "      Value:\n"
+              "        StructNode\n"
+              "          a (not exists)\n"
+              "          b (file: b)\n"
+              "            MapNode\n"
+              "              Key:\n"
+              "                ScalarNode\n"
+              "              Value:\n"
+              "                ScalarNode\n");
+}
+
+TEST(MockTableSchemaChangeHelper, ParquetNestedArrayStruct) {
+    //  struct<col1:array<struct<a:int, b:array<int>>>>
+    SlotDescriptor slot1;
+    slot1._type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {
+                    vectorized::DataTypeFactory::instance().create_data_type(
+                            PrimitiveType::TYPE_INT, true),
+                    std::make_shared<DataTypeArray>(
+                            vectorized::DataTypeFactory::instance().create_data_type(
+                                    PrimitiveType::TYPE_INT, true))},
+            Strings {"a", "b"}));
+    slot1._col_name = "col1";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+
+    FieldDescriptor parquet_field;
+    {
+        FieldSchema col1_field;
+        col1_field.name = "col1";
+
+        {
+            FieldSchema col1_element;
+            col1_element.data_type = std::make_shared<DataTypeStruct>(
+                    std::vector<DataTypePtr> {
+                            vectorized::DataTypeFactory::instance().create_data_type(
+                                    PrimitiveType::TYPE_INT, true),
+                            std::make_shared<DataTypeArray>(
+                                    vectorized::DataTypeFactory::instance().create_data_type(
+                                            PrimitiveType::TYPE_INT, true))},
+                    Strings {"a", "B"});
+            {
+                FieldSchema a_field;
+                a_field.name = "a";
+                a_field.data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                        PrimitiveType::TYPE_INT, true);
+                col1_element.children.emplace_back(a_field);
+            }
+
+            {
+                FieldSchema b_field;
+                b_field.name = "B";
+                b_field.data_type = std::make_shared<DataTypeArray>(
+                        vectorized::DataTypeFactory::instance().create_data_type(
+                                PrimitiveType::TYPE_INT, true));
+                {
+                    FieldSchema b_element_field;
+                    b_element_field.data_type =
+                            vectorized::DataTypeFactory::instance().create_data_type(
+                                    PrimitiveType::TYPE_INT, true);
+
+                    b_field.children.emplace_back(b_element_field);
+                }
+                col1_element.children.emplace_back(b_field);
+            }
+
+            col1_field.children.emplace_back(col1_element);
+        }
+
+        col1_field.data_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeStruct>(
+                std::vector<DataTypePtr> {
+                        vectorized::DataTypeFactory::instance().create_data_type(
+                                PrimitiveType::TYPE_INT, true),
+                        std::make_shared<DataTypeArray>(
+                                vectorized::DataTypeFactory::instance().create_data_type(
+                                        PrimitiveType::TYPE_INT, true))},
+                Strings {"a", "B"}));
+        parquet_field._fields.emplace_back(col1_field);
     }
-    const std::unordered_map<std::string, ColumnValueRangeType>& new_colname_to_value_range()
-            const {
-        return _new_colname_to_value_range;
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
+                        &tuple_desc, parquet_field, ans_node)
+                        .ok());
+
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1 (file: col1)\n"
+              "    ArrayNode\n"
+              "      Element:\n"
+              "        StructNode\n"
+              "          a (file: a)\n"
+              "            ScalarNode\n"
+              "          b (file: B)\n"
+              "            ArrayNode\n"
+              "              Element:\n"
+              "                ScalarNode\n");
+}
+
+TEST(MockTableSchemaChangeHelper, TableFieldIdNestedArrayStruct) {
+    //  struct<col1:array<struct<a:int, b:array<int>>>>
+    schema::external::TStructField table_schema;
+    {
+        auto col1_field = std::make_shared<schema::external::TField>();
+        col1_field->name = "col1";
+        col1_field->id = 1;
+        col1_field->type.type = TPrimitiveType::ARRAY;
+
+        auto item_field = std::make_shared<schema::external::TField>();
+        item_field->type.type = TPrimitiveType::STRUCT;
+        schema::external::TStructField struct_field;
+        {
+            auto a_field = std::make_shared<schema::external::TField>();
+            a_field->name = "a";
+            a_field->id = 2;
+            a_field->type.type = TPrimitiveType::INT;
+            schema::external::TFieldPtr a_ptr;
+            a_ptr.field_ptr = a_field;
+            struct_field.fields.emplace_back(a_ptr);
+        }
+        {
+            auto b_field = std::make_shared<schema::external::TField>();
+            b_field->name = "b";
+            b_field->id = 3;
+            b_field->type.type = TPrimitiveType::ARRAY;
+
+            {
+                auto b_element_filed = std::make_shared<schema::external::TField>();
+                b_field->nestedField.array_field.item_field.field_ptr = b_element_filed;
+            }
+            schema::external::TFieldPtr b_ptr;
+            b_ptr.field_ptr = b_field;
+            struct_field.fields.emplace_back(b_ptr);
+        }
+        item_field->nestedField.struct_field = struct_field;
+        col1_field->nestedField.array_field.item_field.field_ptr = item_field;
+        schema::external::TFieldPtr col1_ptr;
+        col1_ptr.field_ptr = col1_field;
+        table_schema.fields.emplace_back(col1_ptr);
     }
 
-private:
-    std::map<int, std::string> _file_schema;
-    bool _exist_schema;
-};
+    schema::external::TStructField file_schema = table_schema;
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_table_field_id(
+                        table_schema, file_schema, ans_node)
+                        .ok());
 
-TEST(TableSchemaChangeHelperTest, NoSchemaChange) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2"}, {3, "col3"}};
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2"}, {3, "col3"}};
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
 
-    std::vector<std::string> read_cols = {"col1", "col3"};
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_FALSE(helper.has_schema_change());
-    ASSERT_EQ(helper.all_required_col_names().size(), 2);
-    ASSERT_EQ(helper.all_required_col_names()[0], "col1");
-    ASSERT_EQ(helper.all_required_col_names()[1], "col3");
-    ASSERT_TRUE(helper.not_in_file_col_names().empty());
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1 (file: col1)\n"
+              "    ArrayNode\n"
+              "      Element:\n"
+              "        StructNode\n"
+              "          a (file: a)\n"
+              "            ScalarNode\n"
+              "          b (file: b)\n"
+              "            ArrayNode\n"
+              "              Element:\n"
+              "                ScalarNode\n");
 }
 
-TEST(TableSchemaChangeHelperTest, WithSchemaChange) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2_old"}, {3, "col3_old"}};
+TEST(MockTableSchemaChangeHelper, OrcFieldIdNestedStructMap) {
+    //  struct<col1:struct<a:map<int, int>, b:struct<c:int, d:map<int, int>>>>
+    schema::external::TStructField table_schema;
+    {
+        auto col1_field = std::make_shared<schema::external::TField>();
+        col1_field->name = "col111111";
+        col1_field->id = 1;
+        col1_field->type.type = TPrimitiveType::STRUCT;
+        schema::external::TStructField struct_field;
+        {
+            auto a_field = std::make_shared<schema::external::TField>();
+            a_field->name = "xxxxxx";
+            a_field->id = 2;
+            a_field->type.type = TPrimitiveType::MAP;
+            {
+                schema::external::TMapField map_field;
 
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2_new"}, {3, "col3_new"}};
+                auto key_field = std::make_shared<schema::external::TField>();
+                key_field->type.type = TPrimitiveType::INT;
+                auto value_field = std::make_shared<schema::external::TField>();
+                value_field->type.type = TPrimitiveType::INT;
+                map_field.key_field.field_ptr = key_field;
+                map_field.value_field.field_ptr = value_field;
+                a_field->nestedField.map_field = map_field;
+            }
+            schema::external::TFieldPtr a_ptr;
+            a_ptr.field_ptr = a_field;
+            struct_field.fields.emplace_back(a_ptr);
+        }
+        {
+            auto b_field = std::make_shared<schema::external::TField>();
+            b_field->name = "AAAAAAA";
+            b_field->id = 3;
+            b_field->type.type = TPrimitiveType::STRUCT;
 
-    std::vector<std::string> read_cols = {"col1", "col2_new", "col3_new"};
+            schema::external::TStructField nested_struct_field;
+            {
+                auto c_field = std::make_shared<schema::external::TField>();
+                c_field->name = "d";
+                c_field->id = 4;
+                c_field->type.type = TPrimitiveType::INT;
+                schema::external::TFieldPtr c_ptr;
+                c_ptr.field_ptr = c_field;
+                nested_struct_field.fields.emplace_back(c_ptr);
+            }
+            {
+                auto d_field = std::make_shared<schema::external::TField>();
+                d_field->name = "CCCCCCCCC";
+                d_field->id = 5;
+                d_field->type.type = TPrimitiveType::MAP;
+                {
+                    schema::external::TMapField map_field;
 
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges = {
-            {"col2_new", ColumnValueRangeType()}};
-
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_TRUE(helper.has_schema_change());
-    ASSERT_EQ(helper.all_required_col_names().size(), 3);
-    ASSERT_EQ(helper.all_required_col_names()[0], "col1");
-    ASSERT_EQ(helper.all_required_col_names()[1], "col2_old");
-    ASSERT_EQ(helper.all_required_col_names()[2], "col3_old");
-    ASSERT_TRUE(helper.not_in_file_col_names().empty());
-
-    ASSERT_EQ(helper.table_col_to_file_col().size(), 3);
-    ASSERT_EQ(helper.table_col_to_file_col().at("col2_new"), "col2_old");
-    ASSERT_EQ(helper.table_col_to_file_col().at("col3_new"), "col3_old");
-
-    ASSERT_EQ(helper.file_col_to_table_col().size(), 3);
-    ASSERT_EQ(helper.file_col_to_table_col().at("col2_old"), "col2_new");
-    ASSERT_EQ(helper.file_col_to_table_col().at("col3_old"), "col3_new");
-
-    ASSERT_EQ(helper.new_colname_to_value_range().size(), 1);
-    ASSERT_TRUE(helper.new_colname_to_value_range().find("col2_old") !=
-                helper.new_colname_to_value_range().end());
-}
-
-TEST(TableSchemaChangeHelperTest, MissingColumns) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2"}
-
-    };
-
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2"}, {3, "col3"}, {4, "col4"}};
-    std::vector<std::string> read_cols = {"col1", "col3", "col4"};
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges = {
-            {"col3", ColumnValueRangeType()}};
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_FALSE(helper.has_schema_change());
-    ASSERT_EQ(helper.all_required_col_names().size(), 3);
-    ASSERT_EQ(helper.all_required_col_names()[0], "col1");
-    ASSERT_EQ(helper.all_required_col_names()[1], "col3");
-    ASSERT_EQ(helper.all_required_col_names()[2], "col4");
-    ASSERT_EQ(helper.not_in_file_col_names().size(), 2);
-    ASSERT_EQ(helper.not_in_file_col_names()[0], "col3");
-    ASSERT_EQ(helper.not_in_file_col_names()[1], "col4");
-}
-
-TEST(TableSchemaChangeHelperTest, NoFileSchema) {
-    std::map<int, std::string> file_schema;
-
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2"}, {3, "col3"}};
-
-    std::vector<std::string> read_cols = {"col1", "col2"};
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-    MockTableSchemaChangeHelper helper(file_schema, false);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_FALSE(helper.has_schema_change());
-    ASSERT_EQ(helper.all_required_col_names().size(), 2);
-    ASSERT_EQ(helper.all_required_col_names()[0], "col1");
-    ASSERT_EQ(helper.all_required_col_names()[1], "col2");
-    ASSERT_TRUE(helper.not_in_file_col_names().empty());
-}
-
-TEST(TableSchemaChangeHelperTest, MixedScenario) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2_old"}, {4, "col4_old"}};
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2_new"}, {3, "col3"}, {4, "col4_new"}, {5, "col5"}};
-    std::vector<std::string> read_cols = {"col1", "col2_new", "col3", "col4_new", "col5"};
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges = {
-            {"col2_new", ColumnValueRangeType()},
-            {"col3", ColumnValueRangeType()},
-            {"col5", ColumnValueRangeType()}};
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-    ASSERT_TRUE(helper.has_schema_change());
-    ASSERT_EQ(helper.all_required_col_names().size(), 5);
-    ASSERT_EQ(helper.all_required_col_names()[0], "col1");
-    ASSERT_EQ(helper.all_required_col_names()[1], "col2_old");
-    ASSERT_EQ(helper.all_required_col_names()[2], "col3");
-    ASSERT_EQ(helper.all_required_col_names()[3], "col4_old");
-    ASSERT_EQ(helper.all_required_col_names()[4], "col5");
-    ASSERT_EQ(helper.not_in_file_col_names().size(), 2);
-    ASSERT_EQ(helper.not_in_file_col_names()[0], "col3");
-    ASSERT_EQ(helper.not_in_file_col_names()[1], "col5");
-    ASSERT_EQ(helper.table_col_to_file_col().at("col2_new"), "col2_old");
-    ASSERT_EQ(helper.table_col_to_file_col().at("col4_new"), "col4_old");
-    ASSERT_EQ(helper.new_colname_to_value_range().size(), 3);
-    ASSERT_TRUE(helper.new_colname_to_value_range().find("col2_old") !=
-                helper.new_colname_to_value_range().end());
-    ASSERT_TRUE(helper.new_colname_to_value_range().find("col3") !=
-                helper.new_colname_to_value_range().end());
-    ASSERT_TRUE(helper.new_colname_to_value_range().find("col5") !=
-                helper.new_colname_to_value_range().end());
-}
-
-TEST(TableSchemaChangeHelperTest, EmptySchemas) {
-    std::map<int, std::string> file_schema;
-    std::unordered_map<int32_t, std::string> table_id_to_name;
-    std::vector<std::string> read_cols;
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_FALSE(helper.has_schema_change());
-    ASSERT_TRUE(helper.all_required_col_names().empty());
-    ASSERT_TRUE(helper.not_in_file_col_names().empty());
-    ASSERT_TRUE(helper.table_col_to_file_col().empty());
-    ASSERT_TRUE(helper.file_col_to_table_col().empty());
-    ASSERT_TRUE(helper.new_colname_to_value_range().empty());
-}
-
-TEST(TableSchemaChangeHelperTest, IdMismatch) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2"}, {3, "col3"}};
-
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {10, "col1"}, {20, "col2"}, {30, "col3"}};
-
-    std::vector<std::string> read_cols = {"col1", "col2", "col3"};
-
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_FALSE(helper.has_schema_change());
-    ASSERT_EQ(helper.all_required_col_names().size(), 3);
-    ASSERT_EQ(helper.not_in_file_col_names().size(), 3);
-    ASSERT_TRUE(helper.table_col_to_file_col().empty());
-    ASSERT_TRUE(helper.file_col_to_table_col().empty());
-}
-
-TEST(TableSchemaChangeHelperTest, DuplicateColumnNames) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2"}};
-
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2"}, {3, "col2"}, {4, "col1"}};
-
-    std::vector<std::string> read_cols = {"col1", "col2"};
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_FALSE(helper.has_schema_change());
-    ASSERT_EQ(helper.all_required_col_names().size(), 2);
-    ASSERT_EQ(helper.all_required_col_names()[0], "col1");
-    ASSERT_EQ(helper.all_required_col_names()[1], "col2");
-    ASSERT_TRUE(helper.not_in_file_col_names().empty());
-    ASSERT_EQ(helper.table_col_to_file_col().size(), 2);
-}
-
-TEST(TableSchemaChangeHelperTest, ValueRangeForNonReadColumns) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2"}, {3, "col3"}, {4, "col4"}};
-
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2_new"}, {3, "col3"}, {4, "col4"}};
-
-    std::vector<std::string> read_cols = {"col1", "col3"};
-
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges = {
-            {"col1", ColumnValueRangeType()},
-            {"col2_new", ColumnValueRangeType()},
-            {"col4", ColumnValueRangeType()}};
-
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_TRUE(helper.has_schema_change());
-    ASSERT_EQ(helper.all_required_col_names().size(), 2);
-    ASSERT_EQ(helper.all_required_col_names()[0], "col1");
-    ASSERT_EQ(helper.all_required_col_names()[1], "col3");
-    ASSERT_TRUE(helper.not_in_file_col_names().empty());
-
-    ASSERT_EQ(helper.new_colname_to_value_range().size(), 3);
-    ASSERT_TRUE(helper.new_colname_to_value_range().find("col1") !=
-                helper.new_colname_to_value_range().end());
-    ASSERT_TRUE(helper.new_colname_to_value_range().find("col2") !=
-                helper.new_colname_to_value_range().end());
-    ASSERT_TRUE(helper.new_colname_to_value_range().find("col4") !=
-                helper.new_colname_to_value_range().end());
-}
-
-TEST(TableSchemaChangeHelperTest, PartialIdMatch) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2"}, {3, "col3"}, {4, "col4"}};
-
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {20, "col2"}, {3, "col3_new"}, {40, "col4_new"}};
-    std::vector<std::string> read_cols = {"col1", "col2", "col3_new", "col4_new"};
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_TRUE(helper.has_schema_change());
-
-    ASSERT_EQ(helper.all_required_col_names().size(), 4);
-    ASSERT_EQ(helper.all_required_col_names()[0], "col1");
-    ASSERT_EQ(helper.all_required_col_names()[1], "col2");
-    ASSERT_EQ(helper.all_required_col_names()[2], "col3");
-    ASSERT_EQ(helper.all_required_col_names()[3], "col4_new");
-
-    ASSERT_EQ(helper.not_in_file_col_names().size(), 2);
-    ASSERT_EQ(helper.not_in_file_col_names()[0], "col2");
-    ASSERT_EQ(helper.not_in_file_col_names()[1], "col4_new");
-
-    ASSERT_EQ(helper.table_col_to_file_col().size(), 2);
-    ASSERT_EQ(helper.table_col_to_file_col().at("col1"), "col1");
-    ASSERT_EQ(helper.table_col_to_file_col().at("col3_new"), "col3");
-}
-
-Block create_test_block(const std::vector<std::string>& column_names) {
-    Block block;
-    for (const auto& name : column_names) {
-        auto column = ColumnString::create();
-        block.insert(
-                ColumnWithTypeAndName(std::move(column), std::make_shared<DataTypeString>(), name));
+                    auto key_field = std::make_shared<schema::external::TField>();
+                    key_field->type.type = TPrimitiveType::INT;
+                    auto value_field = std::make_shared<schema::external::TField>();
+                    value_field->type.type = TPrimitiveType::INT;
+                    map_field.key_field.field_ptr = key_field;
+                    map_field.value_field.field_ptr = value_field;
+                    d_field->nestedField.map_field = map_field;
+                }
+                schema::external::TFieldPtr d_ptr;
+                d_ptr.field_ptr = d_field;
+                nested_struct_field.fields.emplace_back(d_ptr);
+            }
+            b_field->nestedField.struct_field = nested_struct_field;
+            schema::external::TFieldPtr b_ptr;
+            b_ptr.field_ptr = b_field;
+            struct_field.fields.emplace_back(b_ptr);
+        }
+        col1_field->nestedField.struct_field = struct_field;
+        schema::external::TFieldPtr col1_ptr;
+        col1_ptr.field_ptr = col1_field;
+        table_schema.fields.emplace_back(col1_ptr);
     }
-    return block;
-}
 
-TEST(TableSchemaChangeHelperTest, BasicColumnNameConversion) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2_old"}, {3, "col3_old"}};
+    std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString(
+            "struct<col1:struct<a:map<int,int>,b:struct<c:int,d:map<int,int>>>>"));
+    const auto& attribute = IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE;
+    orc_type->getSubtype(0)->setAttribute(attribute, "1");
+    orc_type->getSubtype(0)->getSubtype(0)->setAttribute(attribute, "2");
+    orc_type->getSubtype(0)->getSubtype(1)->setAttribute(attribute, "3");
+    orc_type->getSubtype(0)->getSubtype(1)->getSubtype(0)->setAttribute(attribute, "4");
+    orc_type->getSubtype(0)->getSubtype(1)->getSubtype(1)->setAttribute(attribute, "5");
 
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2_new"}, {3, "col3_new"}};
+    bool exist_field_id = true;
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
+                        table_schema, orc_type.get(), attribute, ans_node, exist_field_id)
+                        .ok());
 
-    std::vector<std::string> read_cols = {"col1", "col2_new", "col3_new"};
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
+    ASSERT_TRUE(exist_field_id);
+    std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
 
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_TRUE(helper.has_schema_change());
-
-    Block before_block = create_test_block({"col1", "col2_new", "col3_new"});
-    ASSERT_TRUE(helper.get_next_block_before(&before_block).ok());
-
-    ASSERT_EQ(before_block.get_by_position(0).name, "col1");
-    ASSERT_EQ(before_block.get_by_position(1).name, "col2_old");
-    ASSERT_EQ(before_block.get_by_position(2).name, "col3_old");
-
-    Block after_block = create_test_block({"col1", "col2_old", "col3_old"});
-    ASSERT_TRUE(helper.get_next_block_after(&after_block).ok());
-
-    ASSERT_EQ(after_block.get_by_position(0).name, "col1");
-    ASSERT_EQ(after_block.get_by_position(1).name, "col2_new");
-    ASSERT_EQ(after_block.get_by_position(2).name, "col3_new");
-}
-
-TEST(TableSchemaChangeHelperTest, NoSchemaChangeBlocks) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2"}, {3, "col3"}};
-
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2"}, {3, "col3"}};
-
-    std::vector<std::string> read_cols = {"col1", "col2", "col3"};
-
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_FALSE(helper.has_schema_change());
-
-    Block before_block = create_test_block({"col1", "col2", "col3"});
-    ASSERT_TRUE(helper.get_next_block_before(&before_block).ok());
-
-    ASSERT_EQ(before_block.get_by_position(0).name, "col1");
-    ASSERT_EQ(before_block.get_by_position(1).name, "col2");
-    ASSERT_EQ(before_block.get_by_position(2).name, "col3");
-
-    Block after_block = create_test_block({"col1", "col2", "col3"});
-    ASSERT_TRUE(helper.get_next_block_after(&after_block).ok());
-
-    ASSERT_EQ(after_block.get_by_position(0).name, "col1");
-    ASSERT_EQ(after_block.get_by_position(1).name, "col2");
-    ASSERT_EQ(after_block.get_by_position(2).name, "col3");
-}
-
-TEST(TableSchemaChangeHelperTest, MixedColumnNameConversion) {
-    std::map<int, std::string> file_schema = {
-            {1, "col1"}, {2, "col2_old"}, {3, "col3"}, {4, "col4_old"}};
-
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2_new"}, {3, "col3"}, {4, "col4_new"}, {5, "col5"}};
-
-    std::vector<std::string> read_cols = {"col1", "col2_new", "col3", "col4_new", "col5"};
-
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_TRUE(helper.has_schema_change());
-    Block before_block =
-            create_test_block({"col1", "col2_new", "col3", "col4_new", "col5", "extra_col"});
-
-    ASSERT_TRUE(helper.get_next_block_before(&before_block).ok());
-
-    ASSERT_EQ(before_block.get_by_position(0).name, "col1");
-    ASSERT_EQ(before_block.get_by_position(1).name, "col2_old");
-    ASSERT_EQ(before_block.get_by_position(2).name, "col3");
-    ASSERT_EQ(before_block.get_by_position(3).name, "col4_old");
-    ASSERT_EQ(before_block.get_by_position(4).name, "col5");
-    ASSERT_EQ(before_block.get_by_position(5).name, "extra_col");
-
-    Block after_block =
-            create_test_block({"col1", "col2_old", "col3", "col4_old", "col5", "extra_col"});
-
-    ASSERT_TRUE(helper.get_next_block_after(&after_block).ok());
-    ASSERT_EQ(after_block.get_by_position(0).name, "col1");
-    ASSERT_EQ(after_block.get_by_position(1).name, "col2_new");
-    ASSERT_EQ(after_block.get_by_position(2).name, "col3");
-    ASSERT_EQ(after_block.get_by_position(3).name, "col4_new");
-    ASSERT_EQ(after_block.get_by_position(4).name, "col5");
-    ASSERT_EQ(after_block.get_by_position(5).name, "extra_col");
-}
-
-TEST(TableSchemaChangeHelperTest, EmptyAndSingleColumnBlocks) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2_old"}};
-
-    std::unordered_map<int32_t, std::string> table_id_to_name = {{1, "col1"}, {2, "col2_new"}};
-
-    std::vector<std::string> read_cols = {"col1", "col2_new"};
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-    ASSERT_TRUE(helper.has_schema_change());
-
-    Block empty_block;
-    ASSERT_TRUE(helper.get_next_block_before(&empty_block).ok());
-    ASSERT_TRUE(helper.get_next_block_after(&empty_block).ok());
-    ASSERT_EQ(empty_block.columns(), 0);
-
-    Block single_block1 = create_test_block({"col1"});
-    ASSERT_TRUE(helper.get_next_block_before(&single_block1).ok());
-    ASSERT_EQ(single_block1.get_by_position(0).name, "col1");
-
-    ASSERT_TRUE(helper.get_next_block_after(&single_block1).ok());
-    ASSERT_EQ(single_block1.get_by_position(0).name, "col1");
-
-    Block single_block2 = create_test_block({"col2_new"});
-    ASSERT_TRUE(helper.get_next_block_before(&single_block2).ok());
-    ASSERT_EQ(single_block2.get_by_position(0).name, "col2_old");
-
-    Block single_block3 = create_test_block({"col2_old"});
-    ASSERT_TRUE(helper.get_next_block_after(&single_block3).ok());
-    ASSERT_EQ(single_block3.get_by_position(0).name, "col2_new");
-}
-
-TEST(TableSchemaChangeHelperTest, ColumnOrderChange) {
-    std::map<int, std::string> file_schema = {{1, "col1"}, {2, "col2_old"}, {3, "col3_old"}};
-    std::unordered_map<int32_t, std::string> table_id_to_name = {
-            {1, "col1"}, {2, "col2_new"}, {3, "col3_new"}};
-    std::vector<std::string> read_cols = {"col1", "col2_new", "col3_new"};
-    std::unordered_map<std::string, ColumnValueRangeType> col_ranges;
-    MockTableSchemaChangeHelper helper(file_schema);
-    ASSERT_TRUE(helper.init_schema_info(read_cols, table_id_to_name, &col_ranges).ok());
-
-    ASSERT_TRUE(helper.has_schema_change());
-
-    Block before_block = create_test_block({"col3_new", "col1", "col2_new"});
-    ASSERT_TRUE(helper.get_next_block_before(&before_block).ok());
-
-    ASSERT_EQ(before_block.get_by_position(0).name, "col3_old");
-    ASSERT_EQ(before_block.get_by_position(1).name, "col1");
-    ASSERT_EQ(before_block.get_by_position(2).name, "col2_old");
-
-    Block after_block = create_test_block({"col3_old", "col1", "col2_old"});
-    ASSERT_TRUE(helper.get_next_block_after(&after_block).ok());
-
-    ASSERT_EQ(after_block.get_by_position(0).name, "col3_new");
-    ASSERT_EQ(after_block.get_by_position(1).name, "col1");
-    ASSERT_EQ(after_block.get_by_position(2).name, "col2_new");
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col111111 (file: col1)\n"
+              "    StructNode\n"
+              "      AAAAAAA (file: b)\n"
+              "        StructNode\n"
+              "          CCCCCCCCC (file: d)\n"
+              "            MapNode\n"
+              "              Key:\n"
+              "                ScalarNode\n"
+              "              Value:\n"
+              "                ScalarNode\n"
+              "          d (file: c)\n"
+              "            ScalarNode\n"
+              "      xxxxxx (file: a)\n"
+              "        MapNode\n"
+              "          Key:\n"
+              "            ScalarNode\n"
+              "          Value:\n"
+              "            ScalarNode\n");
 }
 } // namespace doris::vectorized

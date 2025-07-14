@@ -38,6 +38,9 @@ protected:
     void SetUp() override {}
 
     void TearDown() override {}
+
+    std::shared_ptr<TableSchemaChangeHelper::ConstNode> const_node =
+            std::make_shared<TableSchemaChangeHelper::ConstNode>();
 };
 
 std::unique_ptr<orc::LongVectorBatch> create_long_batch(size_t size,
@@ -83,7 +86,7 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumn) {
     MutableColumnPtr xx = column->assume_mutable();
 
     Status status = reader->_fill_doris_data_column<false>(
-            "test_long", xx, data_type, orc_type_ptr.get(), batch.get(), values.size());
+            "test_long", xx, data_type, const_node, orc_type_ptr.get(), batch.get(), values.size());
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(column->size(), values.size());
@@ -108,8 +111,9 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {
 
     MutableColumnPtr xx = column->assume_mutable();
 
-    Status status = reader->_fill_doris_data_column<false>(
-            "test_long_with_null", xx, data_type, orc_type_ptr.get(), batch.get(), values.size());
+    Status status =
+            reader->_fill_doris_data_column<false>("test_long_with_null", xx, data_type, const_node,
+                                                   orc_type_ptr.get(), batch.get(), values.size());
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(column->size(), values.size());
@@ -165,8 +169,9 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                 std::vector<std::string> {"col1"});
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
 
-        Status status = reader->_fill_doris_data_column<false>(
-                "test", doris_column, doris_struct_type, type.get(), structBatch, rowCount);
+        Status status = reader->_fill_doris_data_column<false>("test", doris_column,
+                                                               doris_struct_type, const_node,
+                                                               type.get(), structBatch, rowCount);
 
         ASSERT_TRUE(status.ok());
         std::string line;
@@ -250,8 +255,9 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                 std::vector<std::string> {"col1", "col2"});
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
 
-        Status status = reader->_fill_doris_data_column<false>(
-                "test", doris_column, doris_struct_type, type.get(), &structBatch, rowCount);
+        Status status = reader->_fill_doris_data_column<false>("test", doris_column,
+                                                               doris_struct_type, const_node,
+                                                               type.get(), &structBatch, rowCount);
 
         ASSERT_TRUE(status.ok());
 
@@ -335,8 +341,9 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
         reader->_decimal_scale_params.resize(0);
         reader->_decimal_scale_params_index = 0;
-        Status status = reader->_fill_doris_data_column<false>(
-                "test", doris_column, doris_struct_type, type.get(), structBatch, rowCount);
+        Status status = reader->_fill_doris_data_column<false>("test", doris_column,
+                                                               doris_struct_type, const_node,
+                                                               type.get(), structBatch, rowCount);
 
         ASSERT_TRUE(status.ok());
 
@@ -446,8 +453,9 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                                                                std::make_shared<DataTypeFloat32>());
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
 
-        Status status = reader->_fill_doris_data_column<false>(
-                "test", doris_column, doris_struct_type, type.get(), &mapBatch, rowCount);
+        Status status =
+                reader->_fill_doris_data_column<false>("test", doris_column, doris_struct_type,
+                                                       const_node, type.get(), &mapBatch, rowCount);
 
         ASSERT_TRUE(status.ok());
 

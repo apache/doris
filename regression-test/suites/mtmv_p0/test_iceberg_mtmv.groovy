@@ -94,9 +94,8 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         sql """create database if not exists ${dbName}"""
         sql """use ${dbName}"""
 
-        sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable1}"""
-        sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable2}"""
-        sql """create database if not exists ${catalog_name}.${icebergDb}"""
+        sql """drop database if exists ${catalog_name}.${icebergDb} force"""
+        sql """create database ${catalog_name}.${icebergDb}"""
         sql """
             CREATE TABLE ${catalog_name}.${icebergDb}.${icebergTable1} (
               ts DATETIME,

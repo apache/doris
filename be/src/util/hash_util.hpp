@@ -240,7 +240,7 @@ public:
                 k |= (uint64_t)data[6] << 48;
                 k |= (uint64_t)data[7] << 56;
             } else if constexpr (std::endian::native == std::endian::little) {
-                k = *((uint64_t*)data);
+                memcpy(&k, data, sizeof(k));
             } else {
                 static_assert(std::endian::native == std::endian::big ||
                                       std::endian::native == std::endian::little,

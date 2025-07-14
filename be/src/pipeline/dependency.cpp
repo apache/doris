@@ -312,7 +312,6 @@ Status AggSharedState::reset_hash_table() {
                                  align_aggregate_states) *
                                         align_aggregate_states));
                         agg_method.hash_table.reset(new HashTableType());
-                        agg_arena_pool.reset(new vectorized::Arena);
                         return Status::OK();
                     }},
             agg_data->method_variant);

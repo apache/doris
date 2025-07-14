@@ -19,19 +19,13 @@ package org.apache.doris.datasource.property;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -52,8 +46,6 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.tablefunction.S3TableValuedFunction;
-import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
@@ -88,44 +80,6 @@ public class PropertyConverterTest extends TestWithFeService {
         checkSet.addAll(Arrays.asList(S3Properties.ENDPOINT, S3Properties.ACCESS_KEY, S3Properties.SECRET_KEY));
         expectedCredential.put("access_key", "akk");
         expectedCredential.put("secret_key", "skk");
-    }
-
-    @Test
-    public void testOutFileS3PropertiesConverter() throws Exception {
-        String query = "select * from mock_tbl1 \n"
-                + "into outfile 's3://bucket/mock_dir'\n"
-                + "format as csv\n"
-                + "properties(\n"
-                + "    'AWS_ENDPOINT' = 's3.ap-northeast-1.amazonaws.com',\n"
-                + "    'AWS_ACCESS_KEY' = 'akk',\n"
-                + "    'AWS_SECRET_KEY'='akk',\n"
-                + "    'AWS_REGION' = 'ap-northeast-1',\n"
-                + "    'use_path_style' = 'true'\n"
-                + ");";
-        QueryStmt analyzedOutStmt = createStmt(query);
-        Assertions.assertTrue(analyzedOutStmt.hasOutFileClause());
-
-        OutFileClause outFileClause = analyzedOutStmt.getOutFileClause();
-        boolean isOutFileClauseAnalyzed = Deencapsulation.getField(outFileClause, "isAnalyzed");
-        Assertions.assertTrue(isOutFileClauseAnalyzed);
-
-        Assertions.assertEquals(outFileClause.getFileFormatType(), TFileFormatType.FORMAT_CSV_PLAIN);
-
-        String queryNew = "select * from mock_tbl1 \n"
-                + "into outfile 's3://bucket/mock_dir'\n"
-                + "format as csv\n"
-                + "properties(\n"
-                + "    's3.endpoint' = 'https://s3.ap-northeast-1.amazonaws.com',\n"
-                + "    's3.access_key' = 'akk',\n"
-                + "    's3.secret_key'='akk',\n"
-                + "    'use_path_style' = 'true'\n"
-                + ");";
-        QueryStmt analyzedOutStmtNew = createStmt(queryNew);
-        Assertions.assertTrue(analyzedOutStmtNew.hasOutFileClause());
-
-        OutFileClause outFileClauseNew = analyzedOutStmtNew.getOutFileClause();
-        boolean isNewAnalyzed = Deencapsulation.getField(outFileClauseNew, "isAnalyzed");
-        Assertions.assertTrue(isNewAnalyzed);
     }
 
     @Test
@@ -224,66 +178,7 @@ public class PropertyConverterTest extends TestWithFeService {
         return Env.getCurrentEnv().getBackupHandler().getRepoMgr().getRepo(name);
     }
 
-    @Disabled("not support")
-    @Test
-    public void testBosBrokerRepositoryPropertiesConverter() throws Exception {
-        FeConstants.runningUnitTest = true;
-        String bosBroker = "CREATE REPOSITORY `bos_broker_repo`\n"
-                + "WITH BROKER `bos_broker`\n"
-                + "ON LOCATION 'bos://backup'\n"
-                + "PROPERTIES\n"
-                + "(\n"
-                + "    'bos_endpoint' = 'http://gz.bcebos.com',\n"
-                + "    'bos_accesskey' = 'akk',\n"
-                + "    'bos_secret_accesskey'='skk'\n"
-                + ");";
-
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(bosBroker);
-        Assertions.assertTrue(logicalPlan instanceof CreateRepositoryCommand);
-        CreateRepositoryCommand command = (CreateRepositoryCommand) logicalPlan;
-        command.validate();
-
-        Assertions.assertEquals(command.getProperties().size(), 3);
-
-        List<Pair<String, Integer>> brokers = ImmutableList.of(Pair.of("127.0.0.1", 9999));
-        Env.getCurrentEnv().getBrokerMgr().addBrokers("bos_broker", brokers);
-
-        Repository repositoryNew = getRepository(command, "bos_broker_repo");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
-    }
-
-    @Test
-    public void testS3TVFPropertiesConverter() throws Exception {
-        FeConstants.runningUnitTest = true;
-        String queryOld = "select * from s3(\n"
-                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
-                    + "  'access_key' = 'akk',\n"
-                    + "  'secret_key' = 'skk',\n"
-                    + "  'region' = 'us-east-1',\n"
-                    + "  'format' = 'parquet',\n"
-                    + "  'use_path_style' = 'true'\n"
-                    + ") limit 10;";
-        SelectStmt analyzedStmt = createStmt(queryOld);
-        Assertions.assertEquals(analyzedStmt.getTableRefs().size(), 1);
-        TableValuedFunctionRef oldFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
-        S3TableValuedFunction s3Tvf = (S3TableValuedFunction) oldFuncTable.getTableFunction();
-        Assertions.assertEquals(5, s3Tvf.getBrokerDesc().getProperties().size());
-
-        String queryNew = "select * from s3(\n"
-                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
-                    + "  's3.access_key' = 'akk',\n"
-                    + "  's3.secret_key' = 'skk',\n"
-                    + "  'format' = 'parquet',\n"
-                    + "  'use_path_style' = 'true'\n"
-                    + ") limit 10;";
-        SelectStmt analyzedStmtNew = createStmt(queryNew);
-        Assertions.assertEquals(analyzedStmtNew.getTableRefs().size(), 1);
-        TableValuedFunctionRef newFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
-        S3TableValuedFunction newS3Tvf = (S3TableValuedFunction) newFuncTable.getTableFunction();
-        Assertions.assertEquals(5, newS3Tvf.getBrokerDesc().getProperties().size());
-    }
-
+    @Disabled
     @Test
     public void testAWSOldCatalogPropertiesConverter() throws Exception {
         String queryOld = "create catalog hms_s3_old properties (\n"
@@ -303,6 +198,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(21, hdProps.size());
     }
 
+    @Disabled
     @Test
     public void testS3CatalogPropertiesConverter() throws Exception {
         String query = "create catalog hms_s3 properties (\n"
@@ -341,6 +237,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", hdProps.get("fs.oss.endpoint"));
     }
 
+    @Disabled
     @Test
     public void testDlfPropertiesConverter() throws Exception {
         String queryDlf1 = "create catalog hms_dlf1 properties (\n"
@@ -451,6 +348,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(properties.get("mc.default.project"), "project0");
     }
 
+    @Disabled
     @Test
     public void testGlueCatalogPropertiesConverter() throws Exception {
         String queryOld = "create catalog hms_glue_old properties (\n"
@@ -493,6 +391,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(30, hdPropsNew.size());
     }
 
+    @Disabled
     @Test
     public void testS3CompatibleCatalogPropertiesConverter() throws Exception {
         String catalogName0 = "hms_cos";

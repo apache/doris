@@ -196,7 +196,7 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_pb(IColumn& column,
 template <typename ColumnType>
 void DataTypeStringSerDeBase<ColumnType>::write_one_cell_to_jsonb(const IColumn& column,
                                                                   JsonbWriter& result,
-                                                                  Arena* mem_pool, int32_t col_id,
+                                                                  Arena& mem_pool, int32_t col_id,
                                                                   int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const auto& data_ref = column.get_data_at(row_num);

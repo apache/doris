@@ -103,7 +103,7 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
-    virtual const std::string& tablet_path() const = 0;
+    virtual std::string tablet_path() const = 0;
 
     virtual bool exceed_version_limit(int32_t limit) = 0;
 

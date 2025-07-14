@@ -28,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -121,7 +122,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
-            source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange);
+            source = new IcebergHMSSource((HMSExternalTable) table, desc);
         } else if (table instanceof IcebergExternalTable) {
             String catalogType = ((IcebergExternalTable) table).getIcebergCatalogType();
             switch (catalogType) {
@@ -150,6 +151,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         preExecutionAuthenticator = source.getCatalog().getPreExecutionAuthenticator();
         super.doInitialize();
+        ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
     }
 
     @Override

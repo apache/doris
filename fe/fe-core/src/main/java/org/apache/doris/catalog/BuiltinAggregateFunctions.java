@@ -88,10 +88,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 /**
  * Builtin aggregate functions.
@@ -160,7 +162,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
             agg(Skew.class, "skew", "skew_pop", "skewness"),
-            agg(Stddev.class, "stddev_pop", "stddev"),
+            agg(Stddev.class, "stddev_pop", "stddev", "std"),
             agg(StddevSamp.class, "stddev_samp"),
             agg(Sum.class, "sum"),
             agg(Sum0.class, "sum0"),
@@ -172,9 +174,13 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(WindowFunnel.class, "window_funnel")
     );
 
-    public final Set<String> aggFuncNames = aggregateFunctions.stream()
-            .flatMap(fun -> fun.names.stream())
-            .collect(ImmutableSet.toImmutableSet());
+    public final Set<String> aggFuncNames = Collections.unmodifiableSet(
+            aggregateFunctions.stream()
+                    .flatMap(fun -> fun.names.stream())
+                    .collect(Collectors.toCollection(
+                            () -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)
+                    ))
+    );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 

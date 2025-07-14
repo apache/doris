@@ -209,14 +209,6 @@ public abstract class AggregateInfoBase {
         return result;
     }
 
-    /**
-     * Marks the slots required for evaluating an Analytic/AggregateInfo by
-     * resolving the materialized aggregate/analytic exprs against smap,
-     * and then marking their slots.
-     */
-    public abstract void materializeRequiredSlots(Analyzer analyzer,
-                                                  ExprSubstitutionMap smap);
-
     public ArrayList<Expr> getGroupingExprs() {
         return groupingExprs;
     }

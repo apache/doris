@@ -103,7 +103,7 @@ public class AlterViewInfo extends BaseViewInfo {
         for (SimpleColumnDefinition def : simpleColumnDefinitions) {
             cols.add(def.translateToColWithComment());
         }
-        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols, null, comment);
+        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols, comment);
         alterViewStmt.setInlineViewDef(rewrittenSql);
         alterViewStmt.setFinalColumns(finalCols);
         return alterViewStmt;

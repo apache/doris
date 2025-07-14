@@ -54,12 +54,14 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _shared_state->build_exprs_size = _build_expr_ctxs.size();
 
     _should_build_hash_table = true;
-    profile()->add_info_string("BroadcastJoin", std::to_string(p._is_broadcast_join));
+    custom_profile()->add_info_string("BroadcastJoin", std::to_string(p._is_broadcast_join));
     if (p._use_shared_hash_table) {
         _should_build_hash_table = info.task_idx == 0;
     }
-    profile()->add_info_string("BuildShareHashTable", std::to_string(_should_build_hash_table));
-    profile()->add_info_string("ShareHashTableEnabled", std::to_string(p._use_shared_hash_table));
+    custom_profile()->add_info_string("BuildShareHashTable",
+                                      std::to_string(_should_build_hash_table));
+    custom_profile()->add_info_string("ShareHashTableEnabled",
+                                      std::to_string(p._use_shared_hash_table));
     if (!_should_build_hash_table) {
         _dependency->block();
         _finish_dependency->block();
@@ -72,16 +74,16 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     }
 
     _build_blocks_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageBuildBlocks", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageBuildBlocks", TUnit::BYTES, 1);
     _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _build_arena_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageBuildKeyArena", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageBuildKeyArena", TUnit::BYTES, 1);
 
     // Build phase
-    auto* record_profile = _should_build_hash_table ? profile() : faker_runtime_profile();
-    _build_table_timer = ADD_TIMER(profile(), "BuildHashTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(profile(), "MergeBuildBlockTime");
+    auto* record_profile = _should_build_hash_table ? custom_profile() : faker_runtime_profile();
+    _build_table_timer = ADD_TIMER(custom_profile(), "BuildHashTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(custom_profile(), "MergeBuildBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
 
@@ -252,7 +254,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 blocked_by_shared_hash_table_signal);
     }
     if (_runtime_filter_producer_helper) {
-        _runtime_filter_producer_helper->collect_realtime_profile(profile());
+        _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     }
     return Base::close(state, exec_status);
 }
@@ -362,7 +364,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
               << ", bytes/allocated_bytes: " << PrettyPrinter::print_bytes(block.bytes()) << "/"
               << PrettyPrinter::print_bytes(block.allocated_bytes());
     // 1. Dispose the overflow of ColumnString
-    // 2. Finalize the ColumnObject to speed up
+    // 2. Finalize the ColumnVariant to speed up
     for (auto& data : block) {
         data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
         if (p._need_finalize_variant_column) {

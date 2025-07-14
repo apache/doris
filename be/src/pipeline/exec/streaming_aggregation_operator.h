@@ -89,7 +89,7 @@ private:
 
     bool _should_expand_hash_table = true;
     int64_t _cur_num_rows_returned = 0;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
+    vectorized::Arena _agg_arena_pool;
     AggregatedDataVariantsUPtr _agg_data = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     // group by k1,k2

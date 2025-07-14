@@ -21,7 +21,6 @@
 #pragma once
 
 #include "common/logging.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {

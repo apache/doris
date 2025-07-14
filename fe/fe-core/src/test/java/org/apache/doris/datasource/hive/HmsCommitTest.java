@@ -21,8 +21,8 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TestHMSCachedClient;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
@@ -412,7 +412,7 @@ public class HmsCommitTest {
         ctx.setQueryId(queryId);
         ctx.setWritePath(getWritePath());
         hmsTransaction.beginInsertTable(ctx);
-        hmsTransaction.finishInsertTable(new SimpleTableInfo(dbName, tableName));
+        hmsTransaction.finishInsertTable(NameMapping.createForTest(dbName, tableName));
         hmsTransaction.commit();
     }
 
@@ -701,7 +701,7 @@ public class HmsCommitTest {
             ctx.setQueryId(queryId);
             ctx.setWritePath(getWritePath());
             hmsTransaction.beginInsertTable(ctx);
-            hmsTransaction.finishInsertTable(new SimpleTableInfo(dbName, tbWithoutPartition));
+            hmsTransaction.finishInsertTable(NameMapping.createForTest(dbName, tbWithoutPartition));
             hmsTransaction.commit();
             Assert.fail();
         } catch (Throwable t) {

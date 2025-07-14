@@ -235,9 +235,13 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterDatabasePropertyStmt) {
             env.alterDatabaseProperty((AlterDatabasePropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshTableStmt) {
-            env.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
+            RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
+            env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),
+                    refreshTableStmt.getTblName(), false);
         } else if (ddlStmt instanceof RefreshDbStmt) {
-            env.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
+            RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
+            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName(),
+                    refreshDbStmt.isInvalidCache());
         } else if (ddlStmt instanceof AlterColocateGroupStmt) {
             env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
@@ -255,7 +259,9 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
             env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
-            env.getRefreshManager().handleRefreshCatalog((RefreshCatalogStmt) ddlStmt);
+            RefreshCatalogStmt refreshCatalogStmt = (RefreshCatalogStmt) ddlStmt;
+            env.getRefreshManager()
+                    .handleRefreshCatalog(refreshCatalogStmt.getCatalogName(), refreshCatalogStmt.isInvalidCache());
         } else if (ddlStmt instanceof RefreshLdapStmt) {
             env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanProfileStmt) {

@@ -118,9 +118,9 @@ std::vector<std::string> split(const std::string& s, char delimiter) {
 
 void search(lucene::store::Directory* dir, std::string& field, std::string& token,
             std::string& pred) {
-    IndexReader* reader = IndexReader::open(dir);
+    lucene::index::IndexReader* reader = lucene::index::IndexReader::open(dir);
 
-    IndexReader* newreader = reader->reopen();
+    lucene::index::IndexReader* newreader = reader->reopen();
     if (newreader != reader) {
         reader->close();
         _CLDELETE(reader);
@@ -172,7 +172,11 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         ConjunctionQuery conjunct_query(s, queryOptions, nullptr);
         InvertedIndexQueryInfo query_info;
         query_info.field_name = field_ws;
-        query_info.terms = terms;
+        for (auto& term : terms) {
+            doris::segment_v2::TermInfo term_info;
+            term_info.term = term;
+            query_info.term_infos.push_back(term_info);
+        }
         conjunct_query.add(query_info);
         conjunct_query.search(result);
 
@@ -196,7 +200,7 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
 }
 
 void check_terms_stats(lucene::store::Directory* dir) {
-    IndexReader* r = IndexReader::open(dir);
+    lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
     printf("Max Docs: %d\n", r->maxDoc());
     printf("Num Docs: %d\n", r->numDocs());

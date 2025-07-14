@@ -23,9 +23,9 @@
 #include "common/stats.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/keys.h"
 
 using namespace std::chrono;
 

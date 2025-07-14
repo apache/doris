@@ -187,3 +187,9 @@ doris
 -- !sql --
 \N
 
+-- !test --
+\N	{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	\N	\N
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 4}}	\N	\N
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 5}}	\N	\N
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 6}}	\N	\N
+

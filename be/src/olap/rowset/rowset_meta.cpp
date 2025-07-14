@@ -229,7 +229,7 @@ void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segment
 
     int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
     if (config::random_segments_key_bounds_truncation) {
-        static thread_local std::mt19937 generator(std::random_device {}());
+        std::mt19937 generator(std::random_device {}());
         std::uniform_int_distribution<int> distribution(-10, 40);
         truncation_threshold = distribution(generator);
     }

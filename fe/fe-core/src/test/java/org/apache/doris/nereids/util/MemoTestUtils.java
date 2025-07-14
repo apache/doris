@@ -104,7 +104,6 @@ public class MemoTestUtils {
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setCurrentUserIdentity(user);
-            ctx.setQualifiedUser(user.getQualifiedUser());
             ctx.setRemoteIP(host);
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();

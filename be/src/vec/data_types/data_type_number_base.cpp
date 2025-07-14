@@ -241,7 +241,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
             auto encode_size = streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                                   cast_set<UInt32>(upper_int32(mem_size)),
                                                   (uint8_t*)(buf + sizeof(size_t)));
-            *reinterpret_cast<size_t*>(buf) = encode_size;
+            unaligned_store<size_t>(buf, encode_size);
             buf += sizeof(size_t);
             return buf + encode_size;
         }
@@ -265,7 +265,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
         auto encode_size = streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                               cast_set<UInt32>(upper_int32(mem_size)),
                                               (uint8_t*)(buf + sizeof(size_t)));
-        *reinterpret_cast<size_t*>(buf) = encode_size;
+        unaligned_store<size_t>(buf, encode_size);
         buf += sizeof(size_t);
         return buf + encode_size;
     }
@@ -289,7 +289,7 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
             memcpy(container.data(), buf, mem_size);
             buf = buf + mem_size;
         } else {
-            size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+            size_t encode_size = unaligned_load<size_t>(buf);
             buf += sizeof(size_t);
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                                cast_set<UInt32>(upper_int32(mem_size)));
@@ -309,7 +309,7 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
             return buf + mem_size;
         }
 
-        size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+        size_t encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                            cast_set<UInt32>(upper_int32(mem_size)));

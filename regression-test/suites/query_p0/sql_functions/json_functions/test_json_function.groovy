@@ -91,4 +91,25 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\k')"""
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\k')"""
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\\\k')"""
+
+    sql "drop table if exists d_table;"
+    sql """
+        create table d_table (
+            k1 varchar(100) null,
+            k2 varchar(100) not null
+        )
+        duplicate key (k1)
+        distributed BY hash(k1) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql """insert into d_table values 
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}'),
+    (null,'{\"name\": \"John\", \"age\": 30, \"city\": \"New York\", \"hobbies\": [\"reading\", \"travelling\"]}');
+    """
+    qt_test """
+      SELECT k1,k2,JSON_CONTAINS(k1, '\$'),JSON_CONTAINS(k2, '\$') from d_table order by k1,k2;
+    """
+
 }

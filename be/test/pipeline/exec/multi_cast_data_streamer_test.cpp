@@ -37,22 +37,42 @@ public:
     ~MultiCastDataStreamerTest() override = default;
     void SetUp() override {
         profile = std::make_unique<RuntimeProfile>("MultiCastDataStreamerTest");
+        custom_profile = std::make_unique<RuntimeProfile>("CustomCounters");
+        common_profile = std::make_unique<RuntimeProfile>("CommonCounters");
+
         {
-            ADD_COUNTER_WITH_LEVEL(profile.get(), "MemoryUsage", TUnit::BYTES, 1);
-            ADD_TIMER_WITH_LEVEL(profile.get(), "ExecTime", 1);
-            ADD_TIMER_WITH_LEVEL(profile.get(), "SpillTotalTime", 1);
-            ADD_TIMER_WITH_LEVEL(profile.get(), "SpillWriteTime", 1);
-            ADD_COUNTER_WITH_LEVEL(profile.get(), "SpillWriteTaskWaitInQueueCount", TUnit::UNIT, 1);
-            ADD_COUNTER_WITH_LEVEL(profile.get(), "SpillWriteTaskCount", TUnit::UNIT, 1);
-            ADD_TIMER_WITH_LEVEL(profile.get(), "SpillWriteTaskWaitInQueueTime", 1);
-            ADD_TIMER_WITH_LEVEL(profile.get(), "SpillWriteFileTime", 1);
-            ADD_TIMER_WITH_LEVEL(profile.get(), "SpillWriteSerializeBlockTime", 1);
-            ADD_COUNTER_WITH_LEVEL(profile.get(), "SpillWriteBlockCount", TUnit::UNIT, 1);
-            ADD_COUNTER_WITH_LEVEL(profile.get(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
-            ADD_COUNTER_WITH_LEVEL(profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
-            ADD_COUNTER_WITH_LEVEL(profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
-            ADD_COUNTER_WITH_LEVEL(profile.get(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(common_profile.get(), "MemoryUsage", TUnit::BYTES, 1);
+            ADD_TIMER_WITH_LEVEL(common_profile.get(), "ExecTime", 1);
+            ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillTotalTime", 1);
+            ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteTime", 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteTaskWaitInQueueCount",
+                                   TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteTaskCount", TUnit::UNIT, 1);
+            ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteTaskWaitInQueueTime", 1);
+            ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileTime", 1);
+            ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteSerializeBlockTime", 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteBlockCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileTime", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadDerializeBlockTime", TUnit::UNIT,
+                                   1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockBytes", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadRows", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileTotalCount", TUnit::UNIT,
+                                   1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileCurrentCount", TUnit::UNIT,
+                                   1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileCurrentBytes", TUnit::UNIT,
+                                   1);
         }
+
+        profile->add_child(custom_profile.get(), true);
+        profile->add_child(common_profile.get(), true);
         shared_state = std::make_shared<MultiCastSharedState>(&pool, cast_sender_count, 0);
         multi_cast_data_streamer = std::make_unique<MultiCastDataStreamer>(
                 shared_state.get(), &pool, cast_sender_count, 0);
@@ -66,24 +86,34 @@ public:
             multi_cast_data_streamer->set_dep_by_sender_idx(i, dep.get());
             source_profiles[i] =
                     std::make_unique<RuntimeProfile>(fmt::format("source_profile_{}", i));
-            ADD_TIMER_WITH_LEVEL(source_profiles[i].get(), "ExecTime", 1);
-            ADD_TIMER_WITH_LEVEL(source_profiles[i].get(), "SpillTotalTime", 1);
-            ADD_TIMER_WITH_LEVEL(source_profiles[i].get(), "SpillRecoverTime", 1);
-            ADD_COUNTER_WITH_LEVEL(source_profiles[i].get(), "SpillReadTaskWaitInQueueCount",
+            source_common_profiles.push_back(std::make_unique<RuntimeProfile>("CommonCounters"));
+            source_custom_profiles.push_back(std::make_unique<RuntimeProfile>("CustomCounters"));
+            source_profiles[i]->add_child(source_common_profiles[i].get(), true);
+            source_profiles[i]->add_child(source_custom_profiles[i].get(), true);
+            ADD_TIMER_WITH_LEVEL(source_common_profiles[i].get(), "ExecTime", 1);
+            ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillTotalTime", 1);
+            ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillRecoverTime", 1);
+            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadTaskWaitInQueueCount",
                                    TUnit::UNIT, 1);
-            ADD_COUNTER_WITH_LEVEL(source_profiles[i].get(), "SpillReadTaskCount", TUnit::UNIT, 1);
-            ADD_TIMER_WITH_LEVEL(source_profiles[i].get(), "SpillReadTaskWaitInQueueTime", 1);
-            ADD_TIMER_WITH_LEVEL(source_profiles[i].get(), "SpillReadFileTime", 1);
-            ADD_TIMER_WITH_LEVEL(source_profiles[i].get(), "SpillReadDerializeBlockTime", 1);
-            ADD_COUNTER_WITH_LEVEL(source_profiles[i].get(), "SpillReadBlockCount", TUnit::UNIT, 1);
-            ADD_COUNTER_WITH_LEVEL(source_profiles[i].get(), "SpillReadBlockBytes", TUnit::BYTES,
-                                   1);
-            ADD_COUNTER_WITH_LEVEL(source_profiles[i].get(), "SpillReadFileBytes", TUnit::BYTES, 1);
-            ADD_COUNTER_WITH_LEVEL(source_profiles[i].get(), "SpillReadRows", TUnit::UNIT, 1);
-            ADD_COUNTER_WITH_LEVEL(source_profiles[i].get(), "SpillReadFileCount", TUnit::UNIT, 1);
-            ADD_COUNTER_WITH_LEVEL(source_profiles[i].get(), "SpillWriteFileCurrentBytes",
+            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadTaskCount",
+                                   TUnit::UNIT, 1);
+            ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadTaskWaitInQueueTime",
+                                 1);
+            ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadFileTime", 1);
+            ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadDerializeBlockTime", 1);
+            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadBlockCount",
+                                   TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadBlockBytes",
                                    TUnit::BYTES, 1);
-            ADD_COUNTER_WITH_LEVEL(source_profiles[i].get(), "SpillWriteFileCurrentCount",
+            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadFileBytes",
+                                   TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadRows", TUnit::UNIT,
+                                   1);
+            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadFileCount",
+                                   TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillWriteFileCurrentBytes",
+                                   TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillWriteFileCurrentCount",
                                    TUnit::UNIT, 1);
             multi_cast_data_streamer->set_source_profile(i, source_profiles[i].get());
         }
@@ -131,6 +161,10 @@ public:
     std::shared_ptr<MultiCastSharedState> shared_state;
     std::unique_ptr<RuntimeProfile> profile;
     std::vector<std::unique_ptr<RuntimeProfile>> source_profiles;
+    std::vector<std::unique_ptr<RuntimeProfile>> source_common_profiles;
+    std::vector<std::unique_ptr<RuntimeProfile>> source_custom_profiles;
+    std::unique_ptr<RuntimeProfile> custom_profile;
+    std::unique_ptr<RuntimeProfile> common_profile;
 };
 
 TEST_F(MultiCastDataStreamerTest, NormTest) {
