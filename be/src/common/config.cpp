@@ -1532,7 +1532,6 @@ DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 
-
 // If a single be(not cloud mode) exceeds the be_tablet_num_upper_limit limit, create tablet will report an error
 // default 100w tablets limit
 DEFINE_mInt64(be_tablet_num_upper_limit, "1000000");
@@ -1540,7 +1539,6 @@ DEFINE_mInt64(be_tablet_num_upper_limit, "1000000");
 DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
 
 DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
-
 
 // clang-format off
 #ifdef BE_TEST
