@@ -20,9 +20,7 @@
 #include "common/status.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_map.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_variant.h"
 #include "vec/data_types/data_type.h"
@@ -34,12 +32,6 @@ AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
     switch (argument_types[0]->get_primitive_type()) {
-    case PrimitiveType::TYPE_IPV4:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV4>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_IPV6:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV6>>(
-                argument_types, result_is_nullable);
     case PrimitiveType::TYPE_ARRAY:
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_ARRAY>>(
                 argument_types, result_is_nullable);

@@ -929,6 +929,39 @@ public class NumericArithmetic {
     }
 
     /**
+     * cot
+     */
+    @ExecFunction(name = "cot")
+    public static Expression cot(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(1.0 / Math.tan(first.getValue())));
+    }
+
+    /**
+     * cot
+     */
+    @ExecFunction(name = "sec")
+    public static Expression sec(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(1.0 / Math.cos(first.getValue())));
+    }
+
+    /**
+     * cosec
+     */
+    @ExecFunction(name = "cosec")
+    public static Expression cosec(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(1.0 / Math.sin(first.getValue())));
+    }
+
+    /**
      * asin
      */
     @ExecFunction(name = "asin")

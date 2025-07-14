@@ -826,13 +826,14 @@ public class Function implements Writable {
 
     public static FunctionCallExpr convertForEachCombinator(FunctionCallExpr fnCall) {
         Function aggFunction = fnCall.getFn();
-        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_FOREACH_SUFFIX));
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction()
+                + Expr.AGG_FOREACH_SUFFIX + "v2"));
         List<Type> argTypes = new ArrayList();
         for (Type type : aggFunction.argTypes) {
             argTypes.add(new ArrayType(type));
         }
         aggFunction.setArgs(argTypes);
-        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), fnCall.isNullable()));
+        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), true));
         aggFunction.setNullableMode(NullableMode.ALWAYS_NULLABLE);
         return fnCall;
     }

@@ -24,7 +24,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
@@ -356,7 +355,6 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
                         ctx.setEnv(Env.getCurrentEnv());
                     }
                     if (ctx.getCurrentUserIdentity() == null) {
-                        ctx.setQualifiedUser(Auth.ADMIN_USER);
                         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
                     }
                 }

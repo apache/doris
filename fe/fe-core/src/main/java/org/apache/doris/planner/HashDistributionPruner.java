@@ -80,9 +80,8 @@ public class HashDistributionPruner implements DistributionPruner {
         }
         Column keyColumn = distributionColumns.get(columnId);
         String columnName = isBaseIndexSelected ? keyColumn.getName()
-                : org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule
-                        .normalizeName(
-                                CreateMaterializedViewStmt.mvColumnBuilder(keyColumn.getName()));
+                : CreateMaterializedViewStmt.mvColumnBuilder(keyColumn.getName())
+                        .replace("`", "").toLowerCase();
         PartitionColumnFilter filter = distributionColumnFilters.get(columnName);
         if (null == filter) {
             // no filter in this column, no partition Key

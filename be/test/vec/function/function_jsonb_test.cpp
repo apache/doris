@@ -18,18 +18,27 @@
 #include <stdint.h>
 
 #include <iomanip>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "function_test_util.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "testutil/any_type.h"
+#include "testutil/column_helper.h"
+#include "udf/udf.h"
+#include "util/jsonb_writer.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -575,16 +584,17 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
     // json_extract array
     data_set = {
             {{Null(), STRING("$[0]")}, Null()},
-            {{STRING("null"), STRING("$[0]")}, Null()},
-            {{STRING("true"), STRING("$[0]")}, Null()},
-            {{STRING("false"), STRING("$[0]")}, Null()},
-            {{STRING("100"), STRING("$[0]")}, Null()},                 //int8
-            {{STRING("10000"), STRING("$[0]")}, Null()},               // int16
-            {{STRING("1000000000"), STRING("$[0]")}, Null()},          // int32
-            {{STRING("1152921504606846976"), STRING("$[0]")}, Null()}, // int64
-            {{STRING("6.18"), STRING("$[0]")}, Null()},                // double
-            {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},           // string
-            {{STRING("{}"), STRING("$[0]")}, STRING("{}")},            // empty object
+            {{STRING("null"), STRING("$[0]")}, STRING("null")},
+            {{STRING("true"), STRING("$[0]")}, STRING("true")},
+            {{STRING("false"), STRING("$[0]")}, STRING("false")},
+            {{STRING("100"), STRING("$[0]")}, STRING("100")},               //int8
+            {{STRING("10000"), STRING("$[0]")}, STRING("10000")},           // int16
+            {{STRING("1000000000"), STRING("$[0]")}, STRING("1000000000")}, // int32
+            {{STRING("1152921504606846976"), STRING("$[0]")},
+             STRING("1152921504606846976")},                             // int64
+            {{STRING("6.18"), STRING("$[0]")}, STRING("6.18")},          // double
+            {{STRING(R"("abcd")"), STRING("$[0]")}, STRING("\"abcd\"")}, // string
+            {{STRING("{}"), STRING("$[0]")}, STRING("{}")},              // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[0]")},
              STRING(R"({"k1":"v31","k2":300})")},     // object
             {{STRING("[]"), STRING("$[0]")}, Null()}, // empty array
@@ -721,15 +731,16 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
     data_set = {
             {{Null(), STRING("$[0]")}, Null()},
             {{STRING("null"), STRING("$[0]")}, Null()},
-            {{STRING("true"), STRING("$[0]")}, Null()},
-            {{STRING("false"), STRING("$[0]")}, Null()},
-            {{STRING("100"), STRING("$[0]")}, Null()},                 //int8
-            {{STRING("10000"), STRING("$[0]")}, Null()},               // int16
-            {{STRING("1000000000"), STRING("$[0]")}, Null()},          // int32
-            {{STRING("1152921504606846976"), STRING("$[0]")}, Null()}, // int64
-            {{STRING("6.18"), STRING("$[0]")}, Null()},                // double
-            {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},           // string
-            {{STRING("{}"), STRING("$[0]")}, STRING("{}")},            // empty object
+            {{STRING("true"), STRING("$[0]")}, STRING("true")},
+            {{STRING("false"), STRING("$[0]")}, STRING("false")},
+            {{STRING("100"), STRING("$[0]")}, STRING("100")},               //int8
+            {{STRING("10000"), STRING("$[0]")}, STRING("10000")},           // int16
+            {{STRING("1000000000"), STRING("$[0]")}, STRING("1000000000")}, // int32
+            {{STRING("1152921504606846976"), STRING("$[0]")},
+             STRING("1152921504606846976")},                         // int64
+            {{STRING("6.18"), STRING("$[0]")}, STRING("6.18")},      // double
+            {{STRING(R"("abcd")"), STRING("$[0]")}, STRING("abcd")}, // string
+            {{STRING("{}"), STRING("$[0]")}, STRING("{}")},          // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[0]")},
              STRING(R"({"k1":"v31","k2":300})")},     // object
             {{STRING("[]"), STRING("$[0]")}, Null()}, // empty array
@@ -865,9 +876,9 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
             {{STRING("null"), STRING("$[0]")}, Null()},
             {{STRING("true"), STRING("$[0]")}, Null()},
             {{STRING("false"), STRING("$[0]")}, Null()},
-            {{STRING("100"), STRING("$[0]")}, Null()},                        //int8
-            {{STRING("10000"), STRING("$[0]")}, Null()},                      // int16
-            {{STRING("1000000000"), STRING("$[0]")}, Null()},                 // int32
+            {{STRING("100"), STRING("$[0]")}, INT(100)},                      //int8
+            {{STRING("10000"), STRING("$[0]")}, INT(10000)},                  // int16
+            {{STRING("1000000000"), STRING("$[0]")}, INT(1000000000)},        // int32
             {{STRING("1152921504606846976"), STRING("$[0]")}, Null()},        // int64
             {{STRING("6.18"), STRING("$[0]")}, Null()},                       // double
             {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},                  // string
@@ -1008,10 +1019,10 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
             {{STRING("null"), STRING("$[0]")}, Null()},
             {{STRING("true"), STRING("$[0]")}, Null()},
             {{STRING("false"), STRING("$[0]")}, Null()},
-            {{STRING("100"), STRING("$[0]")}, Null()},                        //int8
-            {{STRING("10000"), STRING("$[0]")}, Null()},                      // int16
-            {{STRING("1000000000"), STRING("$[0]")}, Null()},                 // int32
-            {{STRING("1152921504606846976"), STRING("$[0]")}, Null()},        // int64
+            {{STRING("100"), STRING("$[0]")}, BIGINT(100)},                                 //int8
+            {{STRING("10000"), STRING("$[0]")}, BIGINT(10000)},                             // int16
+            {{STRING("1000000000"), STRING("$[0]")}, BIGINT(1000000000)},                   // int32
+            {{STRING("1152921504606846976"), STRING("$[0]")}, BIGINT(1152921504606846976)}, // int64
             {{STRING("6.18"), STRING("$[0]")}, Null()},                       // double
             {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},                  // string
             {{STRING("{}"), STRING("$[0]")}, Null()},                         // empty object
@@ -1149,11 +1160,11 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
             {{STRING("null"), STRING("$[0]")}, Null()},
             {{STRING("true"), STRING("$[0]")}, Null()},
             {{STRING("false"), STRING("$[0]")}, Null()},
-            {{STRING("100"), STRING("$[0]")}, Null()},                        //int8
-            {{STRING("10000"), STRING("$[0]")}, Null()},                      // int16
-            {{STRING("1000000000"), STRING("$[0]")}, Null()},                 // int32
-            {{STRING("1152921504606846976"), STRING("$[0]")}, Null()},        // int64
-            {{STRING("6.18"), STRING("$[0]")}, Null()},                       // double
+            {{STRING("100"), STRING("$[0]")}, DOUBLE(100)},                                 //int8
+            {{STRING("10000"), STRING("$[0]")}, DOUBLE(10000)},                             // int16
+            {{STRING("1000000000"), STRING("$[0]")}, DOUBLE(1000000000)},                   // int32
+            {{STRING("1152921504606846976"), STRING("$[0]")}, DOUBLE(1152921504606846976)}, // int64
+            {{STRING("6.18"), STRING("$[0]")}, DOUBLE(6.18)},                 // double
             {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},                  // string
             {{STRING("{}"), STRING("$[0]")}, Null()},                         // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[0]")}, Null()}, // object
@@ -1612,15 +1623,16 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
     data_set = {
             {{Null(), STRING("$[0]")}, Null()},
             {{STRING("null"), STRING("$[0]")}, Null()},
-            {{STRING("true"), STRING("$[0]")}, Null()},
-            {{STRING("false"), STRING("$[0]")}, Null()},
-            {{STRING("100"), STRING("$[0]")}, Null()},                 //int8
-            {{STRING("10000"), STRING("$[0]")}, Null()},               // int16
-            {{STRING("1000000000"), STRING("$[0]")}, Null()},          // int32
-            {{STRING("1152921504606846976"), STRING("$[0]")}, Null()}, // int64
-            {{STRING("6.18"), STRING("$[0]")}, Null()},                // double
-            {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},           // string
-            {{STRING("{}"), STRING("$[0]")}, STRING("{}")},            // empty object
+            {{STRING("true"), STRING("$[0]")}, STRING("true")},
+            {{STRING("false"), STRING("$[0]")}, STRING("false")},
+            {{STRING("100"), STRING("$[0]")}, STRING("100")},               //int8
+            {{STRING("10000"), STRING("$[0]")}, STRING("10000")},           // int16
+            {{STRING("1000000000"), STRING("$[0]")}, STRING("1000000000")}, // int32
+            {{STRING("1152921504606846976"), STRING("$[0]")},
+             STRING("1152921504606846976")},                         // int64
+            {{STRING("6.18"), STRING("$[0]")}, STRING("6.18")},      // double
+            {{STRING(R"("abcd")"), STRING("$[0]")}, STRING("abcd")}, // string
+            {{STRING("{}"), STRING("$[0]")}, STRING("{}")},          // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[0]")},
              STRING(R"({"k1":"v31","k2":300})")},     // object
             {{STRING("[]"), STRING("$[0]")}, Null()}, // empty array
@@ -1756,9 +1768,9 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
             {{STRING("null"), STRING("$[0]")}, Null()},
             {{STRING("true"), STRING("$[0]")}, Null()},
             {{STRING("false"), STRING("$[0]")}, Null()},
-            {{STRING("100"), STRING("$[0]")}, Null()},                        //int8
-            {{STRING("10000"), STRING("$[0]")}, Null()},                      // int16
-            {{STRING("1000000000"), STRING("$[0]")}, Null()},                 // int32
+            {{STRING("100"), STRING("$[0]")}, INT(100)},                      //int8
+            {{STRING("10000"), STRING("$[0]")}, INT(10000)},                  // int16
+            {{STRING("1000000000"), STRING("$[0]")}, INT(1000000000)},        // int32
             {{STRING("1152921504606846976"), STRING("$[0]")}, Null()},        // int64
             {{STRING("6.18"), STRING("$[0]")}, Null()},                       // double
             {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},                  // string
@@ -1899,10 +1911,10 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
             {{STRING("null"), STRING("$[0]")}, Null()},
             {{STRING("true"), STRING("$[0]")}, Null()},
             {{STRING("false"), STRING("$[0]")}, Null()},
-            {{STRING("100"), STRING("$[0]")}, Null()},                        //int8
-            {{STRING("10000"), STRING("$[0]")}, Null()},                      // int16
-            {{STRING("1000000000"), STRING("$[0]")}, Null()},                 // int32
-            {{STRING("1152921504606846976"), STRING("$[0]")}, Null()},        // int64
+            {{STRING("100"), STRING("$[0]")}, BIGINT(100)},                                 //int8
+            {{STRING("10000"), STRING("$[0]")}, BIGINT(10000)},                             // int16
+            {{STRING("1000000000"), STRING("$[0]")}, BIGINT(1000000000)},                   // int32
+            {{STRING("1152921504606846976"), STRING("$[0]")}, BIGINT(1152921504606846976)}, // int64
             {{STRING("6.18"), STRING("$[0]")}, Null()},                       // double
             {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},                  // string
             {{STRING("{}"), STRING("$[0]")}, Null()},                         // empty object
@@ -2040,11 +2052,11 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
             {{STRING("null"), STRING("$[0]")}, Null()},
             {{STRING("true"), STRING("$[0]")}, Null()},
             {{STRING("false"), STRING("$[0]")}, Null()},
-            {{STRING("100"), STRING("$[0]")}, Null()},                        //int8
-            {{STRING("10000"), STRING("$[0]")}, Null()},                      // int16
-            {{STRING("1000000000"), STRING("$[0]")}, Null()},                 // int32
-            {{STRING("1152921504606846976"), STRING("$[0]")}, Null()},        // int64
-            {{STRING("6.18"), STRING("$[0]")}, Null()},                       // double
+            {{STRING("100"), STRING("$[0]")}, DOUBLE(100)},                                 //int8
+            {{STRING("10000"), STRING("$[0]")}, DOUBLE(10000)},                             // int16
+            {{STRING("1000000000"), STRING("$[0]")}, DOUBLE(1000000000)},                   // int32
+            {{STRING("1152921504606846976"), STRING("$[0]")}, DOUBLE(1152921504606846976)}, // int64
+            {{STRING("6.18"), STRING("$[0]")}, DOUBLE(6.18)},                 // double
             {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},                  // string
             {{STRING("{}"), STRING("$[0]")}, Null()},                         // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[0]")}, Null()}, // object
@@ -2143,6 +2155,173 @@ TEST(FunctionJsonbTEST, JsonbToJson) {
     static_cast<void>(
             check_function<DataTypeJsonb, true>("to_json", {Nullable {PrimitiveType::TYPE_VARCHAR}},
                                                 {{{STRING("hello")}, STRING(R"("hello")")}}));
+}
+
+TEST(FunctionJsonbTEST, JsonArray) {
+    std::string func_name = "json_array";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB};
+
+    DataSet data_set = {
+            {{Null()}, STRING("[null]")},
+            {{STRING("null")}, STRING("[null]")},
+            {{STRING("true")}, STRING("[true]")},
+            {{STRING("false")}, STRING("[false]")},
+            {{STRING("100")}, STRING("[100]")},                                 //int8
+            {{STRING("10000")}, STRING("[10000]")},                             // int16
+            {{STRING("1000000000")}, STRING("[1000000000]")},                   // int32
+            {{STRING("1152921504606846976")}, STRING("[1152921504606846976]")}, // int64
+            {{STRING("6.18")}, STRING("[6.18]")},                               // double
+            {{STRING(R"("abcd")")}, STRING(R"(["abcd"])")},                     // string
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb>(func_name, input_types, data_set));
+
+    func_name = "json_array_ignore_null";
+
+    data_set = {
+            {{Null()}, STRING("[]")},
+            {{STRING("null")}, STRING("[null]")},
+            {{STRING("true")}, STRING("[true]")},
+            {{STRING("false")}, STRING("[false]")},
+            {{STRING("100")}, STRING("[100]")},                                 //int8
+            {{STRING("10000")}, STRING("[10000]")},                             // int16
+            {{STRING("1000000000")}, STRING("[1000000000]")},                   // int32
+            {{STRING("1152921504606846976")}, STRING("[1152921504606846976]")}, // int64
+            {{STRING("6.18")}, STRING("[6.18]")},                               // double
+            {{STRING(R"("abcd")")}, STRING(R"(["abcd"])")},                     // string
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb>(func_name, input_types, data_set));
+}
+
+TEST(FunctionJsonbTEST, JsonLength) {
+    std::string func_name = "json_length";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {
+                {{STRING(R"({"k1":"v1", "k2": 2})"), Null()}, Null()},
+                {{STRING(R"([1, 2, 3])"), STRING("$")}, INT(3)},
+                {{STRING(R"("string")"), STRING("$")}, INT(1)},
+                {{STRING("null"), STRING("$")}, INT(1)},
+        };
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+
+    auto json_data_type = std::make_shared<DataTypeJsonb>();
+    auto json_column = json_data_type->create_column();
+
+    JsonbWriter writer;
+    writer.writeStartArray();
+    writer.writeString("hello");
+    writer.writeString("world");
+    writer.writeEndArray();
+
+    json_column->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(json_column), json_data_type, "json_col"));
+
+    auto path_column_ = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+    path_column_->insert_default();
+    auto path_column = ColumnConst::create(std::move(path_column_), 1);
+    block.insert(ColumnWithTypeAndName(
+            std::move(path_column),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()), "path_col"));
+
+    auto return_type = make_nullable(std::make_shared<DataTypeInt32>());
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            func_name, block.get_columns_with_type_and_name(), return_type);
+    ASSERT_TRUE(func != nullptr);
+
+    std::vector<DataTypePtr> arg_types;
+    arg_types.emplace_back(json_data_type);
+    arg_types.emplace_back(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()));
+
+    FunctionUtils fn_utils(return_type, arg_types, 0);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    //     fn_ctx->set_constant_cols(constant_cols);
+    auto st = func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+    st = func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    block.insert({nullptr, return_type, "result"});
+
+    auto result = block.columns() - 1;
+    st = func->execute(fn_ctx, block, {0, 1}, result, 1);
+    ASSERT_TRUE(st.ok()) << "execute failed: " << st.to_string();
+}
+
+TEST(FunctionJsonbTEST, JsonContains) {
+    std::string func_name = "json_contains";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_JSONB,
+                                    PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {
+                {{STRING(R"({"k1":"v1", "k2": 2})"), Null(), Null()}, Null()},
+                {{STRING(R"([1, 2, 3])"), STRING("1"), STRING("$")}, BOOLEAN(true)},
+                {{STRING(R"("string")"), STRING("string"), STRING("$")}, Null()},
+                {{STRING(R"("string")"), STRING(R"("string")"), STRING("$")}, BOOLEAN(true)},
+        };
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+
+    auto json_data_type = std::make_shared<DataTypeJsonb>();
+    auto json_column = json_data_type->create_column();
+
+    JsonbWriter writer;
+    writer.writeStartArray();
+    writer.writeString("hello");
+    writer.writeString("world");
+    writer.writeEndArray();
+
+    json_column->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+
+    auto json_column2 = json_data_type->create_column();
+    writer.reset();
+    writer.writeStartString();
+    writer.writeString("hello");
+    writer.writeEndString();
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(json_column), json_data_type, "json_col"));
+    block.insert(ColumnWithTypeAndName(std::move(json_column2), json_data_type, "json_col2"));
+
+    auto path_column_ = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+    path_column_->insert_default();
+    auto path_column = ColumnConst::create(std::move(path_column_), 1);
+    block.insert(ColumnWithTypeAndName(
+            std::move(path_column),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()), "path_col"));
+
+    auto return_type = make_nullable(std::make_shared<DataTypeBool>());
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            func_name, block.get_columns_with_type_and_name(), return_type);
+    ASSERT_TRUE(func != nullptr);
+
+    std::vector<DataTypePtr> arg_types;
+    arg_types.emplace_back(json_data_type);
+    arg_types.emplace_back(json_data_type);
+    arg_types.emplace_back(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()));
+
+    FunctionUtils fn_utils(return_type, arg_types, 0);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    //     fn_ctx->set_constant_cols(constant_cols);
+    auto st = func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+    st = func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    block.insert({nullptr, return_type, "result"});
+
+    auto result = block.columns() - 1;
+    st = func->execute(fn_ctx, block, {0, 1, 2}, result, 1);
+    ASSERT_TRUE(st.ok()) << "execute failed: " << st.to_string();
 }
 
 } // namespace doris::vectorized

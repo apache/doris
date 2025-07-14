@@ -332,18 +332,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
         return fracPart.intValue();
     }
 
-    public void roundCeiling(int newScale) {
-        value = value.setScale(newScale, RoundingMode.CEILING);
-        type = ScalarType.createDecimalType(((ScalarType) type)
-                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
-    }
-
-    public void roundFloor(int newScale) {
-        value = value.setScale(newScale, RoundingMode.FLOOR);
-        type = ScalarType.createDecimalType(((ScalarType) type)
-                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
-    }
-
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isDecimalV2() && type.isDecimalV2()) {
@@ -387,18 +375,4 @@ public class DecimalLiteral extends NumericLiteralExpr {
         return 31 * super.hashCode() + Objects.hashCode(value);
     }
 
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        int len = getParmLen(data);
-        BigDecimal v = null;
-        try {
-            byte[] bytes = new byte[len];
-            data.get(bytes);
-            String value = new String(bytes);
-            v = new BigDecimal(value);
-        } catch (NumberFormatException e) {
-            // throw new AnalysisException("Invalid floating-point literal: " + value, e);
-        }
-        init(v);
-    }
 }

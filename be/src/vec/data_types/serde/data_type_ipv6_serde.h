@@ -67,7 +67,7 @@ public:
                                   int64_t end, const cctz::time_zone& ctz) const override;
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
-                                 Arena* mem_pool, int unique_id, int64_t row_num) const override;
+                                 Arena& mem_pool, int unique_id, int64_t row_num) const override;
 
 private:
     template <bool is_binary_format>

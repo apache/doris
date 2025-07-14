@@ -117,7 +117,6 @@ public class TableValuedFunctionRef extends TableRef {
 
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true; // true that we have assigned desc
-        analyzeJoin(analyzer);
     }
 
     public ScanNode getScanNode(PlanNodeId id, SessionVariable sv) {

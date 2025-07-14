@@ -21,7 +21,6 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -50,12 +49,10 @@ import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 import org.apache.doris.utframe.MockedMetaServerFactory.DefaultPMetaServiceImpl;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 
 import java.io.File;
@@ -81,7 +78,6 @@ public class UtFrameUtils {
     public static ConnectContext createDefaultCtx(UserIdentity userIdentity, String remoteIp) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(userIdentity);
-        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setRemoteIP(remoteIp);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
@@ -351,23 +347,6 @@ public class UtFrameUtils {
         } else {
             return null;
         }
-    }
-
-    public static String getStmtDigest(ConnectContext connectContext, String originStmt) throws Exception {
-        SqlScanner input = new SqlScanner(new StringReader(originStmt),
-                connectContext.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        StatementBase statementBase = SqlParserUtils.getFirstStmt(parser);
-        Preconditions.checkState(statementBase instanceof QueryStmt);
-        QueryStmt queryStmt = (QueryStmt) statementBase;
-        String digest = queryStmt.toDigest();
-        return DigestUtils.md5Hex(digest);
-    }
-
-    public static boolean checkPlanResultContainsNode(String planResult, int idx, String nodeName) {
-        String realNodeName = idx + ":" + nodeName;
-        String realVNodeName = idx + ":V" + nodeName;
-        return planResult.contains(realNodeName) || planResult.contains(realVNodeName);
     }
 
     public static void createDatabase(ConnectContext ctx, String db) throws Exception {

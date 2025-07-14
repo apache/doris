@@ -24,7 +24,7 @@
 #include "common/config.h"
 #include "common/util.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/txn_kv.h"
 
 int main(int argc, char** argv) {
     doris::cloud::config::init(nullptr, true);

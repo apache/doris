@@ -137,6 +137,28 @@ PhysicalResultSink
 
 -- !null_except_empty_data --
 
+-- !union_to_onerow_1 --
+1	2
+
+-- !union_to_onerow_1_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalOneRowRelation
+
+-- !union_to_onerow_2 --
+1	2
+
+-- !union_to_onerow_2_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalOneRowRelation
+
 -- !prune_partition1 --
 PhysicalResultSink
 --PhysicalEmptyRelation

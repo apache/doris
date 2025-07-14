@@ -73,31 +73,6 @@ struct ColumnVectorBatch;
         ++*num_deserialized;                                                             \
     }
 
-#define INIT_MEMORY_FOR_ORC_WRITER()                                                 \
-    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);                                     \
-    if (!ptr) {                                                                      \
-        return Status::InternalError(                                                \
-                "malloc memory error when write largeint column data to orc file."); \
-    }                                                                                \
-    StringRef bufferRef;                                                             \
-    bufferRef.data = ptr;                                                            \
-    bufferRef.size = BUFFER_UNIT_SIZE;                                               \
-    size_t offset = 0;                                                               \
-    buffer_list.emplace_back(bufferRef);
-
-#define REALLOC_MEMORY_FOR_ORC_WRITER()                                                  \
-    while (bufferRef.size - BUFFER_RESERVED_SIZE < offset + len) {                       \
-        char* new_ptr = (char*)malloc(bufferRef.size + BUFFER_UNIT_SIZE);                \
-        if (!new_ptr) {                                                                  \
-            return Status::InternalError(                                                \
-                    "malloc memory error when write largeint column data to orc file."); \
-        }                                                                                \
-        memcpy(new_ptr, bufferRef.data, bufferRef.size);                                 \
-        free(const_cast<char*>(bufferRef.data));                                         \
-        bufferRef.data = new_ptr;                                                        \
-        bufferRef.size = bufferRef.size + BUFFER_UNIT_SIZE;                              \
-    }
-
 namespace doris {
 class PValues;
 struct JsonbValue;
@@ -347,7 +322,7 @@ public:
 
     // JSONB serializer and deserializer, should write col_id
     virtual void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                         Arena* mem_pool, int32_t col_id,
+                                         Arena& mem_pool, int32_t col_id,
                                          int64_t row_num) const = 0;
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
