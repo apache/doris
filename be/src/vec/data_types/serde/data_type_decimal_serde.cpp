@@ -350,7 +350,7 @@ void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& c
 
 template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                      Arena* mem_pool, int32_t col_id,
+                                                      Arena& mem_pool, int32_t col_id,
                                                       int64_t row_num) const {
     StringRef data_ref = column.get_data_at(row_num);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
