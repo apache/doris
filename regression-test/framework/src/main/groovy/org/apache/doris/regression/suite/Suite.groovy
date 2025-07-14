@@ -356,18 +356,18 @@ class Suite implements GroovyInterceptable {
 
             // wait be report
             Thread.sleep(5000)
-            def url = String.format(
+            def jdbcUrl = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
-            def conn = DriverManager.getConnection(url, user, password)
+            cluster.jdbcUrl = jdbcUrl
+            def conn = DriverManager.getConnection(jdbcUrl, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
             logger.info("try create database if not exists {}", context.dbName)
-            JdbcUtils.executeToList(conn, sql)
+            conn.withCloseable { c -> JdbcUtils.executeToList(c, sql) }
 
-            url = Config.buildUrlWithDb(url, context.dbName)
-            cluster.jdbcUrl = url
-            logger.info("connect to docker cluster: suite={}, url={}", name, url)
-            connect(user, password, url, actionSupplier)
+            def dbUrl = Config.buildUrlWithDb(jdbcUrl, context.dbName)
+            logger.info("connect to docker cluster: suite={}, url={}", name, dbUrl)
+            connect(user, password, dbUrl, actionSupplier)
         } finally {
             if (!context.config.dockerEndNoKill) {
                 cluster.destroy(context.config.dockerEndDeleteFiles)
@@ -662,7 +662,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getCurDbConnectUrl() {
-        return context.config.getConnectionUrlByDbName(getCurDbName())
+        return Config.buildUrlWithDb(context.getJdbcUrl(), getCurDbName())
     }
 
     long getDbId() {
