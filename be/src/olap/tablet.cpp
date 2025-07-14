@@ -943,7 +943,7 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
     }
 
     DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
         }
@@ -1352,7 +1352,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
 std::tuple<int64_t, int64_t> Tablet::get_visible_version_and_time() const {
     // some old tablet has bug, its partition_id is 0, fe couldn't update its visible version.
     // so let this tablet's visible version become int64 max.
-    auto version_info = std::atomic_load_explicit(&_visible_version, std::memory_order_relaxed);
+    auto version_info = _visible_version.load();
     if (version_info != nullptr && partition_id() != 0) {
         return std::make_tuple(version_info->version.load(std::memory_order_relaxed),
                                version_info->update_ts);
@@ -1656,7 +1656,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.version_miss", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto miss = dp->param<bool>("version_miss", true);
             tablet_info->__set_version_miss(miss);
@@ -1706,7 +1706,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.used", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto used = dp->param<bool>("used", true);
             LOG_WARNING("Tablet.build_tablet_report_info.used")

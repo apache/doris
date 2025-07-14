@@ -184,6 +184,8 @@ public:
 
     Status get_realtime_exec_status(const TUniqueId& query_id,
                                     TReportExecStatusParams* exec_status);
+    // get the query statistics of with a given query id
+    Status get_query_statistics(const TUniqueId& query_id, TQueryStatistics* query_stats);
 
     std::shared_ptr<QueryContext> get_query_ctx(const TUniqueId& query_id);
 
@@ -192,9 +194,6 @@ private:
         TNetworkAddress network_address;
         std::vector<std::weak_ptr<QueryContext>> queries;
     };
-
-    template <typename Param>
-    void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
     Status _get_or_create_query_ctx(const TPipelineFragmentParams& params,
                                     const TPipelineFragmentParamsList& parent,

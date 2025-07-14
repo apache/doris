@@ -28,10 +28,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TColumn;
@@ -47,7 +45,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -181,6 +178,10 @@ public class Column implements GsonPostProcessable {
 
     public Column(String name, Type type, boolean isAllowNull) {
         this(name, type, false, null, isAllowNull, null, "");
+    }
+
+    public Column(String name, Type type, boolean isAllowNull, String comment) {
+        this(name, type, false, null, isAllowNull, null, comment);
     }
 
     public Column(String name, Type type) {
@@ -1099,12 +1100,6 @@ public class Column implements GsonPostProcessable {
         return ok;
     }
 
-    @Deprecated
-    public static Column read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Column.class);
-    }
-
     // Gen a signature string of this column, contains:
     // name, type, is key, nullable, aggr type, default
     public String getSignatureString(Map<PrimitiveType, String> typeStringMap) {
@@ -1212,4 +1207,5 @@ public class Column implements GsonPostProcessable {
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
     }
+
 }

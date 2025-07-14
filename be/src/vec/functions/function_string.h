@@ -24,7 +24,6 @@
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/locale.hpp>
-#include <boost/multiprecision/cpp_dec_float.hpp>
 #include <climits>
 #include <cmath>
 #include <cstddef>
@@ -45,7 +44,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_search.hpp"
 #include "util/sha.h"
@@ -2851,6 +2849,48 @@ public:
     }
 };
 
+// ----------------------------------------------------------------------
+// SimpleItoaWithCommas()
+//    Description: converts an integer to a string.
+//    Puts commas every 3 spaces.
+//    Faster than printf("%d")?
+//
+//    Return value: string
+// ----------------------------------------------------------------------
+template <typename T>
+char* SimpleItoaWithCommas(T i, char* buffer, int32_t buffer_size) {
+    char* p = buffer + buffer_size;
+    // Need to use unsigned T instead of T to correctly handle
+    std::make_unsigned_t<T> n = i;
+    if (i < 0) {
+        n = 0 - n;
+    }
+    *--p = '0' + n % 10; // this case deals with the number "0"
+    n /= 10;
+    while (n) {
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) {
+            break;
+        }
+
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) {
+            break;
+        }
+
+        *--p = ',';
+        *--p = '0' + n % 10;
+        n /= 10;
+        // For this unrolling, we check if n == 0 in the main while loop
+    }
+    if (i < 0) {
+        *--p = '-';
+    }
+    return p;
+}
+
 namespace MoneyFormat {
 
 constexpr size_t MAX_FORMAT_LEN_DEC32() {
@@ -2927,7 +2967,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
     }
 
     char local[N];
-    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    char* p = SimpleItoaWithCommas<T>(int_value, local, sizeof(local));
     const Int32 integer_str_len = N - (p - local);
     const Int32 frac_str_len = 2;
     const Int32 whole_decimal_str_len =
@@ -3054,7 +3094,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
     }
 
     char local[N];
-    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    char* p = SimpleItoaWithCommas<T>(int_value, local, sizeof(local));
     const Int32 integer_str_len = N - (p - local);
     const Int32 frac_str_len = decimal_places;
     const Int32 whole_decimal_str_len = (append_sign_manually ? 1 : 0) + integer_str_len +
@@ -4287,29 +4327,33 @@ private:
             return;
         }
         const char* bytes = (const char*)(num);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-        int k = 3;
-        for (; k >= 0; --k) {
-            if (bytes[k]) {
-                break;
+        if constexpr (std::endian::native == std::endian::little) {
+            int k = 3;
+            for (; k >= 0; --k) {
+                if (bytes[k]) {
+                    break;
+                }
             }
-        }
-        offsets[line_num] = offsets[line_num - 1] + k + 1;
-        for (; k >= 0; --k) {
-            chars.push_back(bytes[k] ? bytes[k] : '\0');
-        }
-#else
-        int k = 0;
-        for (; k < 4; ++k) {
-            if (bytes[k]) {
-                break;
+            offsets[line_num] = offsets[line_num - 1] + k + 1;
+            for (; k >= 0; --k) {
+                chars.push_back(bytes[k] ? bytes[k] : '\0');
             }
+        } else if constexpr (std::endian::native == std::endian::big) {
+            int k = 0;
+            for (; k < 4; ++k) {
+                if (bytes[k]) {
+                    break;
+                }
+            }
+            offsets[line_num] = offsets[line_num - 1] + 4 - k;
+            for (; k < 4; ++k) {
+                chars.push_back(bytes[k] ? bytes[k] : '\0');
+            }
+        } else {
+            static_assert(std::endian::native == std::endian::big ||
+                                  std::endian::native == std::endian::little,
+                          "Unsupported endianness");
         }
-        offsets[line_num] = offsets[line_num - 1] + 4 - k;
-        for (; k < 4; ++k) {
-            chars.push_back(bytes[k] ? bytes[k] : '\0');
-        }
-#endif
     }
 };
 

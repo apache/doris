@@ -19,15 +19,16 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateResourceStmt;
-import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -94,10 +95,10 @@ public class ResourceMgrTest {
 
         // s3 resource
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, s3ResName, s3Properties);
-        stmt.analyze(analyzer);
+        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
+        createResourceCommand.getInfo().validate();
         Assert.assertEquals(0, mgr.getResourceNum());
-        mgr.createResource(stmt);
+        mgr.createResource(createResourceCommand);
         Assert.assertEquals(1, mgr.getResourceNum());
 
         // alter
@@ -108,12 +109,6 @@ public class ResourceMgrTest {
         // current not support modify s3 property
         // mgr.alterResource(alterResourceStmt);
         // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("AWS_REGION"));
-
-        // drop
-        DropResourceStmt dropStmt = new DropResourceStmt(false, s3ResName);
-        mgr.dropResource(dropStmt);
-        Assert.assertEquals(0, mgr.getResourceNum());
-
     }
 
     @Test(expected = DdlException.class)
@@ -131,22 +126,14 @@ public class ResourceMgrTest {
 
         // add
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, s3ResName, s3Properties);
-        stmt.analyze(analyzer);
+        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
+        createResourceCommand.getInfo().validate();
+
         Assert.assertEquals(0, mgr.getResourceNum());
-        mgr.createResource(stmt);
+        mgr.createResource(createResourceCommand);
         Assert.assertEquals(1, mgr.getResourceNum());
 
         // add again
-        mgr.createResource(stmt);
-    }
-
-    @Test(expected = DdlException.class)
-    public void testDropResourceNotExist() throws UserException {
-        // drop
-        ResourceMgr mgr = new ResourceMgr();
-        Assert.assertEquals(0, mgr.getResourceNum());
-        DropResourceStmt stmt = new DropResourceStmt(false, s3ResName);
-        mgr.dropResource(stmt);
+        mgr.createResource(createResourceCommand);
     }
 }

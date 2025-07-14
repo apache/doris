@@ -17,33 +17,14 @@
 
 package org.apache.doris.load.sync.canal;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
 @Deprecated
-public class CanalDestination implements Writable {
+public class CanalDestination {
     @SerializedName(value = "ip")
     private String ip;
     @SerializedName(value = "port")
     private int port;
     @SerializedName(value = "destination")
     private String destination;
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static CanalDestination read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CanalDestination.class);
-    }
 }

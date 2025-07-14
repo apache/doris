@@ -24,21 +24,13 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.ShowCreateFunctionStmt;
-import org.apache.doris.analysis.ShowCreateTableStmt;
-import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -67,22 +59,29 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.policy.DropPolicyLog;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.ShowExecutor;
-import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -288,7 +287,6 @@ public abstract class TestWithFeService {
     public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(user);
-        ctx.setQualifiedUser(user.getQualifiedUser());
         ctx.setRemoteIP(host);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
@@ -658,32 +656,8 @@ public abstract class TestWithFeService {
         connectContext.setDatabase(dbName);
     }
 
-    protected ShowResultSet showCreateTable(String sql) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showCreateFunction(String sql) throws Exception {
-        ShowCreateFunctionStmt stmt = (ShowCreateFunctionStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showFunctions(String sql) throws Exception {
-        ShowFunctionsStmt stmt = (ShowFunctionsStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showCreateTableByName(String table) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt("show create table " + table);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
     public void createTable(String sql) throws Exception {
-        createTable(sql, false);
+        createTable(sql, true);
     }
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
@@ -712,11 +686,6 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().recoverTable(recoverTableStmt);
     }
 
-    public void createTableAsSelect(String sql) throws Exception {
-        CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
-    }
-
     public void createCatalog(String sql) throws Exception {
         CreateCatalogStmt stmt = (CreateCatalogStmt) parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().getCatalogMgr().createCatalog(stmt);
@@ -727,7 +696,7 @@ public abstract class TestWithFeService {
     }
 
     public void createTables(String... sqls) throws Exception {
-        createTables(false, sqls);
+        createTables(true, sqls);
     }
 
     public void createTables(boolean enableNereids, String... sqls) throws Exception {
@@ -757,8 +726,9 @@ public abstract class TestWithFeService {
     }
 
     public void createView(String sql) throws Exception {
-        CreateViewStmt createViewStmt = (CreateViewStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createView(createViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateViewCommand command = (CreateViewCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     protected void createPolicy(String sql) throws Exception {
@@ -789,8 +759,12 @@ public abstract class TestWithFeService {
     }
 
     protected void dropPolicy(String sql) throws Exception {
-        DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        DropRowPolicyCommand command = (DropRowPolicyCommand) nereidsParser.parseSingle(sql);
+        TableNameInfo tableNameInfo = command.getTableNameInfo();
+        DropPolicyLog dropPolicyLog = new DropPolicyLog(tableNameInfo.getCtl(), tableNameInfo.getDb(),
+                tableNameInfo.getTbl(), PolicyTypeEnum.ROW, command.getPolicyName(), command.getUser(), command.getRoleName());
+        Env.getCurrentEnv().getPolicyMgr().dropPolicy(dropPolicyLog, command.isIfExists());
     }
 
     protected void createSqlBlockRule(String sql) throws Exception {
@@ -830,13 +804,44 @@ public abstract class TestWithFeService {
         UserIdentity user = new UserIdentity(userName, host);
         user.analyze();
         connectContext.setCurrentUserIdentity(user);
-        connectContext.setQualifiedUser(userName);
     }
 
     protected void addUser(String userName, boolean ifNotExists) throws Exception {
-        CreateUserStmt createUserStmt = (CreateUserStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "create user " + (ifNotExists ? "if not exists " : "") + userName + "@'%'", connectContext);
-        DdlExecutor.execute(Env.getCurrentEnv(), createUserStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create user " + (ifNotExists ? "if not exists " : "") + userName + "@'%'";
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateUserCommand) {
+            ((CreateUserCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    protected void createRole(String roleName) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "CREATE ROLE " + roleName;
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateRoleCommand) {
+            ((CreateRoleCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    protected void grantRole(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof GrantRoleCommand) {
+            ((GrantRoleCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    protected void grantPriv(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof GrantTablePrivilegeCommand) {
+            ((GrantTablePrivilegeCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     protected void addRollup(String sql) throws Exception {
@@ -854,9 +859,12 @@ public abstract class TestWithFeService {
     }
 
     protected void createMv(String sql) throws Exception {
-        CreateMaterializedViewStmt createMaterializedViewStmt =
-                (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createMaterializedView(createMaterializedViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateMaterializedViewCommand) {
+            ((CreateMaterializedViewCommand) parsed).run(connectContext, stmtExecutor);
+        }
         checkAlterJob();
         // waiting table state to normal
         Thread.sleep(100);

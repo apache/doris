@@ -27,7 +27,6 @@
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/jsonb_value.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -65,26 +64,9 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    Field get_default() const override {
-        std::string default_json = "null";
-        // convert default_json to binary
-        JsonBinaryValue jsonb_value;
-        THROW_IF_ERROR(jsonb_value.from_json_string(default_json));
-        // Throw exception if default_json.size() is large than INT32_MAX
-        // JsonbField keeps its own memory
-        return Field::create_field<TYPE_JSONB>(
-                JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size())));
-    }
+    Field get_default() const override;
 
-    Field get_field(const TExprNode& node) const override {
-        DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
-        DCHECK(node.__isset.json_literal);
-        JsonBinaryValue jsonb_value;
-        THROW_IF_ERROR(jsonb_value.from_json_string(node.json_literal.value));
-        return Field::create_field<TYPE_JSONB>(
-                JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size())));
-    }
-
+    Field get_field(const TExprNode& node) const override;
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return false; }

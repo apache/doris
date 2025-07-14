@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.rest.manager;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -42,10 +43,12 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
@@ -63,11 +66,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -684,6 +689,41 @@ public class NodeAction extends RestBaseController {
         return ResponseEntityBuilder.ok();
     }
 
+    @PostMapping("/{action}/broker")
+    public Object operateBroker(HttpServletRequest request, HttpServletResponse response,
+                                @PathVariable String action, @RequestBody BrokerReqInfo reqInfo) {
+        try {
+            if (!Env.getCurrentEnv().isMaster()) {
+                return redirectToMasterOrException(request, response);
+            }
+            String brokerName = reqInfo.getBrokerName();
+            if ("ADD".equals(action)) {
+                Env.getCurrentEnv().getBrokerMgr().addBrokers(
+                        brokerName, parseBrokerHostPort(reqInfo.getHostPortList()));
+            } else if ("DROP".equals(action)) {
+                Env.getCurrentEnv().getBrokerMgr().dropBrokers(
+                        brokerName, parseBrokerHostPort(reqInfo.getHostPortList()));
+            } else if ("DROP_ALL".equals(action)) {
+                Env.getCurrentEnv().getBrokerMgr().dropAllBroker(brokerName);
+            } else {
+                throw new Exception("Unsupported broker operation type: " + action);
+            }
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+        return ResponseEntityBuilder.ok();
+    }
+
+    private Collection<Pair<String, Integer>> parseBrokerHostPort(List<String> hostPortList) throws AnalysisException {
+        Set<Pair<String, Integer>> hostPortPairs = Sets.newHashSet();
+        for (String hostPort : hostPortList) {
+            Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);
+            hostPortPairs.add(pair);
+        }
+        Preconditions.checkState(!hostPortPairs.isEmpty());
+        return hostPortPairs;
+    }
+
     @Data
     private static class BackendReqInfo {
 
@@ -698,6 +738,14 @@ public class NodeAction extends RestBaseController {
         private String role;
 
         private String hostPort;
+    }
+
+    @Data
+    private static class BrokerReqInfo {
+
+        private String brokerName;
+
+        private List<String> hostPortList;
     }
 
     // Parsing request body into List<NodeConfigs>

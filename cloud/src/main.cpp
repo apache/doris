@@ -36,9 +36,9 @@
 #include "common/configbase.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_server.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
 #include "recycler/recycler.h"
 
 using namespace doris::cloud;
@@ -235,6 +235,9 @@ int main(int argc, char** argv) {
                      "run doris_cloud as meta_service and recycler by default";
         std::cout << "try to start meta_service, recycler" << std::endl;
     }
+
+    google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number",
+                                 config::bvar_max_dump_multi_dimension_metric_num.c_str());
 
     brpc::Server server;
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;

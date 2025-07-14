@@ -44,6 +44,7 @@
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
+#include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -557,6 +558,9 @@ struct ConvertImplNumberToJsonb {
                 writer.writeInt128(data[i]);
             } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
                 writer.writeDouble(data[i]);
+            } else if constexpr (std::is_same_v<ColumnDecimal128V3, ColumnType>) {
+                auto type = col_with_type_and_name.type;
+                writer.writeDecimal(data[i], type->get_precision(), type->get_scale());
             } else {
                 static_assert(std::is_same_v<ColumnType, ColumnUInt8> ||
                                       std::is_same_v<ColumnType, ColumnInt8> ||
@@ -619,8 +623,9 @@ struct ConvertImplGenericFromJsonb {
             const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
-                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
-                if (UNLIKELY(!doc || !doc->getValue())) {
+                JsonbDocument* doc = nullptr;
+                auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
+                if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                     (*vec_null_map_to)[i] = 1;
                     col_to->insert_default();
                     continue;
@@ -644,7 +649,7 @@ struct ConvertImplGenericFromJsonb {
                 }
                 // add string to string column
                 if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
-                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
+                    const auto* blob = value->unpack<JsonbBinaryVal>();
                     assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(*col_to).insert_data(
                             blob->getBlob(), blob->getBlobLen());
                     (*vec_null_map_to)[i] = 0;
@@ -652,7 +657,7 @@ struct ConvertImplGenericFromJsonb {
                 }
                 std::string input_str;
                 if (context->jsonb_string_as_string() && value->isString()) {
-                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
+                    const auto* blob = value->unpack<JsonbBinaryVal>();
                     input_str = std::string(blob->getBlob(), blob->getBlobLen());
                 } else {
                     input_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
@@ -663,7 +668,7 @@ struct ConvertImplGenericFromJsonb {
                     continue;
                 }
                 ReadBuffer read_buffer((char*)(input_str.data()), input_str.size());
-                Status st = data_type_to->from_string(read_buffer, col_to.get());
+                st = data_type_to->from_string(read_buffer, col_to.get());
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
                 if (!st.ok()) {
@@ -750,7 +755,7 @@ struct ConvertNothingToJsonb {
     }
 };
 
-template <PrimitiveType type, typename ColumnType>
+template <PrimitiveType type, typename ColumnType, typename ToDataType>
 struct ConvertImplFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
@@ -782,8 +787,9 @@ struct ConvertImplFromJsonb {
                 }
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
-                if (UNLIKELY(!doc || !doc->getValue())) {
+                JsonbDocument* doc = nullptr;
+                auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
+                if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                     null_map[i] = 1;
                     res[i] = 0;
                     continue;
@@ -796,6 +802,18 @@ struct ConvertImplFromJsonb {
                     res[i] = 0;
                     continue;
                 }
+
+                // if value is string, convert by parse, otherwise the result is null if ToDataType is not string
+                if (value->isString()) {
+                    const auto* blob = value->unpack<JsonbBinaryVal>();
+                    const auto& data = blob->getBlob();
+                    size_t len = blob->getBlobLen();
+                    ReadBuffer rb((char*)(data), len);
+                    bool parsed = try_parse_impl<ToDataType>(res[i], rb, context);
+                    null_map[i] = !parsed;
+                    continue;
+                }
+
                 if constexpr (type == PrimitiveType::TYPE_BOOLEAN) {
                     // cast from json value to boolean type
                     if (value->isTrue()) {
@@ -803,10 +821,10 @@ struct ConvertImplFromJsonb {
                     } else if (value->isFalse()) {
                         res[i] = 0;
                     } else if (value->isInt()) {
-                        res[i] = ((const JsonbIntVal*)value)->val() == 0 ? 0 : 1;
+                        res[i] = value->int_val() == 0 ? 0 : 1;
                     } else if (value->isDouble()) {
                         res[i] = static_cast<ColumnType::value_type>(
-                                         ((const JsonbDoubleVal*)value)->val()) == 0
+                                         value->unpack<JsonbDoubleVal>()->val()) == 0
                                          ? 0
                                          : 1;
                     } else {
@@ -820,10 +838,10 @@ struct ConvertImplFromJsonb {
                                      type == PrimitiveType::TYPE_LARGEINT) {
                     // cast from json value to integer types
                     if (value->isInt()) {
-                        res[i] = ((const JsonbIntVal*)value)->val();
+                        res[i] = value->int_val();
                     } else if (value->isDouble()) {
                         res[i] = static_cast<ColumnType::value_type>(
-                                ((const JsonbDoubleVal*)value)->val());
+                                value->unpack<JsonbDoubleVal>()->val());
                     } else if (value->isTrue()) {
                         res[i] = 1;
                     } else if (value->isFalse()) {
@@ -836,15 +854,15 @@ struct ConvertImplFromJsonb {
                                      type == PrimitiveType::TYPE_DOUBLE) {
                     // cast from json value to floating point types
                     if (value->isDouble()) {
-                        res[i] = ((const JsonbDoubleVal*)value)->val();
+                        res[i] = value->unpack<JsonbDoubleVal>()->val();
                     } else if (value->isFloat()) {
-                        res[i] = ((const JsonbFloatVal*)value)->val();
+                        res[i] = value->unpack<JsonbFloatVal>()->val();
                     } else if (value->isTrue()) {
                         res[i] = 1;
                     } else if (value->isFalse()) {
                         res[i] = 0;
                     } else if (value->isInt()) {
-                        res[i] = ((const JsonbIntVal*)value)->val();
+                        res[i] = value->int_val();
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -1221,7 +1239,6 @@ protected:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
 private:
@@ -1687,19 +1704,26 @@ private:
                                      bool jsonb_string_as_string) const {
         switch (to_type->get_primitive_type()) {
         case PrimitiveType::TYPE_BOOLEAN:
-            return &ConvertImplFromJsonb<PrimitiveType::TYPE_BOOLEAN, ColumnUInt8>::execute;
+            return &ConvertImplFromJsonb<PrimitiveType::TYPE_BOOLEAN, ColumnUInt8,
+                                         DataTypeUInt8>::execute;
         case PrimitiveType::TYPE_TINYINT:
-            return &ConvertImplFromJsonb<PrimitiveType::TYPE_TINYINT, ColumnInt8>::execute;
+            return &ConvertImplFromJsonb<PrimitiveType::TYPE_TINYINT, ColumnInt8,
+                                         DataTypeInt8>::execute;
         case PrimitiveType::TYPE_SMALLINT:
-            return &ConvertImplFromJsonb<PrimitiveType::TYPE_SMALLINT, ColumnInt16>::execute;
+            return &ConvertImplFromJsonb<PrimitiveType::TYPE_SMALLINT, ColumnInt16,
+                                         DataTypeInt16>::execute;
         case PrimitiveType::TYPE_INT:
-            return &ConvertImplFromJsonb<PrimitiveType::TYPE_INT, ColumnInt32>::execute;
+            return &ConvertImplFromJsonb<PrimitiveType::TYPE_INT, ColumnInt32,
+                                         DataTypeInt32>::execute;
         case PrimitiveType::TYPE_BIGINT:
-            return &ConvertImplFromJsonb<PrimitiveType::TYPE_BIGINT, ColumnInt64>::execute;
+            return &ConvertImplFromJsonb<PrimitiveType::TYPE_BIGINT, ColumnInt64,
+                                         DataTypeInt64>::execute;
         case PrimitiveType::TYPE_LARGEINT:
-            return &ConvertImplFromJsonb<PrimitiveType::TYPE_LARGEINT, ColumnInt128>::execute;
+            return &ConvertImplFromJsonb<PrimitiveType::TYPE_LARGEINT, ColumnInt128,
+                                         DataTypeInt128>::execute;
         case PrimitiveType::TYPE_DOUBLE:
-            return &ConvertImplFromJsonb<PrimitiveType::TYPE_DOUBLE, ColumnFloat64>::execute;
+            return &ConvertImplFromJsonb<PrimitiveType::TYPE_DOUBLE, ColumnFloat64,
+                                         DataTypeFloat64>::execute;
         case PrimitiveType::TYPE_STRING:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:
@@ -1733,6 +1757,8 @@ private:
             return &ConvertImplNumberToJsonb<ColumnInt128>::execute;
         case PrimitiveType::TYPE_DOUBLE:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return &ConvertImplNumberToJsonb<ColumnDecimal128V3>::execute;
         case PrimitiveType::TYPE_STRING:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:
@@ -1760,7 +1786,7 @@ private:
             auto& variant = assert_cast<const ColumnVariant&>(*col_from);
             ColumnPtr col_to = data_type_to->create_column();
             if (!variant.is_finalized()) {
-                // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
+                // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
                 variant.assume_mutable()->finalize();
             }
             // It's important to convert as many elements as possible in this context. For instance,
@@ -2304,6 +2330,5 @@ protected:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
 };
 } // namespace doris::vectorized

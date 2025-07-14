@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <unicode/uchar.h>
+
 #include <functional>
 #include <memory>
 #include <vector>
@@ -70,7 +72,7 @@ public:
 
     static int32_t identifyCharType(int32_t rune);
 
-    static void decodeStringToRunes(const char* str, size_t length, TypedRuneArray& typed_runes,
+    static void decodeStringToRunes(char* str, size_t length, TypedRuneArray& typed_runes,
                                     bool use_lowercase);
 
     static int32_t regularize(int32_t rune, bool use_lowercase);
@@ -80,7 +82,7 @@ public:
 
     static void regularizeCharInfo(TypedRune& type_rune, bool use_lowercase);
 
-    static size_t adjustToCompleteChar(const char* buffer, size_t buffer_length);
+    static void regularizeString(std::string& input, bool use_lowercase = true);
 };
 
 } // namespace doris::segment_v2

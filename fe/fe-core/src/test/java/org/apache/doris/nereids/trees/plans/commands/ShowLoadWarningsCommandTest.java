@@ -59,5 +59,24 @@ public class ShowLoadWarningsCommandTest extends TestWithFeService {
         sl = new ShowLoadWarningsCommand("test", where4, -1, 0, null);
         ShowLoadWarningsCommand finalSl4 = sl;
         Assertions.assertThrows(AnalysisException.class, () -> finalSl4.handleShowLoadWarnings(connectContext, null));
+
+        Expression where5 = new EqualTo(new UnboundSlot(Lists.newArrayList("jobid")),
+                new BigIntLiteral(1748399001963L));
+        sl = new ShowLoadWarningsCommand("test", where5, -1, 0, null);
+        ShowLoadWarningsCommand finalSl5 = sl;
+        Assertions.assertThrows(AnalysisException.class, () -> finalSl5.handleShowLoadWarnings(connectContext, null));
+    }
+
+    @Test
+    void testValidate() throws Exception {
+        Expression where = new EqualTo(new UnboundSlot(Lists.newArrayList("jobid")),
+                new BigIntLiteral(1748399001963L));
+        ShowLoadWarningsCommand sl = new ShowLoadWarningsCommand("test", where, -1, 0, null);
+        sl.validate(connectContext);
+
+        Expression where1 = new EqualTo(new UnboundSlot(Lists.newArrayList("load_job_id")),
+                new BigIntLiteral(1748399001963L));
+        sl = new ShowLoadWarningsCommand("test", where1, -1, 0, null);
+        sl.validate(connectContext);
     }
 }

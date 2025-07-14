@@ -44,6 +44,10 @@ std::ostream& operator<<(std::ostream& os, const UniqueId& uid) {
     return os;
 }
 
+std::string print_id(const UniqueId& id) {
+    return id.to_string();
+}
+
 std::string print_id(const TUniqueId& id) {
     return fmt::format(FMT_COMPILE("{:x}-{:x}"), static_cast<uint64_t>(id.hi),
                        static_cast<uint64_t>(id.lo));

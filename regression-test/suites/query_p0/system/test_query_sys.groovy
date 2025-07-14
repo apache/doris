@@ -43,6 +43,7 @@ suite("test_query_sys", "query,p0") {
     sql "select pi();"
     sql "select e();"
     sql "select sleep(2);"
+    sql "select sleep(null);"
     sql "select last_query_id();"
     sql "select LAST_QUERY_ID();"
 
@@ -62,4 +63,7 @@ suite("test_query_sys", "query,p0") {
     sql """set parallel_pipeline_task_num=1"""
     def rows2 = sql """ select count(*) from information_schema.workload_group_resource_usage; """
     assertEquals(rows1, rows2)
+
+    sql "set debug_skip_fold_constant=true;"
+    sql "select version();"
 }

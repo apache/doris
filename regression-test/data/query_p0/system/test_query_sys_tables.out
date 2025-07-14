@@ -152,7 +152,8 @@ CHECKSUM	bigint	Yes	false	\N
 PARTITION_COMMENT	text	Yes	false	\N	
 NODEGROUP	varchar(256)	Yes	false	\N	
 TABLESPACE_NAME	varchar(268)	Yes	false	\N	
-DATA_SIZE	text	Yes	false	\N	
+LOCAL_DATA_SIZE	text	Yes	false	\N	
+REMOTE_DATA_SIZE	text	Yes	false	\N	
 STATE	text	Yes	false	\N	
 REPLICA_ALLOCATION	text	Yes	false	\N	
 REPLICA_NUM	int	Yes	false	\N	

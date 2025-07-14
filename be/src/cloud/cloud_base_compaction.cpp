@@ -200,9 +200,13 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
 
     int score = 0;
     int rowset_cnt = 0;
+    int64_t max_compaction_score = _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                                   _tablet->enable_unique_key_merge_on_write()
+                                           ? config::mow_base_compaction_max_compaction_score
+                                           : config::base_compaction_max_compaction_score;
     while (rowset_cnt < _input_rowsets.size()) {
         score += _input_rowsets[rowset_cnt++]->rowset_meta()->get_compaction_score();
-        if (score > config::base_compaction_max_compaction_score) {
+        if (score > max_compaction_score) {
             break;
         }
     }
@@ -303,6 +307,8 @@ Status CloudBaseCompaction::execute_compact() {
             .tag("output_rowset_data_size", _output_rowset->data_disk_size())
             .tag("output_rowset_index_size", _output_rowset->index_disk_size())
             .tag("output_rowset_total_size", _output_rowset->total_disk_size())
+            .tag("local_read_time_us", _stats.cloud_local_read_time)
+            .tag("remote_read_time_us", _stats.cloud_remote_read_time)
             .tag("local_read_bytes", _local_read_bytes_total)
             .tag("remote_read_bytes", _remote_read_bytes_total);
 

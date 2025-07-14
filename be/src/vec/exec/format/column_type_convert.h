@@ -18,6 +18,7 @@
 #pragma once
 
 #include <absl/strings/numbers.h>
+#include <cctz/time_zone.h>
 
 #include <cstdint>
 #include <utility>
@@ -377,7 +378,7 @@ struct SafeCastString<TYPE_BOOLEAN, ORC> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType::value_type* value) {
         std::string str_value(startptr, buffer_size);
-        int64 cast_to_long = 0;
+        int64_t cast_to_long = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_long);
         *value = cast_to_long == 0 ? 0 : 1;
         return can_cast;
@@ -388,10 +389,10 @@ template <>
 struct SafeCastString<TYPE_TINYINT> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_TINYINT>::ColumnType::value_type* value) {
-        int32 cast_to_int = 0;
+        int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_int);
-        if (can_cast && cast_to_int <= std::numeric_limits<int8>::max() &&
-            cast_to_int >= std::numeric_limits<int8>::min()) {
+        if (can_cast && cast_to_int <= std::numeric_limits<int8_t>::max() &&
+            cast_to_int >= std::numeric_limits<int8_t>::min()) {
             *value = static_cast<int8_t>(cast_to_int);
             return true;
         } else {
@@ -405,10 +406,10 @@ struct SafeCastString<TYPE_SMALLINT> {
     static bool safe_cast_string(
             const char* startptr, size_t buffer_size,
             PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnType::value_type* value) {
-        int32 cast_to_int = 0;
+        int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_int);
-        if (can_cast && cast_to_int <= std::numeric_limits<int16>::max() &&
-            cast_to_int >= std::numeric_limits<int16>::min()) {
+        if (can_cast && cast_to_int <= std::numeric_limits<int16_t>::max() &&
+            cast_to_int >= std::numeric_limits<int16_t>::min()) {
             *value = static_cast<int16_t>(cast_to_int);
             return true;
         } else {
@@ -421,7 +422,7 @@ template <>
 struct SafeCastString<TYPE_INT> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_INT>::ColumnType::value_type* value) {
-        int32 cast_to_int = 0;
+        int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_int);
         *value = cast_to_int;
         return can_cast;
@@ -432,7 +433,7 @@ template <>
 struct SafeCastString<TYPE_BIGINT> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType::value_type* value) {
-        int64 cast_to_int = 0;
+        int64_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_int);
         *value = cast_to_int;
         return can_cast;
@@ -592,6 +593,62 @@ public:
     }
 };
 
+template <PrimitiveType DstPrimitiveType>
+class DateTimeToNumericConverter : public ColumnTypeConverter {
+public:
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        using SrcColumnType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType;
+        using DstColumnType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType;
+        using SrcCppType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
+        using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
+
+        ColumnPtr from_col = remove_nullable(src_col);
+        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+
+        NullMap* null_map = nullptr;
+        if (dst_col->is_nullable()) {
+            null_map = &reinterpret_cast<vectorized::ColumnNullable*>(dst_col.get())
+                                ->get_null_map_data();
+        }
+
+        size_t rows = from_col->size();
+        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        size_t start_idx = to_col->size();
+        to_col->resize(start_idx + rows);
+        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+
+        for (int i = 0; i < rows; ++i) {
+            const SrcCppType& src_value = src_data[i];
+            auto& dst_value = reinterpret_cast<DstCppType&>(data[start_idx + i]);
+
+            int64_t ts_s = 0;
+            if (!src_value.unix_timestamp(&ts_s, cctz::utc_time_zone())) {
+                if (null_map == nullptr) {
+                    return Status::InternalError("Failed to cast value '{}' to {} column",
+                                                 src_data[i], dst_col->get_name());
+                } else {
+                    (*null_map)[start_idx + i] = 1;
+                }
+            }
+            auto micro = src_value.microsecond();
+            int64_t ts_ms = ts_s * 1000 + micro / 1000;
+            if constexpr (DstPrimitiveType != TYPE_LARGEINT && DstPrimitiveType != TYPE_BIGINT) {
+                if ((Int64)std::numeric_limits<DstCppType>::min() > ts_ms ||
+                    ts_ms > (Int64)std::numeric_limits<DstCppType>::max()) {
+                    if (null_map == nullptr) {
+                        return Status::InternalError("Failed to cast value '{}' to {} column",
+                                                     src_data[i], dst_col->get_name());
+                    } else {
+                        (*null_map)[start_idx + i] = 1;
+                    }
+                }
+            }
+            dst_value = static_cast<DstCppType>(ts_ms);
+        }
+        return Status::OK();
+    }
+};
+
 // only support date & datetime v2
 template <PrimitiveType SrcPrimitiveType, PrimitiveType DstPrimitiveType>
 class TimeV2Converter : public ColumnTypeConverter {
@@ -745,7 +802,7 @@ public:
         SrcNativeType scale_factor;
         if constexpr (sizeof(SrcNativeType) <= sizeof(int)) {
             scale_factor = common::exp10_i32(_scale);
-        } else if constexpr (sizeof(SrcNativeType) <= sizeof(int64)) {
+        } else if constexpr (sizeof(SrcNativeType) <= sizeof(int64_t)) {
             scale_factor = common::exp10_i64(_scale);
         } else if constexpr (sizeof(SrcNativeType) <= sizeof(__int128)) {
             scale_factor = common::exp10_i128(_scale);

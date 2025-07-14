@@ -601,10 +601,12 @@ under the License.
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
+            <version>${iceberg.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-aws</artifactId>
+            <version>${iceberg.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>
@@ -897,7 +899,11 @@ under the License.
             <artifactId>sdk-core</artifactId>
             <version>${awssdk.version}</version>
         </dependency>
-
+        <dependency>
+            <groupId>com.taobao.arthas</groupId>
+            <artifactId>arthas-packaging</artifactId>
+            <version>4.0.5</version>
+        </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>

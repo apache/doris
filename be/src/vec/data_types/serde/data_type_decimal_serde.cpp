@@ -23,7 +23,8 @@
 #include <arrow/util/decimal.h>
 
 #include "arrow/type.h"
-#include "common/consts.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
@@ -105,7 +106,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
             const auto& data_ref = col.get_data_at(i);
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
-            uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
+            uint64_t low = cast_set<uint64_t>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
                                              array_builder->type()->name()));
@@ -123,7 +124,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
             const auto& data_ref = col.get_data_at(i);
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
-            uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
+            uint64_t low = cast_set<uint64_t>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
                                              array_builder->type()->name()));
@@ -344,6 +345,97 @@ void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& c
     FieldType val = col.get_element(sz - 1);
     for (int i = 0; i < times; i++) {
         col.insert_value(val);
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                      Arena& mem_pool, int32_t col_id,
+                                                      int64_t row_num) const {
+    StringRef data_ref = column.get_data_at(row_num);
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
+    if constexpr (T == TYPE_DECIMALV2) {
+        Decimal128V2::NativeType val =
+                *reinterpret_cast<const Decimal128V2::NativeType*>(data_ref.data);
+        result.writeInt128(val);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        Decimal128V3::NativeType val =
+                *reinterpret_cast<const Decimal128V3::NativeType*>(data_ref.data);
+        result.writeInt128(val);
+    } else if constexpr (T == TYPE_DECIMAL32) {
+        Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
+        result.writeInt32(val);
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
+        result.writeInt64(val);
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        // use binary type, since jsonb does not support int256
+        result.writeStartBinary();
+        result.writeBinary(data_ref.data, data_ref.size);
+        result.writeEndBinary();
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_one_cell_to_jsonb with type " + column.get_name());
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                          int64_t row_num,
+                                                          JsonbWriter& writer) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb");
+    } else {
+        const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_element(row_num);
+        if (!writer.writeDecimal(data, precision, scale)) {
+            return Status::InvalidArgument(
+                    "DataTypeDecimalSerDe<T>::serialize_column_to_jsonb failed");
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                 ColumnString& to_column) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb_vector");
+    } else {
+        const auto size = from_column.size();
+        JsonbWriter writer;
+        const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_data();
+        for (int i = 0; i < size; i++) {
+            writer.reset();
+            if (!writer.writeDecimal(data[i], precision, scale)) {
+                return Status::InvalidArgument(
+                        "DataTypeDecimalSerDe<T>::serialize_column_to_jsonb failed");
+            }
+            to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
+                                                       const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
+    if constexpr (T == TYPE_DECIMALV2) {
+        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
+    } else if constexpr (T == TYPE_DECIMAL32) {
+        col.insert_value(arg->unpack<JsonbInt32Val>()->val());
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        col.insert_value(arg->unpack<JsonbInt64Val>()->val());
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        // use binary type, since jsonb does not support int256
+        const wide::Int256 val =
+                *reinterpret_cast<const wide::Int256*>(arg->unpack<JsonbBinaryVal>()->getBlob());
+        col.insert_value(Decimal256(val));
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_one_cell_from_jsonb with type " + column.get_name());
     }
 }
 

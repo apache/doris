@@ -19,8 +19,8 @@
 
 #include <gen_cpp/cloud.pb.h>
 
-#include "meta-service/txn_kv.h"
 #include "meta-service/txn_lazy_committer.h"
+#include "meta-store/txn_kv.h"
 
 namespace doris::cloud {
 
@@ -44,6 +44,8 @@ public:
               ::google::protobuf::Closure* done) override;
 
 private:
+    void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code, std::string& msg);
+
     void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
 
 private:

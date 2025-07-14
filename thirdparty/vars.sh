@@ -421,10 +421,10 @@ XSIMD_SOURCE=xsimd-13.0.0
 XSIMD_MD5SUM="c661deb91836e82d3070f81032014fe6"
 
 # simdjson
-SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.0.1.tar.gz"
-SIMDJSON_NAME=simdjson-3.0.1.tar.gz
-SIMDJSON_SOURCE=simdjson-3.0.1
-SIMDJSON_MD5SUM="993576b47249f2bade2bfb2552b2896a"
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.11.6.tar.gz"
+SIMDJSON_NAME=simdjson-3.11.6.tar.gz
+SIMDJSON_SOURCE=simdjson-3.11.6
+SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
 
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"

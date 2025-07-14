@@ -240,7 +240,8 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column, make_nullable(get_result_type()), column_with_type_and_name.name};
+            return {std::move(res_column), make_nullable(get_result_type()),
+                    column_with_type_and_name.name};
         } else {
             return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
@@ -296,7 +297,8 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column, make_nullable(get_result_type()), column_with_type_and_name.name};
+            return {std::move(res_column), make_nullable(get_result_type()),
+                    column_with_type_and_name.name};
         } else {
             return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
@@ -356,7 +358,8 @@ public:
 
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column, make_nullable(get_result_type()), column_with_type_and_name.name};
+            return {std::move(res_column), make_nullable(get_result_type()),
+                    column_with_type_and_name.name};
         } else {
             return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};

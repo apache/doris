@@ -22,9 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -32,13 +29,10 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 
-public class EncryptKeyName implements Writable {
+public class EncryptKeyName {
     private static final Logger LOG = LogManager.getLogger(EncryptKeyName.class);
 
     @SerializedName(value = "db")
@@ -106,17 +100,6 @@ public class EncryptKeyName implements Writable {
             return keyName;
         }
         return ClusterNamespace.getNameFromFullName(db) + "." + keyName;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static EncryptKeyName read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, EncryptKeyName.class);
     }
 
     @Override

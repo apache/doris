@@ -30,6 +30,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -41,11 +42,12 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -146,9 +148,8 @@ public class TVFScanNode extends FileQueryScanNode {
         }
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            Map<String, String> prop = Maps.newHashMap();
             try {
-                splits.addAll(FileSplitter.splitFile(new LocationPath(fileStatus.getPath(), prop),
+                splits.addAll(FileSplitter.splitFile(LocationPath.of(fileStatus.getPath()),
                         getRealFileSplitSize(needSplit ? fileStatus.getBlockSize() : Long.MAX_VALUE),
                         null, fileStatus.getSize(),
                         fileStatus.getModificationTime(), fileStatus.isSplitable, null,
@@ -159,6 +160,15 @@ public class TVFScanNode extends FileQueryScanNode {
             }
         }
         return splits;
+    }
+
+    @Override
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (split instanceof FileSplit) {
+            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+            tableFormatFileDesc.setTableFormatType(TableFormatType.TVF.value());
+            rangeDesc.setTableFormatParams(tableFormatFileDesc);
+        }
     }
 
     @Override

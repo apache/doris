@@ -27,8 +27,6 @@
 #include "common/status.h"
 #include "data_type_number_serde.h"
 #include "olap/olap_common.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
@@ -36,7 +34,6 @@
 #include "vec/runtime/ipv6_value.h"
 
 namespace doris {
-class JsonbOutStream;
 
 namespace vectorized {
 class Arena;
@@ -70,7 +67,7 @@ public:
                                   int64_t end, const cctz::time_zone& ctz) const override;
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
-                                 Arena* mem_pool, int unique_id, int64_t row_num) const override;
+                                 Arena& mem_pool, int unique_id, int64_t row_num) const override;
 
 private:
     template <bool is_binary_format>

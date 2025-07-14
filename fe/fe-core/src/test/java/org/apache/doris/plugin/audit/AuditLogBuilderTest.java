@@ -80,12 +80,9 @@ public class AuditLogBuilderTest {
             // 4. Test statement with newlines, tabs, carriage returns
             String stmtWithSpecialChars = "SELECT *\nFROM table1\tWHERE id = 1\r";
             result = AuditLogHelper.handleStmt(stmtWithSpecialChars, nonInsertStmt);
-            Assert.assertTrue("Should escape newlines", result.contains("\\n"));
-            Assert.assertTrue("Should escape tabs", result.contains("\\t"));
-            Assert.assertTrue("Should escape carriage returns", result.contains("\\r"));
-            Assert.assertFalse("Should not contain actual newlines", result.contains("\n"));
-            Assert.assertFalse("Should not contain actual tabs", result.contains("\t"));
-            Assert.assertFalse("Should not contain actual carriage returns", result.contains("\r"));
+            Assert.assertTrue("Should contain actual newlines", result.contains("\n"));
+            Assert.assertTrue("Should contain actual tabs", result.contains("\t"));
+            Assert.assertTrue("Should contain actual carriage returns", result.contains("\r"));
 
             // 5. Test long statement with Chinese characters truncation
             String chineseStmt
@@ -118,12 +115,6 @@ public class AuditLogBuilderTest {
             String emptyStmt = "";
             result = AuditLogHelper.handleStmt(emptyStmt, nonInsertStmt);
             Assert.assertEquals("Empty string should remain empty", "", result);
-
-            // 9. Test statement with only special characters
-            String specialCharsStmt = "\n\t\r\n\t\r";
-            result = AuditLogHelper.handleStmt(specialCharsStmt, nonInsertStmt);
-            Assert.assertEquals("Should escape all special characters", "\\n\\t\\r\\n\\t\\r", result);
-
         } finally {
             // Restore original values
             GlobalVariable.auditPluginMaxSqlLength = originalMaxSqlLength;
@@ -172,12 +163,9 @@ public class AuditLogBuilderTest {
             result = AuditLogHelper.handleStmt(insertWithSpecialChars, insertStmt);
 
             // Verify special characters are properly escaped
-            Assert.assertTrue("Should escape newlines in INSERT", result.contains("\\n"));
-            Assert.assertTrue("Should escape tabs in INSERT", result.contains("\\t"));
-            Assert.assertTrue("Should escape carriage returns in INSERT", result.contains("\\r"));
-            Assert.assertFalse("Should not contain actual newlines", result.contains("\n"));
-            Assert.assertFalse("Should not contain actual tabs", result.contains("\t"));
-            Assert.assertFalse("Should not contain actual carriage returns", result.contains("\r"));
+            Assert.assertTrue("Should contain actual newlines", result.contains("\n"));
+            Assert.assertTrue("Should contain actual tabs", result.contains("\t"));
+            Assert.assertTrue("Should contain actual carriage returns", result.contains("\r"));
 
             // 4. Test comparison: same length statements, different handling for INSERT vs non-INSERT
             // Create a statement with length between 80-200

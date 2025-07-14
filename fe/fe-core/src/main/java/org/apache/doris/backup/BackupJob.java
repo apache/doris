@@ -35,7 +35,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -64,9 +63,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
 import java.io.DataInput;
-import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -78,7 +75,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.zip.GZIPInputStream;
 
 
 public class BackupJob extends AbstractJob implements GsonPostProcessable {
@@ -1102,85 +1098,12 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public static BackupJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            BackupJob job = new BackupJob();
-            job.readFields(in);
-            return job;
+        String json = Text.readString(in);
+        if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
+            return GsonUtils.fromJsonCompressed(in, BackupJob.class);
         } else {
-            String json = Text.readString(in);
-            if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
-                return GsonUtils.fromJsonCompressed(in, BackupJob.class);
-            } else {
-                return GsonUtils.GSON.fromJson(json, BackupJob.class);
-            }
+            return GsonUtils.GSON.fromJson(json, BackupJob.class);
         }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        if (type == JobType.BACKUP_COMPRESSED) {
-            type = JobType.BACKUP;
-
-            Text text = new Text();
-            text.readFields(in);
-
-            ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
-            try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
-                try (DataInputStream stream = new DataInputStream(gzipStream)) {
-                    readOthers(stream);
-                }
-            }
-        } else {
-            readOthers(in);
-        }
-    }
-
-    public void readOthers(DataInput in) throws IOException {
-        // table refs
-        int size = in.readInt();
-        tableRefs = Lists.newArrayList();
-        for (int i = 0; i < size; i++) {
-            TableRef tblRef = TableRef.read(in);
-            tableRefs.add(tblRef);
-        }
-
-        state = BackupJobState.valueOf(Text.readString(in));
-
-        // times
-        snapshotFinishedTime = in.readLong();
-        snapshotUploadFinishedTime = in.readLong();
-
-        // snapshot info
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            SnapshotInfo snapshotInfo = SnapshotInfo.read(in);
-            snapshotInfos.put(snapshotInfo.getTabletId(), snapshotInfo);
-        }
-
-        // backup meta
-        if (in.readBoolean()) {
-            backupMeta = BackupMeta.read(in);
-        }
-
-        // No need to persist job info. It is generated then write to file
-
-        // metaInfoFilePath and jobInfoFilePath
-        if (in.readBoolean()) {
-            localMetaInfoFilePath = Text.readString(in);
-        }
-
-        if (in.readBoolean()) {
-            localJobInfoFilePath = Text.readString(in);
-        }
-        // read properties
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            properties.put(key, value);
-        }
-
-        gsonPostProcess();
     }
 
     public void gsonPostProcess() throws IOException {

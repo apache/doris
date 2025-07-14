@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include "data_type_string_serde.h"
-#include "util/jsonb_utils.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/types.h"
@@ -36,6 +35,8 @@ class Arena;
 class DataTypeJsonbSerDe : public DataTypeStringSerDe {
 public:
     DataTypeJsonbSerDe(int nesting_level = 1) : DataTypeStringSerDe(nesting_level) {};
+
+    std::string get_name() const override { return "JSONB"; }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,

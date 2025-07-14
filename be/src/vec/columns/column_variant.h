@@ -36,7 +36,6 @@
 
 #include "common/status.h"
 #include "olap/tablet_schema.h"
-#include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
@@ -97,6 +96,7 @@ public:
     constexpr static PrimitiveType MOST_COMMON_TYPE_ID = PrimitiveType::TYPE_JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
+
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
@@ -178,6 +178,9 @@ public:
         void remove_nullable();
 
         void add_new_column_part(DataTypePtr type);
+
+        /// Converts Array<String> to Array<JsonbField> for special case handling
+        static void convert_array_string_to_array_jsonb(Field& array_field);
 
         friend class ColumnVariant;
 
@@ -422,7 +425,7 @@ public:
 
     size_t filter(const Filter&) override;
 
-    ColumnPtr permute(const Permutation&, size_t) const override;
+    MutableColumnPtr permute(const Permutation&, size_t) const override;
 
     bool is_variable_length() const override { return true; }
 
@@ -475,6 +478,7 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "replace_column_data" + get_name());
     }
+    size_t serialize_size_at(size_t row) const override { return 0; }
 
 private:
     // May throw execption

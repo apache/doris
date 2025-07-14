@@ -34,4 +34,17 @@ public class KerberosAuthenticationConfig extends AuthenticationConfig {
     public boolean isValid() {
         return StringUtils.isNotEmpty(kerberosPrincipal) && StringUtils.isNotEmpty(kerberosKeytab);
     }
+
+    public KerberosAuthenticationConfig(String kerberosPrincipal, String kerberosKeytab, Configuration conf) {
+        this.kerberosPrincipal = kerberosPrincipal;
+        this.kerberosKeytab = kerberosKeytab;
+        this.conf = conf;
+        this.printDebugLog = false;
+    }
+
+    public KerberosAuthenticationConfig(String kerberosPrincipal, String kerberosKeytab, Configuration conf,
+                                        boolean printDebugLog) {
+        this(kerberosPrincipal, kerberosKeytab, conf);
+        this.printDebugLog = printDebugLog;
+    }
 }

@@ -27,6 +27,94 @@
 3	lisi2	[null]	0	\N
 4	amory	\N	\N	\N
 
+-- !explode_sql2 --
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+1	lisi	["null"]	0	null
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	2	96c
+2	wangwu	["88a", "90b", "96c"]	2	96c
+2	wangwu	["88a", "90b", "96c"]	2	96c
+3	lisi2	[null]	0	\N
+
+-- !explode_outer_sql2 --
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+1	lisi	["null"]	0	null
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	2	96c
+2	wangwu	["88a", "90b", "96c"]	2	96c
+2	wangwu	["88a", "90b", "96c"]	2	96c
+3	lisi2	[null]	0	\N
+
+-- !explode_sql3 --
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+1	lisi	["null"]	0	null
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	2	96c
+2	wangwu	["88a", "90b", "96c"]	2	96c
+2	wangwu	["88a", "90b", "96c"]	2	96c
+3	lisi2	[null]	0	\N
+
+-- !explode_sql4 --
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	0	Chinese
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	1	Math
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+0	zhangsan	["Chinese", "Math", "English"]	2	English
+1	lisi	["null"]	0	null
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	0	88a
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	1	90b
+2	wangwu	["88a", "90b", "96c"]	2	96c
+2	wangwu	["88a", "90b", "96c"]	2	96c
+2	wangwu	["88a", "90b", "96c"]	2	96c
+3	lisi2	[null]	0	\N
+
 -- !explode_sql_multi --
 0	zhangsan	["Chinese", "Math", "English"]	0	Chinese	0	Chinese
 0	zhangsan	["Chinese", "Math", "English"]	0	Chinese	1	Math

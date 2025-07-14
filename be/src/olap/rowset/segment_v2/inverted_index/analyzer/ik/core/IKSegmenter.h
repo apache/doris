@@ -27,6 +27,7 @@
 #include "IKArbitrator.h"
 #include "ISegmenter.h"
 #include "LetterSegmenter.h"
+#include "SurrogatePairSegmenter.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/cfg/Configuration.h"
 namespace doris::segment_v2 {
 

@@ -84,6 +84,9 @@ public class ConnectPoolMgr {
             if (conns != null) {
                 conns.decrementAndGet();
             }
+            if (ctx.traceId() != null) {
+                traceId2QueryId.remove(ctx.traceId());
+            }
             numberConnection.decrementAndGet();
         }
     }
@@ -153,6 +156,12 @@ public class ConnectPoolMgr {
     public String getQueryIdByTraceId(String traceId) {
         TUniqueId queryId = traceId2QueryId.get(traceId);
         return queryId == null ? "" : DebugUtil.printId(queryId);
+    }
+
+    public void removeTraceId(String traceId) {
+        if (traceId != null) {
+            traceId2QueryId.remove(traceId);
+        }
     }
 
     public Map<Integer, ConnectContext> getConnectionMap() {

@@ -31,6 +31,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/types.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"

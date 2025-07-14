@@ -26,6 +26,7 @@
 
 #include "data_type_string_serde.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -93,6 +94,20 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
                 col_null.get_nested_column(), row_num, bw, options,
                 hive_text_complex_type_delimiter_level));
     }
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                        JsonbWriter& writer) const {
+    const auto& col_null = assert_cast<const ColumnNullable&>(from_column);
+
+    if (col_null.is_null_at(row_num)) {
+        writer.writeNull();
+    } else {
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(col_null.get_nested_column(),
+                                                                row_num, writer));
+    }
+
     return Status::OK();
 }
 
@@ -260,7 +275,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
 }
 
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                    Arena* mem_pool, int32_t col_id,
+                                                    Arena& mem_pool, int32_t col_id,
                                                     int64_t row_num) const {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));

@@ -8,10 +8,10 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = wscs.sold_date_sk)) otherCondition=()
 --------------PhysicalUnion
-----------------PhysicalDistribute[DistributionSpecHash]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[web_sales]
-----------------PhysicalDistribute[DistributionSpecHash]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[catalog_sales]
 --------------PhysicalProject

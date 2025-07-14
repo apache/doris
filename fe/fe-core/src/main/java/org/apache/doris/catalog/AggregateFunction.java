@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TFunction;
@@ -32,8 +31,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -635,27 +632,6 @@ public class AggregateFunction extends Function {
         //    agg_fn.setIgnores_distinct(ignoresDistinct);
         fn.setAggregateFn(aggFn);
         return fn;
-    }
-
-    public void readFields(DataInput input) throws IOException {
-        super.readFields(input);
-
-        if (input.readBoolean()) {
-            intermediateType = ColumnType.read(input);
-        }
-        updateFnSymbol = IOUtils.readOptionStringOrNull(input);
-        initFnSymbol = IOUtils.readOptionStringOrNull(input);
-        serializeFnSymbol = IOUtils.readOptionStringOrNull(input);
-        mergeFnSymbol = IOUtils.readOptionStringOrNull(input);
-        getValueFnSymbol = IOUtils.readOptionStringOrNull(input);
-        removeFnSymbol = IOUtils.readOptionStringOrNull(input);
-        finalizeFnSymbol = IOUtils.readOptionStringOrNull(input);
-        symbolName = IOUtils.readOptionStringOrNull(input);
-
-        ignoresDistinct = input.readBoolean();
-        isAnalyticFn = input.readBoolean();
-        isAggregateFn = input.readBoolean();
-        returnsNonNullOnEmpty = input.readBoolean();
     }
 
     @Override

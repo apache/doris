@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TMetadataType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -87,13 +88,13 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.FRONTENDS_DISKS);
         TFrontendsMetadataParams frontendsMetadataParams = new TFrontendsMetadataParams();
         frontendsMetadataParams.setClusterName("");
         metaScanRange.setFrontendsParams(frontendsMetadataParams);
-        return metaScanRange;
+        return Lists.newArrayList(metaScanRange);
     }
 
     @Override

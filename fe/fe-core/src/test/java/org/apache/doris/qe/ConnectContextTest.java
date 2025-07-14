@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
@@ -74,7 +75,7 @@ public class ConnectContextTest {
         Assert.assertEquals("testDb", ctx.getDatabase());
 
         // User
-        ctx.setQualifiedUser("testUser");
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
         Assert.assertEquals("testUser", ctx.getQualifiedUser());
 
         // Serializer
@@ -102,7 +103,7 @@ public class ConnectContextTest {
         // Thread info
         Assert.assertNotNull(ctx.toThreadInfo(false));
         List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, Optional.empty());
-        Assert.assertEquals(14, row.size());
+        Assert.assertEquals(15, row.size());
         Assert.assertEquals("Yes", row.get(0));
         Assert.assertEquals("101", row.get(1));
         Assert.assertEquals("testUser", row.get(2));
@@ -208,7 +209,7 @@ public class ConnectContextTest {
     @Test
     public void testGetMaxExecMemByte() {
         ConnectContext context = new ConnectContext();
-        context.setQualifiedUser("a");
+        context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("a", "%"));
         context.setEnv(env);
         long sessionValue = 2097153L;
         long propertyValue = 2097154L;
@@ -231,7 +232,7 @@ public class ConnectContextTest {
     @Test
     public void testGetQueryTimeoutS() {
         ConnectContext context = new ConnectContext();
-        context.setQualifiedUser("a");
+        context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("a", "%"));
         context.setEnv(env);
         int sessionValue = 1;
         int propertyValue = 2;
@@ -254,7 +255,7 @@ public class ConnectContextTest {
     @Test
     public void testInsertQueryTimeoutS() {
         ConnectContext context = new ConnectContext();
-        context.setQualifiedUser("a");
+        context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("a", "%"));
         context.setEnv(env);
         int sessionValue = 1;
         int propertyValue = 2;

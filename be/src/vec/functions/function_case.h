@@ -29,6 +29,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
@@ -257,7 +258,7 @@ public:
 
     template <typename ColumnType>
     void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
-                                 const uint8* __restrict then_idx,
+                                 const uint8_t* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) const {
         for (auto& then_ptr : column_holder.then_ptrs) {
             then_ptr->reset(then_ptr.value()->convert_to_full_column_if_const().get());

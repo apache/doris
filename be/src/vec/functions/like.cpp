@@ -184,7 +184,6 @@ struct VectorEndsWithSearchState : public VectorPatternSearchState {
 };
 
 Status LikeSearchState::clone(LikeSearchState& cloned) {
-    cloned.escape_char = escape_char;
     cloned.set_search_string(search_string);
 
     std::string re_pattern;
@@ -663,16 +662,30 @@ VPatternSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnS
 Status FunctionLikeBase::vector_non_const(const ColumnString& values, const ColumnString& patterns,
                                           ColumnUInt8::Container& result, LikeState* state,
                                           size_t input_rows_count) const {
+    ColumnString::MutablePtr replaced_patterns;
     VPatternSearchStateSPtr vector_search_state;
     if (state->is_like_pattern) {
-        vector_search_state = pattern_type_recognition<true>(patterns);
+        if (state->has_custom_escape) {
+            replaced_patterns = ColumnString::create();
+            for (int i = 0; i < input_rows_count; ++i) {
+                std::string val =
+                        replace_pattern_by_escape(patterns.get_data_at(i), state->escape_char);
+                replaced_patterns->insert_data(val.c_str(), val.size());
+            }
+            vector_search_state = pattern_type_recognition<true>(*replaced_patterns);
+        } else {
+            vector_search_state = pattern_type_recognition<true>(patterns);
+        }
     } else {
         vector_search_state = pattern_type_recognition<false>(patterns);
     }
+
+    const ColumnString& real_pattern = state->has_custom_escape ? *replaced_patterns : patterns;
+
     if (vector_search_state == nullptr) {
         // pattern type recognition failed, use default case
         for (int i = 0; i < input_rows_count; ++i) {
-            const auto pattern_val = patterns.get_data_at(i);
+            const auto pattern_val = real_pattern.get_data_at(i);
             const auto value_val = values.get_data_at(i);
             RETURN_IF_ERROR((state->scalar_function)(&state->search_state, value_val, pattern_val,
                                                      &result[i]));
@@ -714,40 +727,36 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
         re_pattern->append("^");
     }
 
-    bool is_escaped = false;
-    // expect % and _, all chars should keep it literal means.
-    for (char i : pattern) {
-        if (is_escaped) { // last is \, this should be escape
-            if (i == '[' || i == ']' || i == '(' || i == ')' || i == '{' || i == '}' || i == '-' ||
-                i == '*' || i == '+' || i == '\\' || i == '|' || i == '/' || i == ':' || i == '^' ||
-                i == '.' || i == '$' || i == '?') {
-                re_pattern->append(1, '\\');
-            } else if (i != '%' && i != '_') {
-                re_pattern->append(2, '\\');
+    // expect % and _, all chars should keep it literal mean.
+    for (size_t i = 0; i < pattern.size(); i++) {
+        char c = pattern[i];
+        if (c == '\\' && i + 1 < pattern.size()) {
+            char next_c = pattern[i + 1];
+            if (next_c == '%' || next_c == '_') {
+                // convert "\%" and "\_" to literal "%" and "_"
+                re_pattern->append(1, next_c);
+                i++;
+                continue;
+            } else if (next_c == '\\') {
+                // keep valid escape "\\"
+                re_pattern->append("\\\\");
+                i++;
+                continue;
             }
-            re_pattern->append(1, i);
-            is_escaped = false;
+        }
+
+        if (c == '%') {
+            re_pattern->append(".*");
+        } else if (c == '_') {
+            re_pattern->append(".");
         } else {
-            switch (i) {
-            case '%':
-                re_pattern->append(".*");
-                break;
-            case '_':
-                re_pattern->append(".");
-                break;
-            default:
-                is_escaped = i == state->escape_char;
-                if (!is_escaped) {
-                    // special for hyperscan: [, ], (, ), {, }, -, *, +, \, |, /, :, ^, ., $, ?
-                    if (i == '[' || i == ']' || i == '(' || i == ')' || i == '{' || i == '}' ||
-                        i == '-' || i == '*' || i == '+' || i == '\\' || i == '|' || i == '/' ||
-                        i == ':' || i == '^' || i == '.' || i == '$' || i == '?') {
-                        re_pattern->append(1, '\\');
-                    }
-                    re_pattern->append(1, i);
-                }
-                break;
+            // special for hyperscan: [, ], (, ), {, }, -, *, +, \, |, /, :, ^, ., $, ?
+            if (c == '[' || c == ']' || c == '(' || c == ')' || c == '{' || c == '}' || c == '-' ||
+                c == '*' || c == '+' || c == '\\' || c == '|' || c == '/' || c == ':' || c == '^' ||
+                c == '.' || c == '$' || c == '?') {
+                re_pattern->append(1, '\\');
             }
+            re_pattern->append(1, c);
         }
     }
 
@@ -761,6 +770,8 @@ void FunctionLike::remove_escape_character(std::string* search_string) {
     std::string tmp_search_string;
     tmp_search_string.swap(*search_string);
     int len = tmp_search_string.length();
+    // sometime 'like' may allowed converted to 'equals/start_with/end_with/sub_with'
+    // so we need to remove escape from pattern to construct search string and use to do 'equals/start_with/end_with/sub_with'
     for (int i = 0; i < len;) {
         if (tmp_search_string[i] == '\\' && i + 1 < len &&
             (tmp_search_string[i + 1] == '%' || tmp_search_string[i + 1] == '_' ||
@@ -809,7 +820,12 @@ void verbose_log_match(const std::string& str, const std::string& pattern_name, 
 Status FunctionLike::construct_like_const_state(FunctionContext* context, const StringRef& pattern,
                                                 std::shared_ptr<LikeState>& state,
                                                 bool try_hyperscan) {
-    std::string pattern_str = pattern.to_string();
+    std::string pattern_str;
+    if (state->has_custom_escape) {
+        pattern_str = replace_pattern_by_escape(pattern, state->escape_char);
+    } else {
+        pattern_str = pattern.to_string();
+    }
     state->search_state.pattern_str = pattern_str;
     std::string search_string;
 
@@ -914,6 +930,16 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
     state->is_like_pattern = true;
     state->function = like_fn;
     state->scalar_function = like_fn_scalar;
+    if (context->is_col_constant(2)) {
+        state->has_custom_escape = true;
+        const auto escape_col = context->get_constant_col(2)->column_ptr;
+        const auto& escape = escape_col->get_data_at(0);
+        if (escape.size != 1) {
+            return Status::InternalError("Escape character must be a single character, got: {}",
+                                         escape.to_string());
+        }
+        state->escape_char = escape.data[0];
+    }
     if (context->is_col_constant(1)) {
         const auto pattern_col = context->get_constant_col(1)->column_ptr;
         const auto& pattern = pattern_col->get_data_at(0);

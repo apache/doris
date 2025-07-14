@@ -17,17 +17,12 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -105,7 +100,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public List<Long> getTabletIdsInOrder() {
-        List<Long> tabletIds = Lists.newArrayList();
+        List<Long> tabletIds = Lists.newArrayListWithCapacity(tablets.size());
         for (Tablet tablet : tablets) {
             tabletIds.add(tablet.getId());
         }
@@ -180,10 +175,10 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         this.rollupFinishedVersion = -1L;
     }
 
-    public long getDataSize(boolean singleReplica) {
+    public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
         long dataSize = 0;
         for (Tablet tablet : getTablets()) {
-            dataSize += tablet.getDataSize(singleReplica);
+            dataSize += tablet.getDataSize(singleReplica, filterSizeZero);
         }
         return dataSize;
     }
@@ -261,37 +256,6 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     public boolean getRowCountReported() {
         return this.rowCountReported;
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-
-        state = IndexState.valueOf(Text.readString(in));
-        rowCount = in.readLong();
-
-        int tabletCount = in.readInt();
-        for (int i = 0; i < tabletCount; ++i) {
-            Tablet tablet = Tablet.read(in);
-            tablets.add(tablet);
-            idToTablets.put(tablet.getId(), tablet);
-        }
-
-        rollupIndexId = in.readLong();
-        rollupFinishedVersion = in.readLong();
-    }
-
-    @Deprecated
-    public static MaterializedIndex read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            MaterializedIndex mi = new MaterializedIndex();
-            mi.readFields(in);
-            return mi;
-        }
-
-        return GsonUtils.GSON.fromJson(Text.readString(in), MaterializedIndex.class);
     }
 
     @Override

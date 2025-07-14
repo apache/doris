@@ -83,6 +83,14 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     std::unique_lock schema_change_lock(_base_tablet->get_schema_change_lock(), std::defer_lock);
     bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
 
+    _new_tablet->set_alter_failed(false);
+    Defer defer([this] {
+        // if tablet state is not TABLET_RUNNING when return, indicates that alter has failed.
+        if (_new_tablet->tablet_state() != TABLET_RUNNING) {
+            _new_tablet->set_alter_failed(true);
+        }
+    });
+
     if (!owns_lock) {
         LOG(WARNING) << "Failed to obtain schema change lock, there might be inverted index being "
                         "built on base_tablet="
@@ -142,7 +150,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},
                                                          &rs_splits, false));
     }
-    Defer defer {[&]() {
+    Defer defer2 {[&]() {
         _new_tablet->set_alter_version(-1);
         _base_tablet->set_alter_version(-1);
     }};

@@ -17,8 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -27,7 +25,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -119,36 +116,9 @@ public class SnapshotInfo implements Writable {
         return basePath;
     }
 
-    public static SnapshotInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            SnapshotInfo info = new SnapshotInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, SnapshotInfo.class);
-        }
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tblId = in.readLong();
-        partitionId = in.readLong();
-        indexId = in.readLong();
-        tabletId = in.readLong();
-        beId = in.readLong();
-        schemaHash = in.readInt();
-        path = Text.readString(in);
-
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            files.add(Text.readString(in));
-        }
     }
 
     @Override

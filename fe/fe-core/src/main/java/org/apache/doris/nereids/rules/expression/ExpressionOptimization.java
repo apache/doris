@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.expression.rules.DateFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
+import org.apache.doris.nereids.rules.expression.rules.LogToLn;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
@@ -41,7 +42,7 @@ import java.util.List;
  * optimize expression of plan rule set.
  */
 public class ExpressionOptimization extends ExpressionRewrite {
-    public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
             bottomUp(
                     SimplifyInPredicate.INSTANCE,
 
@@ -61,7 +62,8 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     TopnToMax.INSTANCE,
                     NullSafeEqualToEqual.INSTANCE,
                     LikeToEqualRewrite.INSTANCE,
-                    BetweenToEqual.INSTANCE
+                    BetweenToEqual.INSTANCE,
+                    LogToLn.INSTANCE
             )
     );
 
@@ -72,7 +74,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
      *      => LogicalFilter((origin expr)) // use PushDownFilterThroughJoin
      *      => ...
      */
-    public static final List<ExpressionRewriteRule> ADD_RANGE = ImmutableList.of(
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> ADD_RANGE = ImmutableList.of(
             bottomUp(
                     AddMinMax.INSTANCE
             )

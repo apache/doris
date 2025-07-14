@@ -59,14 +59,14 @@ struct MergeSortCursorImpl {
 
     bool empty() const { return rows == 0; }
 
-    void reverse() {
+    void reverse(IColumn::Permutation& reverse_perm) {
         MutableColumns columns_reversed;
+        reverse_perm.resize(rows - pos);
+        for (int i = 0; i + pos < rows; ++i) {
+            reverse_perm[i] = rows - i - 1;
+        }
         for (auto& column : columns) {
-            auto col_reversed = column->clone_empty();
-            for (int j = rows - 1; j >= pos; j--) {
-                col_reversed->insert_from(*column, j);
-            }
-            columns_reversed.push_back(std::move(col_reversed));
+            columns_reversed.push_back(column->permute(reverse_perm, rows - pos));
         }
         block->set_columns(std::move(columns_reversed));
         for (auto& column_desc : desc) {
@@ -192,29 +192,9 @@ struct MergeSortCursor {
         return 0;
     }
 
-    /// Checks that all rows in the current block of this cursor are less than or equal to all the rows of the current block of another cursor.
-    bool totally_less(const MergeSortCursor& rhs) const {
-        if (impl->rows == 0 || rhs.impl->rows == 0) {
-            return false;
-        }
-
-        /// The last row of this cursor is no larger than the first row of the another cursor.
-        return greater_at(rhs, impl->rows - 1, 0) == -1;
-    }
-
-    /// Checks that all rows in the current block of this cursor are less than or equal to all the rows of the current block of another cursor.
-    bool totally_less_or_equals(const MergeSortCursor& rhs) const {
-        if (impl->rows == 0 || rhs.impl->rows == 0) {
-            return false;
-        }
-
-        /// The last row of this cursor is no larger than the first row of the another cursor.
-        return greater_at(rhs, impl->rows - 1, rhs->pos) <= 0;
-    }
-
-    bool greater_with_offset(const MergeSortCursor& rhs, size_t lhs_offset,
-                             size_t rhs_offset) const {
-        return greater_at(rhs, impl->pos + lhs_offset, rhs.impl->pos + rhs_offset) > 0;
+    bool greater_or_equals_with_offset(const MergeSortCursor& rhs, size_t lhs_offset,
+                                       size_t rhs_offset) const {
+        return greater_at(rhs, impl->pos + lhs_offset, rhs.impl->pos + rhs_offset) >= 0;
     }
 
     bool greater(const MergeSortCursor& rhs) const {
@@ -463,20 +443,29 @@ private:
         batch_size = 1;
         size_t child_idx = next_child_index();
         auto& next_child_cursor = *(_queue.begin() + child_idx);
-        if (min_cursor_pos + batch_size < min_cursor_size &&
-            next_child_cursor.greater_with_offset(begin_cursor, 0, batch_size)) {
-            ++batch_size;
-        } else {
-            return;
-        }
-        if (begin_cursor.totally_less_or_equals(next_child_cursor)) {
-            batch_size = min_cursor_size - min_cursor_pos;
+
+        auto add_if_better = [&](size_t step) {
+            if (min_cursor_pos + batch_size + step > min_cursor_size) {
+                return false;
+            }
+            if (next_child_cursor.greater_or_equals_with_offset(begin_cursor, 0,
+                                                                batch_size + step - 1)) {
+                batch_size += step;
+                return true;
+            }
+            return false;
+        };
+
+        if (!add_if_better(1)) {
             return;
         }
 
-        while (min_cursor_pos + batch_size < min_cursor_size &&
-               next_child_cursor.greater_with_offset(begin_cursor, 0, batch_size)) {
-            ++batch_size;
+        size_t big_step = min_cursor_size - min_cursor_pos - batch_size;
+        if (add_if_better(big_step)) {
+            return;
+        }
+
+        while (add_if_better(1)) {
         }
     }
 };

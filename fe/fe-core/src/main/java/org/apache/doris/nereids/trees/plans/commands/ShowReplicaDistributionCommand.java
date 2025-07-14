@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -77,11 +76,8 @@ public class ShowReplicaDistributionCommand extends ShowCommand {
 
         List<List<String>> results;
         try {
-            PartitionNames partitionNames = (tableRefInfo.getPartitionNamesInfo() != null)
-                                    ? tableRefInfo.getPartitionNamesInfo().translateToLegacyPartitionNames() : null;
             results = MetadataViewer.getTabletDistribution(tableRefInfo.getTableNameInfo().getDb(),
-                                    tableRefInfo.getTableNameInfo().getTbl(),
-                                    partitionNames);
+                                    tableRefInfo.getTableNameInfo().getTbl(), tableRefInfo.getPartitionNamesInfo());
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }

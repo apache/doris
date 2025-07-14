@@ -221,8 +221,9 @@ under the License.
         <module>be-java-extensions</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>2.1.4</doris.hive.catalog.shade.version>
-        <avro.version>1.11.4</avro.version>
+        <doris.hive.catalog.shade.version>3.0.1</doris.hive.catalog.shade.version>
+        <!-- iceberg 1.9.1 depends avro on 1.12 -->
+        <avro.version>1.12.0</avro.version>
         <parquet.version>1.15.2</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>0.15.0</hudi.version>
@@ -319,7 +320,7 @@ under the License.
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>1.6.1</iceberg.version>
+        <iceberg.version>1.9.1</iceberg.version>
         <maxcompute.version>0.49.0-public</maxcompute.version>
         <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
          https://github.com/apache/doris/pull/51217-->
@@ -369,7 +370,7 @@ under the License.
         <quartz.version>2.3.2</quartz.version>
         <aircompressor.version>0.27</aircompressor.version>
         <!-- paimon -->
-        <paimon.version>1.0.1</paimon.version>
+        <paimon.version>1.1.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
@@ -380,7 +381,7 @@ under the License.
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
-        <azure.sdk.version>1.2.30</azure.sdk.version>
+        <azure.sdk.version>1.2.36</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>

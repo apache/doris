@@ -103,7 +103,7 @@ private:
     MOCK_REMOVE(const) vectorized::DataTypePtr _type;
     const TupleId _parent;
     const int _col_pos;
-    const std::string _col_name;
+    MOCK_REMOVE(const) std::string _col_name;
     const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;

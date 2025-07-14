@@ -21,7 +21,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.LocalDateTime;
 
@@ -42,6 +44,11 @@ public class TimeV2Literal extends Literal {
 
     public TimeV2Literal(TimeV2Type dataType, String s) {
         super(dataType);
+        init(s);
+    }
+
+    public TimeV2Literal(String s) {
+        super(TimeV2Type.forTypeFromString(s));
         init(s);
     }
 
@@ -82,16 +89,9 @@ public class TimeV2Literal extends Literal {
         }
     }
 
-    protected String normalize(String s) {
+    protected static String normalize(String s) {
         // remove suffix/prefix ' '
         s = s.trim();
-        if (s.charAt(0) == '-') {
-            s = s.substring(1);
-            negative = true;
-        } else if (s.charAt(0) == '+') {
-            s = s.substring(1);
-            negative = false;
-        }
         // just a number
         if (!s.contains(":")) {
             String tail = "";
@@ -109,6 +109,7 @@ public class TimeV2Literal extends Literal {
             } else if (len == 4) {
                 s = "00:" + s.substring(0, 2) + ":" + s.substring(2);
             } else {
+                // minute and second must be 2 digits. others put in front as hour
                 s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
             }
             return s + tail;
@@ -123,6 +124,12 @@ public class TimeV2Literal extends Literal {
     // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
     protected void init(String s) throws AnalysisException {
         s = normalize(s);
+        if (s.charAt(0) == '-') {
+            negative = true;
+            s = s.substring(1);
+        } else if (s.charAt(0) == '+') {
+            s = s.substring(1);
+        }
         // start parse string
         String[] parts = s.split(":");
         if (parts.length != 3) {
@@ -178,6 +185,24 @@ public class TimeV2Literal extends Literal {
                 || microsecond < 0;
     }
 
+    /**
+     * determine scale by time string. didn't check if the string is valid.
+     */
+    public static int determineScale(String s) {
+        // find point
+        s = normalize(s);
+        int pointIndex = s.indexOf('.');
+        if (pointIndex < 0) {
+            return 0; // no point, scale is 0
+        }
+        String microPart = s.substring(pointIndex + 1);
+        int len = microPart.length();
+        while (len > 0 && microPart.charAt(len - 1) == '0') {
+            len--; // remove trailing zeros
+        }
+        return Math.min(len, 6); // max scale is 6
+    }
+
     public int getHour() {
         return hour;
     }
@@ -192,6 +217,25 @@ public class TimeV2Literal extends Literal {
 
     public int getMicroSecond() {
         return microsecond;
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        DateTimeV2Literal time = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(LocalDateTime
+                .now(DateUtils.getTimeZone()).withHour(0).withMinute(0).withSecond(0).withNano(0).plusHours(getHour())
+                .plusMinutes(getMinute()).plusSeconds(getSecond()).plusNanos(getMicroSecond() * 1000),
+                ((TimeV2Type) dataType).getScale());
+        if (targetType.isDateType()) {
+            return new DateLiteral(time.getYear(), time.getMonth(), time.getDay());
+        } else if (targetType.isDateV2Type()) {
+            return new DateV2Literal(time.getYear(), time.getMonth(), time.getDay());
+        } else if (targetType.isDateTimeType()) {
+            return new DateTimeLiteral(time.getYear(), time.getMonth(), time.getDay(), time.getHour(), time.getMinute(),
+                    time.getSecond());
+        } else if (targetType.isDateTimeV2Type()) {
+            return time;
+        }
+        return super.uncheckedCastTo(targetType);
     }
 
     @Override

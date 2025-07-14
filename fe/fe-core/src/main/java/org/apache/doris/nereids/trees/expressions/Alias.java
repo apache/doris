@@ -89,6 +89,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     public Slot toSlot() throws UnboundException {
         SlotReference slotReference = child() instanceof SlotReference
                 ? (SlotReference) child() : null;
+
         return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier,
                 slotReference != null ? ((SlotReference) child()).getOriginalTable().orElse(null) : null,
                 slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,

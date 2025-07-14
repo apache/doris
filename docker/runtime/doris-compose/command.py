@@ -924,11 +924,11 @@ class DownCommand(Command):
                                                       "down",
                                                       options=options)
                 except Exception as e:
-                    LOG.warn("down cluster has exception: " + str(e))
+                    LOG.warning("down cluster has exception: " + str(e))
             try:
                 utils.remove_docker_network(cluster_name)
             except Exception as e:
-                LOG.warn("remove network has exception: " + str(e))
+                LOG.warning("remove network has exception: " + str(e))
             if args.clean:
                 cluster_path = CLUSTER.get_cluster_path(cluster_name)
                 if os.path.exists(cluster_path):

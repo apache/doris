@@ -50,6 +50,7 @@ private:
     size_t _queue_row_num = 0;
     MergeSorterQueue _queue;
     std::unique_ptr<MergeSorterState> _state;
+    IColumn::Permutation _reverse_buffer;
 };
 
 #include "common/compile_check_end.h"

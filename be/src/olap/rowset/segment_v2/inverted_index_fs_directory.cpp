@@ -20,6 +20,7 @@
 #include "CLucene/SharedHeader.h"
 #include "CLucene/_SharedHeader.h"
 #include "common/status.h"
+#include "inverted_index_common.h"
 #include "inverted_index_desc.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
@@ -204,35 +205,46 @@ void DorisFSDirectory::FSIndexInput::seekInternal(const int64_t position) {
 void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     CND_PRECONDITION(_handle != nullptr, "shared file handle has closed");
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
-    std::lock_guard<std::mutex> wlock(_handle->_shared_lock);
 
-    int64_t position = getFilePointer();
-    if (_pos != position) {
-        _pos = position;
-    }
+    int64_t inverted_index_io_timer = 0;
+    {
+        SCOPED_RAW_TIMER(&inverted_index_io_timer);
 
-    if (_handle->_fpos != _pos) {
+        std::lock_guard<std::mutex> wlock(_handle->_shared_lock);
+
+        int64_t position = getFilePointer();
+        if (_pos != position) {
+            _pos = position;
+        }
+
+        if (_handle->_fpos != _pos) {
+            _handle->_fpos = _pos;
+        }
+
+        Slice result {b, (size_t)len};
+        size_t bytes_read = 0;
+        Status st = _handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx);
+        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error", {
+            st = Status::InternalError(
+                    "debug point: "
+                    "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
+        })
+        if (!st.ok()) {
+            _CLTHROWA(CL_ERR_IO, "read past EOF");
+        }
+        bufferLength = len;
+        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",
+                        { bytes_read = len + 10; })
+        if (bytes_read != len) {
+            _CLTHROWA(CL_ERR_IO, "read error");
+        }
+        _pos += bufferLength;
         _handle->_fpos = _pos;
     }
 
-    Slice result {b, (size_t)len};
-    size_t bytes_read = 0;
-    Status st = _handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx);
-    DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error", {
-        st = Status::InternalError(
-                "debug point: DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
-    })
-    if (!st.ok()) {
-        _CLTHROWA(CL_ERR_IO, "read past EOF");
+    if (_io_ctx.file_cache_stats != nullptr) {
+        _io_ctx.file_cache_stats->inverted_index_io_timer += inverted_index_io_timer;
     }
-    bufferLength = len;
-    DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",
-                    { bytes_read = len + 10; })
-    if (bytes_read != len) {
-        _CLTHROWA(CL_ERR_IO, "read error");
-    }
-    _pos += bufferLength;
-    _handle->_fpos = _pos;
 }
 
 void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fs, const char* path) {
@@ -435,7 +447,9 @@ void DorisFSDirectory::FSIndexOutputV2::close() {
 }
 
 int64_t DorisFSDirectory::FSIndexOutputV2::length() const {
-    CND_PRECONDITION(_index_v2_file_writer != nullptr, "file is not open");
+    if (_index_v2_file_writer == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "file is not open, index_v2_file_writer is nullptr");
+    }
     return _index_v2_file_writer->bytes_appended();
 }
 
@@ -660,15 +674,22 @@ lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
         assert(!exists);
     }
     auto* ret = _CLNEW FSIndexOutput();
+    ErrorContext error_context;
     ret->set_file_writer_opts(_opts);
     try {
         ret->init(_fs, fl);
     } catch (CLuceneError& err) {
-        ret->close();
-        _CLDELETE(ret)
-        LOG(WARNING) << "FSIndexOutput init error: " << err.what();
-        _CLTHROWA(CL_ERR_IO, "FSIndexOutput init error");
+        error_context.eptr = std::current_exception();
+        error_context.err_msg.append("FSIndexOutput init error: ");
+        error_context.err_msg.append(err.what());
+        LOG(ERROR) << error_context.err_msg;
     }
+    FINALLY_EXCEPTION({
+        if (error_context.eptr) {
+            FINALLY_CLOSE(ret);
+            _CLDELETE(ret);
+        }
+    })
     return ret;
 }
 

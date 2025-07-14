@@ -110,6 +110,15 @@ suite("test_nereids_grouping_sets") {
     order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by grouping sets((k1+1)) having (k1+1) > 1;";
     order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by grouping sets((k1+1), (k1)) having (k1+1) > 1;";
 
+    // with rollup
+    qt_select_with_rollup1 """
+                 select (k1 + 1) k1_, k2, sum(k3) from groupingSetsTable group by
+                 k1_, k2 with rollup order by k1_, k2
+               """
+    qt_select_with_rollup2 "select k1+1, grouping(k1+1) from groupingSetsTable group by (k1+1) with rollup order by k1+1;";
+    qt_select_with_rollup3 "select sum(k2), grouping(k1+1) from groupingSetsTable group by k1+1 with rollup order by sum(k2)"
+    qt_select_with_rollup4 "select k1+1, grouping_id(k1) from groupingSetsTable group by k1 with rollup order by k1+1;"
+
     // old grouping sets
     qt_select """
                 SELECT k1, k2, SUM(k3) FROM groupingSetsTable

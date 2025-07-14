@@ -18,6 +18,7 @@
 #include <arrow/array/builder_base.h>
 #include <gtest/gtest.h>
 
+#include "util/jsonb_writer.h"
 #include "util/slice.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_number.h"
@@ -104,14 +105,16 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb) {
     Arena pool;
     jsonb_writer.writeStartObject();
     datatype_agg_state_serde_count->write_one_cell_to_jsonb(*column_fixed_length, jsonb_writer,
-                                                            &pool, 0, 0);
+                                                            pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         datatype_agg_state_serde_count->read_one_cell_from_jsonb(*column_fixed_length, it->value());
@@ -129,7 +132,7 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb2) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    datatype_agg_state_serde_hll_union->write_one_cell_to_jsonb(*column_string, jsonb_writer, &pool,
+    datatype_agg_state_serde_hll_union->write_one_cell_to_jsonb(*column_string, jsonb_writer, pool,
                                                                 0, 0);
     jsonb_writer.writeEndObject();
 
@@ -137,7 +140,9 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb2) {
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         datatype_agg_state_serde_hll_union->read_one_cell_from_jsonb(*column_string, it->value());

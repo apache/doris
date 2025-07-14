@@ -37,10 +37,10 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
@@ -351,8 +351,9 @@ TEST(MetaServiceTest, GetInstanceIdTest) {
                                        const std::string& cloud_unique_id);
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id_err", [&](auto&& args) {
         std::string* err = try_any_cast<std::string*>(args[0]);
         *err = "can't find node from cache";
@@ -1183,8 +1184,9 @@ TEST(MetaServiceTest, BeginTxnTest) {
         std::condition_variable go_cv;
         bool go = false;
         auto sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
 
         std::atomic<int32_t> count_txn1 = {0};
         std::atomic<int32_t> count_txn2 = {0};
@@ -1330,8 +1332,9 @@ TEST(MetaServiceTest, BeginTxnTest) {
         std::condition_variable go_cv;
         bool go = false;
         auto sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
 
         std::atomic<int32_t> count_txn1 = {0};
         std::atomic<int32_t> count_txn2 = {0};
@@ -3453,8 +3456,9 @@ TEST(MetaServiceTest, CopyJobTest) {
     std::string instance_id = "copy_job_test_instance_id";
 
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3931,8 +3935,9 @@ TEST(MetaServiceTest, StageTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "stage_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4269,8 +4274,9 @@ TEST(MetaServiceTest, GetIamTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "get_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4352,8 +4358,9 @@ TEST(MetaServiceTest, AlterRamTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "alter_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4645,24 +4652,23 @@ TEST(MetaServiceTest, GetTabletStatsTest) {
 }
 
 void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id) {
-    std::string lock_key =
-            meta_delete_bitmap_update_lock_key({"test_cloud_unique_id", table_id, -1});
+    std::string lock_key = meta_delete_bitmap_update_lock_key({"test_instance", table_id, -1});
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->remove(lock_key);
-    std::string tablet_compaction_key_begin =
-            mow_tablet_compaction_key({"test_cloud_unique_id", table_id, 0});
-    std::string tablet_compaction_key_end =
-            mow_tablet_compaction_key({"test_cloud_unique_id", table_id, INT64_MAX});
-    txn->remove(tablet_compaction_key_begin, tablet_compaction_key_end);
+    std::string tablet_job_key_begin = mow_tablet_job_key({"test_instance", table_id, 0});
+    std::string tablet_job_key_end = mow_tablet_job_key({"test_instance", table_id, INT64_MAX});
+    txn->remove(tablet_job_key_begin, tablet_job_key_end);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
-TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
+void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
+    config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
     auto meta_service = get_meta_service();
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     remove_delete_bitmap_lock(meta_service.get(), 1);
     remove_delete_bitmap_lock(meta_service.get(), 2);
     int64_t table_id = 9;
@@ -4695,14 +4701,14 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     // case 2: lock key does not exist, get and remove compaction lock
     req.add_partition_ids(123);
     req.set_expiration(600);
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(100);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     remove_req.set_tablet_id(2);
-    remove_req.set_lock_id(-1);
+    remove_req.set_lock_id(job_lock_id);
     remove_req.set_initiator(100);
     meta_service->remove_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
@@ -4724,7 +4730,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
     // case 4: lock key owned by load1, compaction1 get lock
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(100);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
@@ -4770,14 +4776,14 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     sleep(2);
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(888);
     req.set_expiration(1);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
-    remove_req.set_lock_id(-1);
+    remove_req.set_lock_id(job_lock_id);
     remove_req.set_initiator(888);
     meta_service->remove_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
@@ -4785,14 +4791,14 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
     // case 7: lock key owned by compaction, new compaction get lock
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(100);
     req.set_expiration(100);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(101);
     req.set_expiration(1);
     meta_service->get_delete_bitmap_update_lock(
@@ -4812,7 +4818,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
-    remove_req.set_lock_id(-1);
+    remove_req.set_lock_id(job_lock_id);
     remove_req.set_initiator(100);
     meta_service->remove_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
@@ -4821,7 +4827,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
 
     // case 9: lock key owned by compaction but all expired (101 900), load1 get lock
     req.set_table_id(table_id);
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(900);
     req.set_expiration(1);
     meta_service->get_delete_bitmap_update_lock(
@@ -4844,28 +4850,91 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 10: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
+    // case 10: lock key owned by compaction but all expired (101 900), schema change get lock
+    req.set_table_id(table_id);
+    req.set_lock_id(job_lock_id);
+    req.set_initiator(900);
+    req.set_expiration(1);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    sleep(2);
+    req.set_table_id(table_id);
+    int other_job_lock_id = job_lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID
+                                    ? SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID
+                                    : COMPACTION_DELETE_BITMAP_LOCK_ID;
+    req.set_lock_id(other_job_lock_id);
+    req.set_initiator(100);
+    req.set_expiration(1);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    remove_req.set_lock_id(other_job_lock_id);
+    remove_req.set_initiator(100);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
+            nullptr);
+    ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
+
+    // case 11: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
     sp->set_call_back("get_delete_bitmap_update_lock:commit:conflict", [&](auto&& args) {
         auto* first_retry = try_any_cast<bool*>(args[0]);
-        if (*first_retry) {
-            *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_CONFLICT;
+        auto lock_id = (try_any_cast<const GetDeleteBitmapUpdateLockRequest*>(args[1]))->lock_id();
+        if (*first_retry && is_job_delete_bitmap_lock_id(lock_id)) {
+            *try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_CONFLICT;
         } else {
-            *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_OK;
+            *try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_OK;
         }
     });
     sp->enable_processing();
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(100);
     req.set_expiration(10);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    remove_req.set_lock_id(job_lock_id);
+    remove_req.set_initiator(100);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
+            nullptr);
+    ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
+
+    // case 12: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
+    req.set_lock_id(300);
+    req.set_initiator(-1);
+    req.set_expiration(1);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    sleep(2);
+    req.set_lock_id(job_lock_id);
+    req.set_initiator(100);
+    req.set_expiration(10);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // case 13: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+}
 
-    remove_delete_bitmap_lock(meta_service.get(), 1);
-    remove_delete_bitmap_lock(meta_service.get(), 2);
+TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
+    testGetDeleteBitmapUpdateLock(2, COMPACTION_DELETE_BITMAP_LOCK_ID);
+    testGetDeleteBitmapUpdateLock(2, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+    testGetDeleteBitmapUpdateLock(1, COMPACTION_DELETE_BITMAP_LOCK_ID);
+    testGetDeleteBitmapUpdateLock(1, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockNoReadStats) {
@@ -4919,10 +4988,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsNormal) {
 
         std::string instance_id = "test_get_delete_bitmap_update_lock_normal";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -4969,10 +5038,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         // the reading of tablet stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal1";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -5012,10 +5081,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         // the reading of tablet stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal2";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -5055,10 +5124,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         // 2.3 abnormal path, meeting error when reading tablets' stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal3";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -5095,10 +5164,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         // this should not fail if lock is not expired
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal4";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -5679,7 +5748,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmapScOverrideExistingKey) {
     }
 }
 
-TEST(MetaServiceTest, UpdateDeleteBitmap) {
+void testUpdateDeleteBitmap(int lock_version) {
+    config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
     auto meta_service = get_meta_service();
     remove_delete_bitmap_lock(meta_service.get(), 112);
 
@@ -5991,9 +6061,11 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
             &remove_lock_res, nullptr);
     ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::OK);
 
-    {
-        // case: compaction update delete bitmap
-        get_lock_req.set_lock_id(-1);
+    for (int i = 0; i < 2; ++i) {
+        auto lock_id =
+                i == 0 ? COMPACTION_DELETE_BITMAP_LOCK_ID : SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID;
+        // case: compaction or schema_change update delete bitmap
+        get_lock_req.set_lock_id(lock_id);
         get_lock_req.set_initiator(800);
         meta_service->get_delete_bitmap_update_lock(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
@@ -6005,7 +6077,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
         update_delete_bitmap_req.set_cloud_unique_id("test_cloud_unique_id");
         update_delete_bitmap_req.set_table_id(112);
         update_delete_bitmap_req.set_partition_id(123);
-        update_delete_bitmap_req.set_lock_id(-1);
+        update_delete_bitmap_req.set_lock_id(lock_id);
         update_delete_bitmap_req.set_initiator(800);
         update_delete_bitmap_req.set_tablet_id(333);
         update_delete_bitmap_req.add_rowset_ids("123");
@@ -6017,15 +6089,15 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
                 &update_delete_bitmap_req, &update_delete_bitmap_res, nullptr);
         ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
         // remove lock
-        remove_lock_req.set_lock_id(-1);
+        remove_lock_req.set_lock_id(lock_id);
         remove_lock_req.set_initiator(800);
         meta_service->remove_delete_bitmap_update_lock(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
                 &remove_lock_res, nullptr);
         ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::OK);
 
-        // case: compaction update delete bitmap with lock expired
-        get_lock_req.set_lock_id(-1);
+        // case: compaction or schema_change update delete bitmap with lock expired
+        get_lock_req.set_lock_id(lock_id);
         get_lock_req.set_initiator(800);
         get_lock_req.set_expiration(1);
         meta_service->get_delete_bitmap_update_lock(
@@ -6047,9 +6119,9 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
                 &update_delete_bitmap_req, &update_delete_bitmap_res, nullptr);
         ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::LOCK_EXPIRED);
 
-        // case: compaction2 get lock
+        // case: compaction2 or schema_change2 get lock
         sleep(2);
-        get_lock_req.set_lock_id(-1);
+        get_lock_req.set_lock_id(lock_id);
         get_lock_req.set_initiator(810);
         get_lock_req.set_expiration(1);
         meta_service->get_delete_bitmap_update_lock(
@@ -6061,8 +6133,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
                 reinterpret_cast<google::protobuf::RpcController*>(&cntl),
                 &update_delete_bitmap_req, &update_delete_bitmap_res, nullptr);
         ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        // remove compaction2 lock
-        remove_lock_req.set_lock_id(-1);
+        // remove compaction2 or or schema_change2 lock
+        remove_lock_req.set_lock_id(lock_id);
         remove_lock_req.set_initiator(810);
         meta_service->remove_delete_bitmap_update_lock(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
@@ -6115,6 +6187,11 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
     }
 
     remove_delete_bitmap_lock(meta_service.get(), 112);
+}
+
+TEST(MetaServiceTest, UpdateDeleteBitmap) {
+    testUpdateDeleteBitmap(2);
+    testUpdateDeleteBitmap(1);
 }
 
 TEST(MetaServiceTest, UpdateDeleteBitmapWithException) {
@@ -6395,8 +6472,9 @@ void update_delete_bitmap_with_remove_pre(MetaServiceProxy* meta_service, int64_
 TEST(MetaServiceTest, UpdateDeleteBitmapWithRemovePreDeleteBitmap) {
     auto meta_service = get_meta_service();
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
 
     update_delete_bitmap_with_remove_pre(meta_service.get(), 200, 202);
 
@@ -6982,8 +7060,9 @@ TEST(MetaServiceTest, BatchGetVersionFallback) {
     constexpr size_t N = 100;
     size_t i = 0;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("batch_get_version_err", [&](auto&& args) {
         if (i++ == N / 10) {
             *try_any_cast<TxnErrorCode*>(args) = TxnErrorCode::TXN_TOO_OLD;
@@ -7028,8 +7107,9 @@ TEST(MetaServiceTest, IsDroppedTablet) {
     auto meta_service = get_meta_service();
     std::string instance_id = "IsDroppedTablet";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -7109,8 +7189,9 @@ TEST(MetaServiceTest, IndexRequest) {
     auto meta_service = get_meta_service();
     std::string instance_id = "IndexRequest";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -7352,8 +7433,9 @@ TEST(MetaServiceTest, PartitionRequest) {
     auto meta_service = get_meta_service();
     std::string instance_id = "PartitionRequest";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -9206,8 +9288,9 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
 
     std::string instance_id = "update_rowset_meta_test_instance_id";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -9625,8 +9708,9 @@ TEST(MetaServiceTest, CheckJobExisted) {
 
     std::string instance_id = "check_job_existed_instance_id";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;

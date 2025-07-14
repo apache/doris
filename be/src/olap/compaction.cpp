@@ -38,6 +38,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -60,10 +61,10 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_compaction.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
@@ -671,8 +672,7 @@ Status Compaction::do_inverted_index_compaction() {
     }
 
     // src index dirs
-    std::vector<std::unique_ptr<InvertedIndexFileReader>> inverted_index_file_readers(
-            src_segment_num);
+    std::vector<std::unique_ptr<IndexFileReader>> index_file_readers(src_segment_num);
     for (const auto& m : src_seg_to_id_map) {
         const auto& [rowset_id, seg_id] = m.first;
 
@@ -713,12 +713,12 @@ Status Compaction::do_inverted_index_compaction() {
                     "get segment path failed. tablet_id={} rowset_id={} seg_id={}",
                     _tablet->tablet_id(), rowset_id.to_string(), seg_id);
         }
-        auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+        auto index_file_reader = std::make_unique<IndexFileReader>(
                 fs,
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value())},
                 _cur_tablet_schema->get_inverted_index_storage_format(),
                 rowset->rowset_meta()->inverted_index_file_info(seg_id));
-        auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size);
+        auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_init_inverted_index_file_reader",
                         {
                             st = Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -736,7 +736,7 @@ Status Compaction::do_inverted_index_compaction() {
                     "init inverted index file reader failed. tablet_id={} rowset_id={} seg_id={}",
                     _tablet->tablet_id(), rowset_id.to_string(), seg_id);
         }
-        inverted_index_file_readers[m.second] = std::move(inverted_index_file_reader);
+        index_file_readers[m.second] = std::move(index_file_reader);
     }
 
     // dest index files
@@ -785,7 +785,7 @@ Status Compaction::do_inverted_index_compaction() {
         try {
             std::vector<std::unique_ptr<DorisCompoundReader>> src_idx_dirs(src_segment_num);
             for (int src_segment_id = 0; src_segment_id < src_segment_num; src_segment_id++) {
-                auto res = inverted_index_file_readers[src_segment_id]->open(index_meta);
+                auto res = index_file_readers[src_segment_id]->open(index_meta);
                 DBUG_EXECUTE_IF("Compaction::open_inverted_index_file_reader", {
                     res = ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "debug point: Compaction::open_index_file_reader error"));
@@ -953,15 +953,14 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
 
                 std::string index_file_path;
                 try {
-                    auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+                    auto index_file_reader = std::make_unique<IndexFileReader>(
                             fs,
                             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                                     seg_path.value())},
                             _cur_tablet_schema->get_inverted_index_storage_format(),
                             rowset->rowset_meta()->inverted_index_file_info(i));
-                    auto st = inverted_index_file_reader->init(
-                            config::inverted_index_read_buffer_size);
-                    index_file_path = inverted_index_file_reader->get_index_file_path(index_meta);
+                    auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
+                    index_file_path = index_file_reader->get_index_file_path(index_meta);
                     DBUG_EXECUTE_IF(
                             "Compaction::construct_skip_inverted_index_index_file_reader_init_"
                             "status_not_ok",
@@ -978,7 +977,7 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                     }
 
                     // check index meta
-                    auto result = inverted_index_file_reader->open(index_meta);
+                    auto result = index_file_reader->open(index_meta);
                     DBUG_EXECUTE_IF(
                             "Compaction::construct_skip_inverted_index_index_file_reader_open_"
                             "error",
@@ -1438,6 +1437,12 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 
     // 4. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());
+
+    // update compaction status data
+    auto tablet = std::static_pointer_cast<CloudTablet>(_tablet);
+    tablet->local_read_time_us.fetch_add(_stats.cloud_local_read_time);
+    tablet->remote_read_time_us.fetch_add(_stats.cloud_remote_read_time);
+    tablet->exec_compaction_time_us.fetch_add(watch.get_elapse_time_us());
 
     return Status::OK();
 }
