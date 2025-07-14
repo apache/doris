@@ -65,7 +65,8 @@ public:
               _merge_by_exchange(false),
               _partition_exprs({}),
               _algorithm(type),
-              _reuse_mem(false) {}
+              _reuse_mem(false),
+              _max_buffered_bytes(-1) {}
 #endif
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
