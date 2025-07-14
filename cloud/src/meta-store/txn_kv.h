@@ -21,6 +21,7 @@
 #include <foundationdb/fdb_c_options.g.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -255,6 +256,11 @@ public:
     virtual size_t delete_bytes() const = 0;
 
     /**
+     * @brief return the bytes of the get values consumed.
+     **/
+    virtual size_t get_bytes() const = 0;
+
+    /**
      * @brief return the bytes of the put key and values consumed.
      **/
     virtual size_t put_bytes() const = 0;
@@ -298,6 +304,19 @@ public:
      * @return size
      */
     virtual int size() = 0;
+
+    /**
+     * Get all FDBKeyValue's bytes include key's bytes
+     * RangeGetIterator created by get range, when get range the keys in the range too.
+     */
+    virtual int64_t get_kv_bytes() const = 0;
+
+    /**
+     * Get the remaining size of the range, some kinds of iterators may not support this function.
+     *
+     * @return size
+     */
+    virtual int remaining() const = 0;
 
     /**
      * Resets to initial state, some kinds of iterators may not support this function.
@@ -458,6 +477,19 @@ public:
 
     int size() override { return kvs_size_; }
 
+    int64_t get_kv_bytes() const override {
+        int64_t total_bytes {};
+        for (int i = 0; i < kvs_size_; i++) {
+            total_bytes += kvs_[i].key_length + kvs_[i].value_length;
+        }
+        return total_bytes;
+    }
+
+    int remaining() const override {
+        if (idx_ < 0 || idx_ >= kvs_size_) return 0;
+        return kvs_size_ - idx_;
+    }
+
     void reset() override { idx_ = 0; }
 
     std::string next_begin_key() override {
@@ -581,6 +613,8 @@ public:
 
     size_t put_bytes() const override { return put_bytes_; }
 
+    size_t get_bytes() const override { return get_bytes_; }
+
 private:
     std::shared_ptr<Database> db_ {nullptr};
     bool commited_ = false;
@@ -591,6 +625,7 @@ private:
     size_t num_del_keys_ {0};
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};
+    size_t get_bytes_ {0};
     size_t put_bytes_ {0};
     size_t approximate_bytes_ {0};
 };
