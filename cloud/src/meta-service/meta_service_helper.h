@@ -231,8 +231,10 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
 // don't use these macro it just for defer count, reduce useless variable(some rpc just need one of rw op)
 // If we have to write separate code for each RPC, it would be quite troublesome
 // After all, adding put, get, and del after the RPC_PREPROCESS macro is simpler than writing a long string of code
-#define RPCKVCOUNTHELPER(func_name, op) \
+#define RPCKVCOUNTHELPER(func_name, op)                                            \
+    g_bvar_rpc_kv_##func_name##_##op##_bytes.put({instance_id}, stats.op##_bytes); \
     g_bvar_rpc_kv_##func_name##_##op##_counter.put({instance_id}, stats.op##_counter);
+
 #define RPCKVCOUNT_0(func_name)
 #define RPCKVCOUNT_1(func_name, op1) RPCKVCOUNTHELPER(func_name, op1)
 #define RPCKVCOUNT_2(func_name, op1, op2) \
@@ -267,6 +269,9 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         finish_rpc(#func_name, ctrl, response);                                               \
         closure_guard.reset(nullptr);                                                         \
         if (txn != nullptr) {                                                                 \
+            stats.get_bytes += txn->get_bytes();                                              \
+            stats.put_bytes += txn->put_bytes();                                              \
+            stats.del_bytes += txn->delete_bytes();                                           \
             stats.get_counter += txn->num_get_keys();                                         \
             stats.put_counter += txn->num_put_keys();                                         \
             stats.del_counter += txn->num_del_keys();                                         \
