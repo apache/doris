@@ -454,17 +454,9 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
         s = 0;
 
         if constexpr (u_size == 8) {
-            if constexpr (std::endian::native == std::endian::little) {
-                s = to_endian<std::endian::big>(*((int64_t*)(input + i)));
-            } else if constexpr (std::endian::native == std::endian::big) {
-                s = *((int64_t*)(input + i));
-            }
+            s = to_endian<std::endian::big>(*((int64_t*)(input + i)));
         } else if constexpr (u_size == 16) {
-            if constexpr (std::endian::native == std::endian::little) {
-                s = to_endian<std::endian::big>(*((__int128_t*)(input + i)));
-            } else if constexpr (std::endian::native == std::endian::big) {
-                s = *((__int128_t*)(input + i));
-            }
+            s = to_endian<std::endian::big>(*((__int128_t*)(input + i)));
         }
 
         // Determine what the valid bits are based on u_size
