@@ -359,12 +359,12 @@ class Suite implements GroovyInterceptable {
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
-	    def conn = DriverManager.getConnection(url, user, password)
-	    def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
-	    logger.info("try create database if not exists {}", context.dbName)
-	    JdbcUtils.executeToList(conn, sql)
+            def conn = DriverManager.getConnection(url, user, password)
+            def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
+            logger.info("try create database if not exists {}", context.dbName)
+            JdbcUtils.executeToList(conn, sql)
 
-	    url = Config.buildUrlWithDb(url, context.dbName)
+            url = Config.buildUrlWithDb(url, context.dbName)
             cluster.jdbcUrl = url
             logger.info("connect to docker cluster: suite={}, url={}", name, url)
             connect(user, password, url, actionSupplier)
