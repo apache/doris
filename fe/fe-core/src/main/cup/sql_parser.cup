@@ -1243,14 +1243,6 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
-    | KW_REFRESH KW_LDAP KW_ALL
-    {:
-        RESULT = new RefreshLdapStmt(true, "");
-    :}
-    | KW_REFRESH KW_LDAP opt_user:user
-    {:
-        RESULT = new RefreshLdapStmt(false, user);
-    :}
     ;
 
 clean_stmt ::=
