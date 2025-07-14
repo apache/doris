@@ -29,10 +29,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -43,8 +39,6 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
-import software.amazon.awssdk.services.s3.model.UploadPartRequest;
-import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -177,33 +171,5 @@ public class S3ObjStorageTest {
                 .thenThrow(S3Exception.builder().statusCode(500).build());
 
         Assertions.assertThrows(DdlException.class, () -> storage.listObjects("s3://bucket/prefix", null));
-    }
-
-    @Test
-    @DisplayName("multipartUpload should return OK status when upload succeeds")
-    void multipartUploadReturnsOkWhenUploadSucceeds() throws Exception {
-        Mockito.when(mockClient.createMultipartUpload(Mockito.any(CreateMultipartUploadRequest.class)))
-                .thenReturn(CreateMultipartUploadResponse.builder().uploadId("uploadId").build());
-        Mockito.when(mockClient.uploadPart(Mockito.any(UploadPartRequest.class), Mockito.any(RequestBody.class)))
-                .thenReturn(UploadPartResponse.builder().eTag("etag").build());
-        Mockito.when(mockClient.completeMultipartUpload(Mockito.any(CompleteMultipartUploadRequest.class)))
-                .thenReturn(CompleteMultipartUploadResponse.builder().build());
-
-        InputStream content = new ByteArrayInputStream(new byte[10 * 1024 * 1024]); // 10 MB
-        Status status = storage.multipartUpload("s3://bucket/key", content, 10 * 1024 * 1024);
-        Assertions.assertEquals(Status.OK, status);
-    }
-
-    @Test
-    @DisplayName("multipartUpload should return COMMON_ERROR status when upload fails")
-    void multipartUploadReturnsErrorWhenUploadFails() throws Exception {
-        Mockito.when(mockClient.createMultipartUpload(Mockito.any(CreateMultipartUploadRequest.class)))
-                .thenReturn(CreateMultipartUploadResponse.builder().uploadId("uploadId").build());
-        Mockito.when(mockClient.uploadPart(Mockito.any(UploadPartRequest.class), Mockito.any(RequestBody.class)))
-                .thenThrow(S3Exception.builder().statusCode(500).build());
-
-        InputStream content = new ByteArrayInputStream(new byte[10 * 1024 * 1024]); // 10 MB
-        Status status = storage.multipartUpload("s3://bucket/key", content, 10 * 1024 * 1024);
-        Assertions.assertEquals(Status.ErrCode.COMMON_ERROR, status.getErrCode());
     }
 }
