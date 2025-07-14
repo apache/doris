@@ -62,6 +62,9 @@ void MergeSorterState::reset() {
     std::vector<std::shared_ptr<MergeSortCursorImpl>> empty_cursors(0);
     std::vector<std::shared_ptr<Block>> empty_blocks(0);
     sorted_blocks_.swap(empty_blocks);
+    unsorted_bytes_ = 0;
+    unsorted_rows_ = 0;
+    pending_unsorted_blocks_.clear();
     unsorted_block_ = Block::create_unique(unsorted_block_->clone_empty());
     in_mem_sorted_bocks_size_ = 0;
 }
@@ -151,6 +154,37 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
     return Status::OK();
 }
 
+Status MergeSorterState::append_unsorted_block(Block* block) {
+    auto pending_block = Block::create_unique();
+    pending_block->swap(*block);
+    unsorted_bytes_ += pending_block->bytes();
+    unsorted_rows_ += pending_block->rows();
+    pending_unsorted_blocks_.emplace_back(std::move(pending_block));
+    return Status::OK();
+}
+
+Status MergeSorterState::merge_pending_unsorted_blocks() {
+    for (int i = 0; i < unsorted_block_->columns(); ++i) {
+        const auto& dst_column = unsorted_block_->safe_get_by_position(i);
+        const auto& dst_mutable_column = dst_column.column->assume_mutable();
+        dst_mutable_column->reserve(unsorted_rows_);
+        for (const auto& src_block : pending_unsorted_blocks_) {
+            const auto& src_column = src_block->safe_get_by_position(i);
+            const auto sz = src_block->rows();
+            DCHECK(dst_column.type->equals(*(src_column.type)))
+                    << " type1: " << dst_column.type->get_name()
+                    << " type2: " << src_column.type->get_name() << " i: " << i;
+            //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
+            dst_mutable_column->insert_range_from(
+                    *src_column.column->convert_to_full_column_if_const(), 0, sz);
+        }
+    }
+    pending_unsorted_blocks_.clear();
+    unsorted_bytes_ = 0;
+    unsorted_rows_ = 0;
+    return Status::OK();
+}
+
 Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
                                          int batch_size, bool* eos) {
     return get_next(state, block, eos);
@@ -219,18 +253,7 @@ Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
     {
         SCOPED_TIMER(_merge_block_timer);
-        auto& data = _state->unsorted_block_->get_columns_with_type_and_name();
-        const auto& arrival_data = block->get_columns_with_type_and_name();
-        auto sz = block->rows();
-        for (int i = 0; i < data.size(); ++i) {
-            DCHECK(data[i].type->equals(*(arrival_data[i].type)))
-                    << " type1: " << data[i].type->get_name()
-                    << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
-            //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-            data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
-        }
-        block->clear_column_data();
+        RETURN_IF_ERROR(_state->append_unsorted_block(block));
     }
     if (_reach_limit()) {
         RETURN_IF_ERROR(_do_sort());
@@ -239,7 +262,7 @@ Status FullSorter::append_block(Block* block) {
 }
 
 Status FullSorter::prepare_for_read() {
-    if (_state->unsorted_block_->rows() > 0) {
+    if (_state->get_unsorted_rows() > 0) {
         RETURN_IF_ERROR(_do_sort());
     }
     return _state->build_merge_tree(_sort_description);
@@ -255,7 +278,8 @@ Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectori
 }
 
 Status FullSorter::_do_sort() {
-    Block* src_block = _state->unsorted_block_.get();
+    RETURN_IF_ERROR(_state->merge_pending_unsorted_blocks());
+    Block* src_block = _state->get_unsorted_block();
     Block desc_block = src_block->clone_without_columns();
     RETURN_IF_ERROR(partial_sort(*src_block, desc_block));
 

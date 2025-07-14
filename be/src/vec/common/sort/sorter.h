@@ -78,10 +78,19 @@ public:
     std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
     void reset();
 
-    std::unique_ptr<Block> unsorted_block_;
+    size_t get_unsorted_bytes() const { return unsorted_bytes_; }
+    size_t get_unsorted_rows() const { return unsorted_rows_; }
+    Status append_unsorted_block(Block* block);
+    Status merge_pending_unsorted_blocks();
+    Block* get_unsorted_block() const { return unsorted_block_.get(); }
 
 private:
     Status _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
+
+    size_t unsorted_bytes_ = 0;
+    size_t unsorted_rows_ = 0;
+    std::vector<std::unique_ptr<Block>> pending_unsorted_blocks_;
+    std::unique_ptr<Block> unsorted_block_;
 
     std::priority_queue<MergeSortCursor> priority_queue_;
     std::vector<std::shared_ptr<Block>> sorted_blocks_;
@@ -177,8 +186,7 @@ public:
 
 private:
     bool _reach_limit() {
-        return _state->unsorted_block_->rows() > buffered_block_size_ ||
-               _state->unsorted_block_->bytes() > buffered_block_bytes_;
+        return _state->get_unsorted_bytes() > buffered_block_bytes_;
     }
 
     Status _do_sort();
