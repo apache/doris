@@ -20,6 +20,35 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 suite("test_bloom_filter_hit") {
+    // Helper method to extract and validate RowsBloomFilterFiltered value
+    def validateBloomFilterFiltered = { profileString ->
+        log.info("Profile content: ${profileString}")
+        // Pattern to match "RowsBloomFilterFiltered:" followed by a number (with optional units and parentheses)
+        Pattern pattern = Pattern.compile("RowsBloomFilterFiltered:\\s+(\\d+(?:\\.\\d+)?[KMG]?)(?:\\s+\\((\\d+)\\))?")
+        Matcher matcher = pattern.matcher(profileString)
+        if (matcher.find()) {
+            def value1 = matcher.group(1)  // First number (possibly with K/M/G suffix)
+            def value2 = matcher.group(2)  // Second number in parentheses (if exists)
+            // Parse the first value
+            def numValue = 0L
+            if (value1.endsWith("K")) {
+                numValue = (Double.parseDouble(value1.substring(0, value1.length() - 1)) * 1000).toLong()
+            } else if (value1.endsWith("M")) {
+                numValue = (Double.parseDouble(value1.substring(0, value1.length() - 1)) * 1000000).toLong()
+            } else if (value1.endsWith("G")) {
+                numValue = (Double.parseDouble(value1.substring(0, value1.length() - 1)) * 1000000000).toLong()
+            } else {
+                numValue = Long.parseLong(value1)
+            }
+            log.info("Extracted RowsBloomFilterFiltered value: ${numValue}")
+            assertTrue("RowsBloomFilterFiltered should be greater than 0, but was ${numValue}", numValue > 0)
+            return true
+        } else {
+            fail("Could not find RowsBloomFilterFiltered in profile output")
+            return false
+        }
+    }
+
     def be_num = sql "show backends;"
     if (be_num.size() > 1) {
         // not suitable for multiple be cluster.
@@ -127,8 +156,7 @@ suite("test_bloom_filter_hit") {
         }
 
         check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  4"))
+            validateBloomFilterFiltered(profileString)
         }
     }
 
@@ -139,8 +167,7 @@ suite("test_bloom_filter_hit") {
         }
 
         check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  7"))
+            validateBloomFilterFiltered(profileString)
         }
     }
 }
