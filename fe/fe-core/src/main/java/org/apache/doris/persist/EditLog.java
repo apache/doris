@@ -210,7 +210,7 @@ public class EditLog {
                 int num = (int) pair[1];
                 for (int i = 0; i < num && reqIndex < batch.size(); i++, reqIndex++) {
                     EditLogItem req = batch.get(reqIndex);
-                    req.logId = logId;
+                    req.logId = logId + i;
                     synchronized (req.lock) {
                         req.finished = true;
                         req.lock.notifyAll();
