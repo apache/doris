@@ -564,6 +564,8 @@ Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
         result.SetFloat(data[row_num]);
     } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
         result.SetDouble(data[row_num]);
+    } else if constexpr (T == TYPE_LARGEINT) {
+        result.SetUint64(static_cast<uint64_t>(data[row_num]));
     } else {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "unknown column type {} for writing to jsonb " + column.get_name());

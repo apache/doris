@@ -156,19 +156,6 @@ public:
     size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
         if constexpr (T == TYPE_ARRAY) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
-        } else if constexpr (T == TYPE_BIGINT) {
-            if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-                type = PrimitiveType::TYPE_TINYINT;
-            } else if (x <= std::numeric_limits<Int16>::max() &&
-                       x >= std::numeric_limits<Int16>::min()) {
-                type = PrimitiveType::TYPE_SMALLINT;
-            } else if (x <= std::numeric_limits<Int32>::max() &&
-                       x >= std::numeric_limits<Int32>::min()) {
-                type = PrimitiveType::TYPE_INT;
-            } else {
-                type = PrimitiveType::TYPE_BIGINT;
-            }
-            return 1;
         } else if constexpr (T == TYPE_NULL) {
             have_nulls = true;
             return 1;
@@ -200,25 +187,11 @@ public:
                 apply_visitor(*this, x[i]);
             }
             return 0;
-        } else if constexpr (T == TYPE_BIGINT) {
-            field_types.insert(PrimitiveType::TYPE_BIGINT);
-            if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-                type_indexes.insert(PrimitiveType::TYPE_TINYINT);
-            } else if (x <= std::numeric_limits<Int16>::max() &&
-                       x >= std::numeric_limits<Int16>::min()) {
-                type_indexes.insert(PrimitiveType::TYPE_SMALLINT);
-            } else if (x <= std::numeric_limits<Int32>::max() &&
-                       x >= std::numeric_limits<Int32>::min()) {
-                type_indexes.insert(PrimitiveType::TYPE_INT);
-            } else {
-                type_indexes.insert(PrimitiveType::TYPE_BIGINT);
-            }
-            return 0;
         } else if constexpr (T == TYPE_NULL) {
             have_nulls = true;
             return 0;
         } else {
-            PrimitiveTypeTraits<PrimitiveType::TYPE_ARRAY>::CppType a;
+            // PrimitiveTypeTraits<PrimitiveType::TYPE_ARRAY>::CppType a;
             field_types.insert(T);
             type_indexes.insert(T);
             return 0;

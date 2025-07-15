@@ -34,21 +34,45 @@ TEST(JsonParserTest, ParseSimpleTypes) {
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->values.size(), 1);
 
+    auto parse_result_int = result.value();
+    EXPECT_EQ(parse_result_int.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_int.values[0].get_type(), doris::PrimitiveType::TYPE_BIGINT);
+
     // double
     result = parser.parse("1.23", 4, config);
     ASSERT_TRUE(result.has_value());
+
+    auto parse_result_double = result.value();
+    EXPECT_EQ(parse_result_double.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_double.values[0].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
 
     // bool
     result = parser.parse("true", 4, config);
     ASSERT_TRUE(result.has_value());
 
+    auto parse_result_bool = result.value();
+    EXPECT_EQ(parse_result_bool.values[0].get_type(), doris::PrimitiveType::TYPE_BIGINT);
+
     // null
     result = parser.parse("null", 4, config);
     ASSERT_TRUE(result.has_value());
+    auto parse_result_null = result.value();
+    EXPECT_EQ(parse_result_null.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_null.values[0].get_type(), doris::PrimitiveType::TYPE_NULL);
 
     // string
     result = parser.parse("\"abc\"", 5, config);
     ASSERT_TRUE(result.has_value());
+    auto parse_result_string = result.value();
+    EXPECT_EQ(parse_result_string.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_string.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+
+    // largeint
+    result = parser.parse("12345678901234567890", 20, config);
+    ASSERT_TRUE(result.has_value());
+    auto parse_result_bigint = result.value();
+    EXPECT_EQ(parse_result_bigint.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_bigint.values[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
 }
 
 TEST(JsonParserTest, ParseObjectAndArray) {
@@ -58,12 +82,36 @@ TEST(JsonParserTest, ParseObjectAndArray) {
     // Object
     auto result = parser.parse(R"({"a":1,"b":2})", 13, config);
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->values.size(), 2);
+    auto& parse_result_object = result.value();
+    EXPECT_EQ(parse_result_object.values.size(), 2);
+    EXPECT_EQ(parse_result_object.paths.size(), 2);
+    EXPECT_EQ(parse_result_object.values[0].get_type(), doris::PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(parse_result_object.values[1].get_type(), doris::PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(parse_result_object.paths[0].get_path(), "a");
+    EXPECT_EQ(parse_result_object.paths[1].get_path(), "b");
 
     // Array
     result = parser.parse("[1,2,3]", 7, config);
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->values.size(), 1);
+    auto& parse_result_array = result.value();
+    EXPECT_EQ(parse_result_array.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_array.values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+
+    std::string json = R"([1, "string", null, true, 1.23, 12345678901234567890])";
+    result = parser.parse(json.c_str(), json.size(), config);
+    ASSERT_TRUE(result.has_value());
+    auto& parse_result_array_2 = result.value();
+    EXPECT_EQ(parse_result_array_2.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_array_2.values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+    auto& array_field = parse_result_array_2.values[0].get<doris::vectorized::Array>();
+
+    EXPECT_EQ(array_field.size(), 6);
+    EXPECT_EQ(array_field[0].get_type(), doris::PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(array_field[1].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(array_field[2].get_type(), doris::PrimitiveType::TYPE_NULL);
+    EXPECT_EQ(array_field[3].get_type(), doris::PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(array_field[4].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
+    EXPECT_EQ(array_field[5].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
 }
 
 TEST(JsonParserTest, ParseMultiLevelNestedArray) {
@@ -166,4 +214,42 @@ TEST(JsonParserTest, ParseCornerCases) {
 
     result = parser.parse(R"({"a":"\n\t"})", 12, config);
     ASSERT_TRUE(result.has_value());
+}
+
+TEST(JsonParserTest, ParseUInt64) {
+    JSONDataParser<SimdJSONParser> parser;
+    ParseConfig config;
+
+    std::string json = R"({"a": 18446744073709551615})";
+    auto result = parser.parse(json.c_str(), json.size(), config);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->values.size(), 1);
+    EXPECT_EQ(result->paths.size(), 1);
+    EXPECT_EQ(result->paths[0].get_path(), "a");
+    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
+    EXPECT_EQ(result->values[0].get<doris::vectorized::Int128>(), 18446744073709551615ULL);
+
+    std::string array_json = R"({"a": [18446744073709551615]})";
+    result = parser.parse(array_json.c_str(), array_json.size(), config);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->values.size(), 1);
+    EXPECT_EQ(result->paths.size(), 1);
+    EXPECT_EQ(result->paths[0].get_path(), "a");
+    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+    auto& array_field = result->values[0].get<doris::vectorized::Array>();
+    EXPECT_EQ(array_field.size(), 1);
+    EXPECT_EQ(array_field[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
+    EXPECT_EQ(array_field[0].get<doris::vectorized::Int128>(), 18446744073709551615ULL);
+
+    std::string nested_json = R"({"a": [{"b": 18446744073709551615}]})";
+    config.enable_flatten_nested = true;
+    result = parser.parse(nested_json.c_str(), nested_json.size(), config);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->values.size(), 1);
+    EXPECT_EQ(result->paths.size(), 1);
+    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+    auto& array_field_2 = result->values[0].get<doris::vectorized::Array>();
+    EXPECT_EQ(array_field_2.size(), 1);
+    EXPECT_EQ(array_field_2[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
+    EXPECT_EQ(array_field_2[0].get<doris::vectorized::Int128>(), 18446744073709551615ULL);
 }
