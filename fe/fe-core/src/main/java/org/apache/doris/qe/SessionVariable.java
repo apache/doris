@@ -701,6 +701,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
+    public static final String TABLE_REPLICA_COUNT_OVERRIDE = "table_replica_count_override";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -1349,6 +1351,23 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
+
+    @VariableMgr.VarAttr(name = TABLE_REPLICA_COUNT_OVERRIDE, flag = VariableMgr.GLOBAL, needForward = true, 
+            description = {"The variable tableReplicaCountOverrideis used to enable test programs "
+                    + "to run successfully in both single-BE (Backend) and multi-BE environments."
+                    + "\nIt ensures that:"
+                    + "\nIn single-BE environments, tables are created with ​​1 replica​​ by default"
+                    + "\nIn multi-BE environments, tables are created with ​​multiple replicas​​ by default"
+                    + "\nWhile still allowing creation of single-replica tables in multi-BE environments when needed"})
+    public int tableReplicaCountOverride = 0;
+
+    public void setTableReplicaCountOverride(int tableReplicaCountOverride) {
+        this.tableReplicaCountOverride = tableReplicaCountOverride;
+    }
+
+    public int getTableReplicaCountOverride() {
+        return this.tableReplicaCountOverride;
+    }
 
     public int getBeNumberForTest() {
         return beNumberForTest;
