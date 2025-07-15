@@ -182,10 +182,10 @@ doris
 123
 
 -- !sql --
-\N
+123
 
 -- !sql --
-\N
+123
 
 -- !test --
 \N	{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	\N	\N
