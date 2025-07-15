@@ -31,7 +31,6 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
                                            OptionalIndexSearcherPtr& output_searcher) {
     auto close_directory = true;
     std::unique_ptr<lucene::index::IndexReader> reader;
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> directory_ptr(directory);
     try {
         reader = std::unique_ptr<lucene::index::IndexReader>(lucene::index::IndexReader::open(
                 directory, config::inverted_index_read_buffer_size, close_directory));
@@ -54,8 +53,7 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "FulltextIndexSearcherBuilder build index_searcher error.");
     }
-    // NOTE: need to cl_refcount-- here, so that directory will be deleted when
-    // index_searcher is destroyed
+    // NOTE: IndexSearcher takes ownership of the reader, and directory cleanup is handled by caller
     output_searcher = index_searcher;
     return Status::OK();
 }
@@ -106,13 +104,13 @@ Result<std::unique_ptr<IndexSearcherBuilder>> IndexSearcherBuilder::create_index
 Result<IndexSearcherPtr> IndexSearcherBuilder::get_index_searcher(
         lucene::store::Directory* directory) {
     OptionalIndexSearcherPtr result;
-    auto st = build(directory, result);
+    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> directory_ptr(directory);
+
+    auto st = build(directory_ptr.get(), result);
     if (!st.ok()) {
-        _CLDECDELETE(directory)
         return ResultError(st);
     }
     if (!result.has_value()) {
-        _CLDECDELETE(directory)
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "InvertedIndexSearcherCache build error."));
     }
