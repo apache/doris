@@ -222,18 +222,9 @@ std::string UserFunctionCache::_get_file_name_from_url(const std::string& url, L
     return file_name;
 }
 
-// entry's lock must be held
-Status UserFunctionCache::_load_cache_entry_internal(
-        std::shared_ptr<UserFunctionCacheEntry> entry) {
-    RETURN_IF_ERROR(dynamic_open(entry->lib_file.c_str(), &entry->lib_handle));
-    entry->is_loaded.store(true);
-    return Status::OK();
-}
-
 Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
                                       const std::string& checksum, std::string* libpath) {
-    RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, libpath, LibType::JAR));
-    return Status::OK();
+    return _get_cache_entry(fid, url, checksum, libpath, LibType::JAR);
 }
 
 Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
@@ -276,11 +267,8 @@ Status UserFunctionCache::_load_cache_entry(const std::string& url,
         RETURN_IF_ERROR(_download_lib(url, entry));
     }
 
-    if (entry->type == LibType::SO) {
-        RETURN_IF_ERROR(_load_cache_entry_internal(entry));
-    } else if (entry->type != LibType::JAR) {
-        return Status::InvalidArgument(
-                "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar'!");
+    if (entry->type != LibType::JAR) {
+        return Status::InvalidArgument("Unsupported lib type! Make sure your lib type is 'jar'!");
     }
     return Status::OK();
 }
@@ -302,7 +290,7 @@ Status UserFunctionCache::_download_lib(const std::string& url,
     Md5Digest digest;
     HttpClient client;
     int64_t file_size = 0;
-    RETURN_IF_ERROR(client.init(url, true, true));
+    RETURN_IF_ERROR(client.init(url, true));
 
     Status status;
     auto download_cb = [&status, &tmp_file, &fp, &digest, &file_size](const void* data,

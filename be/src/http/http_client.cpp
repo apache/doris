@@ -280,7 +280,7 @@ HttpClient::~HttpClient() {
     }
 }
 
-Status HttpClient::init(const std::string& url, bool set_fail_on_error, bool skip_percent_encode) {
+Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
@@ -346,10 +346,11 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error, bool ski
         return Status::InternalError("fail to set CURLOPT_WRITEDATA");
     }
 
-    std::string escaped_url;
-    RETURN_IF_ERROR(_escape_url(url, &escaped_url, skip_percent_encode));
+    // std::string escaped_url;
+    // RETURN_IF_ERROR(_escape_url(url, &escaped_url));
+
     // set url
-    code = curl_easy_setopt(_curl, CURLOPT_URL, escaped_url.c_str());
+    code = curl_easy_setopt(_curl, CURLOPT_URL, url.c_str());
     if (code != CURLE_OK) {
         LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
         return Status::InternalError("fail to set CURLOPT_URL");
@@ -576,8 +577,7 @@ Status HttpClient::execute_with_retry(int retry_times, int sleep_time,
 }
 
 // http://example.com/page?param1=value1&param2=value+with+spaces#section
-Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url,
-                               bool skip_percent_encode) {
+Status HttpClient::escape_url(CURL* curl, const std::string& url, std::string* escaped_url) {
     size_t query_pos = url.find('?');
     if (query_pos == std::string::npos) {
         *escaped_url = url;
@@ -602,40 +602,19 @@ Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url,
         ampersand_pos = query.length();
     }
 
-    auto encode_value_function = [&](const std::string& value, std::string& result) {
-        size_t i = 0;
-        while (i < value.size()) {
-            // If skip_percent_encode is false %2E ---> %252E, we will encode all '%' characters
-            // regardless of what follows them.
-            // If skip_percent_encode is true %2E ---> %2E, we will only encode '%' characters
-            // that are not followed by two valid hexadecimal digits.
-            if (skip_percent_encode && value[i] == '%' && i + 2 < value.size()) {
-                if (isxdigit(value[i + 1]) && isxdigit(value[i + 2])) {
-                    result += value.substr(i, 3);
-                    i += 3;
-                    continue;
-                }
-            }
-            char* encoded = curl_easy_escape(_curl, &value[i], 1);
-            if (encoded) {
-                result += encoded;
-                curl_free(encoded);
-            } else {
-                return Status::InternalError("escape url failed, url={}", url);
-            }
-            i++;
-        }
-        return Status::OK();
-    };
-
     while (true) {
         equal_pos = query.find('=');
         if (equal_pos != std::string::npos) {
             std::string key = query.substr(0, equal_pos);
             std::string value = query.substr(equal_pos + 1, ampersand_pos - equal_pos - 1);
-            std::string encoded_value;
-            RETURN_IF_ERROR(encode_value_function(value, encoded_value));
-            encoded_query += key + "=" + encoded_value;
+
+            auto encoded_value = std::unique_ptr<char, decltype(&curl_free)>(
+                    curl_easy_escape(curl, value.c_str(), value.length()), &curl_free);
+            if (encoded_value) {
+                encoded_query += key + "=" + std::string(encoded_value.get());
+            } else {
+                return Status::InternalError("escape url failed, url={}", url);
+            }
         } else {
             encoded_query += query.substr(0, ampersand_pos);
         }
