@@ -27,7 +27,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
@@ -56,7 +55,7 @@ std::string DataTypeDate::to_string(const IColumn& column, size_t row_num) const
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
+    Int64 int_val = assert_cast<const ColumnDate&>(*ptr).get_element(row_num);
     doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
     char buf[64];
@@ -69,7 +68,7 @@ void DataTypeDate::to_string(const IColumn& column, size_t row_num, BufferWritab
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
+    Int64 int_val = assert_cast<const ColumnDate&>(*ptr).get_element(row_num);
     doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
     char buf[64];
@@ -79,7 +78,7 @@ void DataTypeDate::to_string(const IColumn& column, size_t row_num, BufferWritab
 }
 
 Status DataTypeDate::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnInt64*>(column);
+    auto* column_data = static_cast<ColumnDate*>(column);
     Int64 val = 0;
     if (!read_date_text_impl<Int64>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
@@ -96,9 +95,7 @@ void DataTypeDate::cast_to_date(Int64& x) {
 }
 
 MutableColumnPtr DataTypeDate::create_column() const {
-    auto col = DataTypeNumberBase<Int64>::create_column();
-    col->set_date_type();
-    return col;
+    return DataTypeNumberBase<PrimitiveType::TYPE_DATE>::create_column();
 }
 
 } // namespace doris::vectorized

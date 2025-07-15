@@ -42,7 +42,7 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -59,7 +59,6 @@
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -84,14 +83,14 @@ inline std::string segment_mem_tracker_name(uint32_t segment_id) {
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, const SegmentWriterOptions& opts,
-                             InvertedIndexFileWriter* inverted_file_writer)
+                             IndexFileWriter* index_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _inverted_index_file_writer(inverted_file_writer),
+          _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
@@ -226,8 +225,8 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
-        DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        DCHECK(_index_file_writer != nullptr);
+        opts.index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
     }
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
@@ -242,7 +241,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
     DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
     DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
-    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP, "object")
     DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
     DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
     DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
@@ -254,6 +253,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (storage_page_size >= 4096 && storage_page_size <= 10485760) {
         opts.data_page_size = storage_page_size;
     }
+    opts.dict_page_size = _tablet_schema->storage_dict_page_size();
     DBUG_EXECUTE_IF("VerticalSegmentWriter._create_column_writer.storage_page_size", {
         auto table_id = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
                 "VerticalSegmentWriter._create_column_writer.storage_page_size", "table_id",
@@ -500,13 +500,7 @@ Status SegmentWriter::probe_key_for_mow(
                                       specified_rowsets, &loc, _mow_context->max_version,
                                       segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
-        if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-            ++stats.num_rows_filtered;
-            // delete the invalid newly inserted row
-            _mow_context->delete_bitmap->add(
-                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                    segment_pos);
-        } else if (!have_delete_sign) {
+        if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
@@ -679,8 +673,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
         auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema);
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema, [&]() -> std::string {
+                        return block->dump_one_line(block_pos, _num_sort_key_columns);
+                    });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos);
@@ -870,8 +866,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = estimate_segment_size();
-    if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
-                      _num_rows_written >= _opts.max_rows_per_segment)) {
+    if (segment_size >= MAX_SEGMENT_SIZE || _num_rows_written >= _opts.max_rows_per_segment)
+            [[unlikely]] {
         return 0;
     }
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
@@ -917,7 +913,7 @@ std::string SegmentWriter::_full_encode_keys(
 }
 
 void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column,
-                                       size_t pos, string* encoded_keys) {
+                                       size_t pos, std::string* encoded_keys) {
     auto field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column
@@ -932,7 +928,7 @@ void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor
     _seq_coder->full_encode_ascending(field, encoded_keys);
 }
 
-void SegmentWriter::_encode_rowid(const uint32_t rowid, string* encoded_keys) {
+void SegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_keys) {
     encoded_keys->push_back(KEY_NORMAL_MARKER);
     _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
 }

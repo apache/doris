@@ -90,7 +90,7 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchLocalReader>> ArrowFlightBatchLoca
     return result;
 }
 
-arrow::Status ArrowFlightBatchLocalReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
+arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out) {
     // parameter *out not nullptr
     *out = nullptr;
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -122,6 +122,10 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNext(std::shared_ptr<arrow::Recor
                     << (*out)->num_columns() << ", packet_seq: " << _packet_seq;
     }
     return arrow::Status::OK();
+}
+
+arrow::Status ArrowFlightBatchLocalReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
+    RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(ReadNextImpl(out));
 }
 
 ArrowFlightBatchRemoteReader::ArrowFlightBatchRemoteReader(
@@ -284,7 +288,7 @@ arrow::Status ArrowFlightBatchRemoteReader::init_schema() {
     return arrow::Status::OK();
 }
 
-arrow::Status ArrowFlightBatchRemoteReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
+arrow::Status ArrowFlightBatchRemoteReader::ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out) {
     // parameter *out not nullptr
     *out = nullptr;
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -308,6 +312,10 @@ arrow::Status ArrowFlightBatchRemoteReader::ReadNext(std::shared_ptr<arrow::Reco
                     << (*out)->num_columns() << ", packet_seq: " << _packet_seq;
     }
     return arrow::Status::OK();
+}
+
+arrow::Status ArrowFlightBatchRemoteReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
+    RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(ReadNextImpl(out));
 }
 
 } // namespace doris::flight

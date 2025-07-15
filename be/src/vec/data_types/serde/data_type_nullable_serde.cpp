@@ -26,11 +26,11 @@
 
 #include "data_type_string_serde.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/vcsv_transformer.h"
@@ -94,6 +94,20 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
                 col_null.get_nested_column(), row_num, bw, options,
                 hive_text_complex_type_delimiter_level));
     }
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                        JsonbWriter& writer) const {
+    const auto& col_null = assert_cast<const ColumnNullable&>(from_column);
+
+    if (col_null.is_null_at(row_num)) {
+        writer.writeNull();
+    } else {
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(col_null.get_nested_column(),
+                                                                row_num, writer));
+    }
+
     return Status::OK();
 }
 
@@ -261,7 +275,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
 }
 
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                    Arena* mem_pool, int32_t col_id,
+                                                    Arena& mem_pool, int32_t col_id,
                                                     int64_t row_num) const {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
@@ -288,18 +302,20 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
    1/ convert the null_map from doris to arrow null byte map
    2/ pass the arrow null byteamp to nested column , and call AppendValues
 **/
-void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                  arrow::ArrayBuilder* array_builder, int64_t start,
-                                                  int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
-    nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
-                                        &column_nullable.get_null_map_data(), array_builder, start,
-                                        end, ctz);
+    return nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
+                                               &column_nullable.get_null_map_data(), array_builder,
+                                               start, end, ctz);
 }
 
-void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
+Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
+                                                     const arrow::Array* arrow_array, int64_t start,
+                                                     int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     NullMap& map_data = col.get_null_map_data();
     for (auto i = start; i < end; ++i) {

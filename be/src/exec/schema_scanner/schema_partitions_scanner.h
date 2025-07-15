@@ -44,6 +44,7 @@ public:
 
 private:
     Status get_onedb_info_from_fe(int64_t dbId);
+    Status fill_db_partitions(TFetchSchemaTableDataResult& result);
     bool check_and_mark_eos(bool* eos) const;
     int _block_rows_limit = 4096;
     int _db_index = 0;

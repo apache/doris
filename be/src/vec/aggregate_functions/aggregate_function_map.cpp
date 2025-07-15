@@ -84,7 +84,8 @@ AggregateFunctionPtr create_aggregate_function_map_agg(const std::string& name,
 }
 
 void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("map_agg", create_aggregate_function_map_agg);
+    factory.register_function_both("map_agg_v1", create_aggregate_function_map_agg);
+    factory.register_alias("map_agg_v1", "map_agg");
 }
 
 } // namespace doris::vectorized

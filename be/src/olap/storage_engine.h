@@ -37,6 +37,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -82,6 +83,9 @@ using CumuCompactionPolicyTable =
 class StorageEngine;
 class CloudStorageEngine;
 
+extern bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap;
+extern bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap_version;
+
 // StorageEngine singleton to manage all Table pointers.
 // Providing add/drop/get operations.
 // StorageEngine instance doesn't own the Table resources, just hold the pointer,
@@ -109,7 +113,8 @@ public:
     virtual Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) = 0;
 
     virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
-                                              SyncRowsetStats* sync_stats = nullptr) = 0;
+                                              SyncRowsetStats* sync_stats = nullptr,
+                                              bool force_use_cache = false) = 0;
 
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
@@ -227,8 +232,8 @@ public:
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
-    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
-                                      SyncRowsetStats* sync_stats = nullptr) override;
+    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats = nullptr,
+                                      bool force_use_cache = false) override;
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
@@ -243,7 +248,7 @@ public:
 
     // get root path for creating tablet. The returned vector of root path should be round robin,
     // for avoiding that all the tablet would be deployed one disk.
-    std::vector<DataDir*> get_stores_for_create_tablet(int64 partition_id,
+    std::vector<DataDir*> get_stores_for_create_tablet(int64_t partition_id,
                                                        TStorageMedium::type storage_medium);
 
     DataDir* get_store(const std::string& path);
@@ -256,6 +261,11 @@ public:
 
     void start_delete_unused_rowset();
     void add_unused_rowset(RowsetSharedPtr rowset);
+    using DeleteBitmapKeyRanges =
+            std::vector<std::tuple<DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>;
+    void add_unused_delete_bitmap_key_ranges(int64_t tablet_id,
+                                             const std::vector<RowsetId>& rowsets,
+                                             const DeleteBitmapKeyRanges& key_ranges);
 
     // Obtain shard path for new tablet.
     //
@@ -303,6 +313,8 @@ public:
 
     bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
 
+    bool get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends);
+
     bool should_fetch_from_peer(int64_t tablet_id);
 
     const std::shared_ptr<StreamLoadRecorder>& get_stream_load_recorder() {
@@ -318,7 +330,6 @@ public:
 
     ThreadPool* tablet_publish_txn_thread_pool() { return _tablet_publish_txn_thread_pool.get(); }
     bool stopped() override { return _stopped; }
-    ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
     Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
 
@@ -331,7 +342,11 @@ public:
     bool add_broken_path(std::string path);
     bool remove_broken_path(std::string path);
 
-    std::set<string> get_broken_paths() { return _broken_paths; }
+    std::set<std::string> get_broken_paths() { return _broken_paths; }
+
+    Status submit_clone_task(Tablet* tablet, int64_t version);
+
+    std::unordered_map<int64_t, std::unique_ptr<TaskWorkerPoolIf>>* workers;
 
 private:
     // Instance should be inited from `static open()`
@@ -436,7 +451,7 @@ private:
     void _get_candidate_stores(TStorageMedium::type storage_medium,
                                std::vector<DirInfo>& dir_infos);
 
-    int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
+    int _get_and_set_next_disk_index(int64_t partition_id, TStorageMedium::type storage_medium);
 
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 
@@ -458,6 +473,9 @@ private:
 
     std::mutex _gc_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
+    // tablet_id, unused_rowsets, [start_version, end_version]
+    std::vector<std::tuple<int64_t, std::vector<RowsetId>, DeleteBitmapKeyRanges>>
+            _unused_delete_bitmap;
     PendingRowsetSet _pending_local_rowsets;
     PendingRowsetSet _pending_remote_rowsets;
 
@@ -496,7 +514,6 @@ private:
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
-    std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 
@@ -551,6 +568,8 @@ private:
 
     // thread to check tablet delete bitmap count tasks
     scoped_refptr<Thread> _check_delete_bitmap_score_thread;
+
+    int64_t _last_get_peers_replica_backends_time_ms {0};
 };
 
 // lru cache for create tabelt round robin in disks

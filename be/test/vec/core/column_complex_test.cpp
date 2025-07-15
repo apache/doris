@@ -251,6 +251,11 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     }
     column_bitmap_verify->insert_many_strings(bitmap_strings.data(), column_bitmap->size());
     column_hll_verify->insert_many_strings(hll_strings.data(), column_hll->size());
+
+    ASSERT_EQ(column_hll_verify->clone_resized(0)->size(), 0);
+    ASSERT_EQ(column_hll_verify->clone_resized(1)->size(), 1);
+    ASSERT_EQ(column_hll_verify->clone_resized(1024)->size(), 1024);
+
     column_quantile_state_verify->insert_many_strings(quantile_state_strings.data(),
                                                       column_quantile_state->size());
     ASSERT_EQ(rows, column_bitmap_verify->size());
@@ -271,6 +276,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     auto column_bitmap_verify2 = column_bitmap_verify->clone_empty();
     auto column_hll_verify2 = column_hll_verify->clone_resized(0);
     auto column_quantile_state_verify2 = column_quantile_state_verify->clone_empty();
+
     ASSERT_EQ(column_bitmap_verify2->size(), 0);
     ASSERT_EQ(column_hll_verify2->size(), 0);
     ASSERT_EQ(column_quantile_state_verify2->size(), 0);
@@ -550,7 +556,7 @@ public:
         const auto rows = column.size();
         for (size_t i = 0; i != rows; ++i) {
             auto field = column[i];
-            ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_OBJECT);
+            ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_BITMAP);
             dst_column->insert(field);
         }
 
@@ -660,7 +666,7 @@ TEST_F(ColumnBitmapTest, OperatorValidate) {
     auto& bitmap_column = assert_cast<ColumnBitmap&>(*column.get());
     for (size_t i = 0; i != row_size; ++i) {
         auto field = bitmap_column[i];
-        ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_OBJECT);
+        ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_BITMAP);
         const auto& bitmap = vectorized::get<BitmapValue&>(field);
 
         ASSERT_EQ(bitmap.cardinality(), i + 1);
@@ -710,6 +716,24 @@ TEST_F(ColumnQuantileStateTest, OperatorValidate) {
     check_serialize_and_deserialize(column);
 
     check_field_type(column);
+}
+
+TEST(ColumnComplexTest, TestErase) {
+    using ColumnTest = ColumnComplexType<TYPE_BITMAP>;
+
+    auto column_test = ColumnTest::create();
+
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+
+    column_test->erase(1, 0);
+
+    column_test->erase(3, 1);
+
+    EXPECT_EQ(column_test->size(), 4);
 }
 
 } // namespace doris::vectorized

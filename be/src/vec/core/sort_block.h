@@ -32,6 +32,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/memcmp_small.h"
@@ -40,14 +41,12 @@
 #include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 
-namespace doris {
-namespace vectorized {
-template <typename T>
+namespace doris::vectorized {
+template <PrimitiveType T>
 class ColumnDecimal;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
 
@@ -132,13 +131,15 @@ struct ColumnPartialSortingLess {
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct PermutationWithInlineValue {
-    T inline_value;
+    using ValueType = std::conditional_t<is_string_type(T), StringRef,
+                                         typename PrimitiveTypeTraits<T>::ColumnItemType>;
+    ValueType inline_value;
     uint32_t row_id;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using PermutationForColumn = std::vector<PermutationWithInlineValue<T>>;
 
 class ColumnSorter {
@@ -210,6 +211,16 @@ public:
         if (!_should_inline_value(perms)) {
             _sort_by_default(column, flags, perms, range, last_column);
         } else {
+            _sort_by_inlined_permutation<T::PType>(column, flags, perms, range, last_column);
+        }
+    }
+
+    template <template <PrimitiveType type> typename ColumnType, PrimitiveType T>
+    void sort_column(const ColumnType<T>& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        if (!_should_inline_value(perms)) {
+            _sort_by_default(column, flags, perms, range, last_column);
+        } else {
             _sort_by_inlined_permutation<T>(column, flags, perms, range, last_column);
         }
     }
@@ -219,8 +230,13 @@ public:
         if (!_should_inline_value(perms)) {
             _sort_by_default(column, flags, perms, range, last_column);
         } else {
-            _sort_by_inlined_permutation<StringRef>(column, flags, perms, range, last_column);
+            _sort_by_inlined_permutation<TYPE_STRING>(column, flags, perms, range, last_column);
         }
+    }
+
+    void sort_column(const ColumnArray& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        _sort_by_default(column, flags, perms, range, last_column);
     }
 
     void sort_column(const ColumnString64& column, EqualFlags& flags, IColumn::Permutation& perms,
@@ -228,7 +244,7 @@ public:
         if (!_should_inline_value(perms)) {
             _sort_by_default(column, flags, perms, range, last_column);
         } else {
-            _sort_by_inlined_permutation<StringRef>(column, flags, perms, range, last_column);
+            _sort_by_inlined_permutation<TYPE_STRING>(column, flags, perms, range, last_column);
         }
     }
 
@@ -304,7 +320,7 @@ private:
         return _limit == 0 || _limit > (perms.size() / 5);
     }
 
-    template <typename T>
+    template <PrimitiveType T>
     void _shrink_to_fit(PermutationForColumn<T>& permutation_for_column,
                         IColumn::Permutation& perms, EqualFlags& flags, int limit) const {
         if (limit < perms.size() && limit != 0) {
@@ -324,7 +340,7 @@ private:
     template <typename ColumnType>
     static constexpr bool always_false_v = false;
 
-    template <typename ColumnType, typename T>
+    template <typename ColumnType, PrimitiveType T>
     void _create_permutation(const ColumnType& column,
                              PermutationWithInlineValue<T>* __restrict permutation_for_column,
                              const IColumn::Permutation& perms) const {
@@ -349,7 +365,8 @@ private:
         int new_limit = _limit;
         auto comparator = [&](const size_t a, const size_t b) {
             if constexpr (!std::is_same_v<ColumnType, ColumnString> &&
-                          !std::is_same_v<ColumnType, ColumnString64>) {
+                          !std::is_same_v<ColumnType, ColumnString64> &&
+                          !std::is_same_v<ColumnType, ColumnArray>) {
                 auto value_a = column.get_data()[a];
                 auto value_b = column.get_data()[b];
                 return value_a > value_b ? 1 : (value_a < value_b ? -1 : 0);
@@ -404,7 +421,7 @@ private:
         _shrink_to_fit(perms, flags, new_limit);
     }
 
-    template <typename InlineType, typename ColumnType>
+    template <PrimitiveType InlineType, typename ColumnType>
     void _sort_by_inlined_permutation(const ColumnType& column, EqualFlags& flags,
                                       IColumn::Permutation& perms, EqualRange& range,
                                       bool last_column) const {
@@ -474,7 +491,7 @@ private:
         _restore_permutation(permutation_for_column, perms.data());
     }
 
-    template <typename T>
+    template <PrimitiveType T>
     void _restore_permutation(const PermutationForColumn<T>& permutation_for_column,
                               size_t* __restrict perms) const {
         for (size_t i = 0; i < permutation_for_column.size(); i++) {

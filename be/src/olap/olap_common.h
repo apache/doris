@@ -144,7 +144,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_NONE = 22,
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
-    OLAP_FIELD_TYPE_OBJECT = 25,
+    OLAP_FIELD_TYPE_BITMAP = 25,
     OLAP_FIELD_TYPE_STRING = 26,
     OLAP_FIELD_TYPE_QUANTILE_STATE = 27,
     OLAP_FIELD_TYPE_DATEV2 = 28,
@@ -370,6 +370,8 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_bitmap_copy_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
     int64_t inverted_index_searcher_search_timer = 0;
+    int64_t inverted_index_searcher_search_init_timer = 0;
+    int64_t inverted_index_searcher_search_exec_timer = 0;
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
@@ -407,7 +409,7 @@ struct OlapReaderStatistics {
     int64_t segment_iterator_init_timer_ns = 0;
     int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
     int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
-    int64_t segment_iterator_init_inverted_index_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_index_iterators_timer_ns = 0;
 
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;

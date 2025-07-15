@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -26,14 +25,11 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
-import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Map;
 
 public class CsvFileFormatProperties extends FileFormatProperties {
@@ -41,7 +37,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
             org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties.class);
 
     public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
-    public static final String DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR = "\001";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -55,30 +50,19 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public static final String PROP_ENCLOSE = "enclose";
     public static final String PROP_ESCAPE = "escape";
 
+    public static final String PROP_ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
+
     private String headerType = "";
-    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private boolean trimDoubleQuotes;
     private int skipLines;
     private byte enclose;
-
     private byte escape;
-
-    // used by tvf
-    // User specified csv columns, it will override columns got from file
-    private final List<Column> csvSchema = Lists.newArrayList();
-
-    String defaultColumnSeparator = DEFAULT_COLUMN_SEPARATOR;
+    private boolean enableTextValidateUTF8 = true;
 
     public CsvFileFormatProperties(String formatName) {
         super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
-    }
-
-    public CsvFileFormatProperties(String defaultColumnSeparator, TTextSerdeType textSerdeType, String formatName) {
-        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
-        this.defaultColumnSeparator = defaultColumnSeparator;
-        this.textSerdeType = textSerdeType;
     }
 
     public CsvFileFormatProperties(String headerType, String formatName) {
@@ -86,14 +70,13 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         this.headerType = headerType;
     }
 
-
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
         try {
             // analyze properties specified by user
             columnSeparator = getOrDefault(formatProperties, PROP_COLUMN_SEPARATOR,
-                    defaultColumnSeparator, isRemoveOriginProperty);
+                    DEFAULT_COLUMN_SEPARATOR, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(columnSeparator)) {
                 throw new AnalysisException("column_separator can not be empty.");
             }
@@ -113,9 +96,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                     throw new AnalysisException("enclose should not be longer than one byte.");
                 }
                 enclose = (byte) enclosedString.charAt(0);
-                if (enclose == 0) {
-                    throw new AnalysisException("enclose should not be byte [0].");
-                }
             }
 
             String escapeStr = getOrDefault(formatProperties, PROP_ESCAPE,
@@ -141,6 +121,18 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                     PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
             compressionType = Util.getFileCompressType(compressTypeStr);
 
+            // get ENABLE_TEXT_VALIDATE_UTF8 from properties map first,
+            // if not exist, try getting from session variable,
+            // if connection context is null, use "true" as default value.
+            String validateUtf8 = getOrDefault(formatProperties, PROP_ENABLE_TEXT_VALIDATE_UTF8, "",
+                    isRemoveOriginProperty);
+            if (Strings.isNullOrEmpty(validateUtf8)) {
+                enableTextValidateUTF8 = ConnectContext.get() == null ? true
+                        : ConnectContext.get().getSessionVariable().enableTextValidateUtf8;
+            } else {
+                enableTextValidateUTF8 = Boolean.parseBoolean(validateUtf8);
+            }
+
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -159,24 +151,18 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
-        if (this.enclose != 0) {
-            fileTextScanRangeParams.setEnclose(this.enclose);
-        }
+        fileTextScanRangeParams.setEnclose(this.enclose);
+        fileTextScanRangeParams.setEscape(this.escape);
         fileAttributes.setTextParams(fileTextScanRangeParams);
         fileAttributes.setHeaderType(headerType);
         fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
         fileAttributes.setSkipLines(skipLines);
-        fileAttributes.setEnableTextValidateUtf8(
-                ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
+        fileAttributes.setEnableTextValidateUtf8(enableTextValidateUTF8);
         return fileAttributes;
     }
 
     public String getHeaderType() {
         return headerType;
-    }
-
-    public TTextSerdeType getTextSerdeType() {
-        return textSerdeType;
     }
 
     public String getColumnSeparator() {
@@ -201,9 +187,5 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     public byte getEscape() {
         return escape;
-    }
-
-    public List<Column> getCsvSchema() {
-        return csvSchema;
     }
 }

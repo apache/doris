@@ -37,8 +37,8 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
@@ -132,7 +132,7 @@ private:
 template <typename ParserImpl>
 void parse_json_to_variant(IColumn& column, const char* src, size_t length,
                            JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
-    auto& column_object = assert_cast<ColumnVariant&>(column);
+    auto& column_variant = assert_cast<ColumnVariant&>(column);
     std::optional<ParseResult> result;
     /// Treat empty string as an empty object
     /// for better CAST from String to Object.
@@ -154,21 +154,21 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
-    size_t old_num_rows = column_object.size();
+    size_t old_num_rows = column_variant.size();
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
         get_field_info(values[i], &field_info);
         if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
             continue;
         }
-        if (column_object.get_subcolumn(paths[i], i) == nullptr) {
+        if (column_variant.get_subcolumn(paths[i], i) == nullptr) {
             if (paths[i].has_nested_part()) {
-                column_object.add_nested_subcolumn(paths[i], field_info, old_num_rows);
+                column_variant.add_nested_subcolumn(paths[i], field_info, old_num_rows);
             } else {
-                column_object.add_sub_column(paths[i], old_num_rows);
+                column_variant.add_sub_column(paths[i], old_num_rows);
             }
         }
-        auto* subcolumn = column_object.get_subcolumn(paths[i], i);
+        auto* subcolumn = column_variant.get_subcolumn(paths[i], i);
         if (!subcolumn) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
                                    paths[i].get_path());
@@ -181,16 +181,16 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         subcolumn->insert(std::move(values[i]), std::move(field_info));
     }
     // /// Insert default values to missed subcolumns.
-    const auto& subcolumns = column_object.get_subcolumns();
+    const auto& subcolumns = column_variant.get_subcolumns();
     for (const auto& entry : subcolumns) {
         if (entry->data.size() == old_num_rows) {
-            bool inserted = column_object.try_insert_default_from_nested(entry);
+            bool inserted = column_variant.try_insert_default_from_nested(entry);
             if (!inserted) {
                 entry->data.insert_default();
             }
         }
     }
-    column_object.incr_num_rows();
+    column_variant.incr_num_rows();
 }
 
 // exposed interfaces

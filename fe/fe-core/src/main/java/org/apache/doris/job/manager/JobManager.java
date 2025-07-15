@@ -38,6 +38,7 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -47,7 +48,10 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -62,6 +66,7 @@ import java.util.stream.Collectors;
 
 @Log4j2
 public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
+    private static final Logger LOG = LogManager.getLogger(JobManager.class);
 
     private final ConcurrentHashMap<Long, T> jobMap = new ConcurrentHashMap<>(32);
 
@@ -104,27 +109,34 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public void registerJob(T job) throws JobException {
+        job.initParams();
+        createJobInternal(job, false);
+        jobScheduler.scheduleOneJob(job);
+    }
+
+    public void createJobInternal(T job, boolean isReplay) throws JobException {
         writeLock();
         try {
-            job.onRegister();
-            job.checkJobParams();
-            checkJobNameExist(job.getJobName());
-            if (jobMap.get(job.getJobId()) != null) {
-                throw new JobException("job id exist, jobId:" + job.getJobId());
+            if (!isReplay) {
+                job.onRegister();
+                job.checkJobParams();
+                checkJobNameExist(job.getJobName());
+                if (jobMap.get(job.getJobId()) != null) {
+                    throw new JobException("job id exist, jobId:" + job.getJobId());
+                }
             }
             jobMap.put(job.getJobId(), job);
-            job.logCreateOperation();
+            if (isReplay) {
+                job.onReplayCreate();
+            }
+            if (!isReplay && job.needPersist()) {
+                job.logCreateOperation();
+            }
         } finally {
             writeUnlock();
         }
-        try {
-            //check its need to scheduler
-            jobScheduler.scheduleOneJob(job);
-        } catch (Exception e) {
-            // if scheduler job error, we need to unregister job
-            log.warn(("first schedule job error,unregister job, jobName:" + job.getJobName()), e);
-            unregisterJob(job.getJobId());
-            throw new JobException("register job error, jobName:" + job.getJobName());
+        if (!isReplay) {
+            jobScheduler.cycleTimerJobScheduler(job);
         }
     }
 
@@ -173,16 +185,27 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         if (dropJob == null) {
             throw new JobException("job not exist, jobName:" + jobName);
         }
-        //is job status is running, we need to stop it and cancel all running task
-        // since job only running in master, we don't need to write update metadata log
-        if (dropJob.getJobStatus().equals(JobStatus.RUNNING)) {
-            dropJob.updateJobStatus(JobStatus.STOPPED);
+        dropJobInternal(dropJob, false);
+    }
+
+    public void dropJobInternal(T job, boolean isReplay) throws JobException {
+        if (!isReplay) {
+            // is job status is running, we need to stop it and cancel all running task
+            // since job only running in master, we don't need to write update metadata log
+            if (job.getJobStatus().equals(JobStatus.RUNNING)) {
+                job.updateJobStatus(JobStatus.STOPPED);
+            }
         }
         writeLock();
         try {
+            jobMap.remove(job.getJobId());
+            if (isReplay) {
+                job.onReplayEnd(job);
+            }
             // write delete log
-            dropJob.logDeleteOperation();
-            jobMap.remove(dropJob.getJobId());
+            if (!isReplay && job.needPersist()) {
+                job.logDeleteOperation();
+            }
         } finally {
             writeUnlock();
         }
@@ -192,7 +215,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
         if (status.equals(JobStatus.RUNNING)) {
-            jobScheduler.scheduleOneJob(jobMap.get(jobId));
+            jobScheduler.cycleTimerJobScheduler(jobMap.get(jobId));
         }
         jobMap.get(jobId).logUpdateOperation();
     }
@@ -271,19 +294,38 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public void replayCreateJob(T job) throws JobException {
-        if (jobMap.containsKey(job.getJobId())) {
+        // mtmv has its own editLog to replay jobs, here it is to ignore the logs already generated by older versions.
+        if (!job.needPersist()) {
             return;
         }
-        jobMap.putIfAbsent(job.getJobId(), job);
-        job.onReplayCreate();
+        createJobInternal(job, true);
     }
 
     /**
      * Replay update load job.
      **/
     public void replayUpdateJob(T job) {
-        jobMap.put(job.getJobId(), job);
-        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
+        Long jobId = job.getJobId();
+        // In previous versions, the job ID in MTMV was not fixed (a new ID would be generated each time the editLog
+        // was replayed), but the name was constant and unique. However, since job updates use jobId as the key,
+        // it is possible that this jobId no longer exists. Therefore, we now look up the ID based on the name.
+        if (!jobMap.containsKey(jobId) && job instanceof MTMVJob) {
+            List<T> jobs = queryJobs(JobType.MV, job.getJobName());
+            if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
+                LOG.warn("jobs by name: {} not normal,should have one job,but job num is: {}", job.getJobName(),
+                        jobs.size());
+                return;
+            }
+            jobId = jobs.get(0).getJobId();
+            job.setJobId(jobId);
+        }
+
+        if (!jobMap.containsKey(jobId)) {
+            LOG.warn("replayUpdateJob not normal, job: {}, jobId: {}, jobMap: {}", job, jobId, jobMap);
+            return;
+        }
+        jobMap.put(jobId, job);
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, jobId)
                 .add("msg", "replay update scheduler job").build());
     }
 
@@ -291,12 +333,11 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      * Replay delete load job. we need to remove job from job map
      */
     public void replayDeleteJob(T replayJob) throws JobException {
-        T job = jobMap.get(replayJob.getJobId());
-        if (null == job) {
+        // mtmv has its own editLog to replay jobs, here it is to ignore the logs already generated by older version
+        if (!replayJob.needPersist()) {
             return;
         }
-        jobMap.remove(replayJob.getJobId());
-        job.onReplayEnd(replayJob);
+        dropJobInternal(replayJob, true);
     }
 
     /**
@@ -340,6 +381,10 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             AbstractJob job = AbstractJob.readFields(in);
+            // for compatible
+            if (job instanceof MTMVJob) {
+                job.setJobId(((MTMVJob) job).getMtmvId());
+            }
             jobMap.putIfAbsent(job.getJobId(), (T) job);
         }
     }

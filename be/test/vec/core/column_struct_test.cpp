@@ -26,7 +26,7 @@
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_vector.h"
 #include "vec/core/field.h"
 
 namespace doris::vectorized {

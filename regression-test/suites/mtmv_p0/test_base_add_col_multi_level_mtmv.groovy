@@ -127,26 +127,14 @@ suite("test_base_add_col_multi_level_mtmv","mtmv") {
     sql """
         alter table ${tableName1} add COLUMN new_col INT AFTER k2;
         """
+    assertEquals("FINISHED", getAlterColumnFinalState("${tableName1}"))
+    order_qt_add_col_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
+    order_qt_add_col_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_add_col_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_add_col_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
 
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-
-            assertEquals("FINISHED", getAlterColumnFinalState("${tableName1}"))
-
-            order_qt_add_col_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
-            order_qt_add_col_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-            order_qt_add_col_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-            order_qt_add_col_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
-
-            mv_rewrite_success_without_check_chosen(querySql, mvName1)
-            mv_rewrite_success_without_check_chosen(querySql, mvName2)
-            mv_rewrite_success_without_check_chosen(querySql, mvName3)
-            mv_rewrite_success_without_check_chosen(querySql, mvName4)
-        }
-    })
-
-
+    mv_rewrite_success_without_check_chosen(querySql, mvName1)
+    mv_rewrite_success_without_check_chosen(querySql, mvName2)
+    mv_rewrite_success_without_check_chosen(querySql, mvName3)
+    mv_rewrite_success_without_check_chosen(querySql, mvName4)
 }

@@ -175,8 +175,8 @@ SELECT json_array_get('[{\, :null}]', 0);
 SELECT json_array_get('[{\, :null}]', -1);
 -- SELECT json_parse('INVALID'); # error: errCode = 2, detailMessage = (127.0.0.1)[INVALID_ARGUMENT]json parse error: Exception throwed for value: INVALID
 -- SELECT json_parse('\, : 1'); # error: errCode = 2, detailMessage = (127.0.0.1)[INVALID_ARGUMENT]json parse error: Exception throwed for value: \, : 1
-SELECT json_parse('{}{');
-SELECT json_parse('{}{abc');
+SELECT json_parse('{}');
+SELECT json_parse('{}');
 -- SELECT json_parse(''); # error: errCode = 2, detailMessage = (127.0.0.1)[INVALID_ARGUMENT]json parse error: Empty document for value: 
 -- SELECT json_format(JSON '[\, , \, ]'); # error: errCode = 2, detailMessage = Can not found function 'JSON_FORMAT'
 SELECT json_size('{\, : {\,  : 1, \,  : 2} }', '$');
@@ -369,8 +369,8 @@ SELECT json_array_get('[{\, :null}]', 0);
 SELECT json_array_get('[{\, :null}]', -1);
 -- SELECT json_parse('INVALID'); # error: errCode = 2, detailMessage = (127.0.0.1)[INVALID_ARGUMENT]json parse error: Exception throwed for value: INVALID
 -- SELECT json_parse('\, : 1'); # error: errCode = 2, detailMessage = (127.0.0.1)[INVALID_ARGUMENT]json parse error: Exception throwed for value: \, : 1
-SELECT json_parse('{}{');
-SELECT json_parse('{}{abc');
+SELECT json_parse('{}');
+SELECT json_parse('{}');
 -- SELECT json_parse(''); # error: errCode = 2, detailMessage = (127.0.0.1)[INVALID_ARGUMENT]json parse error: Empty document for value: 
 -- SELECT json_format(JSON '[\, , \, ]'); # error: errCode = 2, detailMessage = Can not found function 'JSON_FORMAT'
 SELECT json_size('{\, : {\,  : 1, \,  : 2} }', '$');

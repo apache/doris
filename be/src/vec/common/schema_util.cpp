@@ -50,8 +50,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
@@ -64,8 +63,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -510,7 +509,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
             parse_json_to_variant(*variant_column.get(),
                                   assert_cast<const ColumnString&>(*scalar_root_column), config);
         } else {
-            // Root maybe other types rather than string like ColumnObject(Int32).
+            // Root maybe other types rather than string like ColumnVariant(Int32).
             // In this case, we should finlize the root and cast to JSON type
             auto expected_root_type =
                     make_nullable(std::make_shared<ColumnVariant::MostCommonType>());

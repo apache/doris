@@ -21,6 +21,7 @@
 
 #include "io/fs/file_system.h"
 #include "io/fs/obj_storage_client.h"
+#include "util/s3_util.h"
 
 #ifdef USE_AZURE
 #include <azure/storage/blobs.hpp>
@@ -49,13 +50,19 @@ protected:
         std::string accountKey = std::getenv("AZURE_ACCOUNT_KEY");
         std::string containerName = std::getenv("AZURE_CONTAINER_NAME");
 
-        auto cred = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(accountName,
-                                                                                 accountKey);
-        const std::string uri =
-                fmt::format("https://{}.blob.core.windows.net/{}", accountName, containerName);
-        auto containerClient = std::make_shared<BlobContainerClient>(uri, cred);
-        AzureObjStorageClientTest::obj_storage_client =
-                std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
+        // Initialize Azure SDK
+        [[maybe_unused]] auto& s3ClientFactory = S3ClientFactory::instance();
+
+        AzureObjStorageClientTest::obj_storage_client = S3ClientFactory::instance().create(
+                {.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName),
+                 .region = "dummy-region",
+                 .ak = accountName,
+                 .sk = accountKey,
+                 .token = "",
+                 .bucket = containerName,
+                 .provider = io::ObjStorageType::AZURE,
+                 .role_arn = "",
+                 .external_id = ""});
     }
 
     void SetUp() override {

@@ -343,13 +343,13 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
                                       _writer->_num_segcompacted);
     }
     RETURN_IF_ERROR(_writer->_rename_compacted_segments(begin, end));
-    if (_inverted_index_file_writer != nullptr) {
-        _inverted_index_file_writer.reset();
+    if (_index_file_writer != nullptr) {
+        _index_file_writer.reset();
     }
     if (VLOG_DEBUG_IS_ON) {
         _writer->vlog_buffer.clear();
         for (const auto& entry : std::filesystem::directory_iterator(ctx.tablet_path)) {
-            fmt::format_to(_writer->vlog_buffer, "[{}]", string(entry.path()));
+            fmt::format_to(_writer->vlog_buffer, "[{}]", std::string(entry.path()));
         }
         VLOG_DEBUG << "tablet_id:" << ctx.tablet_id << " rowset_id:" << ctx.rowset_id
                    << "_segcompacted_point:" << _writer->_segcompacted_point

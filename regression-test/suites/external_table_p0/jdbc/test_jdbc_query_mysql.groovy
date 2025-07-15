@@ -941,6 +941,121 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         order_qt_sql111 """ SELECT rank() OVER () FROM (SELECT k8 FROM $jdbcMysql57Table1 LIMIT 10) as t LIMIT 3 """
         order_qt_sql112 """ SELECT k7, count(DISTINCT k8) FROM $jdbcMysql57Table1 WHERE k8 > 110 GROUP BY GROUPING SETS ((), (k7)) """
 
+        // test function rules
+        sql  """ drop table if exists jdbc_table_function_rule """
+        test {
+            sql  """ 
+                    CREATE EXTERNAL TABLE `jdbc_table_function_rule` (
+                       `products_id` int(11) NOT NULL,
+                       `orders_id` int(11) NOT NULL,
+                       `sales_add_time` datetime NOT NULL,
+                       `sales_update_time` datetime NOT NULL,
+                       `finance_admin` int(11) NOT NULL
+                    ) ENGINE=JDBC
+                    COMMENT "JDBC Mysql 外部表"
+                    PROPERTIES (
+                    "resource" = "$jdbcResourceMysql57",
+                    "table" = "ex_tb4",
+                    "table_type"="mysql",
+                    "function_rules" = '{"pushdown" : {"supported" : [null]}}'
+                    ); 
+            """
+
+            exception """Failed to parse push down rules: {"pushdown" : {"supported" : [null]}}"""
+        }
+
+        sql  """ 
+                CREATE EXTERNAL TABLE `jdbc_table_function_rule` (
+                   `products_id` int(11) NOT NULL,
+                   `orders_id` int(11) NOT NULL,
+                   `sales_add_time` datetime NOT NULL,
+                   `sales_update_time` datetime NOT NULL,
+                   `finance_admin` int(11) NOT NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb4",
+                "table_type"="mysql",
+                "function_rules" = '{"pushdown" : {"supported" : ["date_trunc"]}}'
+                ); 
+        """
+        explain {
+            sql """select products_id from jdbc_table_function_rule where abs(products_id) > 0 and date_trunc(`sales_add_time`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `products_id`, `sales_add_time` FROM `ex_tb4` WHERE (date_trunc(`sales_add_time`, 'month') = '2013-10-01 00:00:00')"""
+            contains """PREDICATES: ((abs(products_id[#0]) > 0) AND (date_trunc(sales_add_time[#2], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        sql """drop table jdbc_table_function_rule"""
+        sql  """ 
+                CREATE EXTERNAL TABLE `jdbc_table_function_rule` (
+                   `products_id` int(11) NOT NULL,
+                   `orders_id` int(11) NOT NULL,
+                   `sales_add_time` datetime NOT NULL,
+                   `sales_update_time` datetime NOT NULL,
+                   `finance_admin` int(11) NOT NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb4",
+                "table_type"="mysql",
+                "function_rules" = ''
+                ); 
+        """
+        explain {
+            sql """select products_id from jdbc_table_function_rule where abs(products_id) > 0 and date_trunc(`sales_add_time`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `products_id`, `sales_add_time` FROM `ex_tb4` WHERE ((abs(`products_id`) > 0))"""
+            contains """PREDICATES: ((abs(products_id[#0]) > 0) AND (date_trunc(sales_add_time[#2], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        sql """drop table jdbc_table_function_rule"""
+        sql  """ 
+                CREATE EXTERNAL TABLE `jdbc_table_function_rule` (
+                   `products_id` int(11) NOT NULL,
+                   `orders_id` int(11) NOT NULL,
+                   `sales_add_time` datetime NOT NULL,
+                   `sales_update_time` datetime NOT NULL,
+                   `finance_admin` int(11) NOT NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb4",
+                "table_type"="mysql",
+                "function_rules" = '{"pushdown" : {"supported": ["date_trunc"], "unsupported" : ["abs"]}}'
+                ); 
+        """
+        explain {
+            sql """select products_id from jdbc_table_function_rule where abs(products_id) > 0 and date_trunc(`sales_add_time`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `products_id`, `sales_add_time` FROM `ex_tb4` WHERE (date_trunc(`sales_add_time`, 'month') = '2013-10-01 00:00:00')"""
+            contains """PREDICATES: ((abs(products_id[#0]) > 0) AND (date_trunc(sales_add_time[#2], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        // test rewrite
+        sql """drop table jdbc_table_function_rule"""
+        sql  """ 
+                CREATE EXTERNAL TABLE `jdbc_table_function_rule` (
+                   `products_id` int(11) NOT NULL,
+                   `orders_id` int(11) NOT NULL,
+                   `sales_add_time` datetime NOT NULL,
+                   `sales_update_time` datetime NOT NULL,
+                   `finance_admin` int(11) NOT NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb4",
+                "table_type"="mysql",
+                "function_rules" = '{"pushdown" : {"supported": ["to_date"], "unsupported" : ["abs"]}, "rewrite" : {"to_date" : "date2"}}'
+                ); 
+        """
+        explain {
+            sql """select products_id from jdbc_table_function_rule where to_date(sales_add_time) = "2013-10-01" and  abs(products_id) > 0 and date_trunc(`sales_add_time`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `products_id`, `sales_add_time` FROM `ex_tb4` WHERE (date2(`sales_add_time`) = '2013-10-01')"""
+            contains """PREDICATES: (((to_date(sales_add_time[#2]) = '2013-10-01') AND (abs(products_id[#0]) > 0)) AND (date_trunc(sales_add_time[#2], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
         // TODO: check this, maybe caused by datasource in JDBC
         // test alter resource
         sql """alter resource $jdbcResourceMysql57 properties("password" = "1234567")"""
@@ -950,25 +1065,6 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         }
         sql """alter resource $jdbcResourceMysql57 properties("password" = "123456")"""
 
-//         // test for type check
-//         sql  """ drop table if exists ${exMysqlTypeTable} """
-//         sql  """
-//                CREATE EXTERNAL TABLE ${exMysqlTypeTable} (
-//                `id` bigint NOT NULL,
-//                `count_value` varchar(100) NULL
-//                ) ENGINE=JDBC
-//                COMMENT "JDBC Mysql 外部表"
-//                PROPERTIES (
-//                 "resource" = "$jdbcResourceMysql57",
-//                 "table" = "ex_tb2",
-//                 "table_type"="mysql"
-//                );
-//         """
-//
-//         test {
-//             sql """select * from ${exMysqlTypeTable} order by id"""
-//             exception "Fail to convert jdbc type of java.lang.Integer to doris type BIGINT on column: id"
-//         }
 
     }
 }

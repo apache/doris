@@ -28,7 +28,7 @@
 
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
 
 namespace vectorized {
 class IColumn;
@@ -37,6 +37,8 @@ class Arena;
 class DataTypeNothingSerde : public DataTypeSerDe {
 public:
     DataTypeNothingSerde() = default;
+
+    std::string get_name() const override { return "Nothing"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {
@@ -79,7 +81,7 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
         return Status::NotSupported("read_column_from_pb with type " + column.get_name());
     }
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
@@ -90,16 +92,16 @@ public:
                                "read_one_cell_from_jsonb with type " + column.get_name());
     }
 
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_column_to_arrow with type " + column.get_name());
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override {
+        return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                             "write_column_to_arrow with type " + column.get_name());
     }
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "read_column_from_arrow with type " + column.get_name());
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override {
+        return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                             "read_column_from_arrow with type " + column.get_name());
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,

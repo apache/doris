@@ -50,7 +50,7 @@ Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
     // Rows read from storage.
     // Include the rows read from doris page cache.
-    _scan_rows = ADD_COUNTER(_runtime_profile, "ScanRows", TUnit::UNIT);
+    _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
@@ -58,7 +58,7 @@ Status OlapScanLocalState::_init_profile() {
     // 2. init timer and counters
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
-    _process_conjunct_timer = ADD_TIMER(_runtime_profile, "ProcessConjunctTime");
+    _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
@@ -178,6 +178,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
     _inverted_index_searcher_search_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
+    _inverted_index_searcher_search_init_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchInitTime");
+    _inverted_index_searcher_search_exec_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchExecTime");
     _inverted_index_searcher_cache_hit_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
     _inverted_index_searcher_cache_miss_counter =
@@ -188,8 +192,8 @@ Status OlapScanLocalState::_init_profile() {
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
-    _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
-    _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
+    _tablet_counter = ADD_COUNTER(custom_profile(), "TabletNum", TUnit::UNIT);
+    _key_range_counter = ADD_COUNTER(custom_profile(), "KeyRangesNum", TUnit::UNIT);
     _tablet_reader_init_timer = ADD_TIMER(_scanner_profile, "TabletReaderInitTimer");
     _tablet_reader_capture_rs_readers_timer =
             ADD_TIMER(_scanner_profile, "TabletReaderCaptureRsReadersTimer");
@@ -224,8 +228,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
     _segment_iterator_init_bitmap_index_iterators_timer =
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitBitmapIndexIteratorsTimer");
-    _segment_iterator_init_inverted_index_iterators_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitInvertedIndexIteratorsTimer");
+    _segment_iterator_init_index_iterators_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitIndexIteratorsTimer");
 
     _segment_create_column_readers_timer =
             ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
@@ -333,7 +337,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
                 message += conjunct->root()->debug_string();
             }
         }
-        _runtime_profile->add_info_string("RemainedDownPredicates", message);
+        custom_profile()->add_info_string("RemainedDownPredicates", message);
     }
     auto& p = _parent->cast<OlapScanOperatorX>();
 
@@ -372,9 +376,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
         // If the `max_scanners_count` was not set,
-        // use `config::doris_scanner_thread_pool_thread_num` as the default value.
+        // use `CpuInfo::num_cores()` as the default value.
         if (max_scanners_count <= 0) {
-            max_scanners_count = config::doris_scanner_thread_pool_thread_num;
+            max_scanners_count = CpuInfo::num_cores();
         }
 
         // Too small value of `min_rows_per_scanner` is meaningless.
@@ -513,6 +517,40 @@ Status OlapScanLocalState::hold_tablets() {
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
                            sync_stats.get_remote_delete_bitmap_rpc_ns);
         }
+        auto time_ms = duration_ns / 1000 / 1000;
+        if (time_ms >= config::sync_rowsets_slow_threshold_ms) {
+            DorisMetrics::instance()->get_remote_tablet_slow_time_ms->increment(time_ms);
+            DorisMetrics::instance()->get_remote_tablet_slow_cnt->increment(1);
+            LOG_WARNING("get tablet takes too long")
+                    .tag("query_id", print_id(PipelineXLocalState<>::_state->query_id()))
+                    .tag("node_id", _parent->node_id())
+                    .tag("total_time", PrettyPrinter::print(duration_ns, TUnit::TIME_NS))
+                    .tag("num_tablets", _tablets.size())
+                    .tag("tablet_meta_cache_hit", _sync_rowset_tablet_meta_cache_hit->value())
+                    .tag("tablet_meta_cache_miss", _sync_rowset_tablet_meta_cache_miss->value())
+                    .tag("get_remote_tablet_meta_rpc_time",
+                         PrettyPrinter::print(
+                                 _sync_rowset_get_remote_tablet_meta_rpc_timer->value(),
+                                 TUnit::TIME_NS))
+                    .tag("remote_rowsets_num", _sync_rowset_get_remote_rowsets_num->value())
+                    .tag("get_remote_rowsets_rpc_time",
+                         PrettyPrinter::print(_sync_rowset_get_remote_rowsets_rpc_timer->value(),
+                                              TUnit::TIME_NS))
+                    .tag("local_delete_bitmap_rowsets_num",
+                         _sync_rowset_get_local_delete_bitmap_rowsets_num->value())
+                    .tag("remote_delete_bitmap_rowsets_num",
+                         _sync_rowset_get_remote_delete_bitmap_rowsets_num->value())
+                    .tag("remote_delete_bitmap_key_count",
+                         _sync_rowset_get_remote_delete_bitmap_key_count->value())
+                    .tag("remote_delete_bitmap_bytes",
+                         PrettyPrinter::print(_sync_rowset_get_remote_delete_bitmap_bytes->value(),
+                                              TUnit::BYTES))
+                    .tag("get_remote_delete_bitmap_rpc_time",
+                         PrettyPrinter::print(
+                                 _sync_rowset_get_remote_delete_bitmap_rpc_timer->value(),
+                                 TUnit::TIME_NS));
+        }
+
     } else {
         for (size_t i = 0; i < _scan_ranges.size(); i++) {
             int64_t version = 0;
@@ -702,15 +740,15 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                        range);
         }
     } else {
-        _runtime_profile->add_info_string("PushDownAggregate",
+        custom_profile()->add_info_string("PushDownAggregate",
                                           push_down_agg_to_string(p._push_down_agg_type));
     }
 
     if (state()->enable_profile()) {
-        _runtime_profile->add_info_string("PushDownPredicates",
+        custom_profile()->add_info_string("PushDownPredicates",
                                           olap_filters_to_string(_olap_filters));
-        _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
-        _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
+        custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
+        custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }
     VLOG_CRITICAL << _scan_keys.debug_string();
 

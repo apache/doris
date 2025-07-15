@@ -31,7 +31,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -51,16 +51,18 @@ struct FunctionAttr {
     bool enable_decimal256 {false};
 };
 
-#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                               \
-    bool is_nullable = false;                                                    \
-    bool is_datev2 = false;                                                      \
-    for (auto it : arguments) {                                                  \
-        is_nullable = is_nullable || it.type->is_nullable();                     \
-        is_datev2 = is_datev2 || it.type->get_primitive_type() == TYPE_DATEV2 || \
-                    it.type->get_primitive_type() == TYPE_DATETIMEV2;            \
-    }                                                                            \
-    return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())   \
-                                     : std::make_shared<TYPE>();
+#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                             \
+    bool is_nullable = false;                                                                  \
+    bool is_datev2 = false;                                                                    \
+    for (auto it : arguments) {                                                                \
+        is_nullable = is_nullable || it.type->is_nullable();                                   \
+        is_datev2 = is_datev2 || it.type->get_primitive_type() == TYPE_DATEV2 ||               \
+                    it.type->get_primitive_type() == TYPE_DATETIMEV2;                          \
+    }                                                                                          \
+    return is_nullable || !is_datev2                                                           \
+                   ? make_nullable(                                                            \
+                             std::make_shared<typename PrimitiveTypeTraits<TYPE>::DataType>()) \
+                   : std::make_shared<typename PrimitiveTypeTraits<TYPE>::DataType>();
 
 #define SET_NULLMAP_IF_FALSE(EXPR) \
     if (!EXPR) [[unlikely]] {      \
@@ -139,12 +141,6 @@ protected:
 
     virtual bool skip_return_type_check() const { return false; }
 
-    /** If function arguments has single low cardinality column and all other arguments are constants, call function on nested column.
-      * Otherwise, convert all low cardinality columns to ordinary columns.
-      * Returns ColumnLowCardinality if at least one argument is ColumnLowCardinality.
-      */
-    virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
-
     /** Some arguments could remain constant during this implementation.
       * Every argument required const must write here and no checks elsewhere.
       */
@@ -189,17 +185,25 @@ public:
         return Status::OK();
     }
 
-    /// TODO: make const
-    virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           uint32_t result, size_t input_rows_count, bool dry_run = false) const {
-        return prepare(context, block, arguments, result)
-                ->execute(context, block, arguments, result, input_rows_count, dry_run);
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count, bool dry_run = false) const {
+        try {
+            return prepare(context, block, arguments, result)
+                    ->execute(context, block, arguments, result, input_rows_count, dry_run);
+        } catch (const std::exception& e) {
+            if (const auto* doris_e = dynamic_cast<const doris::Exception*>(&e)) {
+                return doris_e->to_status();
+            } else {
+                return Status::InternalError("Function {} execute failed: {}", get_name(),
+                                             e.what());
+            }
+        }
     }
 
     virtual Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return Status::OK();
     }
@@ -347,12 +351,6 @@ protected:
 
     virtual bool need_replace_null_data_to_default() const { return false; }
 
-    /** If use_default_implementation_for_nulls() is true, than change arguments for get_return_type() and build_impl().
-      * If function arguments has low cardinality types, convert them to ordinary types.
-      * get_return_type returns ColumnLowCardinality if at least one argument type is ColumnLowCardinality.
-      */
-    virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
-
     /// return a real function object to execute. called in build(...).
     virtual FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                        const DataTypePtr& return_type) const = 0;
@@ -360,9 +358,6 @@ protected:
     virtual DataTypes get_variadic_argument_types_impl() const { return {}; }
 
 private:
-    DataTypePtr get_return_type_without_low_cardinality(
-            const ColumnsWithTypeAndName& arguments) const;
-
     bool is_date_or_datetime_or_decimal(const DataTypePtr& return_type,
                                         const DataTypePtr& func_return_type) const;
     bool is_array_nested_type_date_or_datetime_or_decimal(
@@ -387,8 +382,6 @@ public:
     bool skip_return_type_check() const override { return false; }
 
     bool need_replace_null_data_to_default() const override { return false; }
-
-    bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
 
     /// all constancy check should use this function to do automatically
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
@@ -457,7 +450,7 @@ protected:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
                                                  num_rows, bitmap_result);
@@ -478,9 +471,6 @@ protected:
     }
     bool use_default_implementation_for_constants() const final {
         return function->use_default_implementation_for_constants();
-    }
-    bool use_default_implementation_for_low_cardinality_columns() const final {
-        return function->use_default_implementation_for_low_cardinality_columns();
     }
     ColumnNumbers get_arguments_that_are_always_constant() const final {
         return function->get_arguments_that_are_always_constant();
@@ -525,7 +515,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& args,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
                                                  bitmap_result);
@@ -576,9 +566,6 @@ protected:
 
     bool need_replace_null_data_to_default() const override {
         return function->need_replace_null_data_to_default();
-    }
-    bool use_default_implementation_for_low_cardinality_columns() const override {
-        return function->use_default_implementation_for_low_cardinality_columns();
     }
 
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,

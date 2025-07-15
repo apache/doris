@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -43,7 +43,8 @@ import java.util.Objects;
  * Example: '1996-01-01' + INTERVAL '3' month;
  * TODO: we need to rethink this, and maybe need to add a new type of Interval then implement IntervalLiteral as others
  */
-public class TimestampArithmetic extends Expression implements BinaryExpression, PropagateNullableOnDateLikeV2Args {
+public class TimestampArithmetic extends Expression
+        implements BinaryExpression, PropagateNullableOnDateOrTimeLikeV2Args {
 
     private final String funcName;
     private final Operator op;

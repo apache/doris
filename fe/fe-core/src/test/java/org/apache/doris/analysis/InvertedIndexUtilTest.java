@@ -190,4 +190,78 @@ public class InvertedIndexUtilTest {
                 thrown.getMessage()
         );
     }
+
+    @Test
+    public void testInvalidCharFilterType() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "invalid_type");
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, ",");
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, PrimitiveType.STRING, TInvertedIndexFileStorageFormat.V2);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = Invalid 'char_filter_type', only 'char_replace' is supported",
+                thrown.getMessage()
+        );
+    }
+
+    @Test
+    public void testMissingCharFilterPattern() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, PrimitiveType.STRING, TInvertedIndexFileStorageFormat.V2);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = Missing 'char_filter_pattern' for 'char_replace' filter type",
+                thrown.getMessage()
+        );
+    }
+
+    @Test
+    public void testNonSingleByteCharFilterPattern() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "，");
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, PrimitiveType.STRING, TInvertedIndexFileStorageFormat.V2);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = 'char_filter_pattern' must contain only ASCII characters",
+                thrown.getMessage()
+        );
+    }
+
+    @Test
+    public void testNonSingleByteCharFilterReplacement() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, ",");
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "，");
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, PrimitiveType.STRING, TInvertedIndexFileStorageFormat.V2);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = 'char_filter_replacement' must contain only ASCII characters",
+                thrown.getMessage()
+        );
+    }
+
+    @Test
+    public void testValidCharFilterConfig() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, ",._");
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+
+        InvertedIndexUtil.checkInvertedIndexProperties(properties, PrimitiveType.STRING, TInvertedIndexFileStorageFormat.V2);
+    }
 }

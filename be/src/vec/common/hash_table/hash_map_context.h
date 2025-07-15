@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "common/compiler_util.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -45,7 +46,6 @@ struct MethodBaseInner {
     using HashMapType = HashMap;
 
     std::shared_ptr<HashMap> hash_table = nullptr;
-    bool inited_iterator = false;
     Key* keys = nullptr;
     Arena arena;
     DorisVector<size_t> hash_values;
@@ -55,11 +55,6 @@ struct MethodBaseInner {
 
     MethodBaseInner() { hash_table.reset(new HashMap()); }
     virtual ~MethodBaseInner() = default;
-
-    virtual void reset() {
-        arena.clear();
-        inited_iterator = false;
-    }
 
     virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                                       const uint8_t* null_map = nullptr, bool is_join = false,
@@ -170,19 +165,21 @@ concept IteratoredMap = requires(T* map) { typename T::iterator; };
 template <typename HashMap>
 struct MethodBase : public MethodBaseInner<HashMap> {
     using Iterator = void*;
-    Iterator iterator;
-    void init_iterator() { MethodBaseInner<HashMap>::inited_iterator = true; }
+    void init_iterator() {}
 };
 
 template <IteratoredMap HashMap>
 struct MethodBase<HashMap> : public MethodBaseInner<HashMap> {
     using Iterator = typename HashMap::iterator;
     using Base = MethodBaseInner<HashMap>;
-    Iterator iterator;
+    Iterator begin;
+    Iterator end;
+    bool inited_iterator = false;
     void init_iterator() {
-        if (!Base::inited_iterator) {
-            Base::inited_iterator = true;
-            iterator = Base::hash_table->begin();
+        if (!inited_iterator) {
+            inited_iterator = true;
+            begin = Base::hash_table->begin();
+            end = Base::hash_table->end();
         }
     }
 };
@@ -255,7 +252,7 @@ struct MethodSerialized : public MethodBase<TData> {
             }
 
             for (const auto& column : key_columns) {
-                column->serialize_vec(input_keys.data(), num_rows, max_one_row_byte_size);
+                column->serialize_vec(input_keys.data(), num_rows);
             }
         }
         Base::keys = input_keys.data();
@@ -421,7 +418,6 @@ struct MethodKeysFixed : public MethodBase<TData> {
     using typename Base::Mapped;
     using Base::keys;
     using Base::hash_table;
-    using Base::iterator;
 
     using State = ColumnsHashing::HashMethodKeysFixed<typename Base::Value, Key, Mapped>;
 
@@ -618,7 +614,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
 };
 
 template <typename Base>
-struct DataWithNullKey : public Base {
+struct DataWithNullKeyImpl : public Base {
     bool& has_null_key_data() { return has_null_key; }
     bool has_null_key_data() const { return has_null_key; }
     template <typename MappedType>
@@ -638,9 +634,65 @@ struct DataWithNullKey : public Base {
         has_null_key = false;
     }
 
-private:
+protected:
     bool has_null_key = false;
     Base::Value null_key_data;
+};
+
+template <typename Base>
+struct DataWithNullKey : public DataWithNullKeyImpl<Base> {};
+
+template <IteratoredMap Base>
+struct DataWithNullKey<Base> : public DataWithNullKeyImpl<Base> {
+    using DataWithNullKeyImpl<Base>::null_key_data;
+    using DataWithNullKeyImpl<Base>::has_null_key;
+
+    struct Iterator {
+        typename Base::iterator base_iterator = {};
+        bool current_null = false;
+        Base::Value* null_key_data = nullptr;
+
+        Iterator() = default;
+        Iterator(typename Base::iterator it, bool null, Base::Value* null_key)
+                : base_iterator(it), current_null(null), null_key_data(null_key) {}
+        bool operator==(const Iterator& rhs) const {
+            return current_null == rhs.current_null && base_iterator == rhs.base_iterator;
+        }
+
+        bool operator!=(const Iterator& rhs) const { return !(*this == rhs); }
+
+        Iterator& operator++() {
+            if (current_null) {
+                current_null = false;
+            } else {
+                ++base_iterator;
+            }
+            return *this;
+        }
+
+        Base::Value& get_second() {
+            if (current_null) {
+                return *null_key_data;
+            } else {
+                return base_iterator->get_second();
+            }
+        }
+    };
+
+    Iterator begin() { return {Base::begin(), has_null_key, &null_key_data}; }
+
+    Iterator end() { return {Base::end(), false, &null_key_data}; }
+
+    void insert(const Iterator& other_iter) {
+        if (other_iter.current_null) {
+            has_null_key = true;
+            null_key_data = *other_iter.null_key_data;
+        } else {
+            Base::insert(other_iter.base_iterator);
+        }
+    }
+
+    using iterator = Iterator;
 };
 
 /// Single low cardinality column.

@@ -20,8 +20,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <string>
 
@@ -30,7 +28,6 @@
 #include "util/slice.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -66,12 +63,12 @@ struct AggregateFunctionApproxCountDistinctData {
         std::string result;
         result.resize(hll_data.max_serialized_size());
         result.resize(hll_data.serialize((uint8_t*)result.data()));
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
         StringRef result;
-        read_binary(result, buf);
+        buf.read_binary(result);
         Slice data = Slice(result.data, result.size);
         hll_data.deserialize(data);
     }
@@ -97,8 +94,10 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
-        if constexpr (IsFixLenColumnType<ColumnDataType>::value) {
+             Arena&) const override {
+        if constexpr (is_decimal(type) || is_int_or_bool(type) || is_ip(type) ||
+                      is_date_type(type) || is_float_or_double(type) || type == TYPE_TIME ||
+                      type == TYPE_TIMEV2) {
             auto column =
                     assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0]);
             auto value = column->get_element(row_num);
@@ -116,7 +115,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -125,7 +124,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

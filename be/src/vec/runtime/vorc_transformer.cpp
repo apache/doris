@@ -46,7 +46,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/string_ref.h"
@@ -233,11 +232,7 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
                 assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len());
         break;
     }
-    case TYPE_STRING: {
-        auto l = assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len();
-        type = l > 0 ? orc::createCharType(orc::VARCHAR, l) : orc::createPrimitiveType(orc::STRING);
-        break;
-    }
+    case TYPE_STRING:
     case TYPE_IPV6:
     case TYPE_BINARY: {
         type = orc::createPrimitiveType(orc::STRING);

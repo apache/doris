@@ -24,7 +24,7 @@ import java.nio.file.Paths
 suite("test_outfile_agg_state_bitmap") {
     def outFilePath = """./tmp/test_outfile_agg_state_bitmap"""
     File path = new File(outFilePath)
-    path.delete()
+    path.deleteDir()
     path.mkdirs()
 
     sql "set enable_agg_state=true"
@@ -61,6 +61,6 @@ suite("test_outfile_agg_state_bitmap") {
     cmd """
     curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} http://${context.config.feHttpAddress}/api/regression_test_nereids_p0_outfile_agg_state_bitmap/a_table2/_stream_load
     """
-
+    Thread.sleep(10000)
     qt_test "select k1,bitmap_to_string(bitmap_union_merge(k2)) from a_table group by k1 order by k1;"
 }

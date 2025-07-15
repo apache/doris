@@ -25,11 +25,11 @@
 
 namespace doris::vectorized {
 
-template <typename T>
+template <PrimitiveType T>
 class DataTypeNumber final : public DataTypeNumberBase<T> {
 public:
-    using ColumnType = ColumnVector<T>;
-    using FieldType = T;
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
@@ -37,48 +37,37 @@ public:
     }
 
     size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const T& num) const;
+    void push_number(ColumnString::Chars& chars,
+                     const typename PrimitiveTypeTraits<T>::ColumnItemType& num) const;
 };
 
-using DataTypeUInt8 = DataTypeNumber<UInt8>;
-using DataTypeUInt16 = DataTypeNumber<UInt16>;
-using DataTypeUInt32 = DataTypeNumber<UInt32>;
-using DataTypeUInt64 = DataTypeNumber<UInt64>;
-using DataTypeUInt128 = DataTypeNumber<UInt128>;
-using DataTypeInt8 = DataTypeNumber<Int8>;
-using DataTypeInt16 = DataTypeNumber<Int16>;
-using DataTypeInt32 = DataTypeNumber<Int32>;
-using DataTypeInt64 = DataTypeNumber<Int64>;
-using DataTypeInt128 = DataTypeNumber<Int128>;
-using DataTypeFloat32 = DataTypeNumber<Float32>;
-using DataTypeFloat64 = DataTypeNumber<Float64>;
-using DataTypeBool = DataTypeUInt8;
+using DataTypeInt8 = DataTypeNumber<TYPE_TINYINT>;
+using DataTypeInt16 = DataTypeNumber<TYPE_SMALLINT>;
+using DataTypeInt32 = DataTypeNumber<TYPE_INT>;
+using DataTypeInt64 = DataTypeNumber<TYPE_BIGINT>;
+using DataTypeInt128 = DataTypeNumber<TYPE_LARGEINT>;
+using DataTypeFloat32 = DataTypeNumber<TYPE_FLOAT>;
+using DataTypeFloat64 = DataTypeNumber<TYPE_DOUBLE>;
+using DataTypeBool = DataTypeNumber<TYPE_BOOLEAN>;
+using DataTypeUInt8 = DataTypeNumber<TYPE_BOOLEAN>;
 
 template <typename DataType>
 constexpr bool IsDataTypeNumber = false;
 template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<UInt8>> = true;
+inline constexpr bool IsDataTypeNumber<DataTypeBool> = true;
 template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<UInt16>> = true;
+inline constexpr bool IsDataTypeNumber<DataTypeInt8> = true;
 template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<UInt32>> = true;
+inline constexpr bool IsDataTypeNumber<DataTypeInt16> = true;
 template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<UInt64>> = true;
+inline constexpr bool IsDataTypeNumber<DataTypeInt32> = true;
 template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<UInt128>> = true;
+inline constexpr bool IsDataTypeNumber<DataTypeInt64> = true;
 template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<Int8>> = true;
+inline constexpr bool IsDataTypeNumber<DataTypeInt128> = true;
 template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<Int16>> = true;
+inline constexpr bool IsDataTypeNumber<DataTypeFloat32> = true;
 template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<Int32>> = true;
-template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<Int64>> = true;
-template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<Int128>> = true;
-template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<Float32>> = true;
-template <>
-inline constexpr bool IsDataTypeNumber<DataTypeNumber<Float64>> = true;
+inline constexpr bool IsDataTypeNumber<DataTypeFloat64> = true;
 
 } // namespace doris::vectorized

@@ -48,8 +48,10 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -321,7 +323,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     objectPool,
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(),
-                                    tbl.storagePageSize());
+                                    tbl.storagePageSize(),
+                                    tbl.storageDictPageSize());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -377,6 +380,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         // create all replicas success.
         // add all shadow indexes to catalog
+        while (DebugPointUtil.isEnable("FE.SchemaChangeJobV2.createShadowIndexReplica.addShadowIndexToCatalog.block")) {
+            try {
+                Thread.sleep(1000);
+                LOG.info("block addShadowIndexToCatalog for job: {}", jobId);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+            }
+        }
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -609,6 +620,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             return;
         }
+        while (DebugPointUtil.isEnable("FE.SchemaChangeJobV2.runRunning.block")) {
+            try {
+                Thread.sleep(1000);
+                LOG.info("block schema change for job: {}", jobId);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+            }
+        }
         Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
         Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
         Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
@@ -681,7 +700,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
-        Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
+        AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+        manager.removeTableStats(tbl.getId());
+        manager.dropStats(tbl, null);
     }
 
     private void onFinished(OlapTable tbl) {

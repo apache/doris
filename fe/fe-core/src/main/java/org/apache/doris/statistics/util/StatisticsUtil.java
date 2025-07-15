@@ -37,6 +37,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
@@ -73,6 +74,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
@@ -86,6 +88,7 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
@@ -110,6 +113,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -127,6 +131,8 @@ public class StatisticsUtil {
 
     private static final String TOTAL_SIZE = "totalSize";
     private static final String NUM_ROWS = "numRows";
+    private static final String SPARK_NUM_ROWS = "spark.sql.statistics.numRows";
+    private static final String SPARK_TOTAL_SIZE = "spark.sql.statistics.totalSize";
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
     public static final int UPDATED_PARTITION_THRESHOLD = 3;
@@ -162,7 +168,6 @@ public class StatisticsUtil {
                 }
             }
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
             return stmtExecutor.executeInternalQuery();
         }
     }
@@ -172,7 +177,6 @@ public class StatisticsUtil {
         AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
         try {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
             QueryState state = r.connectContext.getState();
             if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
@@ -209,8 +213,8 @@ public class StatisticsUtil {
 
     public static AutoCloseConnectContext buildConnectContext(boolean useFileCacheForStat) {
         ConnectContext connectContext = new ConnectContext();
+        connectContext.getState().setInternal(true);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.internalSession = true;
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
@@ -231,7 +235,6 @@ public class StatisticsUtil {
         sessionVariable.enableSqlCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setStartTime();
         if (Config.isCloudMode()) {
@@ -501,6 +504,9 @@ public class StatisticsUtil {
     }
 
     public static boolean statsTblAvailable() {
+        if (!InternalSchemaInitializer.isStatsTableSchemaValid()) {
+            return false;
+        }
         String dbName = FeConstants.INTERNAL_DB_NAME;
         List<OlapTable> statsTbls = new ArrayList<>();
         try {
@@ -656,19 +662,17 @@ public class StatisticsUtil {
             return TableIf.UNKNOWN_ROW_COUNT;
         }
         // Table parameters contains row count, simply get and return it.
-        if (parameters.containsKey(NUM_ROWS)) {
-            long rows = Long.parseLong(parameters.get(NUM_ROWS));
-            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
-            if (rows > 0) {
-                LOG.info("Get row count {} for hive table {} in table parameters.", rows, table.getName());
-                return rows;
-            }
+        long rows = getRowCountFromParameters(parameters);
+        if (rows > 0) {
+            LOG.info("Get row count {} for hive table {} in table parameters.", rows, table.getName());
+            return rows;
         }
-        if (!parameters.containsKey(TOTAL_SIZE)) {
+        if (!parameters.containsKey(TOTAL_SIZE) && !parameters.containsKey(SPARK_TOTAL_SIZE)) {
             return TableIf.UNKNOWN_ROW_COUNT;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
-        long totalSize = Long.parseLong(parameters.get(TOTAL_SIZE));
+        long totalSize = parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE))
+                : Long.parseLong(parameters.get(SPARK_TOTAL_SIZE));
         long estimatedRowSize = 0;
         for (Column column : table.getFullSchema()) {
             estimatedRowSize += column.getDataType().getSlotSize();
@@ -677,10 +681,28 @@ public class StatisticsUtil {
             LOG.warn("Hive table {} estimated row size is invalid {}", table.getName(), estimatedRowSize);
             return TableIf.UNKNOWN_ROW_COUNT;
         }
-        long rows = totalSize / estimatedRowSize;
+        rows = totalSize / estimatedRowSize;
         LOG.info("Get row count {} for hive table {} by total size {} and row size {}",
                 rows, table.getName(), totalSize, estimatedRowSize);
         return rows;
+    }
+
+    public static long getRowCountFromParameters(Map<String, String> parameters) {
+        if (parameters == null) {
+            return TableIf.UNKNOWN_ROW_COUNT;
+        }
+        // Table parameters contains row count, simply get and return it.
+        if (parameters.containsKey(NUM_ROWS)) {
+            long rows = Long.parseLong(parameters.get(NUM_ROWS));
+            if (rows <= 0 && parameters.containsKey(SPARK_NUM_ROWS)) {
+                rows = Long.parseLong(parameters.get(SPARK_NUM_ROWS));
+            }
+            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
+            if (rows > 0) {
+                return rows;
+            }
+        }
+        return TableIf.UNKNOWN_ROW_COUNT;
     }
 
     /**
@@ -877,12 +899,7 @@ public class StatisticsUtil {
     }
 
     public static boolean enableAutoAnalyze() {
-        try {
-            return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_AUTO_ANALYZE).enableAutoAnalyze;
-        } catch (Exception e) {
-            LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
-        }
-        return false;
+        return VariableMgr.getDefaultSessionVariable().enableAutoAnalyze;
     }
 
     public static boolean enableAutoAnalyzeInternalCatalog() {
@@ -1238,11 +1255,44 @@ public class StatisticsUtil {
         // For olap table, if the table visible version and row count doesn't change since last analyze,
         // we don't need to analyze it because its data is not changed.
         OlapTable olapTable = (OlapTable) table;
-        return olapTable.getVisibleVersion() != columnStats.tableVersion
+        long version = 0;
+        try {
+            version = ((OlapTable) table).getVisibleVersion();
+        } catch (RpcException e) {
+            LOG.warn("in cloud getVisibleVersion exception", e);
+        }
+        return version != columnStats.tableVersion
                 || olapTable.getRowCount() != columnStats.rowCount;
     }
 
     public static boolean canCollect() {
         return enableAutoAnalyze() && inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
+    }
+
+    /**
+     * Get the map of column literal value and its row count percentage in the table.
+     * The stringValues is like:
+     * value1 :percent1 ;value2 :percent2 ;value3 :percent3
+     * @return Map of LiteralExpr -> percentage.
+     */
+    public static LinkedHashMap<LiteralExpr, Float> getHotValues(String stringValues, Type type) {
+        if (stringValues == null) {
+            return null;
+        }
+        try {
+            LinkedHashMap<LiteralExpr, Float> ret = Maps.newLinkedHashMap();
+            for (String oneRow : stringValues.split(" ;")) {
+                String[] oneRowSplit = oneRow.split(" :");
+                float value = Float.parseFloat(oneRowSplit[1]);
+                String stringLiteral = oneRowSplit[0].replaceAll("\\\\:", ":").replaceAll("\\\\;", ";");
+                ret.put(readableValue(type, stringLiteral), value);
+            }
+            if (!ret.isEmpty()) {
+                return ret;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to parse hot values [{}]. {}", stringValues, e.getMessage());
+        }
+        return null;
     }
 }

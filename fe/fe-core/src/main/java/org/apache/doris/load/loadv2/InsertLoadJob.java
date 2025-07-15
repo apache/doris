@@ -33,8 +33,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Set;
 
 /**
@@ -113,11 +111,5 @@ public class InsertLoadJob extends LoadJob {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = database.getTableOrMetaException(tableId);
         return Sets.newHashSet(table.getName());
-    }
-
-    @Override
-    protected void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        tableId = in.readLong();
     }
 }

@@ -63,12 +63,15 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.rpc.RpcException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
@@ -83,6 +86,7 @@ import java.util.Set;
  * NereidsSqlCacheManager
  */
 public class NereidsSqlCacheManager {
+    private static final Logger LOG = LogManager.getLogger(NereidsSqlCacheManager.class);
     // key: <ctl.db>:<user>:<sql>
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
@@ -352,7 +356,13 @@ public class NereidsSqlCacheManager {
             }
 
             OlapTable olapTable = (OlapTable) tableIf;
-            long currentTableVersion = olapTable.getVisibleVersion();
+            long currentTableVersion = 0L;
+            try {
+                currentTableVersion = olapTable.getVisibleVersion();
+            } catch (RpcException e) {
+                LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
+                return true;
+            }
             long cacheTableVersion = tableVersion.version;
             // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
             if (currentTableVersion != cacheTableVersion) {
@@ -369,7 +379,12 @@ public class NereidsSqlCacheManager {
             }
             OlapTable olapTable = (OlapTable) tableIf;
             Collection<Long> partitionIds = scanTable.getScanPartitions();
-            olapTable.getVersionInBatchForCloudMode(partitionIds);
+            try {
+                olapTable.getVersionInBatchForCloudMode(partitionIds);
+            } catch (RpcException e) {
+                LOG.warn("failed to get version in batch for table {}", fullTableName, e);
+                return true;
+            }
 
             for (Long scanPartitionId : scanTable.getScanPartitions()) {
                 Partition partition = olapTable.getPartition(scanPartitionId);

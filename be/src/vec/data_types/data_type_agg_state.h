@@ -55,7 +55,7 @@ public:
         // Nothing to do. For this constructor, we only need it to represent a basic primitive type.
     }
 
-    const char* get_family_name() const override { return "AggState"; }
+    const std::string get_family_name() const override { return "AggState"; }
 
     std::string do_get_name() const override {
         return fmt::format(

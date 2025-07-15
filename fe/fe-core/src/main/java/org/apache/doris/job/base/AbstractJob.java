@@ -265,6 +265,15 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         this.startTimeMs = System.currentTimeMillis();
     }
 
+    /**
+     * Some of the logic does not satisfy idempotency—each job can only be called once.
+     */
+    public void initParams() {
+        if (jobConfig != null) {
+            jobConfig.initParams();
+        }
+    }
+
     public void checkJobParams() {
         if (null == jobId) {
             throw new IllegalArgumentException("jobId cannot be null");
@@ -463,5 +472,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException {
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
+    }
+
+    public boolean needPersist() {
+        return true;
     }
 }

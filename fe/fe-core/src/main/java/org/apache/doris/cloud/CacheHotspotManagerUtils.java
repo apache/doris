@@ -189,7 +189,6 @@ public class CacheHotspotManagerUtils {
     public static void execUpdate(String sql) throws Exception {
         try (AutoCloseConnectContext r = buildConnectContext()) {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
         }
     }
@@ -210,25 +209,28 @@ public class CacheHotspotManagerUtils {
         try (AutoCloseConnectContext r = buildConnectContext()) {
             execCreateDatabase();
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, CREATE_CACHE_TABLE);
-            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
         }
         Database db = Env.getCurrentInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
         if (db == null) {
             LOG.warn("{} database doesn't exist", FeConstants.INTERNAL_DB_NAME);
+            throw new Exception(
+                    String.format("Database %s doesn't exist", FeConstants.INTERNAL_DB_NAME));
         }
 
         Table t = db.getTableNullable(FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME);
         if (t == null) {
             LOG.warn("{} table doesn't exist", FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME);
+            throw new Exception(
+                    String.format("Table %s doesn't exist", FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME));
         }
         INTERNAL_TABLE_ID = String.valueOf(t.getId());
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
+        connectContext.getState().setInternal(true);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.internalSession = true;
         // sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.setInsertMaxFilterRatio(1);
@@ -240,8 +242,7 @@ public class CacheHotspotManagerUtils {
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         connectContext.setQueryId(queryId);
         connectContext.setStartTime();
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setUserInsertTimeout(getCacheHotSpotInsertTimeoutInSecTimeout());
         return new AutoCloseConnectContext(connectContext);
     }

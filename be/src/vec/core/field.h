@@ -40,6 +40,7 @@
 #include "util/quantile_state.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 template <PrimitiveType type>
@@ -70,23 +71,19 @@ using FieldVector = std::vector<Field>;
 /// construct a Field of Array or a Tuple type. An alternative approach would be
 /// to construct both of these types from FieldVector, and have the caller
 /// specify the desired Field type explicitly.
-#define DEFINE_FIELD_VECTOR(X)          \
-    struct X : public FieldVector {     \
-        using FieldVector::FieldVector; \
-    }
+struct Array : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-DEFINE_FIELD_VECTOR(Array);
-DEFINE_FIELD_VECTOR(Tuple);
-DEFINE_FIELD_VECTOR(Map);
-#undef DEFINE_FIELD_VECTOR
+struct Tuple : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-using FieldMap = std::map<String, Field>;
-#define DEFINE_FIELD_MAP(X)       \
-    struct X : public FieldMap {  \
-        using FieldMap::FieldMap; \
-    }
-DEFINE_FIELD_MAP(VariantMap);
-#undef DEFINE_FIELD_MAP
+struct Map : public FieldVector {
+    using FieldVector::FieldVector;
+};
+
+using VariantMap = std::map<PathInData, Field>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -250,7 +247,7 @@ private:
 /** 32 is enough. Round number is used for alignment and for better arithmetic inside std::vector.
   * NOTE: Actually, sizeof(std::string) is 32 when using libc++, so Field is 40 bytes.
   */
-#define DBMS_MIN_FIELD_SIZE 32
+constexpr size_t DBMS_MIN_FIELD_SIZE = 32;
 
 /** Discriminated union of several types.
   * Made for replacement of `boost::variant`
@@ -353,7 +350,7 @@ public:
         }
 
         switch (type) {
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
         case PrimitiveType::TYPE_HLL:
         case PrimitiveType::TYPE_QUANTILE_STATE:
         case PrimitiveType::INVALID_TYPE:
@@ -376,6 +373,9 @@ public:
             return get<Int128>() <=> rhs.get<Int128>();
         case PrimitiveType::TYPE_IPV6:
             return get<IPv6>() <=> rhs.get<IPv6>();
+        case PrimitiveType::TYPE_IPV4:
+            return get<IPv4>() <=> rhs.get<IPv4>();
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
                    : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
@@ -421,6 +421,7 @@ public:
         case PrimitiveType::TYPE_IPV6:
             f(field.template get<IPv6>());
             return;
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             f(field.template get<Float64>());
             return;
@@ -459,7 +460,7 @@ public:
         case PrimitiveType::TYPE_VARIANT:
             f(field.template get<VariantMap>());
             return;
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             f(field.template get<BitmapValue>());
             return;
         case PrimitiveType::TYPE_HLL:
@@ -473,6 +474,8 @@ public:
                     Status::FatalError("type not supported, type={}", field.get_type_name()));
         }
     }
+
+    std::string_view as_string_view() const;
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
@@ -508,8 +511,6 @@ private:
     }
 };
 
-#undef DBMS_MIN_FIELD_SIZE
-
 template <typename T>
 T get(const Field& field) {
     return field.template get<T>();
@@ -519,24 +520,6 @@ template <typename T>
 T get(Field& field) {
     return field.template get<T>();
 }
-
-template <>
-struct TypeName<Array> {
-    static std::string get() { return "Array"; }
-};
-template <>
-struct TypeName<Tuple> {
-    static std::string get() { return "Tuple"; }
-};
-
-template <>
-struct TypeName<VariantMap> {
-    static std::string get() { return "VariantMap"; }
-};
-template <>
-struct TypeName<Map> {
-    static std::string get() { return "Map"; }
-};
 
 /// char may be signed or unsigned, and behave identically to signed char or unsigned char,
 ///  but they are always three different types.
@@ -655,3 +638,14 @@ decltype(auto) cast_to_nearest_field_type(T&& x) {
 }
 
 } // namespace doris::vectorized
+
+template <>
+struct std::hash<doris::vectorized::Field> {
+    size_t operator()(const doris::vectorized::Field& field) const {
+        if (field.is_null()) {
+            return 0;
+        }
+        std::hash<std::string_view> hasher;
+        return hasher(field.as_string_view());
+    }
+};

@@ -253,10 +253,12 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-19.0.1.tar.gz"
-ARROW_NAME="apache-arrow-19.0.1.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-19.0.1"
-ARROW_MD5SUM="8c5091da0f8fb41a47d7f4dad7b712df"
+# Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet.
+# https://github.com/apache/doris/pull/51217
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-17.0.0.tar.gz"
+ARROW_NAME="apache-arrow-17.0.0.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-17.0.0"
+ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
@@ -419,10 +421,10 @@ XSIMD_SOURCE=xsimd-13.0.0
 XSIMD_MD5SUM="c661deb91836e82d3070f81032014fe6"
 
 # simdjson
-SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.0.1.tar.gz"
-SIMDJSON_NAME=simdjson-3.0.1.tar.gz
-SIMDJSON_SOURCE=simdjson-3.0.1
-SIMDJSON_MD5SUM="993576b47249f2bade2bfb2552b2896a"
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.11.6.tar.gz"
+SIMDJSON_NAME=simdjson-3.11.6.tar.gz
+SIMDJSON_SOURCE=simdjson-3.11.6
+SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
 
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"

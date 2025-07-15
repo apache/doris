@@ -87,7 +87,7 @@ TEST(DictionaryGetNullableTest, testHashMapDictionary) {
         auto null_key =
                 ColumnNullable::create(create_column<DataTypeInt32>({1, 2, 3, 6}),
                                        create_column<DataTypeUInt8>({true, false, false, false}));
-        auto res = dict->get_column("val", std::make_shared<DataTypeInt32>(), null_key,
+        auto res = dict->get_column("val", std::make_shared<DataTypeInt32>(), std::move(null_key),
                                     std::make_shared<DataTypeInt32>());
         const auto* res_column = assert_cast<const ColumnNullable*>(res.get());
         EXPECT_EQ(4, res_column->size());
@@ -142,7 +142,7 @@ TEST(DictionaryGetNullableTest, testIpTrieDictionary) {
                 create_column<DataTypeIPv4>({to_ipv4("1.1.1.1"), to_ipv4("2.1.1.1"),
                                              to_ipv4("32.1.1.1"), to_ipv4("1.1.1.1")}),
                 create_column<DataTypeUInt8>({false, false, false, true}));
-        auto res = dict->get_column("val", std::make_shared<DataTypeInt32>(), null_key,
+        auto res = dict->get_column("val", std::make_shared<DataTypeInt32>(), std::move(null_key),
                                     std::make_shared<DataTypeIPv4>());
         const auto* res_column = assert_cast<const ColumnNullable*>(res.get());
         EXPECT_EQ(4, res_column->size());
@@ -187,7 +187,7 @@ TEST(DictionaryGetNullableTest, testIpTrieDictionary) {
                         {ipv4_to_ipv6(to_ipv4("1.1.1.1")), ipv4_to_ipv6(to_ipv4("2.1.1.1")),
                          ipv4_to_ipv6(to_ipv4("32.1.1.1")), ipv4_to_ipv6(to_ipv4("1.1.1.1"))}),
                 create_column<DataTypeUInt8>({false, false, false, true}));
-        auto res = dict->get_column("val", std::make_shared<DataTypeInt32>(), null_key,
+        auto res = dict->get_column("val", std::make_shared<DataTypeInt32>(), std::move(null_key),
                                     std::make_shared<DataTypeIPv6>());
         const auto* res_column = assert_cast<const ColumnNullable*>(res.get());
         EXPECT_EQ(4, res_column->size());

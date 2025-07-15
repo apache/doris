@@ -105,6 +105,7 @@ import java.util.function.Function;
  * Planner to do query plan in Nereids.
  */
 public class NereidsPlanner extends Planner {
+    // private static final AtomicInteger executeCount = new AtomicInteger(0);
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
     protected Plan parsedPlan;
@@ -255,7 +256,6 @@ public class NereidsPlanner extends Planner {
             boolean showPlanProcess) {
         // minidump of input must be serialized first, this process ensure minidump string not null
         try {
-
             MinidumpUtils.serializeInputsToDumpFile(plan, statementContext);
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -278,7 +278,7 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        optimize();
+        optimize(showPlanProcess);
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -380,21 +380,6 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    protected void collectTableUsedPartitions(boolean showPlanProcess) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start to collect table used partition");
-        }
-        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTablePartitionCollector().execute());
-        NereidsTracer.logImportantTime("EndCollectTablePartitions");
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start to collect table used partition");
-        }
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsCollectTablePartitionFinishTime();
-        }
-    }
-
     protected void analyze(boolean showPlanProcess) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
@@ -407,7 +392,6 @@ public class NereidsPlanner extends Planner {
         }
 
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
         }
     }
@@ -419,7 +403,9 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start rewrite plan");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> Rewriter.getWholeTreeRewriter(cascadesContext).execute());
+        keepOrShowPlanProcess(showPlanProcess, () -> {
+            Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+        });
         NereidsTracer.logImportantTime("EndRewritePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End rewrite plan");
@@ -427,14 +413,11 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
         }
-        // collect partitions table used, this is for query rewrite by materialized view
-        // this is needed before init hook
-        collectTableUsedPartitions(showPlanProcess);
         cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(this));
     }
 
-    // DependsRules: EnsureProjectOnTopJoin.class
-    protected void optimize() {
+    // DependsRules: AddProjectForJoin
+    protected void optimize(boolean showPlanProcess) {
         // if we cannot get table row count, skip join reorder
         // except:
         //   1. user set leading hint
@@ -451,7 +434,9 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start optimize plan");
         }
-        new Optimizer(cascadesContext).execute();
+        keepOrShowPlanProcess(showPlanProcess, () -> {
+            new Optimizer(cascadesContext).execute();
+        });
         NereidsTracer.logImportantTime("EndOptimizePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End optimize plan");
@@ -602,12 +587,21 @@ public class NereidsPlanner extends Planner {
         }
 
         splitFragments(physicalPlan);
-        doDistribute(canUseNereidsDistributePlanner);
+        doDistribute(canUseNereidsDistributePlanner, explainLevel);
     }
 
-    protected void doDistribute(boolean canUseNereidsDistributePlanner) {
+    protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
         if (!canUseNereidsDistributePlanner) {
             return;
+        }
+        switch (explainLevel) {
+            case NONE:
+            case ALL_PLAN:
+            case DISTRIBUTED_PLAN:
+                break;
+            default: {
+                return;
+            }
         }
 
         boolean notNeedBackend = false;
@@ -800,6 +794,7 @@ public class NereidsPlanner extends Planner {
                         + parsedPlan.treeString() + "\n\n"
                         + "========== LOCK TABLE "
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsLockTableTime) + " ==========\n"
+                        + "\n\n"
                         + "========== ANALYZED PLAN "
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsAnalysisTime) + " ==========\n"
                         + analyzedPlan.treeString() + "\n\n"
@@ -852,7 +847,10 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public List<RuntimeFilter> getRuntimeFilters() {
-        return cascadesContext.getRuntimeFilterContext().getLegacyFilters();
+        ArrayList<RuntimeFilter> runtimeFilters = new ArrayList<>();
+        runtimeFilters.addAll(cascadesContext.getRuntimeFilterContext().getLegacyFilters());
+        runtimeFilters.addAll(cascadesContext.getRuntimeFilterV2Context().getLegacyFilters());
+        return runtimeFilters;
     }
 
     @Override
@@ -900,6 +898,10 @@ public class NereidsPlanner extends Planner {
 
     public ConnectContext getConnectContext() {
         return cascadesContext.getConnectContext();
+    }
+
+    public StatementContext getStatementContext() {
+        return statementContext;
     }
 
     public static PhysicalProperties buildInitRequireProperties() {

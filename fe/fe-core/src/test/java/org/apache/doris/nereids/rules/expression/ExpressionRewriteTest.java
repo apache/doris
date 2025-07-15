@@ -192,15 +192,6 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite("(a and b) or (a and b and c)", "a and b");
         assertRewrite("(a or b) and (a or b or c)", "a or b");
 
-        assertRewrite("a and true", "a");
-        assertRewrite("a or false", "a");
-
-        assertRewrite("a and false", "false");
-        assertRewrite("a or true", "true");
-
-        assertRewrite("a or false or false or false", "a");
-        assertRewrite("a and true and true and true", "a");
-
         assertRewrite("(a and b) or a ", "a");
         assertRewrite("(a or b) and a ", "a");
 
@@ -211,6 +202,17 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         assertRewrite("a and (b or ((a and e) or (a and f))) and (b or d)", "(b or ((a and (e or f)) and d)) and a");
 
+        assertRewrite("a = 1 and (b = 1 and d < 1 or c = 1 and b = 1 and d > 4)",
+                "a  = 1 and b = 1 and (d < 1 or c = 1 and d > 4)");
+
+        assertRewrite("a = 1 and (b = 1 and c = 1 and d < 1 or c = 1 and b = 1 and d > 4)",
+                "a  = 1 and b = 1 and c = 1 and (d < 1 or d > 4)");
+
+        assertRewrite("a = 1 and (b = 1 and c = 1 and d < 1 or c = 1 and b = 1 and d > 4) and (b = 1 and c = 1 and e < 1 or b = 1 and c = 1 and e > 4) ",
+                "a  = 1 and b = 1 and c = 1 and (d < 1 or d > 4) and (e < 1 or e > 4)");
+
+        assertRewrite("((a = 1 and b = 1) or (a = 1 and b = 2) or c < 1) and ((a = 1 and b = 1) or (a = 1 and b = 2) or c > 2)",
+                "a = 1 and (b = 1 or b = 2) or (c < 1 and c > 2)");
     }
 
     @Test

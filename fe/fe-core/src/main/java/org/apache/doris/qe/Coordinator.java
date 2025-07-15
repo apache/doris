@@ -122,6 +122,7 @@ import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
@@ -780,7 +781,7 @@ public class Coordinator implements CoordInterface {
         sendPipelineCtx();
     }
 
-    protected void sendPipelineCtx() throws TException, RpcException, UserException {
+    protected void sendPipelineCtx() throws Exception {
         lock();
         try {
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
@@ -943,7 +944,7 @@ public class Coordinator implements CoordInterface {
 
     protected Map<TNetworkAddress, List<Long>>  waitPipelineRpc(List<Pair<Long, Triple<PipelineExecContexts,
             BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>> futures, long leftTimeMs,
-            String operation) throws RpcException, UserException {
+            String operation) throws Exception {
         if (leftTimeMs <= 0) {
             long currentTimeMillis = System.currentTimeMillis();
             long elapsed = (currentTimeMillis - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
@@ -960,7 +961,7 @@ public class Coordinator implements CoordInterface {
                         queryOptions.isSetQueryTimeout(), queryOptions.getQueryTimeout(),
                         timeoutDeadline, currentTimeMillis);
             }
-            throw new UserException(msg);
+            throw new Exception(msg);
         }
 
         // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
@@ -1030,7 +1031,7 @@ public class Coordinator implements CoordInterface {
                         SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
                         throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
                     default:
-                        throw new UserException(errMsg, exception);
+                        throw new Exception(errMsg, exception);
                 }
             }
         }
@@ -1184,7 +1185,7 @@ public class Coordinator implements CoordInterface {
             } else {
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("Query {} failed: {}", DebugUtil.printId(queryId), errMsg);
-                throw new UserException(errMsg);
+                throw new Exception(errMsg);
             }
         }
 
@@ -1558,7 +1559,7 @@ public class Coordinator implements CoordInterface {
                     }
                     // process bucket shuffle join on fragment without scan node
                     while (bucketSeq < bucketNum) {
-                        TPlanFragmentDestination dest = setDestination(destParams, params.destinations.size(),
+                        TPlanFragmentDestination dest = setDestination(destParams, destinations.size(),
                                 bucketSeq);
                         bucketSeq++;
                         destinations.add(dest);
@@ -1596,7 +1597,7 @@ public class Coordinator implements CoordInterface {
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
                         dest.brpc_server = toBrpcHost(destParams.instanceExecParams.get(j).host);
-                        destParams.instanceExecParams.get(j).recvrId = params.destinations.size();
+                        destParams.instanceExecParams.get(j).recvrId = destinations.size();
                         destinations.add(dest);
                     }
                 }
@@ -2559,6 +2560,11 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setProfileLevel(profileLevel);
     }
 
+    @VisibleForTesting
+    public Map<PlanFragmentId, FragmentExecParams> getFragmentExecParamsMap() {
+        return fragmentExecParamsMap;
+    }
+
     // map from a BE host address to the per-node assigned scan ranges;
     // records scan range assignment for a single fragment
     static class FragmentScanRangeAssignment
@@ -2827,6 +2833,9 @@ public class Coordinator implements CoordInterface {
                 if (parallelExecInstanceNum > 1) {
                     //the scan instance num should not larger than the tablets num
                     expectedInstanceNum = Math.min(scanRange.size(), parallelExecInstanceNum);
+                }
+                if (params.fragment != null && params.fragment.queryCacheParam != null) {
+                    expectedInstanceNum = scanRange.size();
                 }
                 // 2. split how many scanRange one instance should scan
                 List<List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> perInstanceScanRanges

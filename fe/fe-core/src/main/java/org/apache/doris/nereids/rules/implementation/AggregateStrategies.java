@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -538,10 +539,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         OlapTable olapTable = logicalScan.getTable();
         Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
 
-        return indexIdToMeta.values().stream()
-                .anyMatch(indexMeta -> indexMeta.getIndexes().stream()
-                        .anyMatch(index -> index.getIndexType() == IndexType.INVERTED
-                                || index.getIndexType() == IndexType.BITMAP));
+        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+            for (Index index : indexMeta.getIndexes()) {
+                IndexType indexType = index.getIndexType();
+                switch (indexType) {
+                    case INVERTED:
+                    case BITMAP:
+                        return true;
+                    default: {
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -915,7 +925,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private List<PhysicalHashAggregate<Plan>> onePhaseAggregateWithoutDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
-        AggregateParam inputToResultParam = AggregateParam.LOCAL_RESULT;
+        boolean canBeBanned = true;
+        for (AggregateFunction aggregateFunction : logicalAgg.getAggregateFunctions()) {
+            if (aggregateFunction.forceSkipRegulator(AggregatePhase.ONE)) {
+                canBeBanned = false;
+                break;
+            }
+        }
+        AggregateParam inputToResultParam = new AggregateParam(
+                AggregateParam.LOCAL_RESULT.aggPhase, AggregateParam.LOCAL_RESULT.aggMode, canBeBanned
+        );
         List<NamedExpression> newOutput = ExpressionUtils.rewriteDownShortCircuit(
                 logicalAgg.getOutputExpressions(), outputChild -> {
                     if (outputChild instanceof AggregateFunction) {
@@ -931,8 +950,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             // TODO: usually bad, disable it until we could do better cost computation.
-            // return ImmutableList.of(gatherLocalAgg);
-            return ImmutableList.of();
+            if (!canBeBanned) {
+                return ImmutableList.of(gatherLocalAgg);
+            } else {
+                return ImmutableList.of();
+            }
         } else {
             RequireProperties requireHash = RequireProperties.of(
                     PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));

@@ -28,6 +28,8 @@ class TDescribeTablesParams;
 class TDescribeTablesResult;
 class TFetchRoutineLoadJobRequest;
 class TFetchRoutineLoadJobResult;
+class TFetchSchemaTableDataRequest;
+class TFetchSchemaTableDataResult;
 class TGetDbsParams;
 class TGetDbsResult;
 class TGetTablesParams;
@@ -90,6 +92,10 @@ public:
     static Status fetch_routine_load_job(const std::string& ip, const int32_t port,
                                          const TFetchRoutineLoadJobRequest& request,
                                          TFetchRoutineLoadJobResult* result);
+
+    static Status fetch_schema_table_data(const std::string& ip, const int32_t port,
+                                          const TFetchSchemaTableDataRequest& request,
+                                          TFetchSchemaTableDataResult* result);
 };
 
 } // namespace doris

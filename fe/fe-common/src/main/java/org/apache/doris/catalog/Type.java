@@ -582,6 +582,10 @@ public abstract class Type {
         return isObjectStored() || isComplexType() || isJsonbType() || isVariantType();
     }
 
+    public boolean isArrayTypeNestedBaseType() {
+        return isArrayType() && !((ArrayType) this).getItemType().isOnlyMetricType();
+    }
+
     public static final String OnlyObjectTypeErrorMsg =
             "Doris hll, bitmap column must use with specific function, and don't"
                     + " support filter, group by or order by. please run 'help hll' or 'help bitmap'"
@@ -672,6 +676,10 @@ public abstract class Type {
 
     public boolean isTime() {
         return isScalarType(PrimitiveType.TIME);
+    }
+
+    public boolean isTimeType() {
+        return isTime() || isTimeV2();
     }
 
     public boolean isComplexType() {

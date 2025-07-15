@@ -261,6 +261,8 @@ DEFINE_mBool(enable_batch_download, "true");
 DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
 DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
+// the interval time(seconds) for agent report index policy to FE
+DEFINE_mInt32(report_index_policy_interval_seconds, "10");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -427,6 +429,7 @@ DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
 DEFINE_mInt64(base_compaction_max_compaction_score, "20");
+DEFINE_mInt64(mow_base_compaction_max_compaction_score, "200");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
@@ -614,9 +617,9 @@ DEFINE_mInt32(olap_table_sink_send_interval_microseconds, "1000");
 DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
-DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_min, "16");
-DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_max, "512");
-DEFINE_Int32(fragment_mgr_asynic_work_pool_queue_size, "4096");
+DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_min, "16");
+DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "512");
+DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
@@ -715,6 +718,9 @@ DEFINE_mInt32(max_consumer_num_per_group, "3");
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 DEFINE_Int32(max_routine_load_thread_pool_size, "1024");
 
+// the timeout of condition variable wait in blocking_get and blocking_put
+DEFINE_mInt32(blocking_queue_cv_wait_timeout_ms, "1000");
+
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
 DEFINE_mInt32(max_memory_sink_batch_count, "20");
@@ -758,9 +764,6 @@ DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DEFINE_Int32(max_flush_thread_num_per_cpu, "4");
-
-DEFINE_mInt32(wg_flush_thread_num_per_store, "6");
-DEFINE_mInt32(wg_flush_thread_num_per_cpu, "4");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -816,6 +819,8 @@ DEFINE_Int32(query_cache_max_partition_count, "1024");
 // This is to avoid too many version num.
 DEFINE_mInt32(max_tablet_version_num, "2000");
 
+DEFINE_mInt32(time_series_max_tablet_version_num, "20000");
+
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 DEFINE_String(thrift_server_type_of_fe, "THREAD_POOL");
@@ -831,7 +836,18 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-DEFINE_Int32(aws_log_level, "2");
+DEFINE_Int32(aws_log_level, "3");
+DEFINE_Validator(aws_log_level,
+                 [](const int config) -> bool { return config >= 0 && config <= 6; });
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+DEFINE_Int32(azure_log_level, "3");
+DEFINE_Validator(azure_log_level,
+                 [](const int config) -> bool { return config >= 1 && config <= 4; });
 
 // the buffer size when read data from remote storage like s3
 DEFINE_mInt32(remote_storage_read_buffer_mb, "16");
@@ -937,8 +953,8 @@ DEFINE_String(function_service_protocol, "h2:grpc");
 DEFINE_String(rpc_load_balancer, "rr");
 
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
-// so we set a soft limit, default is 1MB
-DEFINE_Int32(string_type_length_soft_limit_bytes, "1048576");
+// so we set a soft limit, default is 10MB
+DEFINE_Int32(string_type_length_soft_limit_bytes, "10485760");
 
 DEFINE_Validator(string_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
@@ -1098,6 +1114,15 @@ DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
+DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
+// dump queue only if the queue update specific times through several dump intervals
+DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
+DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
+DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
+DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
+
+DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
+DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1160,6 +1185,7 @@ DEFINE_Int32(segment_cache_capacity, "-1");
 DEFINE_Int32(segment_cache_fd_percentage, "20");
 DEFINE_mInt32(estimated_mem_per_column_reader, "512");
 DEFINE_Int32(segment_cache_memory_percentage, "5");
+DEFINE_Bool(enable_segment_cache_prune, "true");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1183,6 +1209,9 @@ DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 // Deprecated
 DEFINE_mInt32(kerberos_refresh_interval_second, "43200");
+
+// JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
+DEFINE_mBool(jdk_process_reaper_use_default_stack_size, "true");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1227,6 +1256,8 @@ DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 // get agg correctness check for mow table
 DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
+DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
+DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1443,7 +1474,7 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index
 // filter wrong data.
-DEFINE_mBool(enable_parquet_page_index, "false");
+DEFINE_mBool(enable_parquet_page_index, "true");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
@@ -1468,7 +1499,6 @@ DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
 
-DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
@@ -1495,6 +1525,16 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
+
+// the max length of segments key bounds, in bytes
+// ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
+DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
+// ATTENTION: for test only, use random segments key bounds truncation threshold every time
+DEFINE_mBool(random_segments_key_bounds_truncation, "false");
+
+DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
+
+DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1935,6 +1975,8 @@ Status set_fuzzy_configs() {
     // if have set enable_fuzzy_mode=true in be.conf, will fuzzy those field and values
     fuzzy_field_and_value["disable_storage_page_cache"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["disable_segment_cache"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_system_metrics"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_set_in_bitmap_value"] =
@@ -1943,6 +1985,10 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
+
+    std::uniform_int_distribution<int64_t> distribution2(-2, 10);
+    fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
+            std::to_string(distribution2(*generator));
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {

@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;
@@ -98,14 +99,14 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.JOBS);
         TJobsMetadataParams jobParam = new TJobsMetadataParams();
         jobParam.setType(jobType.name());
         jobParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
         metaScanRange.setJobsParams(jobParam);
-        return metaScanRange;
+        return Lists.newArrayList(metaScanRange);
     }
 
     @Override

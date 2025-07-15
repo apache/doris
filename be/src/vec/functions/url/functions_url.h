@@ -73,8 +73,8 @@ using Pos = const char*;
   */
 template <typename Extractor>
 struct ExtractSubstringImpl {
-    static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t size = offsets.size();
         res_offsets.resize(size);
         res_data.reserve(size * Extractor::get_reserve_length_for_element());
@@ -96,6 +96,7 @@ struct ExtractSubstringImpl {
             res_offsets[i] = res_offset;
             prev_offset = offsets[i];
         }
+        return Status::OK();
     }
 
     static void constant(const std::string& data, std::string& res_data) {

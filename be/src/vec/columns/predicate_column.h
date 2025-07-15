@@ -64,21 +64,22 @@ private:
         res_ptr->insert_many_strings_without_reserve(_refs.data(), sel_size);
     }
 
-    template <typename Y, template <typename> typename ColumnContainer>
+    template <PrimitiveType Y, template <PrimitiveType> typename ColumnContainer>
     void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
                                          ColumnContainer<Y>* res_ptr) {
         static_assert(std::is_same_v<ColumnContainer<Y>, ColumnType>);
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
         res_data.reserve(sel_size);
-        Y* y = (Y*)res_data.get_end_ptr();
+        auto* y = (typename PrimitiveTypeTraits<Y>::ColumnItemType*)res_data.get_end_ptr();
         for (size_t i = 0; i < sel_size; i++) {
-            if constexpr (std::is_same_v<Y, T>) {
+            if constexpr (std::is_same_v<typename PrimitiveTypeTraits<Y>::ColumnItemType,
+                                         typename PrimitiveTypeTraits<Y>::CppType>) {
                 y[i] = data[sel[i]];
             } else {
-                static_assert(sizeof(Y) == sizeof(T));
+                static_assert(sizeof(typename PrimitiveTypeTraits<Y>::ColumnItemType) == sizeof(T));
                 memcpy(reinterpret_cast<void*>(&y[i]), reinterpret_cast<void*>(&data[sel[i]]),
-                       sizeof(Y));
+                       sizeof(T));
             }
         }
         res_data.set_end_ptr(y + sel_size);
@@ -244,11 +245,8 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
-            if (_arena == nullptr) {
-                _arena.reset(new Arena());
-            }
             const auto total_mem_size = offsets[num] - offsets[0];
-            char* destination = _arena->alloc(total_mem_size);
+            char* destination = _arena.alloc(total_mem_size);
             memcpy(destination, data_ + offsets[0], total_mem_size);
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -267,16 +265,12 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
-            if (_arena == nullptr) {
-                _arena.reset(new Arena());
-            }
-
             size_t total_mem_size = 0;
             for (size_t i = 0; i < num; i++) {
                 total_mem_size += strings[i].size;
             }
 
-            char* destination = _arena->alloc(total_mem_size);
+            char* destination = _arena.alloc(total_mem_size);
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -307,9 +301,7 @@ public:
 
     void clear() override {
         data.clear();
-        if (_arena != nullptr) {
-            _arena->clear();
-        }
+        _arena.clear();
     }
 
     size_t byte_size() const override { return data.size() * sizeof(T); }
@@ -323,7 +315,7 @@ public:
 
     void reserve(size_t n) override { data.reserve(n); }
 
-    std::string get_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override { return type_to_string(Type); }
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
@@ -354,6 +346,8 @@ public:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get field not supported in PredicateColumnType");
     }
+
+    size_t serialize_size_at(size_t row) const override { return 0; }
 
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
@@ -389,7 +383,8 @@ public:
                                "filter not supported in PredicateColumnType");
     }
 
-    [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    [[noreturn]] MutableColumnPtr permute(const IColumn::Permutation& perm,
+                                          size_t limit) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "permute not supported in PredicateColumnType");
     }
@@ -405,9 +400,9 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
-        if constexpr (std::is_same_v<T, StringRef>) {
+        if constexpr (is_string_type(Type)) {
             insert_string_to_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<T, bool>) {
+        } else if constexpr (Type == TYPE_BOOLEAN) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
         } else {
             insert_default_value_res_column(sel, sel_size, column);
@@ -423,7 +418,7 @@ public:
 private:
     Container data;
     // manages the memory for slice's data(For string type)
-    std::unique_ptr<Arena> _arena;
+    Arena _arena;
     std::vector<StringRef> _refs;
 };
 

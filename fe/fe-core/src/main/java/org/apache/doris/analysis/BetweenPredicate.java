@@ -20,7 +20,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.gson.annotations.SerializedName;
@@ -65,23 +66,6 @@ public class BetweenPredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        if (children.get(0) instanceof Subquery
-                && (children.get(1) instanceof Subquery || children.get(2) instanceof Subquery)) {
-            throw new AnalysisException("Comparison between subqueries is not "
-                    + "supported in a BETWEEN predicate: " + toSql());
-        }
-        // if children has subquery, it will be written and reanalyzed in the future.
-        if (children.get(0) instanceof Subquery
-                || children.get(1) instanceof Subquery
-                || children.get(2) instanceof Subquery) {
-            return;
-        }
-        analyzer.castAllToCompatibleType(children);
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         throw new IllegalStateException(
                 "BetweenPredicate needs to be rewritten into a CompoundPredicate.");
@@ -92,6 +76,15 @@ public class BetweenPredicate extends Predicate {
         String notStr = (isNotBetween) ? "NOT " : "";
         return children.get(0).toSql() + " " + notStr + "BETWEEN "
                 + children.get(1).toSql() + " AND " + children.get(2).toSql();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        String notStr = (isNotBetween) ? "NOT " : "";
+        return children.get(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "BETWEEN "
+                + children.get(1).toSql(disableTableName, needExternalSql, tableType, table) + " AND " + children.get(2)
+                .toSql(disableTableName, needExternalSql, tableType, table);
     }
 
     @Override

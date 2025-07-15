@@ -74,7 +74,7 @@ TEST(ColumnFixedLenghtObjectTest, UpdateHashWithValue) {
         column1->update_hash_with_value(i, hash1);
     }
 
-    auto column2 = ColumnVector<int64_t>::create();
+    auto column2 = ColumnInt64::create();
     column2->resize(count);
     for (size_t i = 0; i != count; ++i) {
         column2->get_data()[i] = i;

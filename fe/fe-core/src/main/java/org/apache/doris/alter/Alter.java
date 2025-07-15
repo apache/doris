@@ -21,14 +21,16 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.DropMaterializedViewStmt;
+import org.apache.doris.analysis.CreateOrReplaceBranchClause;
+import org.apache.doris.analysis.CreateOrReplaceTagClause;
+import org.apache.doris.analysis.DropBranchClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
+import org.apache.doris.analysis.DropTagClause;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyEngineClause;
@@ -75,6 +77,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
@@ -152,14 +155,15 @@ public class Alter {
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(command, db, olapTable);
     }
 
-    public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        TableName tableName = stmt.getTableName();
+    public void processDropMaterializedView(DropMaterializedViewCommand command)
+            throws DdlException, MetaNotFoundException {
+        TableNameInfo tableName = command.getTableName();
         String dbName = tableName.getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         String name = tableName.getTbl();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
-        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
+        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(command, db, olapTable);
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -377,6 +381,34 @@ public class Alter {
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(table.getCatalog().getName(),
                 table.getDatabase().getFullName(), table.getName(), properties);
         Env.getCurrentEnv().getEditLog().logModifyTableProperties(info);
+    }
+
+    private void processAlterTableForExternalTable(
+            ExternalTable table,
+            List<AlterClause> alterClauses) throws UserException {
+        for (AlterClause alterClause : alterClauses) {
+            if (alterClause instanceof ModifyTablePropertiesClause) {
+                setExternalTableAutoAnalyzePolicy(table, alterClauses);
+            } else if (alterClause instanceof CreateOrReplaceBranchClause) {
+                table.getCatalog().createOrReplaceBranch(
+                        table,
+                        ((CreateOrReplaceBranchClause) alterClause).getBranchInfo());
+            } else if (alterClause instanceof CreateOrReplaceTagClause) {
+                table.getCatalog().createOrReplaceTag(
+                        table,
+                        ((CreateOrReplaceTagClause) alterClause).getTagInfo());
+            } else if (alterClause instanceof DropBranchClause) {
+                table.getCatalog().dropBranch(
+                        table,
+                        ((DropBranchClause) alterClause).getDropBranchInfo());
+            } else if (alterClause instanceof DropTagClause) {
+                table.getCatalog().dropTag(
+                        table,
+                        ((DropTagClause) alterClause).getDropTagInfo());
+            } else {
+                throw new UserException("Invalid alter operations for external table: " + alterClauses);
+            }
+        }
     }
 
     private boolean needChangeMTMVState(List<AlterClause> alterClauses) {
@@ -674,7 +706,7 @@ public class Alter {
             case HUDI_EXTERNAL_TABLE:
             case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 alterClauses.addAll(command.getOps());
-                setExternalTableAutoAnalyzePolicy((ExternalTable) tableIf, alterClauses);
+                processAlterTableForExternalTable((ExternalTable) tableIf, alterClauses);
                 return;
             default:
                 throw new DdlException("Do not support alter "
@@ -835,15 +867,10 @@ public class Alter {
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
-            if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
-                // Because the current dropMTMV will delete jobs related to materialized views,
-                // this method will maintain its own metadata for deleting jobs,
-                // so it cannot be called during playback
-                if (!isReplay) {
-                    Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) origTable);
-                }
-            }
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
+            if (origTable instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable, isReplay);
+            }
         }
     }
 
@@ -921,10 +948,6 @@ public class Alter {
             view.writeUnlock();
             db.writeUnlock();
         }
-    }
-
-    public void processAlterSystem(AlterSystemStmt stmt) throws UserException {
-        systemHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
     }
 
     public void processAlterSystem(AlterSystemCommand command) throws UserException {
@@ -1031,7 +1054,8 @@ public class Alter {
                 // check currentStoragePolicy resource exist.
                 Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
                 partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
-            } else {
+            } else if (PropertyAnalyzer.hasStoragePolicy(properties)) {
+                // only set "storage_policy" = "", means cancel storage policy
                 // if current partition is already in remote storage
                 if (partition.getRemoteDataSize() > 0) {
                     throw new AnalysisException(
@@ -1308,13 +1332,20 @@ public class Alter {
                 case ADD_TASK:
                     mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
                             isReplay);
+                    // If it is not a replay thread, it means that the current service is already a new version
+                    // and does not require compatibility
+                    if (isReplay) {
+                        mtmv.compatible(Env.getCurrentEnv().getCatalogMgr());
+                    }
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }
+            if (alterMTMV.isNeedRebuildJob()) {
+                Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
+            }
             // 4. log it and replay it in the follower
             if (!isReplay) {
-                Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {

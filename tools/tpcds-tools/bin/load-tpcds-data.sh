@@ -182,6 +182,7 @@ for table_name in ${!table_columns[*]}; do
                 ret=$(curl \
                     --location-trusted \
                     -u "${USER}":"${PASSWORD:-}" \
+                    -H "Expect: 100-continue" \
                     -H "column_separator:|" \
                     -H "columns: ${table_columns[${table_name}]}" \
                     -T "${file}" \
@@ -190,6 +191,7 @@ for table_name in ${!table_columns[*]}; do
                 ret=$(curl \
                     --location-trusted \
                     -u "${USER}":"${PASSWORD:-}" \
+                    -H "Expect: 100-continue" \
                     -H "label:${TXN_ID}_${FILE_ID}" \
                     -H "column_separator:|" \
                     -H "columns: ${table_columns[${table_name}]}" \

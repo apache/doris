@@ -399,21 +399,21 @@ TEST_F(BufferedReaderTest, test_merged_io) {
                 static_cast<void>(static_cast<void>(merge_reader.read_at(
                         start_offset, Slice(data, to_read), &bytes_read, nullptr)));
                 EXPECT_EQ(to_read, bytes_read);
-                EXPECT_EQ(start_offset % UCHAR_MAX, (uint8)data[0]);
+                EXPECT_EQ(start_offset % UCHAR_MAX, (uint8_t)data[0]);
             } else if (i == 1) {
                 size_t start_offset = 4 * 1024 * 1024 * col + 729 * 1024;
                 size_t to_read = 1872 * 1024; // read 1872KB
                 static_cast<void>(static_cast<void>(merge_reader.read_at(
                         start_offset, Slice(data, to_read), &bytes_read, nullptr)));
                 EXPECT_EQ(to_read, bytes_read);
-                EXPECT_EQ(start_offset % UCHAR_MAX, (uint8)data[0]);
+                EXPECT_EQ(start_offset % UCHAR_MAX, (uint8_t)data[0]);
             } else if (i == 2) {
                 size_t start_offset = 4 * 1024 * 1024 * col + 729 * 1024 + 1872 * 1024;
                 size_t to_read = 471 * 1024; // read 471KB
                 static_cast<void>(static_cast<void>(merge_reader.read_at(
                         start_offset, Slice(data, to_read), &bytes_read, nullptr)));
                 EXPECT_EQ(to_read, bytes_read);
-                EXPECT_EQ(start_offset % UCHAR_MAX, (uint8)data[0]);
+                EXPECT_EQ(start_offset % UCHAR_MAX, (uint8_t)data[0]);
             }
         }
     }

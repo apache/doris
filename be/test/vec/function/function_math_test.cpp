@@ -181,6 +181,37 @@ TEST(MathFunctionTest, cbrt_test) {
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
+TEST(MathFunctionTest, cot_test) {
+    std::string func_name = "cot";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{1.0}, 0.6420926159343306}, {{M_PI / 4}, 1.0000000000000002}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, sec_test) {
+    std::string func_name = "sec";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{1.0}, 1.8508157176809255}, {{1000.0}, 1.7781600385912715}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, cosec_test) {
+    std::string func_name = "cosec";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {
+            {{1.0}, 1.1883951057781212}, {{2.0}, 1.0997501702946164}, {{1000.0}, 1.20936599707935}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
 TEST(MathFunctionTest, tan_test) {
     std::string func_name = "tan"; //tan(x)
 
@@ -381,8 +412,8 @@ TEST(MathFunctionTest, positive_test) {
                 {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
         };
 
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 5, 11>(
-                func_name, input_types, data_set));
+        static_cast<void>(
+                check_function<DataTypeDecimal64, false, 5, 11>(func_name, input_types, data_set));
     }
     // negative case
     {
@@ -393,8 +424,8 @@ TEST(MathFunctionTest, positive_test) {
                 {{DECIMAL64(12345, 123, 3)}, {DECIMAL64(12345, 12300, 5)}},
         };
 
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 5, 11>(
-                func_name, input_types, data_set, false, true));
+        static_cast<void>(check_function<DataTypeDecimal64, false, 5, 11>(func_name, input_types,
+                                                                          data_set, false, true));
     }
     // negative case
     {
@@ -404,8 +435,8 @@ TEST(MathFunctionTest, positive_test) {
                 {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
         };
 
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 6, 12>(
-                func_name, input_types, data_set, false, true));
+        static_cast<void>(check_function<DataTypeDecimal64, false, 6, 12>(func_name, input_types,
+                                                                          data_set, false, true));
     }
 }
 

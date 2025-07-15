@@ -31,7 +31,6 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -182,8 +181,8 @@ TEST_F(SortTest, test_sorter) {
     std::unique_ptr<MockRowDescriptor> row_desc;
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
 
-    std::vector<bool> is_asc_order {true};
-    std::vector<bool> nulls_first {false};
+    std::vector<bool> is_asc_order {true, true};
+    std::vector<bool> nulls_first {false, false};
 
     std::unique_ptr<vectorized::Sorter> sorter;
     DataTypes data_types {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()};

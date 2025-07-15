@@ -64,7 +64,6 @@ public class DecimalV2Type extends FractionalType {
             .put(LargeIntType.INSTANCE, LARGEINT_DECIMAL)
             .put(FloatType.INSTANCE, FLOAT_DECIMAL)
             .put(DoubleType.INSTANCE, DOUBLE_DECIMAL)
-            .put(TimeType.INSTANCE, DOUBLE_DECIMAL)
             .put(TimeV2Type.INSTANCE, DOUBLE_DECIMAL)
             .put(NullType.INSTANCE, BOOLEAN_DECIMAL)
             .build();

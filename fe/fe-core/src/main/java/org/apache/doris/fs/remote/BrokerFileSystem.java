@@ -26,7 +26,8 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
-import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.operations.BrokerFileOperations;
 import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.service.FrontendOptions;
@@ -70,17 +71,17 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 public class BrokerFileSystem extends RemoteFileSystem {
     private static final Logger LOG = LogManager.getLogger(BrokerFileSystem.class);
     private final BrokerFileOperations operations;
+    private final BrokerProperties brokerProperties;
 
-    public BrokerFileSystem(String name, Map<String, String> properties) {
-        super(name, StorageBackend.StorageType.BROKER);
-        properties.putAll(PropertyConverter.convertToHadoopFSProperties(properties));
-        this.properties = properties;
-        this.operations = new BrokerFileOperations(name, properties);
+    //todo The method parameter should use the interface type StorageProperties instead of a specific implementation.
+    public BrokerFileSystem(BrokerProperties brokerProperties) {
+        super(brokerProperties.getBrokerName(), StorageBackend.StorageType.BROKER);
+        this.brokerProperties = brokerProperties;
+        this.operations = new BrokerFileOperations(name, brokerProperties.getBrokerParams());
     }
 
     public Pair<TPaloBrokerService.Client, TNetworkAddress> getBroker() {
@@ -697,5 +698,15 @@ public class BrokerFileSystem extends RemoteFileSystem {
     @Override
     public Status makeDir(String remotePath) {
         return new Status(Status.ErrCode.COMMON_ERROR, "mkdir is not implemented.");
+    }
+
+    @Override
+    public StorageProperties getStorageProperties() {
+        return brokerProperties;
+    }
+
+    @Override
+    public void close() throws IOException {
+        //  do nothing
     }
 }

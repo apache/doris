@@ -21,19 +21,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
 // TODO(tsy): maybe better to rename as `LoadLabel`
 // label name used to identify a load job
-public class LabelName implements Writable {
+public class LabelName {
     private String dbName;
     private String labelName;
 
@@ -48,6 +42,10 @@ public class LabelName implements Writable {
 
     public String getDbName() {
         return dbName;
+    }
+
+    public void setDbName(String dbName) {
+        this.dbName = dbName;
     }
 
     public String getLabelName() {
@@ -90,16 +88,5 @@ public class LabelName implements Writable {
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, dbName);
-        Text.writeString(out, labelName);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        dbName = Text.readString(in);
-        labelName = Text.readString(in);
     }
 }

@@ -153,4 +153,8 @@ public class AddColumnClause extends AlterTableClause {
     public String toString() {
         return toSql();
     }
+
+    public void setColumn(Column column) {
+        this.column = column;
+    }
 }

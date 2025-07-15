@@ -55,7 +55,7 @@ public class ConvertAggStateCast implements ExpressionPatternRuleFactory {
         DataType originalType = child.getDataType();
         DataType targetType = cast.getDataType();
         if (originalType instanceof AggStateType && targetType instanceof AggStateType) {
-            // TODO remve it after we refactor mv rewriter to avoid generate Alias in expression
+            // TODO remove it after we refactor mv rewriter to avoid generate Alias in expression
             while (child instanceof Alias) {
                 child = ((Alias) child).child();
             }

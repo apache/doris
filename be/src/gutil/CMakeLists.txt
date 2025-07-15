@@ -24,12 +24,9 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/gutil")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/gutil")
 
 SET(SOURCE_FILES
-        bits.cc
         hash/city.cc
         ref_counted.cc
-        strings/ascii_ctype.cc
         strings/numbers.cc
-        strtoint.cc
         threading/thread_collision_warner.cc)
 
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")

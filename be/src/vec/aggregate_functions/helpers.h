@@ -111,6 +111,44 @@ struct creator_without_type {
         return AggregateFunctionPtr(result.release());
     }
 
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_multi_arguments(const DataTypes& argument_types_,
+                                                       const bool result_is_nullable,
+                                                       TArgs&&... args) {
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            if (result_is_nullable) {
+                result.reset(new NullableT<true, true, AggregateFunctionTemplate>(result.release(),
+                                                                                  argument_types_));
+            } else {
+                result.reset(new NullableT<true, false, AggregateFunctionTemplate>(
+                        result.release(), argument_types_));
+            }
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_unary_arguments(const DataTypes& argument_types_,
+                                                       const bool result_is_nullable,
+                                                       TArgs&&... args) {
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            if (result_is_nullable) {
+                result.reset(new NullableT<false, true, AggregateFunctionTemplate>(
+                        result.release(), argument_types_));
+            } else {
+                result.reset(new NullableT<false, false, AggregateFunctionTemplate>(
+                        result.release(), argument_types_));
+            }
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
     /// AggregateFunctionTemplate will handle the nullable arguments, no need to use
     /// AggregateFunctionNullVariadicInline/AggregateFunctionNullUnaryInline
     template <typename AggregateFunctionTemplate, typename... TArgs>
@@ -147,31 +185,30 @@ struct CurryDirectAndData {
     using T = AggregateFunctionTemplate<Type, Data<Type>>;
 };
 
-template <bool allow_integer, bool allow_float, bool allow_decimal, int define_index = 0>
+template <bool allow_integer, bool allow_float, bool allow_decimal, bool allow_stringlike,
+          bool allow_datelike, bool allow_ip, int define_index = 0>
 struct creator_with_type_base {
     template <typename Class, typename... TArgs>
     static AggregateFunctionPtr create_base(const DataTypes& argument_types,
                                             const bool result_is_nullable, TArgs&&... args) {
+        auto create = [&]<PrimitiveType Ptype>() {
+            return creator_without_type::create<typename Class::template T<Ptype>>(
+                    argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+        };
         if constexpr (allow_integer) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_BOOLEAN:
-                return creator_without_type::create<typename Class::template T<TYPE_BOOLEAN>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_BOOLEAN>();
             case PrimitiveType::TYPE_TINYINT:
-                return creator_without_type::create<typename Class::template T<TYPE_TINYINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_TINYINT>();
             case PrimitiveType::TYPE_SMALLINT:
-                return creator_without_type::create<typename Class::template T<TYPE_SMALLINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_SMALLINT>();
             case PrimitiveType::TYPE_INT:
-                return creator_without_type::create<typename Class::template T<TYPE_INT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_INT>();
             case PrimitiveType::TYPE_BIGINT:
-                return creator_without_type::create<typename Class::template T<TYPE_BIGINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_BIGINT>();
             case PrimitiveType::TYPE_LARGEINT:
-                return creator_without_type::create<typename Class::template T<TYPE_LARGEINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_LARGEINT>();
             default:
                 break;
             }
@@ -179,11 +216,9 @@ struct creator_with_type_base {
         if constexpr (allow_float) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_FLOAT:
-                return creator_without_type::create<typename Class::template T<TYPE_FLOAT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_FLOAT>();
             case PrimitiveType::TYPE_DOUBLE:
-                return creator_without_type::create<typename Class::template T<TYPE_DOUBLE>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DOUBLE>();
             default:
                 break;
             }
@@ -191,24 +226,58 @@ struct creator_with_type_base {
         if constexpr (allow_decimal) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_DECIMAL32:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL32>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL32>();
             case PrimitiveType::TYPE_DECIMAL64:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL64>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL64>();
             case PrimitiveType::TYPE_DECIMALV2:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMALV2>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMALV2>();
             case PrimitiveType::TYPE_DECIMAL128I:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL128I>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL128I>();
             case PrimitiveType::TYPE_DECIMAL256:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL256>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL256>();
             default:
                 break;
             }
         }
+
+        if constexpr (allow_stringlike) {
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_CHAR:
+            case PrimitiveType::TYPE_VARCHAR:
+            case PrimitiveType::TYPE_STRING:
+            case PrimitiveType::TYPE_JSONB:
+                return create.template operator()<PrimitiveType::TYPE_VARCHAR>();
+            default:
+                break;
+            }
+        }
+
+        if constexpr (allow_datelike) {
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_DATE:
+                return create.template operator()<PrimitiveType::TYPE_DATE>();
+            case PrimitiveType::TYPE_DATETIME:
+                return create.template operator()<PrimitiveType::TYPE_DATETIME>();
+            case PrimitiveType::TYPE_DATEV2:
+                return create.template operator()<PrimitiveType::TYPE_DATEV2>();
+            case PrimitiveType::TYPE_DATETIMEV2:
+                return create.template operator()<PrimitiveType::TYPE_DATETIMEV2>();
+            default:
+                break;
+            }
+        }
+
+        if constexpr (allow_ip) {
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_IPV4:
+                return create.template operator()<PrimitiveType::TYPE_IPV4>();
+            case PrimitiveType::TYPE_IPV6:
+                return create.template operator()<PrimitiveType::TYPE_IPV6>();
+            default:
+                break;
+            }
+        }
+
         return nullptr;
     }
 
@@ -273,11 +342,14 @@ struct creator_with_type_base {
                 std::forward<TArgs>(args)...);
     }
 };
-
-using creator_with_integer_type = creator_with_type_base<true, false, false>;
-using creator_with_numeric_type = creator_with_type_base<true, true, false>;
-using creator_with_decimal_type = creator_with_type_base<false, false, true>;
-using creator_with_type = creator_with_type_base<true, true, true>;
+template <int define_index>
+using creator_with_integer_type_with_index =
+        creator_with_type_base<true, false, false, false, false, false, define_index>;
+using creator_with_integer_type = creator_with_integer_type_with_index<0>;
+using creator_with_numeric_type = creator_with_type_base<true, true, false, false, false, false>;
+using creator_with_decimal_type = creator_with_type_base<false, false, true, false, false, false>;
+using creator_with_type = creator_with_type_base<true, true, true, false, false, false>;
+using creator_with_any = creator_with_type_base<true, true, true, true, true, true>;
 
 } // namespace  doris::vectorized
 

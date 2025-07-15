@@ -36,7 +36,6 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -57,7 +56,6 @@
 #include "vec/exprs/vmatch_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
-#include "vec/exprs/vtuple_is_null_predicate.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -161,6 +159,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(data, &node));
         break;
     }
+    case TYPE_TIMEV2: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(data, &node));
+        break;
+    }
     default:
         throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
                         int(type));
@@ -256,6 +258,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:
+        case TExprNodeType::TIMEV2_LITERAL:
         case TExprNodeType::STRING_LITERAL:
         case TExprNodeType::JSON_LITERAL:
         case TExprNodeType::NULL_LITERAL: {
@@ -323,10 +326,6 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::INFO_FUNC: {
             expr = VInfoFunc::create_shared(expr_node);
-            break;
-        }
-        case TExprNodeType::TUPLE_IS_NULL_PRED: {
-            expr = VTupleIsNullPredicate::create_shared(expr_node);
             break;
         }
         default:
@@ -624,7 +623,7 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
     // Pre-allocate vectors based on an estimated or known size
-    std::vector<segment_v2::InvertedIndexIterator*> iterators;
+    std::vector<segment_v2::IndexIterator*> iterators;
     std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName arguments;

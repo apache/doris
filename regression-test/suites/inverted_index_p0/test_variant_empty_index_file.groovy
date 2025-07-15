@@ -50,8 +50,14 @@ suite("test_variant_empty_index_file", "p0") {
     if (!isCloudMode()) {
         def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
         logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals("E-6002", parseJson(out.trim()).status)
+        assertEquals("E-6004", parseJson(out.trim()).status)
+        assertTrue(out.contains(" is empty"))
     }
 
-    qt_sql """ select * from ${tableName} where v match 'abcd'"""
+    try {
+        sql """ select /*+ SET_VAR(enable_match_without_inverted_index = 0) */  * from ${tableName} where v match 'abcd';  """
+    } catch (Exception e) {
+        log.info(e.getMessage());
+        assertTrue(e.getMessage().contains("match_any not support execute_match"))
+    }
 }

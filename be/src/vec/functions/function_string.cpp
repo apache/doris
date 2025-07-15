@@ -53,7 +53,7 @@ struct StringASCII {
     using ReturnType = DataTypeInt32;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
@@ -99,7 +99,7 @@ struct StringLengthImpl {
     using ReturnType = DataTypeInt32;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
@@ -121,7 +121,7 @@ struct Crc32Impl {
     using ReturnType = DataTypeInt64;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int64>;
+    using ReturnColumnType = ColumnInt64;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int64>& res) {
@@ -143,7 +143,7 @@ struct StringUtf8LengthImpl {
     using ReturnType = DataTypeInt32;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
@@ -386,10 +386,10 @@ struct StringFunctionImpl {
     using ResultDataType = typename OP::ResultDataType;
     using ResultPaddedPODArray = typename OP::ResultPaddedPODArray;
 
-    static void vector_vector(const ColumnString::Chars& ldata,
-                              const ColumnString::Offsets& loffsets,
-                              const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+    static Status vector_vector(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets,
+                                const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
 
         auto size = loffsets.size();
@@ -406,10 +406,11 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
     }
-    static void vector_scalar(const ColumnString::Chars& ldata,
-                              const ColumnString::Offsets& loffsets, const StringRef& rdata,
-                              ResultPaddedPODArray& res) {
+    static Status vector_scalar(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
         auto size = loffsets.size();
         res.resize(size);
         std::string_view rview(rdata.data, rdata.size);
@@ -420,9 +421,10 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
     }
-    static void scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+    static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         auto size = roffsets.size();
         res.resize(size);
         std::string_view lview(ldata.data, ldata.size);
@@ -433,6 +435,7 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
     }
 };
 
@@ -1375,11 +1378,20 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
-    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMALV2>>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMAL32>>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMAL64>>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMAL128I>>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMAL256>>>();
     factory.register_function<FunctionStringFormatRound<FormatRoundDoubleImpl>>();
     factory.register_function<FunctionStringFormatRound<FormatRoundInt64Impl>>();
     factory.register_function<FunctionStringFormatRound<FormatRoundInt128Impl>>();
-    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMALV2>>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL32>>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL64>>>();
+    factory.register_function<
+            FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL128I>>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL256>>>();
     factory.register_function<FunctionStringDigestOneArg<SM3Sum>>();
     factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
     factory.register_function<FunctionStringDigestSHA1>();

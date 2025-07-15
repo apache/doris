@@ -47,6 +47,11 @@ public:
         return Status::NotSupported("get_columns is not implemented");
     }
 
+    // This method is responsible for initializing the resource for parsing schema.
+    // It will be called before `get_parsed_schema`.
+    virtual Status init_schema_reader() {
+        return Status::NotSupported("init_schema_reader is not implemented for this reader.");
+    }
     // `col_types` is always nullable to process illegal values.
     virtual Status get_parsed_schema(std::vector<std::string>* col_names,
                                      std::vector<DataTypePtr>* col_types) {
@@ -70,12 +75,25 @@ public:
 
     virtual Status close() { return Status::OK(); }
 
+    Status set_read_lines_mode(const std::list<int64_t>& read_lines) {
+        _read_line_mode_mode = true;
+        _read_lines = read_lines;
+        return _set_read_one_line_impl();
+    }
+
 protected:
+    virtual Status _set_read_one_line_impl() {
+        return Status::NotSupported("set_read_lines_mode is not implemented for this reader.");
+    }
+
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 
     /// Whether the underlying FileReader has filled the partition&missing columns
     bool _fill_all_columns = false;
     TPushAggOp::type _push_down_agg_type {};
+
+    bool _read_line_mode_mode = false;
+    std::list<int64_t> _read_lines;
 };
 
 #include "common/compile_check_end.h"

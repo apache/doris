@@ -47,6 +47,9 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
           GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [filtered_rows: expectedFilteredRows])
           sql "set experimental_enable_parallel_scan = false"
           sql " set inverted_index_skip_threshold = 0 "
+          sql " set enable_common_expr_pushdown_for_inverted_index = true"
+          sql " set enable_common_expr_pushdown = true"
+          sql " set enable_parallel_scan = false"
           sql "sync"
           sql "${sqlQuery}"
       } finally {
@@ -55,7 +58,7 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
       }
     }
     
-    queryAndCheck (" select * from ${testTable} where v['int1'] is not null; ", 2)
+    queryAndCheck (" select /*+ SET_VAR(batch_size=4064,broker_load_batch_size=16352,disable_streaming_preaggregations=false,enable_distinct_streaming_aggregation=true,parallel_pipeline_task_num=1,enable_binary_search_filtering_partitions=true,enable_sql_cache=false,enable_parallel_scan=true,parallel_scan_max_scanners_count=48,parallel_scan_min_rows_per_scanner=2097152,use_serial_exchange=false,enable_shared_exchange_sink_buffer=true,parallel_prepare_threshold=2,enable_fold_constant_by_be=false,enable_rewrite_element_at_to_slot=true,runtime_filter_wait_infinitely=true,runtime_filter_type=5,runtime_filter_max_in_num=40960,enable_sync_runtime_filter_size=false,enable_parallel_result_sink=true,sort_phase_num=0,rewrite_or_to_in_predicate_threshold=2,enable_runtime_filter_prune=false,enable_runtime_filter_partition_prune=false,enable_fast_analyze_into_values=true,enable_function_pushdown=true,enable_common_expr_pushdown=true,partition_pruning_expand_threshold=10,enable_share_hash_table_for_broadcast_join=true,enable_two_phase_read_opt=true,enable_common_expr_pushdown_for_inverted_index=false,fe_debug=true,fetch_remote_schema_timeout_seconds=120,max_fetch_remote_schema_tablet_count=512,data_queue_max_blocks=1,enable_spill=true,enable_reserve_memory=true,spill_min_revocable_mem=104857600,spill_aggregation_partition_count=32,spill_hash_join_partition_count=32,spill_revocable_memory_high_watermark_percent=-1) */ * from ${testTable} where v['int1'] is not null; ", 2)
     queryAndCheck (" select * from ${testTable} where v['int1'] is null; ", 1)
     queryAndCheck (" select * from ${testTable} where v['string1'] is not null; ", 2)
     queryAndCheck (" select * from ${testTable} where v['string1'] is null; ", 1)

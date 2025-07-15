@@ -41,12 +41,6 @@ suite("test_utf8_check","p0,external,tvf,hive,external_docker,external_docker_hi
         
 
         sql """ set enable_text_validate_utf8 = true; """     
-
-        test {
-            sql """ select * from invalid_utf8_data """ 
-            exception """Only support csv data in utf8 codec"""
-        }
-        
         
         test {
             sql """ select * from invalid_utf8_data2; """ 

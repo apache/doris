@@ -305,12 +305,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 "markJoinSlotReference", markJoinSlotReference,
                 "hashJoinConjuncts", hashJoinConjuncts,
                 "otherJoinConjuncts", otherJoinConjuncts,
-                "markJoinConjuncts", markJoinConjuncts);
+                "markJoinConjuncts", markJoinConjuncts,
+                "stats", statistics);
         if (hint.distributeType != DistributeType.NONE) {
             args.add("hint");
             args.add(hint.getExplainString());
         }
-        return Utils.toSqlString("LogicalJoin[" + id.asInt() + "]", args.toArray());
+        return Utils.toSqlStringSkipNull("LogicalJoin[" + id.asInt() + "]", args.toArray());
     }
 
     @Override

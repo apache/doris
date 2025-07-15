@@ -27,6 +27,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.persist.TableStatsDeletionLog;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
@@ -214,6 +216,8 @@ public class StatisticsAutoCollector extends MasterDaemon {
             LOG.info("Table {} is empty, remove its old stats and skip auto analyze it.", table.getName());
             // Remove the table's old stats if exists.
             if (tableStatsStatus != null && !tableStatsStatus.isColumnsStatsEmpty()) {
+                manager.removeTableStats(table.getId());
+                Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(table.getId()));
                 manager.dropStats(table, null);
             }
             return null;
@@ -225,6 +229,14 @@ public class StatisticsAutoCollector extends MasterDaemon {
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {
             stringJoiner.add(pair.toString());
+        }
+        long version = 0;
+        try {
+            if (table instanceof OlapTable) {
+                version = ((OlapTable) table).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
         }
         return new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
@@ -246,7 +258,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setTblUpdateTime(table.getUpdateTime())
                 .setRowCount(rowCount)
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
-                .setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0)
+                .setTableVersion(version)
                 .setPriority(priority)
                 .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
                 .setEnablePartition(StatisticsUtil.enablePartitionAnalyze())

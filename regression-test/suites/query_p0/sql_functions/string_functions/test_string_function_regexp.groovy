@@ -16,38 +16,50 @@
 // under the License.
 
 suite("test_string_function_regexp") {
-    sql "set batch_size = 4096;"
-
-    def tbName = "test_string_function_regexp"
-    sql "DROP TABLE IF EXISTS ${tbName}"
+    sql "DROP TABLE IF EXISTS test_string_function_regexp"
     sql """
-            CREATE TABLE IF NOT EXISTS ${tbName} (
-                k varchar(32)
+            CREATE TABLE IF NOT EXISTS test_string_function_regexp (
+                k varchar(32),
+                v int,
             )
             DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1");
         """
     sql """
-        INSERT INTO ${tbName} VALUES 
-            ("billie eillish"),
-            ("It's ok"),
-            ("Emmy eillish"),
-            ("It's true")
+        INSERT INTO test_string_function_regexp VALUES 
+            ("billie eillish",1),
+            ("It's ok",2),
+            ("Emmy eillish",3),
+            ("It's true",4),
+            (null,5),
+            ("",6),
+            ("billie eillish",null)
         """
     // regexp as keyword
-    qt_sql "SELECT k FROM ${tbName} WHERE k regexp '^billie' ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE k regexp 'ok\$' ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE k regexp concat('^', k) order by k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k regexp '^billie' ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k regexp 'ok\$' ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k regexp concat('^', k) order by k;"
 
-    qt_sql "SELECT k FROM ${tbName} WHERE k not regexp '^billie' ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE k not regexp 'ok\$' ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k not regexp '^billie' ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k not regexp 'ok\$' ORDER BY k;"
 
     // regexp as function
-    qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, '^billie') ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, 'ok\$') ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, concat('^', k)) order by k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE not regexp(k, '^billie') ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE not regexp(k, 'ok\$') ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE regexp(k, '^billie') ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE regexp(k, 'ok\$') ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE regexp(k, concat('^', k)) order by k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE not regexp(k, '^billie') ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE not regexp(k, 'ok\$') ORDER BY k;"
 
+    qt_sql "SELECT regexp_extract(k, '([[:lower:]]+)C([[:lower:]]+)', 1) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract(k, k, 1) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract(k, k, v) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract(k, '([[:lower:]]+)C([[:lower:]]+)', v) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract('AbCdE', k, v) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract('AbCdE', k, 1) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', v) from test_string_function_regexp ORDER BY k;"
+    
+    qt_sql "SELECT regexp_extract_all(k, '([[:lower:]]+)C([[:lower:]]+)') from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract_all(k, k) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract_all('AbCdE', k) from test_string_function_regexp ORDER BY k;"
 
     qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 1);"
     qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 2);"
@@ -76,25 +88,25 @@ suite("test_string_function_regexp") {
 
     // bug fix
     sql """
-        INSERT INTO ${tbName} VALUES
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish")
+        INSERT INTO test_string_function_regexp VALUES
+            ("billie eillish",11),
+            ("billie eillish",12),
+            ("billie eillish",13),
+            ("billie eillish",14),
+            ("billie eillish",15),
+            ("billie eillish",16),
+            ("billie eillish",17),
+            ("billie eillish",18),
+            ("billie eillish",19),
+            ("billie eillish",20),
+            ("billie eillish",21),
+            ("billie eillish",22),
+            ("billie eillish",23)
         """
     qt_sql_regexp_null "SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/regexp_extract(k, cast(null as varchar), 1) from test_string_function_regexp;"
     // end bug fix
 
-    sql "DROP TABLE ${tbName};"
+    sql "DROP TABLE test_string_function_regexp;"
 
     def tableName= "test"
     sql "use test_query_db"

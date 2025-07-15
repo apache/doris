@@ -42,9 +42,11 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
@@ -83,15 +85,17 @@ import org.apache.thrift.TSerializer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 /**
- * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL table-valued-function
+ * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL/HTTP_STREAM/GROUP_COMMIT table-valued-function
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
@@ -173,7 +177,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+        if (fileFormatProperties instanceof CsvFileFormatProperties
+                || fileFormatProperties instanceof TextFileFormatProperties) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
                     CsvFileFormatProperties.PROP_CSV_SCHEMA, ""));
             if (LOG.isDebugEnabled()) {
@@ -335,11 +340,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } else if (tPrimitiveType == TPrimitiveType.STRUCT) {
             parsedNodes = 1;
             ArrayList<StructField> fields = new ArrayList<>();
+            Set<String> fieldLowerNames = new HashSet<>();
+
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
                 PStructField structField = typeNodes.get(start).getStructFields(i);
-                fields.add(new StructField(structField.getName(), fieldType.key(), structField.getComment(),
-                        structField.getContainsNull()));
+                String fieldName = structField.getName().toLowerCase();
+                if (fieldLowerNames.contains(fieldName)) {
+                    throw new NotSupportedException("Repeated lowercase field names: " + fieldName);
+                } else {
+                    fieldLowerNames.add(fieldName);
+                    fields.add(new StructField(fieldName, fieldType.key(), structField.getComment(),
+                            structField.getContainsNull()));
+                }
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
@@ -359,10 +372,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return;
         }
         // add fetched file columns
+        Set<String> columnLowerNames = new HashSet<>();
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
-            String colName = result.getColumnNames(idx);
-            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
+            String colName = result.getColumnNames(idx).toLowerCase();
+            // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
+            // query ambiguity, two columns with the same name but different capitalization are not allowed.
+            if (columnLowerNames.contains(colName)) {
+                throw new NotSupportedException("Repeated lowercase column names: " + colName);
+            } else {
+                columnLowerNames.add(colName);
+                columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
+            }
         }
         // add path columns
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
@@ -379,9 +400,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> beProperties = new HashMap<>();
         beProperties.putAll(backendConnectProperties);
         fileScanRangeParams.setProperties(beProperties);
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
-            fileScanRangeParams.setTextSerdeType(((CsvFileFormatProperties) fileFormatProperties).getTextSerdeType());
-        }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

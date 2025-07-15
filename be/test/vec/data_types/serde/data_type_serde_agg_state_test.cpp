@@ -18,6 +18,7 @@
 #include <arrow/array/builder_base.h>
 #include <gtest/gtest.h>
 
+#include "util/jsonb_writer.h"
 #include "util/slice.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_number.h"
@@ -104,14 +105,16 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb) {
     Arena pool;
     jsonb_writer.writeStartObject();
     datatype_agg_state_serde_count->write_one_cell_to_jsonb(*column_fixed_length, jsonb_writer,
-                                                            &pool, 0, 0);
+                                                            pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         datatype_agg_state_serde_count->read_one_cell_from_jsonb(*column_fixed_length, it->value());
@@ -129,7 +132,7 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb2) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    datatype_agg_state_serde_hll_union->write_one_cell_to_jsonb(*column_string, jsonb_writer, &pool,
+    datatype_agg_state_serde_hll_union->write_one_cell_to_jsonb(*column_string, jsonb_writer, pool,
                                                                 0, 0);
     jsonb_writer.writeEndObject();
 
@@ -137,7 +140,9 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb2) {
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         datatype_agg_state_serde_hll_union->read_one_cell_from_jsonb(*column_string, it->value());
@@ -209,7 +214,6 @@ TEST_F(AggStateSerdeTest, serializeOneCellToJson) {
     *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
     ASSERT_EQ(column_fixed_length->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = datatype_agg_state_serde_count->serialize_one_cell_to_json(
@@ -249,7 +253,6 @@ TEST_F(AggStateSerdeTest, serializeOneCellToJson2) {
     column_string->insert_data(str2.c_str(), str2.size());
     ASSERT_EQ(column_string->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = datatype_agg_state_serde_hll_union->serialize_one_cell_to_json(
@@ -288,7 +291,6 @@ TEST_F(AggStateSerdeTest, serializeColumnToJson) {
     *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
     ASSERT_EQ(column_fixed_length->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = datatype_agg_state_serde_count->serialize_column_to_json(
@@ -326,7 +328,6 @@ TEST_F(AggStateSerdeTest, serializeColumnToJson2) {
     std::cout << "asd " << column_string->get_data_at(0).to_string() << std::endl;
     ASSERT_EQ(column_string->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = datatype_agg_state_serde_hll_union->serialize_column_to_json(
@@ -365,7 +366,6 @@ TEST_F(AggStateSerdeTest, serializeOneCellToHiveText) {
     *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
     ASSERT_EQ(column_fixed_length->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = datatype_agg_state_serde_count->serialize_one_cell_to_hive_text(
@@ -406,7 +406,6 @@ TEST_F(AggStateSerdeTest, serializeOneCellToHiveText2) {
     column_string->insert_data(str2.c_str(), str2.size());
     ASSERT_EQ(column_string->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = datatype_agg_state_serde_hll_union->serialize_one_cell_to_hive_text(

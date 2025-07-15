@@ -159,7 +159,9 @@ public:
 private:
     size_t NextWithLimit(bool* value, size_t limit) {
         size_t len = limit - offset_;
-        if (PREDICT_FALSE(len == 0)) return (0);
+        if (len == 0) [[unlikely]] {
+            return (0);
+        }
 
         *value = BitmapTest(map_, offset_);
 

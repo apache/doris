@@ -89,7 +89,7 @@ public:
         } else {
             // new value, copy value and insert new key->bitmap pair
             CppType new_value;
-            _type_info->deep_copy(&new_value, &value, &_arena);
+            _type_info->deep_copy(&new_value, &value, _arena);
             _mem_index.insert({new_value, roaring::Roaring::bitmapOf(1, _rid)});
             it = _mem_index.find(new_value);
         }
@@ -144,7 +144,7 @@ public:
             }
 
             const auto* bitmap_type_info =
-                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>();
+                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
             IndexedColumnWriterOptions options;
             options.write_ordinal_index = true;
             options.write_value_index = false;

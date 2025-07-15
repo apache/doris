@@ -50,7 +50,7 @@ static void from_string_checker(UInt32 scale, const std::string& rounding,
     // constructor of ReadBuffer is not const(which seems not reasonable),
     // so we need to cast away const
     ReadBuffer rb(const_cast<char*>(rounding.c_str()), rounding.size());
-    ColumnUInt64::MutablePtr column = ColumnUInt64::create(0);
+    ColumnDateTimeV2::MutablePtr column = ColumnDateTimeV2::create(0);
     // DataTypeDateTimeV2::from_string
     auto rt = datetime_ptr->from_string(rb, &(*column));
     EXPECT_TRUE(rt.ok());
@@ -99,7 +99,7 @@ static void serialization_checker(UInt32 scale, const std::string& input,
                             doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 0, scale));
 
     ReadBuffer rb(const_cast<char*>(input.c_str()), input.size());
-    ColumnUInt64::MutablePtr column = ColumnUInt64::create(0);
+    ColumnDateTimeV2::MutablePtr column = ColumnDateTimeV2::create(0);
     auto rt = datetime_ptr->from_string(rb, &(*column));
     EXPECT_TRUE(rt.ok());
     auto serde = std::dynamic_pointer_cast<DataTypeDateTimeV2SerDe>(datetime_ptr->get_serde());

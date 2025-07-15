@@ -23,9 +23,9 @@ suite("test_spark_load", "p0") {
     def yarnAddress = "master:8032"
     def hdfsAddress = "hdfs://master:9000"
     def hdfsWorkingDir = "hdfs://master:9000/doris"
-    brokerName =getBrokerName()
-    hdfsUser = getHdfsUser()
-    hdfsPasswd = getHdfsPasswd()
+    def brokerName =getBrokerName()
+    def hdfsUser = getHdfsUser()
+    def hdfsPasswd = getHdfsPasswd()
     
     def create_test_table = {testTablex ->
         def result1 = sql """

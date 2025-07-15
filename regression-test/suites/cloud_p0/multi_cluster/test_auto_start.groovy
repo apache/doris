@@ -137,7 +137,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
         cluster.stopBackends(1,2,3)
 
         // select
-        future1 = thread {
+        def future1 = thread {
             def begin = System.currentTimeMillis();
             // root cant resume, due to deamon thread use root
             def connInfo = context.threadLocalConn.get()

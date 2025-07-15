@@ -28,10 +28,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TColumn;
@@ -47,7 +45,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -66,8 +63,8 @@ public class Column implements GsonPostProcessable {
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String ROWID_COL = "__DORIS_ROWID_COL__";
+    public static final String GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
-    public static final String DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -181,6 +178,10 @@ public class Column implements GsonPostProcessable {
 
     public Column(String name, Type type, boolean isAllowNull) {
         this(name, type, false, null, isAllowNull, null, "");
+    }
+
+    public Column(String name, Type type, boolean isAllowNull, String comment) {
+        this(name, type, false, null, isAllowNull, null, comment);
     }
 
     public Column(String name, Type type) {
@@ -721,7 +722,7 @@ public class Column implements GsonPostProcessable {
             case DOUBLE:
                 return 8;
             case QUANTILE_STATE:
-            case OBJECT:
+            case BITMAP:
                 return 16;
             case CHAR:
                 return stringLength;
@@ -1099,12 +1100,6 @@ public class Column implements GsonPostProcessable {
         return ok;
     }
 
-    @Deprecated
-    public static Column read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Column.class);
-    }
-
     // Gen a signature string of this column, contains:
     // name, type, is key, nullable, aggr type, default
     public String getSignatureString(Map<PrimitiveType, String> typeStringMap) {
@@ -1212,4 +1207,5 @@ public class Column implements GsonPostProcessable {
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
     }
+
 }

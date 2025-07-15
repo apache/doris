@@ -248,9 +248,6 @@ private:
         if (pattern_ref.size) {
             re2_ptr = std::make_unique<re2::RE2>(pattern_ref.to_string_view(), *opts);
         }
-        if ((re2_ptr == nullptr) || (!re2_ptr->ok())) {
-            return Status::RuntimeError("Invalid pattern: {}", pattern_ref.debug_string());
-        }
         RegexpSplit RegexpSplit;
         RegexpSplit.init(re2_ptr.get(), limit_value);
         for (int row = 0; row < input_rows_count; ++row) {

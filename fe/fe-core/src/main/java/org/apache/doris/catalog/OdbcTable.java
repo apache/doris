@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DeepCopy;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TOdbcTable;
@@ -29,14 +28,11 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -431,32 +427,6 @@ public class OdbcTable extends Table {
             LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
         }
         return md5;
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        // Read Odbc meta
-        int size = in.readInt();
-        Map<String, String> serializeMap = Maps.newHashMap();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            serializeMap.put(key, value);
-        }
-
-        odbcCatalogResourceName = serializeMap.get(ODBC_CATALOG_RESOURCE);
-        host = serializeMap.get(ODBC_HOST);
-        port = serializeMap.get(ODBC_PORT);
-        userName = serializeMap.get(ODBC_USER);
-        passwd = serializeMap.get(ODBC_PASSWORD);
-        odbcDatabaseName = serializeMap.get(ODBC_DATABASE);
-        odbcTableName = serializeMap.get(ODBC_TABLE);
-        driver = serializeMap.get(ODBC_DRIVER);
-        odbcTableTypeName = serializeMap.get(ODBC_TYPE);
-        charset = serializeMap.get(ODBC_CHARSET);
-        extraParam = serializeMap.get(ODBC_EXTRA_PARAM);
     }
 
     public static String supportTableType() {

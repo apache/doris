@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
@@ -57,23 +58,23 @@ import java.util.stream.Stream;
  */
 public class AzureProperties extends StorageProperties {
     @Getter
-    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "azure.endpoint"},
+    @ConnectorProperty(names = {"azure.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             description = "The endpoint of S3.")
     protected String endpoint = "";
 
 
     @Getter
-    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "azure.access_key"},
+    @ConnectorProperty(names = {"azure.access_key", "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
             description = "The access key of S3.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "azure.secret_key"},
+    @ConnectorProperty(names = {"azure.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key"},
             description = "The secret key of S3.")
     protected String secretKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.bucket"},
+    @ConnectorProperty(names = {"azure.bucket", "s3.bucket"},
             required = false,
             description = "The container of Azure blob.")
     protected String container = "";
@@ -100,13 +101,14 @@ public class AzureProperties extends StorageProperties {
     private static final String AZURE_ENDPOINT_SUFFIX = ".blob.core.windows.net";
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         //check endpoint
         if (!endpoint.endsWith(AZURE_ENDPOINT_SUFFIX)) {
             throw new IllegalArgumentException(String.format("Endpoint '%s' is not valid. It should end with '%s'.",
                     endpoint, AZURE_ENDPOINT_SUFFIX));
         }
+        this.endpoint = formatAzureEndpoint(endpoint);
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {
@@ -121,7 +123,7 @@ public class AzureProperties extends StorageProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return value.endsWith("blob.core.windows.net");
+            return value.endsWith(AZURE_ENDPOINT_SUFFIX);
         }
         return false;
     }
@@ -137,6 +139,18 @@ public class AzureProperties extends StorageProperties {
         s3Props.put("provider", "azure");
         s3Props.put("use_path_style", usePathStyle);
         return s3Props;
+    }
+
+    public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
+
+    private String formatAzureEndpoint(String endpoint) {
+        if (Config.force_azure_blob_global_endpoint) {
+            return String.format(AZURE_ENDPOINT_TEMPLATE, accessKey);
+        }
+        if (endpoint.contains("://")) {
+            return endpoint;
+        }
+        return "https://" + endpoint;
     }
 
     @Override

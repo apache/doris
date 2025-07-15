@@ -2099,7 +2099,7 @@ visible_functions = {
     ],
     # tokenizer functions
     "Tokenize": [
-        [['tokenize'],'ARRAY_VARCHAR',['STRING','STRING'], ''],
+        [['tokenize'],'STRING',['STRING','STRING'], ''],
     ],
 
     "UUID": [

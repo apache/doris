@@ -30,7 +30,6 @@
 #include "testutil/test_util.h"
 #include "util/date_func.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
@@ -55,9 +54,9 @@ static ColumnDateTimeV2::MutablePtr column_datetime_v2_5;
 static ColumnDateTimeV2::MutablePtr column_datetime_v2_6;
 static ColumnDateV2::MutablePtr column_date_v2;
 
-static ColumnFloat64::MutablePtr column_time_v2_0;
-static ColumnFloat64::MutablePtr column_time_v2_5;
-static ColumnFloat64::MutablePtr column_time_v2_6;
+static ColumnTimeV2::MutablePtr column_time_v2_0;
+static ColumnTimeV2::MutablePtr column_time_v2_5;
+static ColumnTimeV2::MutablePtr column_time_v2_6;
 
 class DataTypeDateTimeV2Test : public ::testing::Test {
 public:
@@ -71,9 +70,9 @@ public:
         column_datetime_v2_6 = ColumnDateTimeV2::create();
         column_date_v2 = ColumnDateV2::create();
 
-        column_time_v2_0 = ColumnFloat64::create();
-        column_time_v2_5 = ColumnFloat64::create();
-        column_time_v2_6 = ColumnFloat64::create();
+        column_time_v2_0 = ColumnTimeV2::create();
+        column_time_v2_5 = ColumnTimeV2::create();
+        column_time_v2_6 = ColumnTimeV2::create();
 
         load_columns_data();
     }
@@ -804,7 +803,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 buffer.commit();
                 res_column.push_back(col_str_to_str.get_data_at(i).to_string());
             }
-            if constexpr (std::is_same_v<ColumnType, ColumnFloat64>) {
+            if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                 check_or_generate_res_file(test_result_dir + "/" + dt.get_family_name() + "_" +
                                                    std::to_string(dt.get_scale()) +
                                                    "_to_string.out",
@@ -825,7 +824,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
             std::vector<std::string> res_column;
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(source_column, i);
-                if constexpr (std::is_same_v<ColumnType, ColumnFloat64>) {
+                if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(str);
                 } else {
                     ReadBuffer rb(str.data(), str.size());
@@ -834,7 +833,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
                 }
             }
-            if constexpr (std::is_same_v<ColumnType, ColumnFloat64>) {
+            if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                 check_or_generate_res_file(test_result_dir + "/" + dt.get_family_name() + "_" +
                                                    std::to_string(dt.get_scale()) +
                                                    "_to_string_2.out",
@@ -846,7 +845,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
             std::vector<std::string> res_column;
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(col_with_type->get_element(i));
-                if constexpr (std::is_same_v<ColumnType, ColumnFloat64>) {
+                if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(str);
                 } else {
                     ReadBuffer rb(str.data(), str.size());
@@ -855,7 +854,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
                 }
             }
-            if constexpr (std::is_same_v<ColumnType, ColumnFloat64>) {
+            if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                 check_or_generate_res_file(test_result_dir + "/" + dt.get_family_name() + "_" +
                                                    std::to_string(dt.get_scale()) +
                                                    "_to_string_3.out",
@@ -872,7 +871,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
             std::vector<std::string> res_column;
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                if constexpr (std::is_same_v<ColumnType, ColumnFloat64>) {
+                if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(item.to_string());
                 } else {
                     ReadBuffer rb((char*)item.data, item.size);
@@ -881,7 +880,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
                 }
             }
-            if constexpr (std::is_same_v<ColumnType, ColumnFloat64>) {
+            if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                 check_or_generate_res_file(test_result_dir + "/" + dt.get_family_name() + "_" +
                                                    std::to_string(dt.get_scale()) +
                                                    "_to_string_batch.out",

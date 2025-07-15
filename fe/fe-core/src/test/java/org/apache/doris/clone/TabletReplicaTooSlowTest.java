@@ -18,7 +18,6 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
@@ -26,7 +25,11 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -125,9 +128,12 @@ public class TabletReplicaTooSlowTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
-        updateReplicaVersionCount();
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void updateReplicaVersionCount() {

@@ -22,15 +22,17 @@
 
 #include <gen_cpp/data.pb.h>
 
+#include <cctype>
 #include <typeinfo>
 #include <utility>
 
+#include "common/status.h"
 #include "util/date_func.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/runtime/time_value.h"
 
 namespace doris {
 namespace vectorized {
@@ -63,7 +65,7 @@ std::string DataTypeTimeV2::to_string(const IColumn& column, size_t row_num) con
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    auto value = assert_cast<const ColumnFloat64&>(*ptr).get_element(row_num);
+    auto value = assert_cast<const ColumnTimeV2&>(*ptr).get_element(row_num);
     return timev2_to_buffer_from_double(value, _scale);
 }
 
@@ -76,6 +78,10 @@ void DataTypeTimeV2::to_string(const IColumn& column, size_t row_num, BufferWrit
 }
 
 MutableColumnPtr DataTypeTimeV2::create_column() const {
-    return DataTypeNumberBase<Float64>::create_column();
+    return DataTypeNumberBase<PrimitiveType::TYPE_TIMEV2>::create_column();
+}
+
+Field DataTypeTimeV2::get_field(const TExprNode& node) const {
+    return Field::create_field<TYPE_TIMEV2>(node.timev2_literal.value);
 }
 } // namespace doris::vectorized

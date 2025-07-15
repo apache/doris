@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -26,6 +25,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -125,15 +125,8 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         this.type = type;
     }
 
-    public static Resource fromStmt(CreateResourceStmt stmt) throws DdlException {
-        Resource resource = getResourceInstance(stmt.getResourceType(), stmt.getResourceName());
-        resource.id = Env.getCurrentEnv().getNextId();
-        resource.version = 0;
-        resource.setProperties(stmt.getProperties());
-        return resource;
-    }
-
-    public static Resource fromInfo(CreateResourceInfo info) throws DdlException {
+    public static Resource fromCommand(CreateResourceCommand command) throws DdlException {
+        CreateResourceInfo info = command.getInfo();
         Resource resource = getResourceInstance(info.getResourceType(), info.getResourceName());
         resource.id = Env.getCurrentEnv().getNextId();
         resource.version = 0;
@@ -179,9 +172,6 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     private static Resource getResourceInstance(ResourceType type, String name) throws DdlException {
         Resource resource;
         switch (type) {
-            case SPARK:
-                resource = new SparkResource(name);
-                break;
             case ODBC_CATALOG:
                 resource = new OdbcCatalogResource(name);
                 break;

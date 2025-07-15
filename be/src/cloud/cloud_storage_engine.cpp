@@ -58,6 +58,7 @@
 #include "olap/storage_policy.h"
 #include "runtime/memory/cache_manager.h"
 #include "util/parse_util.h"
+#include "util/time.h"
 #include "vec/common/assert_cast.h"
 
 namespace doris {
@@ -88,10 +89,11 @@ int get_base_thread_num() {
     return std::min(std::max(int(num_cores * config::base_compaction_thread_num_factor), 1), 10);
 }
 
-CloudStorageEngine::CloudStorageEngine(const UniqueId& backend_uid)
-        : BaseStorageEngine(Type::CLOUD, backend_uid),
+CloudStorageEngine::CloudStorageEngine(const EngineOptions& options)
+        : BaseStorageEngine(Type::CLOUD, options.backend_uid),
           _meta_mgr(std::make_unique<cloud::CloudMetaMgr>()),
-          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)) {
+          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)),
+          _options(options) {
     _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =
             std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>();
     _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
@@ -118,12 +120,25 @@ static Status vault_process_error(std::string_view id,
 }
 
 struct VaultCreateFSVisitor {
-    VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format)
-            : id(id), path_format(path_format) {}
+    VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format,
+                         bool check_fs)
+            : id(id), path_format(path_format), check_fs(check_fs) {}
     Status operator()(const S3Conf& s3_conf) const {
-        LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id;
+        LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id
+                  << " check_fs: " << check_fs;
 
         auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
+        if (check_fs && !s3_conf.client_conf.role_arn.empty()) {
+            bool res = false;
+            // just check connectivity, not care object if exist
+            auto st = fs->exists("not_exist_object", &res);
+            if (!st.ok()) {
+                LOG(FATAL) << "failed to check s3 fs, resource_id: " << id << " st: " << st
+                           << "s3_conf: " << s3_conf.to_string()
+                           << "add enable_check_storage_vault=false to be.conf to skip the check";
+            }
+        }
+
         put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create s3 vault, vault id {}", id);
         return Status::OK();
@@ -141,6 +156,7 @@ struct VaultCreateFSVisitor {
 
     const std::string& id;
     const cloud::StorageVaultPB_PathFormat& path_format;
+    bool check_fs;
 };
 
 struct RefreshFSVaultVisitor {
@@ -211,6 +227,9 @@ Status CloudStorageEngine::open() {
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),
             "init StreamLoadRecorder failed");
 
+    // check cluster id
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_all_root_path_cluster_id(), "fail to check cluster id");
+
     return ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
             .set_max_threads(config::sync_load_for_tablets_thread)
             .set_min_threads(config::sync_load_for_tablets_thread)
@@ -249,10 +268,10 @@ bool CloudStorageEngine::stopped() {
 }
 
 Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
-                                                      SyncRowsetStats* sync_stats) {
-    return _tablet_mgr->get_tablet(tablet_id, false, true, sync_stats).transform([](auto&& t) {
-        return static_pointer_cast<BaseTablet>(std::move(t));
-    });
+                                                      SyncRowsetStats* sync_stats,
+                                                      bool force_use_cache) {
+    return _tablet_mgr->get_tablet(tablet_id, false, true, sync_stats, force_use_cache)
+            .transform([](auto&& t) { return static_pointer_cast<BaseTablet>(std::move(t)); });
 }
 
 Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
@@ -324,6 +343,7 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
 void CloudStorageEngine::sync_storage_vault() {
     cloud::StorageVaultInfos vault_infos;
     bool enable_storage_vault = false;
+
     auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
     if (!st.ok()) {
         LOG(WARNING) << "failed to get storage vault info. err=" << st;
@@ -335,12 +355,23 @@ void CloudStorageEngine::sync_storage_vault() {
         return;
     }
 
+    bool check_storage_vault = false;
+    bool expected = false;
+    if (first_sync_storage_vault.compare_exchange_strong(expected, true)) {
+        check_storage_vault = config::enable_check_storage_vault;
+        LOG(INFO) << "first sync storage vault info, BE try to check iam role connectivity, "
+                     "check_storage_vault="
+                  << check_storage_vault;
+    }
+
     for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
-        auto status = (fs == nullptr)
-                              ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
-                              : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
-                                           vault_info);
+        auto status =
+                (fs == nullptr)
+                        ? std::visit(VaultCreateFSVisitor {id, path_format, check_storage_vault},
+                                     vault_info)
+                        : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                                     vault_info);
         if (!status.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
         }
@@ -445,6 +476,7 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
 
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
+        int64_t cur_time = UnixMillis();
         if (!config::disable_auto_compaction) {
             Status st = _adjust_compaction_thread_num();
             if (!st.ok()) {
@@ -452,7 +484,6 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
             }
 
             bool check_score = false;
-            int64_t cur_time = UnixMillis();
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
                 compaction_type = CompactionType::CUMULATIVE_COMPACTION;
                 round++;
@@ -504,6 +535,9 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
         } else {
             interval = config::check_auto_compaction_interval_seconds * 1000;
         }
+        int64_t end_time = UnixMillis();
+        DorisMetrics::instance()->compaction_producer_callback_a_round_time->set_value(end_time -
+                                                                                       cur_time);
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
@@ -1002,7 +1036,6 @@ void CloudStorageEngine::_check_tablet_delete_bitmap_score_callback() {
         }
         uint64_t max_delete_bitmap_score = 0;
         uint64_t max_base_rowset_delete_bitmap_score = 0;
-        std::vector<CloudTabletSPtr> tablets;
         tablet_mgr().get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
                                                          &max_base_rowset_delete_bitmap_score);
         if (max_delete_bitmap_score > 0) {
@@ -1109,6 +1142,73 @@ Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tabl
                 "delete_bitmap_lock_initiator={}",
                 tablet->tablet_id(), stop_token->initiator());
     }
+    return Status::OK();
+}
+
+Status CloudStorageEngine::_check_all_root_path_cluster_id() {
+    // Check if all root paths have the same cluster id
+    std::set<int32_t> cluster_ids;
+    for (const auto& path : _options.store_paths) {
+        auto cluster_id_path = fmt::format("{}/{}", path.path, CLUSTER_ID_PREFIX);
+        bool exists = false;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
+        if (exists) {
+            io::FileReaderSPtr reader;
+            RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cluster_id_path, &reader));
+            size_t fsize = reader->size();
+            if (fsize > 0) {
+                std::string content;
+                content.resize(fsize, '\0');
+                size_t bytes_read = 0;
+                RETURN_IF_ERROR(reader->read_at(0, {content.data(), fsize}, &bytes_read));
+                DCHECK_EQ(fsize, bytes_read);
+                int32_t tmp_cluster_id = std::stoi(content);
+                cluster_ids.insert(tmp_cluster_id);
+            }
+        }
+    }
+    _effective_cluster_id = config::cluster_id;
+    // first init
+    if (cluster_ids.empty()) {
+        // not set configured cluster id
+        if (_effective_cluster_id == -1) {
+            return Status::OK();
+        } else {
+            // If no cluster id file exists, use the configured cluster id
+            RETURN_IF_ERROR(set_cluster_id(_effective_cluster_id));
+        }
+    }
+    if (cluster_ids.size() > 1) {
+        return Status::InternalError(
+                "All root paths must have the same cluster id, but you have "
+                "different cluster ids: {}",
+                fmt::join(cluster_ids, ", "));
+    }
+    if (_effective_cluster_id != -1 && *cluster_ids.begin() != _effective_cluster_id) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::Corruption("multiple cluster ids is not equal. config::cluster_id={}, "
+                                   "storage path cluster_id={}",
+                                   _effective_cluster_id, *cluster_ids.begin()),
+                "cluster id not equal");
+    }
+    return Status::OK();
+}
+
+Status CloudStorageEngine::set_cluster_id(int32_t cluster_id) {
+    std::lock_guard<std::mutex> l(_store_lock);
+    for (auto& path : _options.store_paths) {
+        auto cluster_id_path = fmt::format("{}/{}", path.path, CLUSTER_ID_PREFIX);
+        bool exists = false;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
+        if (!exists) {
+            io::FileWriterPtr file_writer;
+            RETURN_IF_ERROR(
+                    io::global_local_filesystem()->create_file(cluster_id_path, &file_writer));
+            RETURN_IF_ERROR(file_writer->append(std::to_string(cluster_id)));
+            RETURN_IF_ERROR(file_writer->close());
+        }
+    }
+    _effective_cluster_id = cluster_id;
     return Status::OK();
 }
 

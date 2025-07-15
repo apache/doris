@@ -80,15 +80,24 @@ public:
             break;
         }
         case PrimitiveType::TYPE_DECIMALV2:
-            return_type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
-                    DataTypeDecimal<Decimal128V2>::max_precision(), nested_type->get_scale());
+            return_type = std::make_shared<DataTypeDecimalV2>(DataTypeDecimalV2::max_precision(),
+                                                              nested_type->get_scale());
             break;
         case PrimitiveType::TYPE_DECIMAL32:
+            return_type = std::make_shared<DataTypeDecimal32>(DataTypeDecimal32::max_precision(),
+                                                              nested_type->get_scale());
+            break;
         case PrimitiveType::TYPE_DECIMAL64:
+            return_type = std::make_shared<DataTypeDecimal64>(DataTypeDecimal64::max_precision(),
+                                                              nested_type->get_scale());
+            break;
         case PrimitiveType::TYPE_DECIMAL128I:
+            return_type = std::make_shared<DataTypeDecimal128>(DataTypeDecimal128::max_precision(),
+                                                               nested_type->get_scale());
+            break;
         case PrimitiveType::TYPE_DECIMAL256:
-            return_type = std::make_shared<DataTypeDecimal<DecimalResultType>>(
-                    DataTypeDecimal<DecimalResultType>::max_precision(), nested_type->get_scale());
+            return_type = std::make_shared<DataTypeDecimal256>(DataTypeDecimal256::max_precision(),
+                                                               nested_type->get_scale());
             break;
         default:
             break;
@@ -150,56 +159,56 @@ private:
         bool res = false;
         switch (src_nested_type->get_primitive_type()) {
         case TYPE_BOOLEAN:
-            res = _execute_number<UInt8, Int64>(src_column, src_offsets, src_null_map,
-                                                res_nested_ptr);
+            res = _execute_number<TYPE_BOOLEAN, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
+                                                             res_nested_ptr);
             break;
         case TYPE_TINYINT:
-            res = _execute_number<Int8, Int64>(src_column, src_offsets, src_null_map,
-                                               res_nested_ptr);
+            res = _execute_number<TYPE_TINYINT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
+                                                             res_nested_ptr);
             break;
         case TYPE_SMALLINT:
-            res = _execute_number<Int16, Int64>(src_column, src_offsets, src_null_map,
-                                                res_nested_ptr);
+            res = _execute_number<TYPE_SMALLINT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
+                                                              res_nested_ptr);
             break;
         case TYPE_INT:
-            res = _execute_number<Int32, Int64>(src_column, src_offsets, src_null_map,
-                                                res_nested_ptr);
+            res = _execute_number<TYPE_INT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
+                                                         res_nested_ptr);
             break;
         case TYPE_BIGINT:
-            res = _execute_number<Int64, Int64>(src_column, src_offsets, src_null_map,
-                                                res_nested_ptr);
+            res = _execute_number<TYPE_BIGINT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
+                                                            res_nested_ptr);
             break;
         case TYPE_LARGEINT:
-            res = _execute_number<Int128, Int128>(src_column, src_offsets, src_null_map,
-                                                  res_nested_ptr);
+            res = _execute_number<TYPE_LARGEINT, TYPE_LARGEINT>(src_column, src_offsets,
+                                                                src_null_map, res_nested_ptr);
             break;
         case TYPE_FLOAT:
-            res = _execute_number<Float32, Float64>(src_column, src_offsets, src_null_map,
-                                                    res_nested_ptr);
+            res = _execute_number<TYPE_FLOAT, TYPE_DOUBLE>(src_column, src_offsets, src_null_map,
+                                                           res_nested_ptr);
             break;
         case TYPE_DOUBLE:
-            res = _execute_number<Float64, Float64>(src_column, src_offsets, src_null_map,
-                                                    res_nested_ptr);
+            res = _execute_number<TYPE_DOUBLE, TYPE_DOUBLE>(src_column, src_offsets, src_null_map,
+                                                            res_nested_ptr);
             break;
         case TYPE_DECIMAL32:
-            res = _execute_number<Decimal32, DecimalResultType>(src_column, src_offsets,
-                                                                src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL32, DecimalResultType::PType>(
+                    src_column, src_offsets, src_null_map, res_nested_ptr);
             break;
         case TYPE_DECIMAL64:
-            res = _execute_number<Decimal64, DecimalResultType>(src_column, src_offsets,
-                                                                src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL64, DecimalResultType::PType>(
+                    src_column, src_offsets, src_null_map, res_nested_ptr);
             break;
         case TYPE_DECIMAL128I:
-            res = _execute_number<Decimal128V3, DecimalResultType>(src_column, src_offsets,
-                                                                   src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL128I, DecimalResultType::PType>(
+                    src_column, src_offsets, src_null_map, res_nested_ptr);
             break;
         case TYPE_DECIMAL256:
-            res = _execute_number<Decimal256, DecimalResultType>(src_column, src_offsets,
-                                                                 src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL256, DecimalResultType::PType>(
+                    src_column, src_offsets, src_null_map, res_nested_ptr);
             break;
         case TYPE_DECIMALV2:
-            res = _execute_number<Decimal128V2, Decimal128V2>(src_column, src_offsets, src_null_map,
-                                                              res_nested_ptr);
+            res = _execute_number<TYPE_DECIMALV2, TYPE_DECIMALV2>(src_column, src_offsets,
+                                                                  src_null_map, res_nested_ptr);
             break;
         default:
             break;
@@ -207,11 +216,11 @@ private:
         return res;
     }
 
-    template <typename Element, typename Result>
+    template <PrimitiveType Element, PrimitiveType Result>
     bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
-        using ColVecType = ColumnVectorOrDecimal<Element>;
-        using ColVecResult = ColumnVectorOrDecimal<Result>;
+        using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
+        using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
 
         // 1. get pod array from src
         auto src_column_concrete = reinterpret_cast<const ColVecType*>(&src_column);
@@ -221,7 +230,7 @@ private:
 
         // 2. construct result data
         typename ColVecResult::MutablePtr res_nested_mut_ptr = nullptr;
-        if constexpr (IsDecimalNumber<Result>) {
+        if constexpr (is_decimal(Result)) {
             res_nested_mut_ptr = ColVecResult::create(0, src_column_concrete->get_scale());
         } else {
             res_nested_mut_ptr = ColVecResult::create();
@@ -232,8 +241,9 @@ private:
         auto& res_datas = res_nested_mut_ptr->get_data();
         res_datas.resize(size);
 
-        _compute_cum_sum<Element, Result>(src_column_concrete->get_data(), src_offsets,
-                                          src_null_map, res_datas);
+        _compute_cum_sum<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                         typename PrimitiveTypeTraits<Result>::ColumnItemType>(
+                src_column_concrete->get_data(), src_offsets, src_null_map, res_datas);
 
         auto res_null_map_col = ColumnUInt8::create(size, 0);
         auto& res_null_map = res_null_map_col->get_data();

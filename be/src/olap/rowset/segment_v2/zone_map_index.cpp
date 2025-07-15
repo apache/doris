@@ -43,11 +43,11 @@ namespace segment_v2 {
 
 template <PrimitiveType Type>
 TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(Field* field) : _field(field) {
-    _page_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
-    _page_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
+    _page_zone_map.min_value = _field->allocate_zone_map_value(_arena);
+    _page_zone_map.max_value = _field->allocate_zone_map_value(_arena);
     _reset_zone_map(&_page_zone_map);
-    _segment_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
-    _segment_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
+    _segment_zone_map.min_value = _field->allocate_zone_map_value(_arena);
+    _segment_zone_map.max_value = _field->allocate_zone_map_value(_arena);
     _reset_zone_map(&_segment_zone_map);
 }
 
@@ -123,7 +123,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>();
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
@@ -161,8 +161,8 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
-        // The type of reader is FieldType::OLAP_FIELD_TYPE_OBJECT.
-        // ColumnBitmap will be created when using FieldType::OLAP_FIELD_TYPE_OBJECT.
+        // The type of reader is FieldType::OLAP_FIELD_TYPE_BITMAP.
+        // ColumnBitmap will be created when using FieldType::OLAP_FIELD_TYPE_BITMAP.
         // But what we need actually is ColumnString.
         vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
 

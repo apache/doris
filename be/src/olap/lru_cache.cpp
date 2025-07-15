@@ -10,7 +10,6 @@
 #include <sstream>
 #include <string>
 
-#include "gutil/bits.h"
 #include "util/metrics.h"
 #include "util/time.h"
 
@@ -181,6 +180,10 @@ PrunedInfo LRUCache::set_capacity(size_t capacity) {
     LRUHandle* last_ref_list = nullptr;
     {
         std::lock_guard l(_mutex);
+        if (capacity > _capacity) {
+            _capacity = capacity;
+            return {0, 0};
+        }
         _capacity = capacity;
         _evict_from_lru(0, &last_ref_list);
     }
@@ -643,7 +646,7 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t capacity, LRUCa
                                  uint32_t num_shards, uint32_t total_element_count_capacity,
                                  bool is_lru_k)
         : _name(name),
-          _num_shard_bits(Bits::FindLSBSetNonZero(num_shards)),
+          _num_shard_bits(__builtin_ctz(num_shards)),
           _num_shards(num_shards),
           _last_id(1),
           _capacity(capacity) {

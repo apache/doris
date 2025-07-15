@@ -216,7 +216,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
 
         Consumer<String> generatorSplit =  baseFile -> {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
-            LocationPath locationPath = new LocationPath(baseFile, optParams);
+            LocationPath locationPath = LocationPath.of(baseFile);
             HudiSplit hudiSplit = new HudiSplit(locationPath, 0,
                     stat.getFileSizeInBytes(), stat.getFileSizeInBytes(), new String[0],
                     HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath()));
