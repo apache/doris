@@ -2730,11 +2730,6 @@ drop_stmt ::=
     {:
         RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKEN_FILTER, policyName);
     :}
-    /* statistics */
-    | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
-    {:
-        RESULT = new DropStageStmt(ifExists, stageName);
-    :}
     ;
 
 // Recover statement
