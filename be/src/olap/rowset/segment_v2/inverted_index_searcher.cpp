@@ -46,6 +46,7 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(msg);
     }
     bool close_reader = true;
+    reader_size = reader->getTermInfosRAMUsed();
     auto index_searcher =
             std::make_shared<lucene::search::IndexSearcher>(reader.release(), close_reader);
     if (!index_searcher) {
@@ -53,7 +54,6 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "FulltextIndexSearcherBuilder build index_searcher error.");
     }
-    reader_size = reader->getTermInfosRAMUsed();
     // NOTE: need to cl_refcount-- here, so that directory will be deleted when
     // index_searcher is destroyed
     output_searcher = index_searcher;
