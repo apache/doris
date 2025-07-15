@@ -3909,6 +3909,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
     }
     EXPECT_TRUE(reader.close().ok());
     EXPECT_TRUE(reader.closed());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3969,6 +3970,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_init) {
         CachedRemoteFileReader reader(local_reader, opts);
         EXPECT_EQ(reader._cache->get_base_path(), cache_base_path);
     }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
