@@ -21,7 +21,7 @@ suite("test_warm_up_cluster_empty") {
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][2]
+         return jobStateResult[0]
     }
     def table = "customer"
 
@@ -126,12 +126,12 @@ suite("test_warm_up_cluster_empty") {
         int i = 0
         for (; i < retryTime; i++) {
             sleep(1000)
-            def status = getJobState(jobId[0][0])
-            logger.info(status)
-            if (status.equals("CANCELLED")) {
+            def statuses = getJobState(jobId[0][0])
+            logger.info(statuses)
+            if (statuses.any { it.equals("CANCELLED") }) {
                 assertTrue(false);
             }
-            if (status.equals("FINISHED")) {
+            if (statuses.any { it.equals("FINISHED") }) {
                 break;
             }
         }

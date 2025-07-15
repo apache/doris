@@ -19,13 +19,14 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_warm_up_partition") {
     def custoBeConfig = [
-        enable_evict_file_cache_in_advance : false
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
     ]
     setBeConfigTemporary(custoBeConfig) {
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][2]
+         return jobStateResult[0]
     }
 
     List<String> ipList = new ArrayList<>();
@@ -125,12 +126,12 @@ suite("test_warm_up_partition") {
         int i = 0
         for (; i < retryTime; i++) {
             sleep(1000)
-            def status = getJobState(jobId[0][0])
-            logger.info(status)
-            if (status.equals("CANCELLED")) {
+            def statuses = getJobState(jodId[0][0])
+            logger.info(statuses)
+            if (statuses.any { it.equals("CANCELLED") }) {
                 assertTrue(false);
             }
-            if (status.equals("FINISHED")) {
+            if (statuses.any { it.equals("FINISHED") }) {
                 break;
             }
         }

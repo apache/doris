@@ -19,7 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("alter_ttl_1") {
     def custoBeConfig = [
-        enable_evict_file_cache_in_advance : false
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
     ]
 
     setBeConfigTemporary(custoBeConfig) {

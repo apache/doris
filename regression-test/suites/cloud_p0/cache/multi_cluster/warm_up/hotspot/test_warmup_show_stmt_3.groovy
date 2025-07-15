@@ -83,6 +83,6 @@ suite("test_warmup_show_stmt_3") {
     }
     thread.join()
     sleep(40000)
-    result = show_cache_hotspot("regression_cluster_name0", "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
+    def result = show_cache_hotspot("regression_cluster_name0", "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
     assertTrue(result.size() > 0);
 }
