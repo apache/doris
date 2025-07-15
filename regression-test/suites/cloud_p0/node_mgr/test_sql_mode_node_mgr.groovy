@@ -329,7 +329,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             logger.info("Dropping frontend index: {}, remove it from docker compose", dropFeInx)
             // Wait for the frontend to be fully dropped
 
-            dockerAwaitUntil(300) {
+            awaitUntil(300) {
                 reconnectFe()
                 def currentFrontends = sql_return_maparray("SHOW FRONTENDS")
                 currentFrontends.size() == frontends.size() - 1
@@ -365,7 +365,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             logger.info("Adding back frontend: {}", showFes)
 
             // Wait for the frontend to be fully added back
-            dockerAwaitUntil(300, 5) {
+            awaitUntil(300, 5) {
                 def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
                 updatedFrontends.size() == frontends.size()
             }
@@ -404,7 +404,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             reconnectFe()
 
             // Wait for the frontend to be fully dropped
-            dockerAwaitUntil(300, 5) {
+            awaitUntil(300, 5) {
                 def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
                 !updatedFrontends.any { it['Host'] == frontendToDrop.Host && it['EditLogPort'] == frontendToDrop.EditLogPort }
             }
@@ -414,7 +414,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             addList = cluster.addFrontend(1, true)
             logger.info("Up a new frontend, addList: {}", addList)
 
-            dockerAwaitUntil(300, 5) {
+            awaitUntil(300, 5) {
                 def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
                 updatedFrontends.size() == 3
             }
