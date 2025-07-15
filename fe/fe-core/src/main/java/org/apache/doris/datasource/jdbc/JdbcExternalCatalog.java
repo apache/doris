@@ -295,6 +295,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return jdbcClient.getColumnsFromJdbc(remoteDbName, remoteTblName);
     }
 
+    public IdentifierMapping getIdentifierMapping() {
+        return identifierMapping;
+    }
+
     @Override
     public void checkWhenCreating() throws DdlException {
         super.checkWhenCreating();
