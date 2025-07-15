@@ -24,10 +24,10 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://172.21.16.12:49035/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
-targetJdbcUrl = "jdbc:mysql://172.21.16.12:49035/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
-jdbcPassword = "123456"
+jdbcPassword = ""
 
 feSourceThriftAddress = "127.0.0.1:9020"
 feTargetThriftAddress = "127.0.0.1:9020"
@@ -35,9 +35,9 @@ syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "172.21.16.12:48035"
+feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
-feHttpPassword = "123456"
+feHttpPassword = ""
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
@@ -87,11 +87,11 @@ excludeGroups = ""
 excludeSuites = "test_broker_load"
 // this directories will not be executed
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "segcompaction_p2," +
-    "workload_manager_p1," +
-    "cloud_p0/cache," +
-    "zzz_the_end_sentinel_do_not_touch," +
-    "dialect_compatible"// keep this line as the last line
+        "segcompaction_p2," +
+        "workload_manager_p1," +
+        "cloud_p0/cache," +
+        "zzz_the_end_sentinel_do_not_touch," +
+        "dialect_compatible"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -133,7 +133,7 @@ oceanbase_port=2881
 // To enable hive/paimon test, you need first start hive container.
 // See `docker/thirdparties/run-thirdparties-docker.sh`
 enableHiveTest=false
-enablePaimonTest=true
+enablePaimonTest=false
 
 // port of hive2 docker
 hive2HmsPort=9083
@@ -183,7 +183,7 @@ hadoopSecurityAutoToLocal = ""
 
 
 //paimon catalog test config for bigdata
-enableExternalPaimonTest = true
+enableExternalPaimonTest = false
 
 //mysql jdbc connector test config for bigdata
 enableExternalMysqlTest = false
@@ -240,7 +240,7 @@ max_failure_num=0
 // used for exporting test
 s3ExportBucketName = ""
 
-externalEnvIp="172.21.16.12"
+externalEnvIp="127.0.0.1"
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
