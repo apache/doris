@@ -20,7 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.util.LocationPath.Scheme;
 import org.apache.doris.datasource.property.constants.OssProperties;
-import org.apache.doris.fsv2.FileSystemType;
+import org.apache.doris.fs.FileSystemType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

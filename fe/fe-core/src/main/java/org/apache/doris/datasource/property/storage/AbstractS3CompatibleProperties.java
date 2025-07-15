@@ -20,9 +20,14 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.base.Strings;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -150,6 +155,18 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public Map<String, String> getBackendConfigProperties() {
         return generateBackendS3Configuration();
+    }
+
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
+        if (StringUtils.isNotBlank(getAccessKey()) && StringUtils.isNotBlank(getSecretKey())) {
+            if (Strings.isNullOrEmpty(sessionToken)) {
+                return StaticCredentialsProvider.create(AwsBasicCredentials.create(getAccessKey(), getSecretKey()));
+            } else {
+                return StaticCredentialsProvider.create(AwsSessionCredentials.create(getAccessKey(), getSecretKey(),
+                        sessionToken));
+            }
+        }
+        return null;
     }
 
 

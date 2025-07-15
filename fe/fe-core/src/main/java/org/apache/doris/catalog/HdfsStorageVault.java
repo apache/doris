@@ -23,6 +23,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.base.Preconditions;
@@ -130,7 +132,8 @@ public class HdfsStorageVault extends StorageVault {
         Preconditions.checkArgument(
                 !Strings.isNullOrEmpty(pathPrefix), "%s is null or empty", PropertyKey.VAULT_PATH_PREFIX);
 
-        try (DFSFileSystem dfsFileSystem = new DFSFileSystem(newProperties)) {
+        try (DFSFileSystem dfsFileSystem = new DFSFileSystem((HdfsCompatibleProperties) StorageProperties
+                .createPrimary(newProperties))) {
             Long timestamp = System.currentTimeMillis();
             String remotePath = hadoopFsName + "/" + pathPrefix + "/doris-check-connectivity" + timestamp.toString();
 

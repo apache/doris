@@ -30,7 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
-import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -625,8 +625,21 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             String endpoint = storageProperties.getEndpoint();
             checkEndpoint(endpoint);
             checkWhiteList(endpoint);
+            List<String> filePaths = new ArrayList<>();
+            if (dataDescriptions != null && !dataDescriptions.isEmpty()) {
+                for (DataDescription dataDescription : dataDescriptions) {
+                    if (dataDescription.getFilePaths() != null) {
+                        for (String filePath : dataDescription.getFilePaths()) {
+                            if (filePath != null && !filePath.isEmpty()) {
+                                filePaths.add(filePath);
+                            }
+                        }
+                    }
+                }
+            }
             //should add connectivity test
-            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties()).connectivityTest();
+            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties())
+                    .connectivityTest(filePaths);
             if (!connectivityTest) {
                 throw new UserException("Failed to access object storage, message=connectivity test failed");
             }

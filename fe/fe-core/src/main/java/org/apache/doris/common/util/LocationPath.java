@@ -26,7 +26,7 @@ import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.fsv2.FileSystemType;
+import org.apache.doris.fs.FileSystemType;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.annotations.VisibleForTesting;

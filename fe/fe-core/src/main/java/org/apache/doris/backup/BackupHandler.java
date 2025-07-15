@@ -44,17 +44,16 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fsv2.FileSystemFactory;
-import org.apache.doris.fsv2.remote.AzureFileSystem;
-import org.apache.doris.fsv2.remote.RemoteFileSystem;
-import org.apache.doris.fsv2.remote.S3FileSystem;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -216,17 +215,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         RemoteFileSystem fileSystem;
-        try {
-            fileSystem = FileSystemFactory.get(stmt.getStorageType(), stmt.getProperties());
-        } catch (UserException e) {
-            throw new DdlException("Failed to initialize remote file system: " + e.getMessage());
-        }
-        org.apache.doris.fs.remote.RemoteFileSystem oldfs = org.apache.doris.fs.FileSystemFactory
-                .get(stmt.getBrokerName(), stmt.getStorageType(),
-                        stmt.getProperties());
+        fileSystem = FileSystemFactory.get(stmt.getStorageType(), stmt.getBrokerName(), stmt.getProperties());
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
-                fileSystem, oldfs);
+                fileSystem);
 
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
         if (!st.ok()) {
@@ -261,18 +253,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
             Map<String, String> mergedProps = mergeProperties(oldRepo, newProps, strictCheck);
             // Create new remote file system with merged properties
             RemoteFileSystem fileSystem = FileSystemFactory.get(StorageProperties.createPrimary(mergedProps));
-            org.apache.doris.fs.remote.RemoteFileSystem oldfs = null;
-            if (oldRepo.getRemoteFileSystem() instanceof S3FileSystem) {
-                oldfs = org.apache.doris.fs.FileSystemFactory.get(oldRepo.getRemoteFileSystem().getName(),
-                        StorageBackend.StorageType.S3, mergedProps);
-            } else if (oldRepo.getRemoteFileSystem() instanceof AzureFileSystem) {
-                oldfs = org.apache.doris.fs.FileSystemFactory.get(oldRepo.getRemoteFileSystem().getName(),
-                        StorageBackend.StorageType.AZURE, mergedProps);
-            }
             // Create new Repository instance with updated file system
             Repository newRepo = new Repository(
                     oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
-                    oldRepo.getLocation(), fileSystem, oldfs
+                    oldRepo.getLocation(), fileSystem
             );
             // Verify the repository can be connected with new settings
             if (!newRepo.ping()) {
