@@ -22,9 +22,11 @@
 
 #include <functional>
 
+#include "pdqsort.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/sort_block.h"
 
 class SipHash;
 namespace doris {
@@ -401,6 +403,67 @@ bool ColumnStruct::structure_equals(const IColumn& rhs) const {
     } else {
         return false;
     }
+}
+
+template <bool positive>
+struct ColumnStruct::less {
+    const ColumnStruct& parent;
+    const int nan_direction_hint;
+    explicit less(const ColumnStruct& parent_, int nan_direction_hint_)
+            : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
+    bool operator()(size_t lhs, size_t rhs) const {
+        int res = 0;
+        for (auto& col : parent.get_columns()) {
+            if (res = col->compare_at(lhs, rhs, *col.get(), nan_direction_hint); res) {
+                // if res != 0 , here is something different ,just return
+                break;
+            }
+        }
+        return positive ? (res < 0) : (res > 0);
+    }
+};
+
+void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                                   IColumn::Permutation& res) const {
+    size_t s = size();
+    res.resize(s);
+    for (size_t i = 0; i < s; ++i) {
+        res[i] = i;
+    }
+
+    if (reverse) {
+        pdqsort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
+    } else {
+        pdqsort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
+    }
+}
+
+void ColumnStruct::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                               IColumn::Permutation& perms, EqualRange& range,
+                               bool last_column) const {
+    sorter->sort_column(static_cast<const ColumnStruct&>(*this), flags, perms, range, last_column);
+}
+
+void ColumnStruct::serialize_vec(StringRef* keys, size_t num_rows) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+    }
+}
+
+void ColumnStruct::deserialize_vec(StringRef* keys, const size_t num_rows) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
+    }
+}
+
+size_t ColumnStruct::get_max_row_byte_size() const {
+    size_t max_row_byte_sz = 0;
+    for (const auto& col : columns) {
+        max_row_byte_sz += col->get_max_row_byte_size();
+    }
+    return max_row_byte_sz;
 }
 
 } // namespace doris::vectorized

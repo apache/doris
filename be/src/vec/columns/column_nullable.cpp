@@ -255,6 +255,19 @@ void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
+//    if (_has_null) {
+//        for (size_t i = 0; i < num_rows; ++i) {
+//            keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+//        }
+//    } else {
+//        const auto& arr = get_null_map_data();
+//        for (size_t i = 0; i < num_rows; ++i) {
+//            memcpy_fixed<NullMap::value_type>(const_cast<char*>(keys[i].data + keys[i].size),
+//                                              (char*)&arr[i]);
+//            keys[i].size += sizeof(NullMap::value_type);
+//        }
+//        nested_column->serialize_vec(keys, num_rows);
+//    }
 }
 
 void ColumnNullable::deserialize_vec(StringRef* keys, const size_t num_rows) {
