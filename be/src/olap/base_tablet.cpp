@@ -30,7 +30,6 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"
-#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
