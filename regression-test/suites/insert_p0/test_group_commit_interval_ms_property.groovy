@@ -75,7 +75,7 @@ suite("test_group_commit_interval_ms_property") {
 
             def msg1 = group_commit_insert """insert into ${test_table} values(1,1); """, 1
 
-            Thread.sleep(8000);
+            Thread.sleep(4000);
 
             def msg2 = group_commit_insert """insert into ${test_table} values(2,2) """, 1
 
