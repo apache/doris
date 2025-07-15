@@ -254,7 +254,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         for (Partition hasDataPartition : hasDataPartitions) {
             long partitionSize = hasDataPartition.getDataSizeExcludeEmptyReplica(true);
-            if (partitionSize == 0) {
+            if (partitionSize <= 0) {
                 sizeUnknownArray.add(partitionSize);
             } else {
                 partitionSizeArray.add(partitionSize);
@@ -395,7 +395,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             int bucketsNum = ret.first;
             int previousPartitionBucketsNum = ret.second;
             if (olapTable.isAutoBucket()) {
-                checkAutoBucketCalcNumIsValid(bucketsNum, previousPartitionBucketsNum);
+                int afterCheckAndFixBucketNum = checkAndFixAutoBucketCalcNumIsValid(bucketsNum,
+                        previousPartitionBucketsNum);
+                if (afterCheckAndFixBucketNum > 0) {
+                    bucketsNum = afterCheckAndFixBucketNum;
+                }
             }
             if (distributionInfo.getType() == DistributionInfo.DistributionInfoType.HASH) {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
@@ -413,15 +417,31 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return addPartitionClauses;
     }
 
-    private void checkAutoBucketCalcNumIsValid(int calcNum, int previousPartitionBucketsNum) {
+    private int checkAndFixAutoBucketCalcNumIsValid(int currentPartitionNumBuckets, int previousPartitionNumBuckets) {
         // previousPartitionBucketsNum == 0, some abnormal case, ignore it
-        if (previousPartitionBucketsNum != 0
-                && (calcNum > previousPartitionBucketsNum * (1 + Config.autobucket_out_of_bounds_percent_threshold))
-                || (calcNum < previousPartitionBucketsNum * (1 - Config.autobucket_out_of_bounds_percent_threshold))) {
-            LOG.warn("auto bucket calc num may be err, plz check. "
-                    + "calc bucket num {}, previous partition bucket num {}, percent {}",
-                    calcNum, previousPartitionBucketsNum, Config.autobucket_out_of_bounds_percent_threshold);
+        if (currentPartitionNumBuckets != 0) {
+            // currentPartitionNumBuckets can be too big
+            if (currentPartitionNumBuckets
+                    > previousPartitionNumBuckets * (1 + Config.autobucket_out_of_bounds_percent_threshold)) {
+                LOG.warn("auto bucket calc num may be err, bigger than previous too much, plz check. "
+                        + "calc bucket num {}, previous partition bucket num {}, percent {}",
+                        currentPartitionNumBuckets, previousPartitionNumBuckets,
+                        Config.autobucket_out_of_bounds_percent_threshold);
+                return currentPartitionNumBuckets;
+            }
+            // currentPartitionNumBuckets not too small.
+            // If it is too small, the program will intervene. use previousPartitionNumBuckets
+            if (currentPartitionNumBuckets
+                    < previousPartitionNumBuckets * (1 - Config.autobucket_out_of_bounds_percent_threshold)) {
+                LOG.warn("auto bucket calc num may be err, smaller than previous too much, plz check. "
+                        + "calc bucket num {}, previous partition bucket num {}, percent {}",
+                        currentPartitionNumBuckets, previousPartitionNumBuckets,
+                        Config.autobucket_out_of_bounds_percent_threshold);
+                return previousPartitionNumBuckets;
+            }
         }
+        LOG.info("previousPartitionBucketsNum eq 0, check before log");
+        return -1;
     }
 
     /**
