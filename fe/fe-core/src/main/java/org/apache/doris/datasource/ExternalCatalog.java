@@ -299,10 +299,15 @@ public abstract class ExternalCatalog
      * So you have to make sure the client of third system is initialized before any method was called.
      */
     public final synchronized void makeSureInitialized() {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("start to init catalog {}:{}", name, id);
+        }
         if (isInitializing) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("catalog {}:{} is initializing, skip make sure initialized.", name, id, new Exception());
+            }
             return;
         }
-        isInitializing = true;
         try {
             initLocalObjects();
             if (!initialized) {
@@ -333,6 +338,9 @@ public abstract class ExternalCatalog
 
     protected final void initLocalObjects() {
         if (!objectCreated) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("start to init local objects of catalog {}:{}", getName(), id, new Exception());
+            }
             initLocalObjectsImpl();
             objectCreated = true;
         }
