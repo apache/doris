@@ -410,7 +410,9 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
         return Status::InternalError("single compaction init curl failed");
     }
     for (auto& file_name : file_name_list) {
-        auto remote_file_url = remote_url_prefix + file_name;
+        std::string encoded_filename;
+        RETURN_IF_ERROR(HttpClient::escape_url(curl.get(), file_name, &encoded_filename));
+        auto remote_file_url = remote_url_prefix + encoded_filename;
 
         // get file length
         uint64_t file_size = 0;

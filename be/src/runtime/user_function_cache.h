@@ -67,7 +67,6 @@ private:
                             std::string* libpath, LibType type);
     Status _load_cache_entry(const std::string& url, std::shared_ptr<UserFunctionCacheEntry> entry);
     Status _download_lib(const std::string& url, std::shared_ptr<UserFunctionCacheEntry> entry);
-    Status _load_cache_entry_internal(std::shared_ptr<UserFunctionCacheEntry> entry);
 
     std::string _make_lib_file(int64_t function_id, const std::string& checksum, LibType type,
                                const std::string& file_name);

@@ -47,8 +47,7 @@ public:
 
     // this function must call before other function,
     // you can call this multiple times to reuse this object
-    Status init(const std::string& url, bool set_fail_on_error = true,
-                bool skip_percent_encode = false);
+    Status init(const std::string& url, bool set_fail_on_error = true);
 
     void set_method(HttpMethod method);
 
@@ -171,8 +170,10 @@ public:
     // Because the percent ("%") character serves as the indicator for percent-encoded octets,
     // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
     // https://datatracker.ietf.org/doc/html/rfc3986
-    Status _escape_url(const std::string& url, std::string* escaped_url,
-                       bool skip_percent_encode = false);
+
+    // NOTE: this function will percent-encode the url, and maybe double-encode the url.
+    // =%2E#section ----> =%252E#section
+    static Status escape_url(CURL* _curl, const std::string& url, std::string* escaped_url);
 
 private:
     const char* _to_errmsg(CURLcode code) const;
