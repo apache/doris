@@ -787,8 +787,8 @@ Status RowIdStorageReader::read_batch_external_row(
                 size_t idx = 0;
                 for (const auto& [_, scan_info] : scan_rows) {
                     semaphore.acquire();
-                    RETURN_IF_ERROR(
-                            remote_scan_sched->submit_scan_task(vectorized::SimplifiedScanTask(
+                    RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
+                            vectorized::SimplifiedScanTask(
                                     [&, scan_info, idx]() {
                                         auto& row_ids = scan_info.first;
                                         auto& file_mapping = scan_info.second;
@@ -878,7 +878,8 @@ Status RowIdStorageReader::read_batch_external_row(
                                         }
                                         return Status::OK();
                                     },
-                                    nullptr)));
+                                    nullptr, nullptr),
+                            fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
                     idx++;
                 }
 
