@@ -299,8 +299,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (isDatetime) {
                 return dt;
             } else {
-                return new DateTimeV2Literal(Long.parseLong(year), Long.parseLong(month), Long.parseLong(date),
-                        0, 0, 0);
+                return new DateTimeV2Literal(dt.year, dt.month, dt.day, 0, 0, 0);
             }
         } else if (!strictCast) {
             Matcher unStrictMatcher = dateUnStrictPattern.matcher(value);
@@ -321,8 +320,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 if (isDatetime) {
                     return dt;
                 } else {
-                    return new DateTimeV2Literal(Long.parseLong(year), Long.parseLong(month), Long.parseLong(date),
-                            0, 0, 0);
+                    return new DateTimeV2Literal(dt.year, dt.month, dt.day, 0, 0, 0);
                 }
             }
         }
