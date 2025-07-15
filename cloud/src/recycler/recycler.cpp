@@ -374,6 +374,7 @@ void Recycler::check_recycle_tasks() {
 int Recycler::start(brpc::Server* server) {
     instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
+    S3Environment::getInstance();
 
     if (config::enable_checker) {
         checker_ = std::make_unique<Checker>(txn_kv_);
