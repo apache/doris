@@ -122,7 +122,7 @@ TEST(MathFunctionTest, cbrt_test) {
 TEST(MathFunctionTest, cot_test) {
     std::string func_name = "cot";
 
-    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{1.0}, 0.6420926159343306}, {{M_PI / 4}, 1.0000000000000002}};
 
@@ -132,7 +132,7 @@ TEST(MathFunctionTest, cot_test) {
 TEST(MathFunctionTest, sec_test) {
     std::string func_name = "sec";
 
-    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{1.0}, 1.8508157176809255}, {{1000.0}, 1.7781600385912715}};
 
@@ -142,7 +142,7 @@ TEST(MathFunctionTest, sec_test) {
 TEST(MathFunctionTest, cosec_test) {
     std::string func_name = "cosec";
 
-    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {
             {{1.0}, 1.1883951057781212}, {{2.0}, 1.0997501702946164}, {{1000.0}, 1.20936599707935}};
