@@ -69,7 +69,6 @@ Status BKDIndexSearcherBuilder::build(lucene::store::Directory* directory,
         }
         reader_size = bkd_reader->ram_bytes_used();
         output_searcher = bkd_reader;
-        _CLDECDELETE(directory)
         return Status::OK();
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
