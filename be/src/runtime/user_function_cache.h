@@ -23,6 +23,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 
 namespace doris {
@@ -44,6 +45,54 @@ struct UserFunctionCacheEntry;
 // change its implementation(URL), Doris will generate a new function
 // id.
 enum class LibType { JAR, SO };
+
+// function cache entry, store information for
+struct UserFunctionCacheEntry {
+    ENABLE_FACTORY_CREATOR(UserFunctionCacheEntry);
+    UserFunctionCacheEntry(int64_t fid_, const std::string& checksum_, const std::string& lib_file_,
+                           LibType type)
+            : function_id(fid_), checksum(checksum_), lib_file(lib_file_), type(type) {}
+    ~UserFunctionCacheEntry();
+
+    std::string debug_string() {
+        fmt::memory_buffer error_msg;
+        fmt::format_to(error_msg,
+                       " the info of UserFunctionCacheEntry save in BE, function_id:{}, "
+                       "checksum:{}, lib_file:{}, is_downloaded:{}. ",
+                       function_id, checksum, lib_file, is_downloaded);
+        return fmt::to_string(error_msg);
+    }
+
+    int64_t function_id = 0;
+    // used to check if this library is valid.
+    std::string checksum;
+
+    // library file
+    std::string lib_file;
+
+    // make it atomic variable instead of holding a lock
+    std::atomic<bool> is_loaded {false};
+
+    // Set to true when this library is not needed.
+    // e.g. deleting some unused library to re
+    std::atomic<bool> should_delete_library {false};
+
+    // lock to make sure only one can load this cache
+    std::mutex load_lock;
+
+    // To reduce cache lock held time, cache entry is
+    // added to cache map before library is downloaded.
+    // And this is used to indicate whether library is downloaded.
+    bool is_downloaded = false;
+
+    // used to lookup a symbol
+    void* lib_handle = nullptr;
+
+    // from symbol_name to function pointer
+    std::unordered_map<std::string, void*> fptr_map;
+
+    LibType type;
+};
 
 class UserFunctionCache {
 public:

@@ -20,6 +20,8 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <filesystem>
+#include <iostream>
 #include <string>
 
 #include "gtest/gtest.h"
@@ -73,6 +75,31 @@ TEST_F(UserFunctionCacheTest, makeLibFile) {
                                      "test.jar");
     std::cout << result << std::endl;
     EXPECT_EQ(result, ufc._lib_dir + "/123.20c8228267b6c9ce620fddb39467d3eb.test.jar");
+}
+
+TEST_F(UserFunctionCacheTest, downloadLib) {
+    ufc._lib_dir = "test_data/user_function_cache/lib";
+    std::string file_str(__FILE__);
+    std::filesystem::path current_file(file_str);
+    std::filesystem::path test_dir_base = current_file.parent_path();
+    std::string test_dir_str = "/test_data/user_function_cache/test=.jar";
+    std::string url = "file://" + test_dir_base.string() + test_dir_str;
+
+    int64_t function_id = 123;
+    std::string checksum = "65616717ee59c10da12f76823e837791";
+    doris::LibType type = doris::LibType::JAR;
+    std::string file_name = "test.jar";
+    auto result_lib_file = ufc._make_lib_file(function_id, checksum, type, file_name);
+
+    std::string result_lib_file2 = test_dir_base.string() + "/" + result_lib_file;
+    auto entry =
+            UserFunctionCacheEntry::create_shared(function_id, checksum, result_lib_file2, type);
+    auto st = ufc._download_lib(url, entry);
+    ASSERT_TRUE(st.ok()) << st;
+    std::cout << "Library downloaded successfully." << std::endl;
+
+    std::filesystem::path res_file(result_lib_file2);
+    ASSERT_TRUE(std::filesystem::exists(res_file)) << "File does not exist: " << res_file.string();
 }
 
 } // namespace doris
