@@ -2929,10 +2929,6 @@ public class SessionVariable implements Serializable, Writable {
         return queryTimeoutS;
     }
 
-    public int getAnalyzeTimeoutS() {
-        return analyzeTimeoutS;
-    }
-
     public void setEnableTwoPhaseReadOpt(boolean enable) {
         enableTwoPhaseReadOpt = enable;
     }
