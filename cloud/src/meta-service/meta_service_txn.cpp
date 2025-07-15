@@ -472,7 +472,7 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
     if (request->has_commit_attachment()) {
         txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
     }
-    LOG(INFO) << "after update txn_info=" << txn_info.ShortDebugString();
+    LOG_INFO("after update txn_info={}", txn_info.ShortDebugString());
 
     info_val.clear();
     if (!txn_info.SerializeToString(&info_val)) {
@@ -483,7 +483,7 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
     }
 
     txn->put(info_key, info_val);
-    LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
+    LOG_INFO("xxx put info_key={} txn_id={}", hex(info_key), txn_id);
 
     const std::string running_key = txn_running_key({instance_id, db_id, txn_id});
     std::string running_val;
@@ -499,7 +499,7 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
     }
 
     txn->put(running_key, running_val);
-    LOG(INFO) << "xxx put running_key=" << hex(running_key) << " txn_id=" << txn_id;
+    LOG_INFO("xxx put running_key={} txn_id={}", hex(running_key), txn_id);
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -596,8 +596,8 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
     }
 
     txn->put(rl_progress_key, new_progress_val);
-    LOG(INFO) << "put rl_progress_key key=" << hex(rl_progress_key)
-              << " routine load new progress: " << new_progress_info.ShortDebugString();
+    LOG_INFO("put rl_progress_key key={} routine load new progress: {}", hex(rl_progress_key),
+             new_progress_info.ShortDebugString());
 }
 
 void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcController* controller,
@@ -609,7 +609,7 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG_INFO("{}, cloud_unique_id={}", msg, request->cloud_unique_id());
         return;
     }
     AnnotateTag tag_instance_id("instance_id", instance_id);
@@ -626,7 +626,7 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
     if (!request->has_db_id() || !request->has_job_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty db_id or job_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG_INFO("{}, cloud_unique_id={}", msg, request->cloud_unique_id());
         return;
     }
 
@@ -678,7 +678,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG_INFO("{}, cloud_unique_id={}", msg, request->cloud_unique_id());
         return;
     }
     AnnotateTag tag_instance_id("instance_id", instance_id);
@@ -695,7 +695,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     if (!request->has_db_id() || !request->has_job_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty db_id or job_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG_INFO("{}, cloud_unique_id={}", msg, request->cloud_unique_id());
         return;
     }
 
@@ -708,7 +708,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
 
     if (request->partition_to_offset().size() == 0) {
         txn->remove(rl_progress_key);
-        LOG(INFO) << "remove rl_progress_key key=" << hex(rl_progress_key);
+        LOG_INFO("remove rl_progress_key key={}", hex(rl_progress_key));
     }
 
     if (request->partition_to_offset().size() > 0) {
@@ -758,7 +758,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
             return;
         }
         txn->put(rl_progress_key, new_progress_val);
-        LOG(INFO) << "put rl_progress_key key=" << hex(rl_progress_key);
+        LOG_INFO("put rl_progress_key key={}", hex(rl_progress_key));
     }
 
     err = txn->commit();
@@ -784,7 +784,7 @@ void scan_tmp_rowset(
         code = cast_as<ErrCategory::CREATE>(err);
         ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
     DORIS_CLOUD_DEFER {
@@ -799,7 +799,7 @@ void scan_tmp_rowset(
         code = cast_as<ErrCategory::READ>(err);
         ss << "failed to get db id, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -808,7 +808,7 @@ void scan_tmp_rowset(
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
         ss << "failed to parse txn_index_pb, txn_id=" << txn_id;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -827,8 +827,8 @@ void scan_tmp_rowset(
 
     int num_rowsets = 0;
     DORIS_CLOUD_DEFER_COPY(rs_tmp_key0, rs_tmp_key1) {
-        LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id << " num_rowsets=" << num_rowsets
-                  << " range=[" << hex(rs_tmp_key0) << "," << hex(rs_tmp_key1) << ")";
+        LOG_INFO("get tmp rowset meta, txn_id={} num_rowsets={} range=[{},{})", txn_id, num_rowsets,
+                 hex(rs_tmp_key0), hex(rs_tmp_key1));
     };
 
     std::unique_ptr<RangeGetIterator> it;
@@ -845,20 +845,20 @@ void scan_tmp_rowset(
             ss << "internal error, failed to get tmp rowset while committing, txn_id=" << txn_id
                << " err=" << err;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
         while (it->has_next()) {
             auto [k, v] = it->next();
-            LOG(INFO) << "range_get rowset_tmp_key=" << hex(k) << " txn_id=" << txn_id;
+            LOG_INFO("range_get rowset_tmp_key={} txn_id={}", hex(k), txn_id);
             tmp_rowsets_meta->emplace_back();
             if (!tmp_rowsets_meta->back().second.ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 ss << "malformed rowset meta, unable to initialize, txn_id=" << txn_id
                    << " key=" << hex(k);
                 msg = ss.str();
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return;
             }
             // Save keys that will be removed later
@@ -923,7 +923,7 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
         stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
         stats_pb.SerializeToString(&val);
         txn->put(key, val);
-        LOG(INFO) << "put stats_tablet_key key=" << hex(key);
+        LOG_INFO("put stats_tablet_key key={}", hex(key));
     }
 }
 
@@ -1022,7 +1022,7 @@ void commit_txn_immediately(
             code = cast_as<ErrCategory::CREATE>(err);
             ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         DORIS_CLOUD_DEFER {
@@ -1046,7 +1046,7 @@ void commit_txn_immediately(
                    << " err=" << err;
             }
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -1055,7 +1055,7 @@ void commit_txn_immediately(
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -1065,7 +1065,7 @@ void commit_txn_immediately(
             code = MetaServiceCode::TXN_ALREADY_ABORTED;
             ss << "transaction [" << txn_id << "] is already aborted, db_id=" << db_id;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -1092,7 +1092,7 @@ void commit_txn_immediately(
             ss << "transaction is prepare, not pre-committed: db_id=" << db_id << " txn_id"
                << txn_id;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -1136,7 +1136,7 @@ void commit_txn_immediately(
                 ss << "malformed tablet index value tablet_id=" << tablet_id
                    << " txn_id=" << txn_id;
                 msg = ss.str();
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return;
             }
             table_id_tablet_ids[tablet_ids[tablet_id].table_id()].push_back(tablet_id);
@@ -1474,7 +1474,7 @@ void get_tablet_indexes(
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             ss << "malformed tablet index value tablet_id=" << tablet_id << " txn_id=" << txn_id;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         if (!(*tablet_ids)[tablet_id].has_db_id()) {
@@ -1514,7 +1514,7 @@ void repair_tablet_index(
             code = cast_as<ErrCategory::CREATE>(err);
             ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -1547,7 +1547,7 @@ void repair_tablet_index(
                 ss << "malformed tablet index value key=" << hex(tablet_idx_keys[j])
                    << " txn_id=" << txn_id;
                 msg = ss.str();
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return;
             }
 
@@ -1559,7 +1559,7 @@ void repair_tablet_index(
                     ss << "failed to serialize tablet index value key=" << hex(tablet_idx_keys[j])
                        << " txn_id=" << txn_id;
                     msg = ss.str();
-                    LOG(WARNING) << msg;
+                    LOG_WARNING(msg);
                     return;
                 }
                 txn->put(sub_tablet_idx_keys[j], idx_val);
@@ -1574,7 +1574,7 @@ void repair_tablet_index(
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
     }
@@ -1607,7 +1607,7 @@ void commit_txn_eventually(
             code = cast_as<ErrCategory::CREATE>(err);
             ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         DORIS_CLOUD_DEFER {
@@ -1724,7 +1724,7 @@ void commit_txn_eventually(
             ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id
                << " err=" << err;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -1733,7 +1733,7 @@ void commit_txn_eventually(
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
@@ -1743,7 +1743,7 @@ void commit_txn_eventually(
             code = MetaServiceCode::TXN_ALREADY_ABORTED;
             ss << "transaction [" << txn_id << "] is already aborted, db_id=" << db_id;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -1770,7 +1770,7 @@ void commit_txn_eventually(
             ss << "transaction is prepare, not pre-committed: db_id=" << db_id << " txn_id"
                << txn_id;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -1977,7 +1977,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         code = cast_as<ErrCategory::CREATE>(err);
         ss << "filed to create txn, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
     DORIS_CLOUD_DEFER {
@@ -1995,7 +1995,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         code = cast_as<ErrCategory::READ>(err);
         ss << "failed to get db id, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -2004,7 +2004,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
         ss << "failed to parse txn_index_pb, txn_id=" << txn_id;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -2049,7 +2049,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                 ss << "internal error, failed to get tmp rowset while committing, txn_id=" << txn_id
                    << " err=" << err;
                 msg = ss.str();
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return;
             }
 
@@ -2062,7 +2062,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                     ss << "malformed rowset meta, unable to initialize, txn_id=" << txn_id
                        << " key=" << hex(k);
                     msg = ss.str();
-                    LOG(WARNING) << msg;
+                    LOG_WARNING(msg);
                     return;
                 }
                 // Save keys that will be removed later
@@ -2085,7 +2085,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         code = cast_as<ErrCategory::CREATE>(err);
         ss << "filed to create txn, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -2098,7 +2098,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                                                       : cast_as<ErrCategory::READ>(err);
         ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -2107,7 +2107,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
         ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -2117,7 +2117,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         code = MetaServiceCode::TXN_ALREADY_ABORTED;
         ss << "transaction is already aborted: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -2177,7 +2177,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             ss << "malformed tablet index value tablet_id=" << tablet_id << " txn_id=" << txn_id;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         table_id_tablet_ids[tablet_ids[tablet_id].table_id()].push_back(tablet_id);
@@ -3217,7 +3217,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
                                                       : cast_as<ErrCategory::READ>(err);
         ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -3226,7 +3226,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
         ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
     DCHECK(txn_info.txn_id() == txn_id);
@@ -3235,7 +3235,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
         ss << "transaction status is " << txn_info.status() << " : db_id=" << db_id
            << " txn_id=" << txn_id;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -3248,7 +3248,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
         }
         ss << "]";
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
     txn_info.mutable_sub_txn_ids()->Add(sub_txn_id);
     txn_info.mutable_table_ids()->Clear();
@@ -3336,7 +3336,7 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
         ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id
            << " sub_txn_id=" << sub_txn_id << " err=" << err;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
     TxnInfoPB txn_info;
@@ -3345,7 +3345,7 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
         ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id
            << " sub_txn_id=" << sub_txn_id;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
     DCHECK(txn_info.txn_id() == txn_id);
@@ -3354,7 +3354,7 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
         ss << "transaction status is " << txn_info.status() << " : db_id=" << db_id
            << " txn_id=" << txn_id << " sub_txn_id=" << sub_txn_id;
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -3368,7 +3368,7 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
         }
         ss << "]";
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
     txn_info.mutable_table_ids()->Clear();
     for (auto table_id : table_ids) {
@@ -3440,7 +3440,7 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
             code = cast_as<ErrCategory::READ>(err);
             ss << "failed to get txn info. err=" << err;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -3560,7 +3560,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
             code = cast_as<ErrCategory::READ>(err);
             ss << "failed to get txn running info. err=" << err;
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -3611,7 +3611,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
                             ss << "failed to get txn_info, conflict_txn_info_key="
                                << hex(conflict_txn_info_key);
                             msg = ss.str();
-                            LOG(WARNING) << msg;
+                            LOG_WARNING(msg);
                             return;
                         }
                         TxnInfoPB& conflict_txn_info = *response->add_conflict_txns();
@@ -3620,7 +3620,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
                             ss << "failed to parse txn_info, conflict_txn_info_key="
                                << hex(conflict_txn_info_key);
                             msg = ss.str();
-                            LOG(WARNING) << msg;
+                            LOG_WARNING(msg);
                             return;
                         }
                     }
@@ -3790,7 +3790,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
     if (!request->has_db_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "missing db id";
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -3801,7 +3801,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
         ss << "cannot find instance_id with cloud_unique_id="
            << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
     AnnotateTag tag_instance_id("instance_id", instance_id);
@@ -3889,7 +3889,7 @@ void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
     if (!request->has_db_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "missing db id";
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
 
@@ -3900,7 +3900,7 @@ void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
         ss << "cannot find instance_id with cloud_unique_id="
            << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
         msg = ss.str();
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return;
     }
     AnnotateTag tag_instance_id("instance_id", instance_id);

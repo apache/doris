@@ -23,9 +23,12 @@
 #include <glog/logging.h>
 #include <glog/vlog_is_on.h>
 
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
+#include <string>
+#include <type_traits>
 
 #include "config.h"
 
@@ -53,13 +56,33 @@ static butil::LinkedList<AnnotateTag>* get_annotate_tag_list() {
     return tag_list;
 }
 
-AnnotateTag::AnnotateTag(default_tag_t, std::string_view key, std::string value)
-        : key_(key), value_(std::move(value)) {
-    get_annotate_tag_list()->Append(this);
+template <class... Ts>
+struct AnnotateTagValueHelper : Ts... {
+    using Ts::operator()...;
+};
+template <class... Ts>
+AnnotateTagValueHelper(Ts...) -> AnnotateTagValueHelper<Ts...>;
+
+std::string AnnotateTagValue::to_string() const {
+    return std::visit(
+            AnnotateTagValueHelper {
+                    [](const auto& val) {
+                        using ValueType = std::remove_cv_t<std::remove_reference_t<decltype(val)>>;
+                        if constexpr (std::is_same_v<std::string*, ValueType>) {
+                            return *val;
+                        } else if constexpr (std::is_pointer_v<ValueType>) {
+                            return std::to_string(*val);
+                        } else {
+                            return std::to_string(val);
+                        }
+                    },
+            },
+            data_);
 }
 
-AnnotateTag::AnnotateTag(std::string_view key, std::string_view value)
-        : AnnotateTag(default_tag, key, fmt::format("\"{}\"", value)) {}
+void AnnotateTag::append_to_tag_list() {
+    get_annotate_tag_list()->Append(this);
+}
 
 AnnotateTag::~AnnotateTag() {
     RemoveFromList();
@@ -70,7 +93,7 @@ void AnnotateTag::format_tag_list(std::ostream& stream) {
     butil::LinkNode<AnnotateTag>* head = list->head();
     const butil::LinkNode<AnnotateTag>* end = list->end();
     for (; head != end; head = head->next()) {
-        stream << ' ' << head->value()->key_ << '=' << head->value()->value_;
+        stream << ' ' << head->value()->key_ << '=' << head->value()->value_.to_string();
     }
 }
 

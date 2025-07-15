@@ -22,7 +22,6 @@
 #include <glog/logging.h>
 #include <google/protobuf/service.h>
 
-#include <atomic>
 #include <cstdint>
 #include <string_view>
 #include <type_traits>
@@ -39,15 +38,34 @@ uint64_t get_log_id(google::protobuf::RpcController* controller);
 #define LOG_ERROR(...) ::doris::cloud::TaggableLogger(LOG(ERROR), ##__VA_ARGS__)
 #define LOG_FATAL(...) ::doris::cloud::TaggableLogger(LOG(FATAL), ##__VA_ARGS__)
 
-class AnnotateTag final : public butil::LinkNode<AnnotateTag> {
-    struct default_tag_t {};
-    constexpr static default_tag_t default_tag {};
+template <typename T>
+concept AnnotateTagAllowType =
+        requires { std::is_same_v<uint64_t, T> || std::is_same_v<std::string, T>; };
 
+class AnnotateTagValue {
 public:
-    template <typename T, typename = std::enable_if_t<std::is_arithmetic_v<T>, T>>
-    AnnotateTag(std::string_view key, T value)
-            : AnnotateTag(default_tag, key, std::to_string(value)) {}
-    AnnotateTag(std::string_view key, std::string_view value);
+    template <AnnotateTagAllowType T>
+    AnnotateTagValue(T&& val) {
+        // rvalue store origin value, lvalue store pointer
+        if constexpr (std::is_rvalue_reference_v<decltype(val)>) {
+            data_ = val;
+        } else {
+            data_ = &val;
+        }
+    };
+
+    std::string to_string() const;
+
+private:
+    std::variant<uint64_t, uint64_t*, std::string*> data_;
+};
+
+class AnnotateTag final : public butil::LinkNode<AnnotateTag> {
+public:
+    template <AnnotateTagAllowType T>
+    AnnotateTag(std::string_view key, T&& value) : key_(key), value_(std::forward<T>(value)) {
+        append_to_tag_list();
+    }
     ~AnnotateTag();
 
     static void format_tag_list(std::ostream& stream);
@@ -56,10 +74,9 @@ public:
     static void* operator new[](size_t) = delete;
 
 private:
-    explicit AnnotateTag(default_tag_t, std::string_view key, std::string value);
-
+    void append_to_tag_list();
     std::string_view key_;
-    std::string value_;
+    AnnotateTagValue value_;
 };
 
 class TaggableLogger {
