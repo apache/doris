@@ -743,7 +743,7 @@ public class IcebergUtils {
         for (Types.NestedField field : columns) {
             Column column = new Column(field.name().toLowerCase(Locale.ROOT),
                     IcebergUtils.icebergTypeToDorisType(field.type()), true, null,
-                    field.isOptional(), field.doc(), true, -1);
+                    true, field.doc(), true, -1);
             updateIcebergColumnUniqueId(column, field);
             resSchema.add(column);
         }
