@@ -157,6 +157,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        convertGlueToS3EndpointIfNeeded();
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
             return;
         }
@@ -248,6 +249,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
         }
         return backendProperties;
+    }
+
+    private void convertGlueToS3EndpointIfNeeded() {
+        if (this.endpoint.contains("glue")) {
+            this.endpoint = "s3." + this.region + ".amazonaws.com";
+        }
     }
 
     @Override
