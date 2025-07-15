@@ -26,10 +26,9 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         super.initNormalizeAndCheckProps();
         //System.setProperty("aws.region", "ap-northeast-1");
         glueProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
-        glueProperties.check();
+        glueProperties.checkAndInit();
         s3Properties = S3Properties.of(origProps);
         s3Properties.initNormalizeAndCheckProps();
-        
     }
     
     
@@ -58,6 +57,8 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         Map<String,String> props = new HashMap<>();
         initS3Param(props);
         initGlueParam(props);
+        //props.put("iceberg.catalog.glue.client.region", glueProperties.glueRegion);
+        props.put("client.region", glueProperties.glueRegion);
         catalog.initialize("glue", props);
         return catalog;
     }

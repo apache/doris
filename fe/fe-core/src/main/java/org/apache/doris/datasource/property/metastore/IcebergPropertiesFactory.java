@@ -11,9 +11,8 @@ public class IcebergPropertiesFactory implements MetastorePropertiesFactory{
 
     static {
         register("glue", IcebergGlueMetaStoreProperties::new);
-        register("rest", HMSProperties::new);
+        //register("rest", HMSProperties::new);
         register("hms", IcebergHMSMetaStoreProperties::new);
-        register("default", IcebergHMSMetaStoreProperties::new);
         register("filesystem", IcebergFileSystemMetaStoreProperties::new);
         register("s3tables", IcebergS3TablesMetaStoreProperties::new);
     }
