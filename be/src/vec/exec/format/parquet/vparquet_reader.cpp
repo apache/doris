@@ -481,7 +481,7 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
     for (int i = 0; i < schema_desc.size(); ++i) {
         // Get the Column Reader for the boolean column
         col_names->emplace_back(schema_desc.get_column(i)->name);
-        col_types->emplace_back(schema_desc.get_column(i)->data_type);
+        col_types->emplace_back(make_nullable(schema_desc.get_column(i)->data_type));
     }
     return Status::OK();
 }
