@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 
@@ -42,7 +43,8 @@ public class Lcm extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(SmallIntType.INSTANCE).args(TinyIntType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(SmallIntType.INSTANCE, SmallIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE, IntegerType.INSTANCE));
+            FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE));
 
     /**
      * constructor with 2 arguments.
