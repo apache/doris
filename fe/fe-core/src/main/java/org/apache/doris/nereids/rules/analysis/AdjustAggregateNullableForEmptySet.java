@@ -35,7 +35,6 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * adjust aggregate nullable when: group expr list is empty and function is NullableAggregateFunction,

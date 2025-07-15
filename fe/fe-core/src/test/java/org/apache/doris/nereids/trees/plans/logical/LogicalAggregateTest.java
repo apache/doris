@@ -98,5 +98,4 @@ public class LogicalAggregateTest {
         Assertions.assertEquals(expectOutput1Child, output1.child(0));
         Assertions.assertEquals(expectOutput2Child, output2.child(0));
     }
-
 }
