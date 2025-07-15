@@ -87,7 +87,7 @@ suite("test_disable_load","nonConcurrent,p0") {
                 def state = sql "show routine load for ${job}"
                 log.info("routine load state: ${state[0][8].toString()}".toString())
                 log.info("reason of state changed: ${state[0][17].toString()}".toString())
-                if (state[0][17].toString().contains("Failed to get info. No alive backends")) {
+                if (state[0][17].toString().contains("failed to get info: no alive backends")) {
                     break
                 }
                 if (count >= 60) {
