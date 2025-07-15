@@ -4,3 +4,21 @@
 2	1243.500
 3	24453.325
 
+-- !sql_window_muti1 --
+a
+a
+a
+a
+
+-- !sql_window_muti2 --
+1
+1
+1
+1
+
+-- !sql_window_muti3 --
+1
+1
+1
+1
+

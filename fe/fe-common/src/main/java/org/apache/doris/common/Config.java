@@ -3433,6 +3433,15 @@ public class Config extends ConfigBase {
             "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
     public static int meta_service_rpc_timeout_retry_times = 1;
 
+    @ConfField(mutable = true, description = {"存算分离模式下自动启停功能，对于该配置中的数据库名不进行唤醒操作，"
+            + "用于内部作业的数据库，例如统计信息用到的数据库，"
+            + "举例: auto_start_ignore_db_names=__internal_schema, information_schema",
+            "In the cloud mode, the automatic start and stop ignores the DB name of the internal job,"
+            + "used for databases involved in internal jobs, such as those used for statistics, "
+            + "For example: auto_start_ignore_db_names=__internal_schema, information_schema"
+            })
+    public static String[] auto_start_ignore_resume_db_names = {"__internal_schema", "information_schema"};
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

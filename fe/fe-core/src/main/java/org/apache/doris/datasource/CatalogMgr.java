@@ -17,9 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.AlterCatalogCommentStmt;
-import org.apache.doris.analysis.AlterCatalogNameStmt;
-import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -338,13 +335,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     /**
-     * Modify the catalog name into a new one and write the meta log.
-     */
-    public void alterCatalogName(AlterCatalogNameStmt stmt) throws UserException {
-        alterCatalogName(stmt.getCatalogName(), stmt.getNewCatalogName());
-    }
-
-    /**
      * Modify the catalog comment to a new one and write the meta log.
      */
     public void alterCatalogComment(String catalogName, String comment) throws UserException {
@@ -362,13 +352,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Modify the catalog comment to a new one and write the meta log.
-     */
-    public void alterCatalogComment(AlterCatalogCommentStmt stmt) throws UserException {
-        alterCatalogComment(stmt.getCatalogName(), stmt.getComment());
     }
 
     /**
@@ -394,13 +377,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Modify the catalog property and write the meta log.
-     */
-    public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
-        alterCatalogProps(stmt.getCatalogName(), stmt.getNewProperties());
     }
 
     public List<List<String>> showCatalogs(

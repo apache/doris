@@ -17,7 +17,7 @@ add_executable(doris_txn_test doris_txn_test.cpp)
 add_executable(txn_kv_test txn_kv_test.cpp)
 set_target_properties(txn_kv_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 
-add_executable(recycler_test recycler_test.cpp mock_accessor.cpp)
+add_executable(recycler_test recycler_test.cpp)
 
 add_executable(mem_txn_kv_test mem_txn_kv_test.cpp)
 
@@ -59,7 +59,7 @@ add_executable(util_test util_test.cpp)
 
 add_executable(network_util_test network_util_test.cpp)
 
-add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp mock_accessor.cpp)
+add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
 
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})

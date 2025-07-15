@@ -119,12 +119,25 @@ static Status vault_process_error(std::string_view id,
 }
 
 struct VaultCreateFSVisitor {
-    VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format)
-            : id(id), path_format(path_format) {}
+    VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format,
+                         bool check_fs)
+            : id(id), path_format(path_format), check_fs(check_fs) {}
     Status operator()(const S3Conf& s3_conf) const {
-        LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id;
+        LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id
+                  << " check_fs: " << check_fs;
 
         auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
+        if (check_fs && !s3_conf.client_conf.role_arn.empty()) {
+            bool res = false;
+            // just check connectivity, not care object if exist
+            auto st = fs->exists("not_exist_object", &res);
+            if (!st.ok()) {
+                LOG(FATAL) << "failed to check s3 fs, resource_id: " << id << " st: " << st
+                           << "s3_conf: " << s3_conf.to_string()
+                           << "add enable_check_storage_vault=false to be.conf to skip the check";
+            }
+        }
+
         put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create s3 vault, vault id {}", id);
         return Status::OK();
@@ -142,6 +155,7 @@ struct VaultCreateFSVisitor {
 
     const std::string& id;
     const cloud::StorageVaultPB_PathFormat& path_format;
+    bool check_fs;
 };
 
 struct RefreshFSVaultVisitor {
@@ -176,7 +190,7 @@ struct RefreshFSVaultVisitor {
 };
 
 Status CloudStorageEngine::open() {
-    sync_storage_vault();
+    sync_storage_vault(config::enable_check_storage_vault);
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
@@ -322,13 +336,25 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
     return Status::OK();
 }
 
-void CloudStorageEngine::sync_storage_vault() {
+void CloudStorageEngine::sync_storage_vault(bool check_storage_vault) {
     cloud::StorageVaultInfos vault_infos;
     bool enable_storage_vault = false;
-    auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to get storage vault info. err=" << st;
-        return;
+    auto st = Status::OK();
+    while (true) {
+        st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
+        if (st.ok()) {
+            break;
+        }
+
+        if (!check_storage_vault) {
+            LOG(WARNING) << "failed to get storage vault info. err=" << st;
+            return;
+        }
+
+        LOG(WARNING) << "failed to get storage vault info from ms, err=" << st
+                     << " sleep 200ms retry or add enable_check_storage_vault=false to be.conf"
+                     << " to skip the check.";
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
     if (vault_infos.empty()) {
@@ -338,10 +364,12 @@ void CloudStorageEngine::sync_storage_vault() {
 
     for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
-        auto status = (fs == nullptr)
-                              ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
-                              : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
-                                           vault_info);
+        auto status =
+                (fs == nullptr)
+                        ? std::visit(VaultCreateFSVisitor {id, path_format, check_storage_vault},
+                                     vault_info)
+                        : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                                     vault_info);
         if (!status.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
         }
