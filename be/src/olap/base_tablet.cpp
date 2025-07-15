@@ -548,13 +548,13 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
 // user can get all delete bitmaps from that token.
 // if `token` is nullptr, the calculation will run in local, and user can get the result
 // delete bitmap from `delete_bitmap` directly.
-Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
-                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                      CalcDeleteBitmapToken* token, bool is_flush_phase,
-                                      RowsetWriter* rowset_writer,
-                                      DeleteBitmapPtr tablet_delete_bitmap) {
+Status BaseTablet::calc_delete_bitmap(
+        const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+        const std::vector<segment_v2::SegmentSharedPtr>& segments,
+        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+        int64_t end_version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
+        DeleteBitmapPtr tablet_delete_bitmap,
+        std::function<void(segment_v2::SegmentSharedPtr, Status)> callback) {
     if (specified_rowsets.empty() || segments.empty()) {
         return Status::OK();
     }
@@ -564,10 +564,9 @@ Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetShared
         const auto& seg = segment;
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet, rowset, seg, specified_rowsets, end_version,
-                                          is_flush_phase, delete_bitmap, rowset_writer,
-                                          tablet_delete_bitmap));
+                                          delete_bitmap, rowset_writer, tablet_delete_bitmap,
+                                          std::move(callback)));
         } else {
-            DCHECK(!is_flush_phase);
             RETURN_IF_ERROR(tablet->calc_segment_delete_bitmap(
                     rowset, segment, specified_rowsets, delete_bitmap, end_version, rowset_writer,
                     tablet_delete_bitmap));
@@ -608,10 +607,11 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         }
     }
 
-    DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.block", {
+    DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.sleep", {
         auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        auto sleep = dp->param<int64_t>("sleep", 10);
         if (target_tablet_id == tablet_id()) {
-            DBUG_BLOCK
+            std::this_thread::sleep_for(std::chrono::seconds(sleep));
         }
     });
 
@@ -1287,7 +1287,7 @@ Status BaseTablet::commit_phase_update_delete_bitmap(
     }
 
     RETURN_IF_ERROR(calc_delete_bitmap(tablet, rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version, token, false, rowset_writer));
+                                       cur_version, token, rowset_writer));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -1536,8 +1536,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         auto token = self->calc_delete_bitmap_executor()->create_token();
         // set rowset_writer to nullptr to skip the alignment process
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, rowsets_skip_alignment,
-                                           delete_bitmap, cur_version - 1, token.get(), false,
-                                           nullptr, tablet_delete_bitmap));
+                                           delete_bitmap, cur_version - 1, token.get(), nullptr,
+                                           tablet_delete_bitmap));
         RETURN_IF_ERROR(token->wait());
     }
 
@@ -1545,14 +1545,14 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     // Otherwise, it will be submitted to the thread pool for calculation.
     if (segments.size() <= 1) {
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
-                                           cur_version - 1, nullptr, false,
-                                           transient_rs_writer.get(), tablet_delete_bitmap));
+                                           cur_version - 1, nullptr, transient_rs_writer.get(),
+                                           tablet_delete_bitmap));
 
     } else {
         auto token = self->calc_delete_bitmap_executor()->create_token();
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
-                                           cur_version - 1, token.get(), false,
-                                           transient_rs_writer.get(), tablet_delete_bitmap));
+                                           cur_version - 1, token.get(), transient_rs_writer.get(),
+                                           tablet_delete_bitmap));
         RETURN_IF_ERROR(token->wait());
     }
 
@@ -1775,7 +1775,7 @@ Status BaseTablet::update_delete_bitmap_without_lock(
     OlapStopWatch watch;
     auto token = self->calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version - 1, token.get(), false));
+                                       cur_version - 1, token.get()));
     RETURN_IF_ERROR(token->wait());
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,

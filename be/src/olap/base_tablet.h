@@ -176,13 +176,14 @@ public:
     // for rowset 6-7. Also, if a compaction happens between commit_txn and
     // publish_txn, we should remove compaction input rowsets' delete_bitmap
     // and build newly generated rowset's delete_bitmap
-    static Status calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-                                     const std::vector<segment_v2::SegmentSharedPtr>& segments,
-                                     const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                     DeleteBitmapPtr delete_bitmap, int64_t version,
-                                     CalcDeleteBitmapToken* token, bool is_flush_phase,
-                                     RowsetWriter* rowset_writer = nullptr,
-                                     DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+    static Status calc_delete_bitmap(
+            const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+            int64_t version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr,
+            DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+            std::function<void(segment_v2::SegmentSharedPtr, Status)> callback =
+                    [](segment_v2::SegmentSharedPtr, Status) {});
 
     Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                       const segment_v2::SegmentSharedPtr& seg,

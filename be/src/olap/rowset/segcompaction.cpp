@@ -371,8 +371,13 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
 Status SegcompactionWorker::_wait_calc_delete_bitmap(const SegCompactionCandidates& segments) {
     for (const auto& segment : segments) {
-        segment->wait_for_calc_dbm_task();
-        if (auto st = segment->get_calc_dbm_task_st(); !st.ok()) {
+        auto* calc_task = _writer->calc_delete_bitmap_task(segment->id());
+        if (auto st = calc_task->get_status() /* blocking */; !st.ok()) {
+            LOG_WARNING("failed to wait for segment calc dbm task")
+                    .tag("tablet_id", _writer->context().tablet_id)
+                    .tag("rowset_id", segment->rowset_id().to_string())
+                    .tag("segment_id", segment->id())
+                    .tag("error", st.to_string());
             return st;
         }
     }

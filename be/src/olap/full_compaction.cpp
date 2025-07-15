@@ -210,7 +210,7 @@ Status FullCompaction::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr
     OlapStopWatch watch;
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(_tablet, published_rowset, segments,
                                                    specified_rowsets, delete_bitmap, cur_version,
-                                                   nullptr, false, rowset_writer));
+                                                   nullptr, rowset_writer));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });

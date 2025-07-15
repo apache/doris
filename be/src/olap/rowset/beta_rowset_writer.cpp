@@ -333,10 +333,14 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         specified_rowsets = _context.tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
     }
     OlapStopWatch watch;
+    auto finish_callback = [this](segment_v2::SegmentSharedPtr segment, Status st) {
+        auto* task = calc_delete_bitmap_task(segment->id());
+        task->set_status(st);
+    };
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
             _context.tablet, rowset_ptr, segments, specified_rowsets,
             _context.mow_context->delete_bitmap, _context.mow_context->max_version,
-            _calc_delete_bitmap_token.get(), true));
+            _calc_delete_bitmap_token.get(), nullptr, nullptr, std::move(finish_callback)));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });

@@ -46,13 +46,15 @@ suite("test_mow_seq_seg_compaction", "nonConcurrent") {
 
     setBeConfigTemporary(customBeConfig) {
         try {
+            GetDebugPoint().clearDebugPointsForAllBEs()
+            GetDebugPoint().clearDebugPointsForAllFEs()
             // batch_size is 4164 in csv_reader.cpp
             // _batch_size is 8192 in vtablet_writer.cpp
             // to cause multi segments
             GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
             
-            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::calc_segment_delete_bitmap.block", [tablet_id: "${tabletId}"])
-            GetDebugPoint().enableDebugPointForAllBEs("SegcompactionWorker::convert_segment_delete_bitmap.after")
+            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::calc_segment_delete_bitmap.sleep", [tablet_id: "${tabletId}"])
+            // GetDebugPoint().enableDebugPointForAllBEs("SegcompactionWorker::convert_segment_delete_bitmap.after")
             Thread.sleep(1000)
 
             int rows = 4064
@@ -72,6 +74,7 @@ suite("test_mow_seq_seg_compaction", "nonConcurrent") {
                     table "${table1}"
                     set 'column_separator', ','
                     inputStream new ByteArrayInputStream(content.getBytes())
+                    set 'memtable_on_sink_node', 'false'
                     time 30000
 
                     check { result, exception, startTime, endTime ->
@@ -83,16 +86,8 @@ suite("test_mow_seq_seg_compaction", "nonConcurrent") {
                     }
                 }
             }
-
-            Thread.sleep(2000)
-
-            GetDebugPoint().disableDebugPointForAllBEs("SegcompactionWorker::convert_segment_delete_bitmap.after")
-            Thread.sleep(2000)
-
-            GetDebugPoint().disableDebugPointForAllBEs("BaseTablet::calc_segment_delete_bitmap.block")
-            Thread.sleep(1000)
-
-
+            // Thread.sleep(2000)
+            // GetDebugPoint().disableDebugPointForAllBEs("SegcompactionWorker::convert_segment_delete_bitmap.after")
             t1.join()
             qt_sql "select count() from ${table1};"
             qt_sql "select *,__DORIS_VERSION_COL__ as ver, __DORIS_DELETE_SIGN__ as del,__DORIS_SEQUENCE_COL__ as seq from ${table1} where k1<=10 order by k1,__DORIS_VERSION_COL__;"
