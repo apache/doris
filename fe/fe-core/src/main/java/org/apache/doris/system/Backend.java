@@ -86,6 +86,8 @@ public class Backend implements Writable {
     private volatile long lastUpdateMs;
     @SerializedName("lastStartTime")
     private volatile long lastStartTime;
+    @SerializedName("liveSince")
+    private volatile long liveSince;
     @SerializedName("isAlive")
     private AtomicBoolean isAlive;
 
@@ -457,6 +459,10 @@ public class Backend implements Writable {
     }
 
     public long getLastUpdateMs() {
+        return this.lastUpdateMs;
+    }
+
+    public long getLiveSince() {
         return this.lastUpdateMs;
     }
 
@@ -884,6 +890,7 @@ public class Backend implements Writable {
                         TimeUtils.longToTimeString(hbResponse.getBeStartTime()),
                         lastStartTime, hbResponse.getBeStartTime());
                 this.lastStartTime = hbResponse.getBeStartTime();
+                this.liveSince = System.currentTimeMillis();
                 this.isAlive.set(true);
             }
 
