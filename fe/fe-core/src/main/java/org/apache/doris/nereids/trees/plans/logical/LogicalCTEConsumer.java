@@ -198,4 +198,21 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
                 "relationId", relationId,
                 "name", name);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        LogicalCTEConsumer that = (LogicalCTEConsumer) o;
+        return Objects.equals(consumerToProducerOutputMap, that.consumerToProducerOutputMap);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
 }
