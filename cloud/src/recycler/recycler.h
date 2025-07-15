@@ -32,6 +32,7 @@
 
 #include "common/bvars.h"
 #include "meta-service/txn_lazy_committer.h"
+#include "meta-store/versionstamp.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 
@@ -279,8 +280,9 @@ private:
 
     // Recycle operation log and the log key.
     //
+    // The log_key is constructed from the log_version and instance_id.
     // Both `operation_log` and `log_key` will be removed in the same transaction, to ensure atomicity.
-    int recycle_operation_log(std::string_view log_key, OperationLogPB operation_log);
+    int recycle_operation_log(Versionstamp log_version, OperationLogPB operation_log);
 
 private:
     std::atomic_bool stopped_ {false};

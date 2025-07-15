@@ -38,6 +38,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
@@ -72,7 +73,8 @@ int InstanceRecycler::recycle_operation_logs() {
         return 0;
     }
 
-    LOG_WARNING("begin to recycle operation logs").tag("instance_id", instance_id_);
+    AnnotateTag tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle operation logs");
 
     StopWatch stop_watch;
     size_t total_operation_logs = 0;
@@ -84,7 +86,6 @@ int InstanceRecycler::recycle_operation_logs() {
     DORIS_CLOUD_DEFER {
         int64_t cost = stop_watch.elapsed_us() / 1000'000;
         LOG_WARNING("recycle operation logs, cost={}s", cost)
-                .tag("instance_id", instance_id_)
                 .tag("total_operation_logs", total_operation_logs)
                 .tag("recycled_operation_logs", recycled_operation_logs)
                 .tag("operation_log_data_size", operation_log_data_size)
@@ -97,21 +98,24 @@ int InstanceRecycler::recycle_operation_logs() {
         std::string_view log_key(key);
         Versionstamp versionstamp;
         if (!decode_versioned_key(&log_key, &versionstamp)) {
-            LOG(WARNING) << "failed to decode versionstamp from key: " << hex(key);
+            LOG_WARNING("failed to decode versionstamp from operation log key")
+                    .tag("key", hex(key));
             return -1;
         }
 
         OperationLogPB operation_log;
         if (!operation_log.ParseFromArray(value.data(), value.size())) {
-            LOG(WARNING) << "failed to parse OperationLogPB from key: " << hex(key);
+            LOG_WARNING("failed to parse OperationLogPB from operation log key")
+                    .tag("key", hex(key));
             return -1;
         }
 
         bool need_recycle = true; // Always recycle operation logs for now
         if (need_recycle) {
-            int res = recycle_operation_log(key, std::move(operation_log));
+            AnnotateTag tag("log_key", hex(log_key));
+            int res = recycle_operation_log(versionstamp, std::move(operation_log));
             if (res != 0) {
-                LOG(WARNING) << "failed to recycle operation log: " << hex(key);
+                LOG_WARNING("failed to recycle operation log").tag("error_code", res);
                 return res;
             }
 
@@ -130,7 +134,6 @@ int InstanceRecycler::recycle_operation_logs() {
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
             LOG_WARNING("failed to create transaction for checking multi-version status")
-                    .tag("instance_id", instance_id_)
                     .tag("error_code", err);
             return -1;
         }
@@ -139,21 +142,19 @@ int InstanceRecycler::recycle_operation_logs() {
         err = txn->get(instance_key({instance_id_}), &value);
         if (err != TxnErrorCode::TXN_OK) {
             LOG_WARNING("failed to get instance info for checking multi-version status")
-                    .tag("instance_id", instance_id_)
                     .tag("error_code", err);
             return -1;
         }
 
         InstanceInfoPB instance_info;
         if (!instance_info.ParseFromString(value)) {
-            LOG_WARNING("failed to parse InstanceInfoPB").tag("instance_id", instance_id_);
+            LOG_WARNING("failed to parse InstanceInfoPB").tag("value_size", value.size());
             return -1;
         }
 
         if (!instance_info.has_multi_version_status() ||
             instance_info.multi_version_status() != instance_info_.multi_version_status()) {
             LOG_WARNING("multi-version status changed for instance")
-                    .tag("instance_id", instance_id_)
                     .tag("old_status", instance_info_.multi_version_status())
                     .tag("new_status", instance_info.multi_version_status());
             return 1; // Indicate that the status has changed
@@ -169,15 +170,37 @@ int InstanceRecycler::recycle_operation_logs() {
                             std::move(is_multi_version_status_changed));
 }
 
-int InstanceRecycler::recycle_operation_log(std::string_view log_key,
+int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
                                             OperationLogPB operation_log) {
-    // TODO: Implement the logic to recycle operation logs.
+    std::string log_key = encode_versioned_key(versioned::log_key(instance_id_), log_version);
+
     std::vector<std::string> keys_to_remove;
-    keys_to_remove.emplace_back(log_key);
+    keys_to_remove.push_back(log_key);
+
+    MetaReader meta_reader(instance_id_, txn_kv_.get(), log_version);
+    if (operation_log.has_commit_partition()) {
+        const auto& commit_partition_log = operation_log.commit_partition();
+        int64_t table_id = commit_partition_log.table_id();
+        Versionstamp prev_version;
+        TxnErrorCode err = meta_reader.get_table_version(table_id, &prev_version);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            // No operation log found, nothing to recycle.
+        } else if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get table version for recycling operation log")
+                    .tag("table_id", table_id)
+                    .tag("error_code", err);
+            return -1;
+        }
+
+        std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
+        keys_to_remove.emplace_back(encode_versioned_key(table_version_key, prev_version));
+    }
+
+    // TODO: Implement the other logic to recycle operation logs.
+
     TxnErrorCode err = txn_remove(txn_kv_.get(), keys_to_remove);
     if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to remove operation log: " << hex(log_key)
-                     << ", error code: " << static_cast<int>(err);
+        LOG_WARNING("failed to remove operation log").tag("error_code", err);
         return -1;
     }
     return 0;
