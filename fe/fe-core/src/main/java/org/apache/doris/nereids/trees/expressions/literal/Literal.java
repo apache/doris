@@ -403,6 +403,9 @@ public abstract class Literal extends Expression implements LeafExpression {
         if (this instanceof NullLiteral) {
             return new NullLiteral(targetType);
         }
+        if (targetType.isStringLikeType()) {
+            return deprecatingUncheckedCastTo(targetType);
+        }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
     }
 
