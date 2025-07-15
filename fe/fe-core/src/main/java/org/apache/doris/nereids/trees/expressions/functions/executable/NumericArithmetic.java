@@ -704,17 +704,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "even")
     public static Expression even(DoubleLiteral first) {
-        double value;
-        double a = first.getValue();
-        if (a >= 0) {
-            value = Math.ceil(a);
-        } else {
-            value = Math.ceil(-a);
-            value = -value;
-        }
-        if (Math.floor(value / 2) * 2 != value) {
-            value += (a >= 0) ? 1 : -1;
-        }
+        double mag = Math.abs(first.getValue());
+        double evenMag = 2 * Math.ceil(mag / 2);
+        double value = Math.copySign(evenMag, mag);
         return checkOutputBoundary(new DoubleLiteral(value));
     }
 
@@ -772,6 +764,17 @@ public class NumericArithmetic {
     @ExecFunction(name = "lcm")
     public static Expression lcm(IntegerLiteral first, IntegerLiteral second) {
         return new BigIntLiteral(ArithmeticUtils.lcm(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * lcm
+     */
+    @ExecFunction(name = "lcm")
+    public static Expression lcm(BigIntLiteral first, BigIntLiteral second) {
+        BigInteger a = new BigInteger(first.getValue().toString());
+        BigInteger b = new BigInteger(second.getValue().toString());
+        Long g = ArithmeticUtils.gcd(first.getValue(), second.getValue());
+        return new LargeIntLiteral(a.multiply(b).divide(new BigInteger(g.toString())));
     }
 
     /**
