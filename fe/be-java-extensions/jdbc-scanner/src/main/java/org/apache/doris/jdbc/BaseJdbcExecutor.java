@@ -241,7 +241,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                     Integer columnIndex = columnIndexMap.get(outputColumnName);
 
                     if (columnIndex != null) {
-                        ColumnType type = outputTable.getColumnType(j);
+                        ColumnType type = convertTypeIfNecessary(j, outputTable.getColumnType(j), replaceStringList);
                         block.get(j)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
                     } else {
                         throw new RuntimeException("Column not found in result set: " + outputColumnName);
@@ -495,6 +495,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     protected abstract Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList)
             throws SQLException;
+
+    protected ColumnType convertTypeIfNecessary(int outputIdx, ColumnType origType, String[] replaceStringList) {
+        return origType;
+    }
 
     /*
     | Type                                        | Java Array Type            |
