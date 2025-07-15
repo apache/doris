@@ -216,7 +216,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(get_obj_store_info)
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -1005,7 +1005,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(alter_obj_store_info)
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -1284,7 +1284,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(alter_obj_store_info)
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -1474,7 +1474,7 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         code = MetaServiceCode::INVALID_ARGUMENT;
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     if (!request->has_ram_user() && request->internal_bucket_user().empty()) {
         msg = "nothing to update";
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1715,7 +1715,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         msg = "instance id not set";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1792,7 +1792,6 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             g_bvar_ms_alter_instance.put(instance_id, sw.elapsed_us());
         }
     };
-    AnnotateTag tag_instance_id("instance_id", instance_id);
 
     std::pair<MetaServiceCode, std::string> ret;
     switch (request->op()) {
@@ -1996,7 +1995,7 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(get_instance);
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -2041,7 +2040,6 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
         LOG_WARNING(msg);
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
 
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -2125,7 +2123,6 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         code = MetaServiceCode::INVALID_ARGUMENT;
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
 
     if (!request->has_op()) {
         msg = "op not given";
@@ -2492,7 +2489,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
             return;
         }
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(get_cluster)
     // ATTN: if the case that multiple conditions are satisfied, just use by this order:
     // cluster_id -> cluster_name -> mysql_user_name
@@ -2625,7 +2622,7 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(create_stage)
 
     if (!request->has_stage()) {
@@ -2814,7 +2811,7 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(get_stage)
     if (!request->has_type()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3075,7 +3072,7 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(drop_stage)
 
     if (!request->has_type()) {
@@ -3205,7 +3202,7 @@ void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(get_iam)
 
     InstanceKeyInfo key_info {instance_id};
@@ -3386,7 +3383,7 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     if (!request->has_ram_user() || request->ram_user().user_id().empty() ||
         request->ram_user().ak().empty() || request->ram_user().sk().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3478,7 +3475,7 @@ void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(begin_copy)
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -3595,7 +3592,7 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(finish_copy)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -3700,7 +3697,6 @@ void MetaServiceImpl::get_copy_job(google::protobuf::RpcController* controller,
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -3752,7 +3748,7 @@ void MetaServiceImpl::get_copy_files(google::protobuf::RpcController* controller
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(get_copy_files)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -3816,7 +3812,7 @@ void MetaServiceImpl::filter_copy_files(google::protobuf::RpcController* control
         LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(filter_copy_files)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);

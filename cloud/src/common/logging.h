@@ -38,17 +38,26 @@ uint64_t get_log_id(google::protobuf::RpcController* controller);
 #define LOG_ERROR(...) ::doris::cloud::TaggableLogger(LOG(ERROR), ##__VA_ARGS__)
 #define LOG_FATAL(...) ::doris::cloud::TaggableLogger(LOG(FATAL), ##__VA_ARGS__)
 
+// If you want to use AnnotateTag but the parameters do not match AnnotateTagAllowType, causing the compile fail
+// you need to add the supported types using the following syntax:
+// such as you want add a `int64_t txn_id; AnnotateTag tag_txn_id("txn_id", txn_id);`
+// 1. add type to AnnotateTagAllowType: `std::is_same_v<int64_t, T>` connect with `||` with other is_same_v
+// 2. --if is a rvalue (see tag_log_id) add origin type to `std::variant<..., uint64_t> data;`
+//    +-if is a lvalue (see txn_id) add pointer type to `std::variant<..., int64_t*> data;`
+//    +-if is a more complex type (class A,B...) maybe you need rewrite `AnnotateTagValue::to_string()`
+//      +- you need prove a lambda to AnnotateTagValueHelper{[](const A&)...} make sure return std::string
 template <typename T>
-concept AnnotateTagAllowType =
-        requires { std::is_same_v<uint64_t, T> || std::is_same_v<std::string, T>; };
+concept AnnotateTagAllowType = requires {
+    std::is_same_v<uint64_t, T> || std::is_same_v<int64_t, T> || std::is_same_v<std::string, T>;
+};
 
 class AnnotateTagValue {
 public:
     template <AnnotateTagAllowType T>
-    AnnotateTagValue(T&& val) {
+    explicit AnnotateTagValue(T&& val) {
         // rvalue store origin value, lvalue store pointer
         if constexpr (std::is_rvalue_reference_v<decltype(val)>) {
-            data_ = val;
+            data_ = std::move(val);
         } else {
             data_ = &val;
         }
@@ -57,13 +66,14 @@ public:
     std::string to_string() const;
 
 private:
-    std::variant<uint64_t, uint64_t*, std::string*> data_;
+    std::variant<uint64_t, int64_t*, std::string*> data_;
 };
 
 class AnnotateTag final : public butil::LinkNode<AnnotateTag> {
 public:
     template <AnnotateTagAllowType T>
-    AnnotateTag(std::string_view key, T&& value) : key_(key), value_(std::forward<T>(value)) {
+    explicit AnnotateTag(std::string_view key, T&& value)
+            : key_(key), value_(std::forward<T>(value)) {
         append_to_tag_list();
     }
     ~AnnotateTag();

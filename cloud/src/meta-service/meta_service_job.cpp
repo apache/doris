@@ -417,7 +417,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
         msg = ss.str();
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(start_tablet_job)
     if (!request->has_job() ||
         (request->job().compaction().empty() && !request->job().has_schema_change())) {
@@ -1480,7 +1480,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
         LOG_INFO("{}", msg);
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(finish_tablet_job)
     if (!request->has_job() ||
         (request->job().compaction().empty() && !request->job().has_schema_change())) {

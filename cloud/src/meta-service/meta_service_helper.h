@@ -258,6 +258,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     StopWatch sw;                                                                             \
     [[maybe_unused]] std::string instance_id;                                                 \
     AnnotateTag tag_log_id("log_id", get_log_id(controller));                                 \
+    AnnotateTag tag_instance_id("instance_id", instance_id);                                  \
     auto ctrl = static_cast<brpc::Controller*>(controller);                                   \
     begin_rpc(#func_name, ctrl, request);                                                     \
     brpc::ClosureGuard closure_guard(done);                                                   \

@@ -87,7 +87,6 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
 
     RPC_RATE_LIMIT(prepare_index)
 
@@ -173,7 +172,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(commit_index)
 
     if (request->index_ids().empty() || !request->has_table_id()) {
@@ -257,7 +256,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(drop_index)
 
     if (request->index_ids().empty() || !request->has_table_id()) {
@@ -359,7 +358,6 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
 
     RPC_RATE_LIMIT(prepare_partition)
 
@@ -448,7 +446,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(commit_partition)
 
     if (request->partition_ids().empty() || !request->has_table_id()) {
@@ -536,7 +534,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     RPC_RATE_LIMIT(drop_partition)
 
     if (request->partition_ids().empty() || request->index_ids().empty() ||
@@ -690,7 +688,7 @@ void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
+
     if (!request->has_op()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "op not given";
