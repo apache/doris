@@ -470,7 +470,6 @@ private:
 
     // use in iter hash map
     mutable uint32_t iter_idx = 1;
-    vectorized::Arena* pool;
     bool _has_null_key = false;
     bool _keep_null_key = false;
     bool _empty_build_side = true;

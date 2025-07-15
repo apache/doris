@@ -52,6 +52,12 @@ under the License.
             <artifactId>iceberg-core</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>auth</artifactId>
+            <version>${awssdk.version}</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>

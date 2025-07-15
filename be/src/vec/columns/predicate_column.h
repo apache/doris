@@ -245,11 +245,8 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
-            if (_arena == nullptr) {
-                _arena.reset(new Arena());
-            }
             const auto total_mem_size = offsets[num] - offsets[0];
-            char* destination = _arena->alloc(total_mem_size);
+            char* destination = _arena.alloc(total_mem_size);
             memcpy(destination, data_ + offsets[0], total_mem_size);
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -268,16 +265,12 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
-            if (_arena == nullptr) {
-                _arena.reset(new Arena());
-            }
-
             size_t total_mem_size = 0;
             for (size_t i = 0; i < num; i++) {
                 total_mem_size += strings[i].size;
             }
 
-            char* destination = _arena->alloc(total_mem_size);
+            char* destination = _arena.alloc(total_mem_size);
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -308,9 +301,7 @@ public:
 
     void clear() override {
         data.clear();
-        if (_arena != nullptr) {
-            _arena->clear();
-        }
+        _arena.clear();
     }
 
     size_t byte_size() const override { return data.size() * sizeof(T); }
@@ -355,6 +346,8 @@ public:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get field not supported in PredicateColumnType");
     }
+
+    size_t serialize_size_at(size_t row) const override { return 0; }
 
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
@@ -425,7 +418,7 @@ public:
 private:
     Container data;
     // manages the memory for slice's data(For string type)
-    std::unique_ptr<Arena> _arena;
+    Arena _arena;
     std::vector<StringRef> _refs;
 };
 

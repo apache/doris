@@ -1243,14 +1243,6 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
-    | KW_REFRESH KW_LDAP KW_ALL
-    {:
-        RESULT = new RefreshLdapStmt(true, "");
-    :}
-    | KW_REFRESH KW_LDAP opt_user:user
-    {:
-        RESULT = new RefreshLdapStmt(false, user);
-    :}
     ;
 
 clean_stmt ::=
@@ -2742,10 +2734,6 @@ drop_stmt ::=
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
-    :}
-    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
-    {:
-        RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
     :}
     | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
     {:

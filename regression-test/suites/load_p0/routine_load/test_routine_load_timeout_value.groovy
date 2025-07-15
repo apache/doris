@@ -183,7 +183,7 @@ suite("test_routine_load_timeout_value","nonConcurrent") {
             }
         } finally {
             sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 }
