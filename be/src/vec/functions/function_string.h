@@ -1586,10 +1586,8 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto res_column = ColumnString::create();
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
-        ColumnPtr argument_column_2;
-        bool is_const;
-        std::tie(argument_column_2, is_const) =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
+        ColumnPtr argument_column_2 =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
         auto result_column = assert_cast<ColumnString*>(res_column.get());
 
