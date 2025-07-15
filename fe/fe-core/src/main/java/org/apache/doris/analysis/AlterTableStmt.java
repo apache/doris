@@ -61,12 +61,12 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         if (tbl == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
-        tbl.analyze(analyzer);
+        tbl.analyze();
         InternalDatabaseUtil.checkDatabase(tbl.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tbl.getCtl(), tbl.getDb(), tbl.getTbl(),
@@ -83,7 +83,7 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
             if (op instanceof AlterTableClause) {
                 ((AlterTableClause) op).setTableName(tbl);
             }
-            op.analyze(analyzer);
+            op.analyze();
         }
     }
 
@@ -145,7 +145,7 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                         } else {
                             throw new AnalysisException("unknown feature : " + alterFeature);
                         }
-                        addColumnClause.analyze(analyzer);
+                        addColumnClause.analyze();
                         clauses.add(addColumnClause);
                     }
                 } else {
@@ -163,7 +163,7 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                         String lastCol = fullSchema.get(fullSchema.size() - 1).getName();
                         addColumnClause = new AddColumnClause(skipBitmapCol, new ColumnPosition(lastCol), null, null);
                     }
-                    addColumnClause.analyze(analyzer);
+                    addColumnClause.analyze();
                     clauses.add(addColumnClause);
                 }
             // add hidden column to rollup table

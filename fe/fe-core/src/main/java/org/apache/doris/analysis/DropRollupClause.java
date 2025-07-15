@@ -37,7 +37,7 @@ public class DropRollupClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(rollupName)) {
             throw new AnalysisException("No rollup in delete rollup.");
         }

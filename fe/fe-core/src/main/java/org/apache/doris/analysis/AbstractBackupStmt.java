@@ -57,8 +57,8 @@ public class AbstractBackupStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        labelName.analyze(analyzer);
+    public void analyze() throws UserException {
+        labelName.analyze();
 
         // user need database level privilege(not table level), because when doing restore operation,
         // the restore table may be newly created, so we can not judge its privileges.
@@ -77,7 +77,7 @@ public class AbstractBackupStmt extends DdlStmt {
             return;
         }
         checkTableRefWithoutDatabase();
-        abstractBackupTableRefClause.analyze(analyzer);
+        abstractBackupTableRefClause.analyze();
         customAnalyzeTableRefClause();
     }
 

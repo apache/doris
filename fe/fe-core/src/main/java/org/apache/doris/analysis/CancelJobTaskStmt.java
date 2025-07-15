@@ -44,8 +44,8 @@ public class CancelJobTaskStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         CreateJobStmt.checkAuth();
         CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
         if (!compoundPredicate.getOp().equals(CompoundPredicate.Operator.AND)) {

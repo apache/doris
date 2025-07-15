@@ -75,7 +75,7 @@ public class CreateIndexClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (indexDef == null) {
             throw new AnalysisException("index definition expected.");
         }

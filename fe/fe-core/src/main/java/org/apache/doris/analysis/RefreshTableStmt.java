@@ -53,9 +53,9 @@ public class RefreshTableStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        tableName.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
+        tableName.analyze();
 
         // check access
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),

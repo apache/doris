@@ -48,8 +48,8 @@ public class DropCatalogStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         Util.checkCatalogAllRules(catalogName);
 
         if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {

@@ -17,9 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -69,14 +67,14 @@ public class AlterTableStatsStmt extends DdlStmt implements NotFallbackInParser 
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
 
-        super.analyze(analyzer);
-        tableName.analyze(analyzer);
+        super.analyze();
+        tableName.analyze();
 
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
                 .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType))
@@ -90,9 +88,6 @@ public class AlterTableStatsStmt extends DdlStmt implements NotFallbackInParser 
             statsTypeToValue.put(statsType, value);
         });
 
-        Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
-        Table table = db.getTableOrAnalysisException(tableName.getTbl());
-        tableId = table.getId();
     }
 
     @Override

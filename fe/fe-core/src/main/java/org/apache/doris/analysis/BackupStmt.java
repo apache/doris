@@ -61,8 +61,8 @@ public class BackupStmt extends AbstractBackupStmt implements NotFallbackInParse
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
     }
 
     @Override
