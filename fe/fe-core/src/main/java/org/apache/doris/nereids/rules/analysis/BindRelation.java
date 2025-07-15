@@ -229,6 +229,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
             return scan.withPreAggStatus(PreAggStatus.on());
         }
+        if (scan.getTable().getKeysType() == KeysType.AGG_KEYS) {
+            return scan.withPreAggStatus(PreAggStatus.off("force off for all agg table, test only"));
+        }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
             // add agg on olap scan
