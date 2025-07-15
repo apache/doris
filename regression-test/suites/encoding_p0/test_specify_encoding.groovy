@@ -296,8 +296,101 @@ suite("test_specify_encoding")  {
             map(1, 100, 2, 200), 
             struct(1)         
         ) 
-"""
+    """
     qt_select_default "SELECT * FROM ${defaultTableName}"
 
+    def unsupportedEncodingTableName = "unsupported_encoding"
+    sql """ DROP TABLE IF EXISTS ${unsupportedEncodingTableName} """
 
+    def allEncodings = ['plain', 'prefix', 'rle', 'dict', 'bit_shuffle', 'for']
+    def supportedEncodingMap = [:]
+// 1. 数值类型
+    ['tinyint', 'smallint', 'int', 'bigint'].each { type ->
+        supportedEncodingMap[type] = [
+                'bit_shuffle',
+                type == 'largeint' ? [] : ['for'],
+                'plain'
+        ] as Set<String>
+    }
+    supportedEncodingMap['largeint'] = ['bit_shuffle'] as Set<String>
+
+// 2. 浮点数类型
+    ['float', 'double'].each { type ->
+        supportedEncodingMap[type] = [
+                'bit_shuffle',
+                'plain'
+        ] as Set<String>
+    }
+
+// 3. 字符类类型
+    def charLikeEncoding = [
+            'dict',
+            'plain'
+    ] as Set<String>
+
+    ['char', 'varchar', 'string', 'json', 'variant'].each { type ->
+        supportedEncodingMap[type] = charLikeEncoding
+    }
+
+// 4. 布尔类型
+    supportedEncodingMap['boolean'] = [
+            'rle',
+            'bit_shuffle',
+            'plain'
+    ] as Set<String>
+
+// 5. 日期时间类型
+    def dateLikeEncoding = [
+            'bit_shuffle',
+            'plain'
+    ] as Set<String>
+
+    ['date', 'datetime'].each { type ->
+        supportedEncodingMap[type] = dateLikeEncoding
+    }
+
+// 6. decimal
+    supportedEncodingMap['decimal'] = [
+            'bit_shuffle'
+    ] as Set<String>
+
+// 7. IP 地址类型的编码配置
+    supportedEncodingMap['ipv4'] = [
+            'bit_shuffle',
+            'plain'
+    ] as Set<String>
+
+    supportedEncodingMap['ipv6'] = [
+            'bit_shuffle'
+    ] as Set<String>
+
+    // 8. 特殊类型
+    supportedEncodingMap['hll'] = [
+            'plain'
+    ] as Set<String>
+
+    def aggMethod = [:]
+    aggMethod['hll'] = 'hll_union'
+
+
+    for (final def entry in supportedEncodingMap.entrySet()) {
+        def type = entry.getKey()
+        def encodingSet = entry.getValue()
+        for (final def encoding in allEncodings) {
+            if (!encodingSet.contains(encoding)) {
+                test {
+                    sql """CREATE TABLE IF NOT EXISTS ${unsupportedEncodingTableName} (
+                       `tiny` tinyint NULL,
+                       `${type + "_" + encoding}` ${type} encoding "${encoding}" ${aggMethod.containsKey(type) ? aggMethod.get(type) : ""} NOT NULL
+                        )
+                        ${aggMethod.containsKey(type) ? "AGGREGATE KEY(tiny)" : ""}
+                        PROPERTIES (
+                        "replication_allocation" = "tag.location.default: 1"
+                        )
+            """
+                    exception "Unsupported encoding"
+                }
+            }
+        }
+    }
 }
