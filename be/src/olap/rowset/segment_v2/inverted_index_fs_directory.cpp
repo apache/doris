@@ -697,7 +697,7 @@ std::unique_ptr<lucene::store::IndexOutput> DorisFSDirectory::createOutputV2(
         io::FileWriter* file_writer) {
     auto ret = std::make_unique<FSIndexOutputV2>();
     ret->init(file_writer);
-    return std::move(ret);
+    return ret;
 }
 
 std::string DorisFSDirectory::toString() const {
