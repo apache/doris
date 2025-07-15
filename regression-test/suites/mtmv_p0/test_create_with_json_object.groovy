@@ -24,6 +24,8 @@ suite("test_create_with_json_object","mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
+    sql """ set enable_fold_constant_by_be = false;"""
+
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
             l_orderkey INTEGER NOT NULL, 
