@@ -217,10 +217,10 @@ Status JdbcConnector::query() {
                                          _conn_param.query_string, status.to_string());
         }
         if (colunm_count < materialize_num) {
-        	return Status::InternalError(
+            return Status::InternalError(
                     "JDBC query returned fewer columns ({}) than required ({}).", colunm_count,
                     materialize_num);
-	    }
+        }
     }
 
     LOG(INFO) << "JdbcConnector::query has exec success: " << _sql_str;
