@@ -418,13 +418,13 @@ public:
     T& operator[](ssize_t n) {
         /// <= size, because taking address of one element past memory range is Ok in C++ (expression like &arr[arr.size()] is perfectly valid).
         DCHECK_GE(n, (static_cast<ssize_t>(pad_left_) ? -1 : 0));
-        DCHECK_LE(n, static_cast<ssize_t>(this->size()));
+        DCHECK_LT(n, static_cast<ssize_t>(this->size()));
         return t_start()[n];
     }
 
     const T& operator[](ssize_t n) const {
         DCHECK_GE(n, (static_cast<ssize_t>(pad_left_) ? -1 : 0));
-        DCHECK_LE(n, static_cast<ssize_t>(this->size()));
+        DCHECK_LT(n, static_cast<ssize_t>(this->size()));
         return t_start()[n];
     }
 
