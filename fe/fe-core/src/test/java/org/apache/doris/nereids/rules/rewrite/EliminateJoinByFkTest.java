@@ -150,7 +150,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                             List<NamedExpression> projects = project.getProjects();
                             Assertions.assertEquals(2, projects.size());
                             Assertions.assertEquals("non_nullable(id3) AS `id1`", projects.get(0).toSql());
-                            Assertions.assertEquals("(non_nullable(id3) + 1) AS `k`", projects.get(1).toSql());
+                            Assertions.assertEquals("(cast(non_nullable(id3) as BIGINT) + 1) AS `k`", projects.get(1).toSql());
                             Assertions.assertFalse(projects.get(0).nullable());
                             Assertions.assertFalse(projects.get(1).nullable());
                             return true;
