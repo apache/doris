@@ -606,7 +606,8 @@ Status HttpClient::escape_url(CURL* curl, const std::string& url, std::string* e
             std::string value = query.substr(equal_pos + 1, ampersand_pos - equal_pos - 1);
 
             auto encoded_value = std::unique_ptr<char, decltype(&curl_free)>(
-                    curl_easy_escape(curl, value.c_str(), value.length()), &curl_free);
+                    curl_easy_escape(curl, value.c_str(), cast_set<int>(value.length())),
+                    &curl_free);
             if (encoded_value) {
                 encoded_query += key + "=" + std::string(encoded_value.get());
             } else {
