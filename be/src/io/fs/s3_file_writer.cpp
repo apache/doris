@@ -477,9 +477,11 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         buf.set_status({resp.status.code, std::move(resp.status.msg)});
         return;
     }
-
+    MonotonicStopWatch timer3;
+    timer3.start();
     auto st = check_after_upload(client.get(), resp, _obj_storage_path_opts, _bytes_appended,
                                  "put_object");
+    timer3.stop();
     if (!st.ok()) {
         buf.set_status(st);
         return;
@@ -487,7 +489,8 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
 
     LOG(INFO) << "put_object " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " time=" << timer.elapsed_time_milliseconds()
-              << "ms" << " time2=" << timer2.elapsed_time_milliseconds();
+              << "ms" << " time2=" << timer2.elapsed_time_milliseconds()
+              << " time3=" << timer3.elapsed_time_milliseconds();
     s3_file_created_total << 1;
 }
 
