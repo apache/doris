@@ -696,7 +696,20 @@ lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
 std::unique_ptr<lucene::store::IndexOutput> DorisFSDirectory::createOutputV2(
         io::FileWriter* file_writer) {
     auto ret = std::make_unique<FSIndexOutputV2>();
-    ret->init(file_writer);
+    ErrorContext error_context;
+    try {
+        ret->init(file_writer);
+    } catch (CLuceneError& err) {
+        error_context.eptr = std::current_exception();
+        error_context.err_msg.append("FSIndexOutputV2 init error: ");
+        error_context.err_msg.append(err.what());
+        LOG(ERROR) << error_context.err_msg;
+    }
+    FINALLY_EXCEPTION({
+        if (error_context.eptr) {
+            FINALLY_CLOSE(ret);
+        }
+    })
     return ret;
 }
 
