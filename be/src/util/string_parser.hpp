@@ -83,7 +83,6 @@ bool range_suite(const char* s, const char* end) {
 inline auto is_digit_range = range_suite<is_numeric_ascii>;
 
 inline Status assert_within_bound(const char* s, const char* end, size_t offset) {
-    DCHECK(offset >= 0);
     if (s + offset >= end) [[unlikely]] {
         return Status::InvalidArgument(
                 "StringParser: failed because we need at least {} but only got '{}'", offset,
