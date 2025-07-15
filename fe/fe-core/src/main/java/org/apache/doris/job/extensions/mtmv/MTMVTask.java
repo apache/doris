@@ -234,8 +234,6 @@ public class MTMVTask extends AbstractTask {
             } finally {
                 MetaLockUtils.readUnlockTables(tableIfs);
             }
-
-
             this.refreshMode = generateRefreshMode(needRefreshPartitions);
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
