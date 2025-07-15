@@ -290,6 +290,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 ConnectContext.get().removeLastDBOfCatalog(catalogName);
             }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
+            LOG.info("finished to drop catalog {}:{}", catalog.getName(), catalog.getId());
         } finally {
             writeUnlock();
         }
@@ -514,6 +515,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
             }
             addCatalog(catalog);
+            LOG.info("finished to create catalog {}:{}, is replay: {}", catalog.getName(), catalog.getId(), isReplay);
         } finally {
             writeUnlock();
         }

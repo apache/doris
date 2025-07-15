@@ -587,7 +587,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
-        return dorisCatalog.getThreadPoolExecutor();
+        return dorisCatalog.getThreadPoolWithPreAuth();
     }
 
     private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {

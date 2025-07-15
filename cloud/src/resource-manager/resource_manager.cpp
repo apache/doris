@@ -1223,6 +1223,37 @@ void ResourceManager::refresh_instance(const std::string& instance_id,
     for (int i = 0; i < instance.clusters_size(); ++i) {
         add_cluster_to_index_no_lock(instance_id, instance.clusters(i));
     }
+
+    if (instance.has_multi_version_status()) {
+        instance_multi_version_status_[instance_id] = instance.multi_version_status();
+    } else {
+        instance_multi_version_status_.erase(instance_id);
+    }
+}
+
+bool ResourceManager::is_version_read_enabled(std::string_view instance_id) const {
+    MultiVersionStatus status = get_instance_multi_version_status(instance_id);
+    return status == MultiVersionStatus::MULTI_VERSION_READ_WRITE ||
+           status == MultiVersionStatus::MULTI_VERSION_ENABLED;
+}
+
+bool ResourceManager::is_version_write_enabled(std::string_view instance_id) const {
+    MultiVersionStatus status = get_instance_multi_version_status(instance_id);
+    return status == MultiVersionStatus::MULTI_VERSION_WRITE_ONLY ||
+           status == MultiVersionStatus::MULTI_VERSION_READ_WRITE ||
+           status == MultiVersionStatus::MULTI_VERSION_ENABLED;
+}
+
+MultiVersionStatus ResourceManager::get_instance_multi_version_status(
+        std::string_view instance_id) const {
+    std::shared_lock lock(mtx_);
+    auto it = instance_multi_version_status_.find(std::string(instance_id));
+    if (it != instance_multi_version_status_.end()) {
+        return it->second;
+    }
+
+    // Default to disabled if not found or not set
+    return MultiVersionStatus::MULTI_VERSION_DISABLED;
 }
 
 } // namespace doris::cloud

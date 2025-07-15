@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv.rollup;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -108,7 +109,8 @@ public class ContainDistinctFunctionRollupHandler extends AggFunctionRollUpHandl
                 if (!context.param) {
                     return expr;
                 }
-                if (expr instanceof Literal || expr instanceof BinaryArithmetic || expr instanceof Slot) {
+                if (expr instanceof Literal || expr instanceof BinaryArithmetic || expr instanceof Slot
+                        || expr instanceof Cast) {
                     return super.visit(expr, context);
                 }
                 context.param = false;

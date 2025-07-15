@@ -6297,19 +6297,7 @@ integer_list ::=
     ;
 
 admin_stmt ::=
-    KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
-    {:
-        RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, false);
-    :}
-    | KW_ADMIN KW_SET KW_ALL KW_FRONTENDS KW_CONFIG opt_key_value_map:configs
-    {:
-        RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
-    :}
-    | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs KW_ALL
-    {:
-        RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
-    :}
-    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
+    KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
     {:
         RESULT = new AdminSetPartitionVersionStmt(name, properties);
     :}
