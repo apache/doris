@@ -1521,6 +1521,7 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
     int64_t cur_time = UnixMillis();
     if (cur_time - _last_get_peers_replica_backends_time_ms < 10000) {
         LOG_WARNING("failed to get peers replica backens.")
+                .tag("tablet_id", tablet_id)
                 .tag("last time", _last_get_peers_replica_backends_time_ms)
                 .tag("cur time", cur_time);
         return false;
@@ -1702,8 +1703,8 @@ Status StorageEngine::_persist_broken_paths() {
 Status StorageEngine::submit_clone_task(Tablet* tablet, int64_t version) {
     std::vector<TBackend> backends;
     if (!get_peers_replica_backends(tablet->tablet_id(), &backends)) {
-        LOG(WARNING) << tablet->tablet_id() << " tablet doesn't have peer replica backends";
-        return Status::InternalError("");
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "get_peers_replica_backends failed.");
     }
     TAgentTaskRequest task;
     TCloneReq req;
