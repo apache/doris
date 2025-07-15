@@ -441,7 +441,7 @@ public class PaimonUtil {
      */
     public static Table buildSnapshotIdTable(Table baseTable, String snapshotId) {
         Map<String, String> options = new HashMap<>(
-                baseTable.options().size() + PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
+                PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
 
         // For Paimon FROM_SNAPSHOT startup mode, must set only one key in:
         // [scan_tag_name, scan_watermark, scan_snapshot_id]
@@ -462,7 +462,7 @@ public class PaimonUtil {
      */
     public static Table buildSnapshotTimestampTable(Table baseTable, String timestampStr) {
         Map<String, String> options = new HashMap<>(
-                baseTable.options().size() + PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
+                PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
 
         // For Paimon FROM_TIMESTAMP startup mode, must set only one key in:
         // [scan_timestamp, scan_timestamp_millis]
@@ -483,11 +483,10 @@ public class PaimonUtil {
      */
     public static Table buildSnapshotTimestampMillisTable(Table baseTable, String timestampStr) {
         Map<String, String> options = new HashMap<>(
-                baseTable.options().size() + PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
+                PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
 
         // For Paimon FROM_TIMESTAMP startup mode, must set only one key in:
         // [scan_timestamp, scan_timestamp_millis]
-        options.putAll(baseTable.options());
         options.put(CoreOptions.SCAN_MODE.key(), StartupMode.FROM_TIMESTAMP.toString());
         options.put(CoreOptions.SCAN_TIMESTAMP.key(), null);
         options.put(CoreOptions.SCAN_TIMESTAMP_MILLIS.key(), timestampStr);
@@ -552,11 +551,10 @@ public class PaimonUtil {
         }
 
         Map<String, String> options = new HashMap<>(
-                baseTable.options().size() + PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
+                PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
 
         // For Paimon FROM_SNAPSHOT startup mode, must set only one key in:
         // [scan_tag_name, scan_watermark, scan_snapshot_id]
-        options.putAll(baseTable.options());
         options.put(CoreOptions.SCAN_TAG_NAME.key(), tagName);
         options.put(CoreOptions.SCAN_WATERMARK.key(), null);
         options.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), null);
