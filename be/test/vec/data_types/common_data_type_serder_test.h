@@ -30,6 +30,7 @@
 #include "runtime/descriptors.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/core/field.h"
@@ -283,7 +284,7 @@ public:
             // serialize to jsonb
             for (size_t i = 0; i < load_cols.size(); ++i) {
                 auto& col = load_cols[i];
-                serders[i]->write_one_cell_to_jsonb(*col, jw, &pool, i, r);
+                serders[i]->write_one_cell_to_jsonb(*col, jw, pool, i, r);
             }
             jw.writeEndObject();
             jsonb_column->insert_data(jw.getOutput()->getBuffer(), jw.getOutput()->getSize());
@@ -292,7 +293,10 @@ public:
         EXPECT_EQ(jsonb_column->size(), load_cols[0]->size());
         for (size_t r = 0; r < jsonb_column->size(); ++r) {
             StringRef jsonb_data = jsonb_column->get_data_at(r);
-            auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+            JsonbDocument* pdoc = nullptr;
+            auto st =
+                    JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+            ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
             JsonbDocument& doc = *pdoc;
             size_t cIdx = 0;
             for (auto it = doc->begin(); it != doc->end(); ++it) {

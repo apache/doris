@@ -156,10 +156,10 @@ PhysicalResultSink
 
 -- !test_multi_slot_in_predicate1 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_(a + c) = expr_(a + c))) otherCondition=()
-----filter(((t1.a + t1.c) < 10))
+--hashJoin[INNER_JOIN] hashCondition=((expr_(cast(a as BIGINT) + cast(c as BIGINT)) = expr_(cast(a as BIGINT) + cast(c as BIGINT)))) otherCondition=()
+----filter(((cast(a as BIGINT) + cast(c as BIGINT)) < 10))
 ------PhysicalOlapScan[extend_infer_t3]
-----filter(((t2.a + t2.c) < 10))
+----filter(((cast(a as BIGINT) + cast(c as BIGINT)) < 10))
 ------PhysicalOlapScan[extend_infer_t4]
 
 -- !test_multi_slot_in_predicate2 --

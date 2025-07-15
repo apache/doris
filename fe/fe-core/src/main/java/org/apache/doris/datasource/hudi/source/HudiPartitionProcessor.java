@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.hudi.source;
 
+import org.apache.doris.datasource.ExternalTable;
+
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -36,7 +38,7 @@ public abstract class HudiPartitionProcessor {
 
     public abstract void cleanDatabasePartitions(String dbName);
 
-    public abstract void cleanTablePartitions(String dbName, String tblName);
+    public abstract void cleanTablePartitions(ExternalTable dorisTable);
 
     public String[] getPartitionColumns(HoodieTableMetaClient tableMetaClient) {
         return tableMetaClient.getTableConfig().getPartitionFields().get();

@@ -20,20 +20,18 @@
 
 #include "util/os_util.h"
 
+#include <absl/strings/numbers.h>
 #include <absl/strings/str_split.h>
 #include <fcntl.h>
 #include <glog/logging.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <fstream>
 #include <string>
 #include <vector>
 
-#include "gutil/macros.h"
-#include "gutil/strings/numbers.h"
-#include "io/fs/local_file_system.h"
+#include "common/macros.h"
 
 using std::string;
 using std::vector;
@@ -80,13 +78,13 @@ Status parse_stat(const std::string& buffer, std::string* name, ThreadStats* sta
     }
 
     int64_t tmp;
-    if (safe_strto64(splits[kUserTicks], &tmp)) {
+    if (absl::SimpleAtoi(splits[kUserTicks], &tmp)) {
         stats->user_ns = int64_t(tmp * (1e9 / kTicksPerSec));
     }
-    if (safe_strto64(splits[kKernelTicks], &tmp)) {
+    if (absl::SimpleAtoi(splits[kKernelTicks], &tmp)) {
         stats->kernel_ns = int64_t(tmp * (1e9 / kTicksPerSec));
     }
-    if (safe_strto64(splits[kIoWait], &tmp)) {
+    if (absl::SimpleAtoi(splits[kIoWait], &tmp)) {
         stats->iowait_ns = int64_t(tmp * (1e9 / kTicksPerSec));
     }
     if (name != nullptr) {

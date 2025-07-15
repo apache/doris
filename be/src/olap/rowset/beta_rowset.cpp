@@ -39,9 +39,9 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
@@ -286,7 +286,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
 
     const auto& local_fs = io::global_local_filesystem();
     Status status;
-    std::vector<string> linked_success_files;
+    std::vector<std::string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
             LOG(WARNING) << "will delete linked success files due to error " << status;
@@ -579,7 +579,7 @@ Status BetaRowset::add_to_binlog() {
                               rowset_id().to_string(), segments_num);
 
     Status status;
-    std::vector<string> linked_success_files;
+    std::vector<std::string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
             LOG(WARNING) << "will delete linked success files due to error "
@@ -760,10 +760,10 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
 
         auto seg_path = DORIS_TRY(segment_path(seg_id));
         auto index_file_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
-        auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+        auto index_file_reader = std::make_unique<IndexFileReader>(
                 fs, std::string(index_file_path_prefix), storage_format);
-        RETURN_IF_ERROR(inverted_index_file_reader->init());
-        auto dirs = inverted_index_file_reader->get_all_directories();
+        RETURN_IF_ERROR(index_file_reader->init());
+        auto dirs = index_file_reader->get_all_directories();
 
         auto add_file_info_to_json = [&](const std::string& path,
                                          rapidjson::Value& json_value) -> Status {
@@ -781,15 +781,15 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
             return Status::OK();
         };
 
-        auto process_files = [&allocator, &inverted_index_file_reader](
-                                     auto& index_meta, rapidjson::Value& indices,
-                                     rapidjson::Value& index) -> Status {
+        auto process_files = [&allocator, &index_file_reader](auto& index_meta,
+                                                              rapidjson::Value& indices,
+                                                              rapidjson::Value& index) -> Status {
             rapidjson::Value files_value(rapidjson::kArrayType);
             std::vector<std::string> files;
-            auto ret = inverted_index_file_reader->open(&index_meta);
+            auto ret = index_file_reader->open(&index_meta);
             if (!ret.has_value()) {
-                LOG(INFO) << "InvertedIndexFileReader open error:" << ret.error();
-                return Status::InternalError("InvertedIndexFileReader open error");
+                LOG(INFO) << "IndexFileReader open error:" << ret.error();
+                return Status::InternalError("IndexFileReader open error");
             }
             using T = std::decay_t<decltype(ret)>;
             auto reader = std::forward<T>(ret).value();

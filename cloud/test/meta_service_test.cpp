@@ -37,10 +37,10 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
@@ -320,13 +320,40 @@ static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instanc
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
+static void start_compaction_job(MetaService* meta_service, int64_t tablet_id,
+                                 const std::string& job_id, const std::string& initiator,
+                                 int base_compaction_cnt, int cumu_compaction_cnt,
+                                 TabletCompactionJobPB::CompactionType type,
+                                 StartTabletJobResponse& res,
+                                 std::pair<int64_t, int64_t> input_version = {0, 0}) {
+    brpc::Controller cntl;
+    StartTabletJobRequest req;
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+    auto compaction = req.mutable_job()->add_compaction();
+    compaction->set_id(job_id);
+    compaction->set_initiator(initiator);
+    compaction->set_base_compaction_cnt(base_compaction_cnt);
+    compaction->set_cumulative_compaction_cnt(cumu_compaction_cnt);
+    compaction->set_type(type);
+    long now = time(nullptr);
+    compaction->set_expiration(now + 12);
+    compaction->set_lease(now + 3);
+    if (input_version.second > 0) {
+        compaction->add_input_versions(input_version.first);
+        compaction->add_input_versions(input_version.second);
+        compaction->set_check_input_versions_range(true);
+    }
+    meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+};
+
 TEST(MetaServiceTest, GetInstanceIdTest) {
     extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                                        const std::string& cloud_unique_id);
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id_err", [&](auto&& args) {
         std::string* err = try_any_cast<std::string*>(args[0]);
         *err = "can't find node from cache";
@@ -1157,8 +1184,9 @@ TEST(MetaServiceTest, BeginTxnTest) {
         std::condition_variable go_cv;
         bool go = false;
         auto sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
 
         std::atomic<int32_t> count_txn1 = {0};
         std::atomic<int32_t> count_txn2 = {0};
@@ -1304,8 +1332,9 @@ TEST(MetaServiceTest, BeginTxnTest) {
         std::condition_variable go_cv;
         bool go = false;
         auto sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
 
         std::atomic<int32_t> count_txn1 = {0};
         std::atomic<int32_t> count_txn2 = {0};
@@ -3427,8 +3456,9 @@ TEST(MetaServiceTest, CopyJobTest) {
     std::string instance_id = "copy_job_test_instance_id";
 
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3905,8 +3935,9 @@ TEST(MetaServiceTest, StageTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "stage_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4243,8 +4274,9 @@ TEST(MetaServiceTest, GetIamTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "get_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4326,8 +4358,9 @@ TEST(MetaServiceTest, AlterRamTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "alter_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4619,24 +4652,23 @@ TEST(MetaServiceTest, GetTabletStatsTest) {
 }
 
 void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id) {
-    std::string lock_key =
-            meta_delete_bitmap_update_lock_key({"test_cloud_unique_id", table_id, -1});
+    std::string lock_key = meta_delete_bitmap_update_lock_key({"test_instance", table_id, -1});
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->remove(lock_key);
-    std::string tablet_compaction_key_begin =
-            mow_tablet_compaction_key({"test_cloud_unique_id", table_id, 0});
-    std::string tablet_compaction_key_end =
-            mow_tablet_compaction_key({"test_cloud_unique_id", table_id, INT64_MAX});
-    txn->remove(tablet_compaction_key_begin, tablet_compaction_key_end);
+    std::string tablet_job_key_begin = mow_tablet_job_key({"test_instance", table_id, 0});
+    std::string tablet_job_key_end = mow_tablet_job_key({"test_instance", table_id, INT64_MAX});
+    txn->remove(tablet_job_key_begin, tablet_job_key_end);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
-TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
+void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
+    config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
     auto meta_service = get_meta_service();
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     remove_delete_bitmap_lock(meta_service.get(), 1);
     remove_delete_bitmap_lock(meta_service.get(), 2);
     int64_t table_id = 9;
@@ -4669,14 +4701,14 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     // case 2: lock key does not exist, get and remove compaction lock
     req.add_partition_ids(123);
     req.set_expiration(600);
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(100);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     remove_req.set_tablet_id(2);
-    remove_req.set_lock_id(-1);
+    remove_req.set_lock_id(job_lock_id);
     remove_req.set_initiator(100);
     meta_service->remove_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
@@ -4698,7 +4730,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
     // case 4: lock key owned by load1, compaction1 get lock
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(100);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
@@ -4744,14 +4776,14 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     sleep(2);
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(888);
     req.set_expiration(1);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
-    remove_req.set_lock_id(-1);
+    remove_req.set_lock_id(job_lock_id);
     remove_req.set_initiator(888);
     meta_service->remove_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
@@ -4759,14 +4791,14 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
     // case 7: lock key owned by compaction, new compaction get lock
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(100);
     req.set_expiration(100);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(101);
     req.set_expiration(1);
     meta_service->get_delete_bitmap_update_lock(
@@ -4786,7 +4818,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
-    remove_req.set_lock_id(-1);
+    remove_req.set_lock_id(job_lock_id);
     remove_req.set_initiator(100);
     meta_service->remove_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
@@ -4795,7 +4827,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
 
     // case 9: lock key owned by compaction but all expired (101 900), load1 get lock
     req.set_table_id(table_id);
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(900);
     req.set_expiration(1);
     meta_service->get_delete_bitmap_update_lock(
@@ -4818,28 +4850,91 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 10: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
+    // case 10: lock key owned by compaction but all expired (101 900), schema change get lock
+    req.set_table_id(table_id);
+    req.set_lock_id(job_lock_id);
+    req.set_initiator(900);
+    req.set_expiration(1);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    sleep(2);
+    req.set_table_id(table_id);
+    int other_job_lock_id = job_lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID
+                                    ? SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID
+                                    : COMPACTION_DELETE_BITMAP_LOCK_ID;
+    req.set_lock_id(other_job_lock_id);
+    req.set_initiator(100);
+    req.set_expiration(1);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    remove_req.set_lock_id(other_job_lock_id);
+    remove_req.set_initiator(100);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
+            nullptr);
+    ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
+
+    // case 11: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
     sp->set_call_back("get_delete_bitmap_update_lock:commit:conflict", [&](auto&& args) {
         auto* first_retry = try_any_cast<bool*>(args[0]);
-        if (*first_retry) {
-            *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_CONFLICT;
+        auto lock_id = (try_any_cast<const GetDeleteBitmapUpdateLockRequest*>(args[1]))->lock_id();
+        if (*first_retry && is_job_delete_bitmap_lock_id(lock_id)) {
+            *try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_CONFLICT;
         } else {
-            *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_OK;
+            *try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_OK;
         }
     });
     sp->enable_processing();
-    req.set_lock_id(-1);
+    req.set_lock_id(job_lock_id);
     req.set_initiator(100);
     req.set_expiration(10);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    remove_req.set_lock_id(job_lock_id);
+    remove_req.set_initiator(100);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
+            nullptr);
+    ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
+
+    // case 12: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
+    req.set_lock_id(300);
+    req.set_initiator(-1);
+    req.set_expiration(1);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    sleep(2);
+    req.set_lock_id(job_lock_id);
+    req.set_initiator(100);
+    req.set_expiration(10);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // case 13: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+}
 
-    remove_delete_bitmap_lock(meta_service.get(), 1);
-    remove_delete_bitmap_lock(meta_service.get(), 2);
+TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
+    testGetDeleteBitmapUpdateLock(2, COMPACTION_DELETE_BITMAP_LOCK_ID);
+    testGetDeleteBitmapUpdateLock(2, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+    testGetDeleteBitmapUpdateLock(1, COMPACTION_DELETE_BITMAP_LOCK_ID);
+    testGetDeleteBitmapUpdateLock(1, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockNoReadStats) {
@@ -4893,10 +4988,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsNormal) {
 
         std::string instance_id = "test_get_delete_bitmap_update_lock_normal";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -4943,10 +5038,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         // the reading of tablet stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal1";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -4986,10 +5081,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         // the reading of tablet stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal2";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -5029,10 +5124,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         // 2.3 abnormal path, meeting error when reading tablets' stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal3";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -5069,10 +5164,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         // this should not fail if lock is not expired
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal4";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -5653,7 +5748,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmapScOverrideExistingKey) {
     }
 }
 
-TEST(MetaServiceTest, UpdateDeleteBitmap) {
+void testUpdateDeleteBitmap(int lock_version) {
+    config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
     auto meta_service = get_meta_service();
     remove_delete_bitmap_lock(meta_service.get(), 112);
 
@@ -5965,9 +6061,11 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
             &remove_lock_res, nullptr);
     ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::OK);
 
-    {
-        // case: compaction update delete bitmap
-        get_lock_req.set_lock_id(-1);
+    for (int i = 0; i < 2; ++i) {
+        auto lock_id =
+                i == 0 ? COMPACTION_DELETE_BITMAP_LOCK_ID : SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID;
+        // case: compaction or schema_change update delete bitmap
+        get_lock_req.set_lock_id(lock_id);
         get_lock_req.set_initiator(800);
         meta_service->get_delete_bitmap_update_lock(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
@@ -5979,7 +6077,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
         update_delete_bitmap_req.set_cloud_unique_id("test_cloud_unique_id");
         update_delete_bitmap_req.set_table_id(112);
         update_delete_bitmap_req.set_partition_id(123);
-        update_delete_bitmap_req.set_lock_id(-1);
+        update_delete_bitmap_req.set_lock_id(lock_id);
         update_delete_bitmap_req.set_initiator(800);
         update_delete_bitmap_req.set_tablet_id(333);
         update_delete_bitmap_req.add_rowset_ids("123");
@@ -5991,15 +6089,15 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
                 &update_delete_bitmap_req, &update_delete_bitmap_res, nullptr);
         ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
         // remove lock
-        remove_lock_req.set_lock_id(-1);
+        remove_lock_req.set_lock_id(lock_id);
         remove_lock_req.set_initiator(800);
         meta_service->remove_delete_bitmap_update_lock(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
                 &remove_lock_res, nullptr);
         ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::OK);
 
-        // case: compaction update delete bitmap with lock expired
-        get_lock_req.set_lock_id(-1);
+        // case: compaction or schema_change update delete bitmap with lock expired
+        get_lock_req.set_lock_id(lock_id);
         get_lock_req.set_initiator(800);
         get_lock_req.set_expiration(1);
         meta_service->get_delete_bitmap_update_lock(
@@ -6021,9 +6119,9 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
                 &update_delete_bitmap_req, &update_delete_bitmap_res, nullptr);
         ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::LOCK_EXPIRED);
 
-        // case: compaction2 get lock
+        // case: compaction2 or schema_change2 get lock
         sleep(2);
-        get_lock_req.set_lock_id(-1);
+        get_lock_req.set_lock_id(lock_id);
         get_lock_req.set_initiator(810);
         get_lock_req.set_expiration(1);
         meta_service->get_delete_bitmap_update_lock(
@@ -6035,8 +6133,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
                 reinterpret_cast<google::protobuf::RpcController*>(&cntl),
                 &update_delete_bitmap_req, &update_delete_bitmap_res, nullptr);
         ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        // remove compaction2 lock
-        remove_lock_req.set_lock_id(-1);
+        // remove compaction2 or or schema_change2 lock
+        remove_lock_req.set_lock_id(lock_id);
         remove_lock_req.set_initiator(810);
         meta_service->remove_delete_bitmap_update_lock(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
@@ -6089,6 +6187,11 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
     }
 
     remove_delete_bitmap_lock(meta_service.get(), 112);
+}
+
+TEST(MetaServiceTest, UpdateDeleteBitmap) {
+    testUpdateDeleteBitmap(2);
+    testUpdateDeleteBitmap(1);
 }
 
 TEST(MetaServiceTest, UpdateDeleteBitmapWithException) {
@@ -6369,8 +6472,9 @@ void update_delete_bitmap_with_remove_pre(MetaServiceProxy* meta_service, int64_
 TEST(MetaServiceTest, UpdateDeleteBitmapWithRemovePreDeleteBitmap) {
     auto meta_service = get_meta_service();
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
 
     update_delete_bitmap_with_remove_pre(meta_service.get(), 200, 202);
 
@@ -6956,8 +7060,9 @@ TEST(MetaServiceTest, BatchGetVersionFallback) {
     constexpr size_t N = 100;
     size_t i = 0;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("batch_get_version_err", [&](auto&& args) {
         if (i++ == N / 10) {
             *try_any_cast<TxnErrorCode*>(args) = TxnErrorCode::TXN_TOO_OLD;
@@ -7002,8 +7107,9 @@ TEST(MetaServiceTest, IsDroppedTablet) {
     auto meta_service = get_meta_service();
     std::string instance_id = "IsDroppedTablet";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -7083,8 +7189,9 @@ TEST(MetaServiceTest, IndexRequest) {
     auto meta_service = get_meta_service();
     std::string instance_id = "IndexRequest";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -7326,8 +7433,9 @@ TEST(MetaServiceTest, PartitionRequest) {
     auto meta_service = get_meta_service();
     std::string instance_id = "PartitionRequest";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -9180,8 +9288,9 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
 
     std::string instance_id = "update_rowset_meta_test_instance_id";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -9594,6 +9703,318 @@ TEST(MetaServiceTest, AddObjInfoWithRole) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+TEST(MetaServiceTest, CheckJobExisted) {
+    auto meta_service = get_meta_service();
+
+    std::string instance_id = "check_job_existed_instance_id";
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    // OK
+    {
+        constexpr auto table_id = 952701, index_id = 952702, partition_id = 952703,
+                       tablet_id = 952704;
+        int64_t txn_id = 952705;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // job does not exist,
+    {
+        constexpr auto table_id = 952801, index_id = 952802, partition_id = 952803,
+                       tablet_id = 952804;
+        int64_t txn_id = 952805;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
+        res.Clear();
+    }
+
+    // compaction job exists, job id not match
+    {
+        constexpr auto table_id = 952901, index_id = 952902, partition_id = 952903,
+                       tablet_id = 952904;
+        int64_t txn_id = 952905;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction2");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
+        res.Clear();
+    }
+
+    // do not set job id
+    {
+        constexpr auto table_id = 953501, index_id = 953502, partition_id = 953503,
+                       tablet_id = 953504;
+        int64_t txn_id = 953505;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // job id is empty string
+    {
+        constexpr auto table_id = 953601, index_id = 953602, partition_id = 953603,
+                       tablet_id = 953604;
+        int64_t txn_id = 953605;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // commit rowset OK
+    {
+        constexpr auto table_id = 953001, index_id = 953002, partition_id = 953003,
+                       tablet_id = 953004;
+        int64_t txn_id = 953005;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // commit rowset, job does not exist,
+    {
+        constexpr auto table_id = 953101, index_id = 953102, partition_id = 953103,
+                       tablet_id = 953104;
+        int64_t txn_id = 952805;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
+        res.Clear();
+    }
+
+    // commit rowset, compaction job exists, job id not match
+    {
+        constexpr auto table_id = 953201, index_id = 953202, partition_id = 953203,
+                       tablet_id = 953204;
+        int64_t txn_id = 952905;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction2");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
+        res.Clear();
+    }
+
+    // do not set job id when commit rowset
+    {
+        constexpr auto table_id = 953301, index_id = 953302, partition_id = 953303,
+                       tablet_id = 953304;
+        int64_t txn_id = 953305;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // job id is empty string when commit rowset
+    {
+        constexpr auto table_id = 953401, index_id = 953402, partition_id = 953403,
+                       tablet_id = 953404;
+        int64_t txn_id = 953405;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+}
+
 TEST(MetaServiceTest, StalePrepareRowset) {
     auto meta_service = get_meta_service();
 
@@ -9660,4 +10081,305 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
 }
 
+TEST(MetaServiceTest, AlterObjInfoTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_id("1");
+    obj_info.set_ak("access_key_132131");
+    obj_info.set_sk("secret_key_434124");
+    obj_info.set_provider(ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+    InstanceInfoPB instance;
+    instance.add_obj_info()->CopyFrom(obj_info);
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    // update failed
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_OBJ_INFO);
+        req.mutable_obj()->set_id("2");
+        req.mutable_obj()->set_ak("new_ak");
+        req.mutable_obj()->set_sk(plain_sk);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_EQ(instance.obj_info(0).id(), "1");
+        ASSERT_EQ(instance.obj_info(0).ak(), "access_key_132131");
+        ASSERT_EQ(instance.obj_info(0).sk(), "secret_key_434124");
+    }
+
+    // update ak/sk successful
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_OBJ_INFO);
+        req.mutable_obj()->set_id("1");
+        req.mutable_obj()->set_ak("new_access_key_132131");
+        req.mutable_obj()->set_sk(plain_sk);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        LOG(INFO) << "instance:" << instance.ShortDebugString();
+        ASSERT_EQ(instance.obj_info(0).id(), "1");
+        ASSERT_EQ(instance.obj_info(0).ak(), "new_access_key_132131");
+        ASSERT_EQ(instance.obj_info(0).sk(), cipher_sk);
+    }
+
+    // update from ak/sk to role_arn
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_OBJ_INFO);
+        req.mutable_obj()->set_id("1");
+        req.mutable_obj()->set_role_arn("arn:aws:iam::1453123012:role/test-role");
+        req.mutable_obj()->set_external_id("external_id_13123");
+        req.mutable_obj()->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        req.mutable_obj()->set_provider(ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        LOG(INFO) << "instance:" << instance.ShortDebugString();
+        ASSERT_EQ(instance.obj_info(0).id(), "1");
+        ASSERT_EQ(instance.obj_info(0).role_arn(), "arn:aws:iam::1453123012:role/test-role");
+        ASSERT_EQ(instance.obj_info(0).external_id(), "external_id_13123");
+        ASSERT_EQ(instance.obj_info(0).provider(),
+                  ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        ASSERT_EQ(instance.obj_info(0).cred_provider_type(), CredProviderTypePB::INSTANCE_PROFILE);
+        ASSERT_TRUE(instance.obj_info(0).ak().empty());
+        ASSERT_TRUE(instance.obj_info(0).sk().empty());
+        ASSERT_FALSE(instance.obj_info(0).has_encryption_info());
+    }
+
+    // update from role_arn to ak/sk
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_OBJ_INFO);
+        req.mutable_obj()->set_id("1");
+        req.mutable_obj()->set_ak("new_access_key_132131");
+        req.mutable_obj()->set_sk(plain_sk);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        LOG(INFO) << "instance:" << instance.ShortDebugString();
+        ASSERT_EQ(instance.obj_info(0).id(), "1");
+        ASSERT_EQ(instance.obj_info(0).ak(), "new_access_key_132131");
+        ASSERT_EQ(instance.obj_info(0).sk(), cipher_sk);
+        ASSERT_EQ(instance.obj_info(0).provider(),
+                  ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        ASSERT_FALSE(instance.obj_info(0).has_cred_provider_type());
+        ASSERT_FALSE(instance.obj_info(0).has_role_arn());
+        ASSERT_FALSE(instance.obj_info(0).has_external_id());
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
+TEST(MetaServiceTest, AlterS3StorageVaultWithRoleArnTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    std::pair<std::string, std::string> pair;
+    sp->set_call_back("extract_object_storage_info:get_aksk_pair", [&](auto&& args) {
+        auto* ret = try_any_cast<std::pair<std::string, std::string>*>(args[0]);
+        pair = *ret;
+    });
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_id("1");
+    obj_info.set_ak("123456ab");
+    obj_info.set_sk("@ak$");
+    obj_info.set_provider(ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+    StorageVaultPB vault;
+    constexpr char vault_name[] = "test_alter_s3_vault_111";
+    vault.mutable_obj_info()->MergeFrom(obj_info);
+    vault.set_name(vault_name);
+    vault.set_id("2");
+    InstanceInfoPB instance;
+    instance.add_storage_vault_names(vault.name());
+    instance.add_resource_ids(vault.id());
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    txn = nullptr;
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    // update from ak/sk to role_arn
+    {
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "new_test_alter_s3_vault_111";
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        vault.set_alter_name(new_vault_name);
+        ObjectStoreInfoPB obj;
+        obj.set_role_arn("arn:aws:iam::12311321:role/test-alter-role");
+        obj.set_external_id("external_id_123123");
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name(vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        LOG(INFO) << "instance:" << instance.ShortDebugString();
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB get_obj;
+        get_obj.ParseFromString(val);
+        ASSERT_EQ(get_obj.id(), "2");
+        ASSERT_EQ(get_obj.obj_info().role_arn(), "arn:aws:iam::12311321:role/test-alter-role");
+        ASSERT_EQ(get_obj.obj_info().external_id(), "external_id_123123");
+        ASSERT_EQ(get_obj.obj_info().provider(),
+                  ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::INSTANCE_PROFILE);
+        ASSERT_TRUE(get_obj.obj_info().ak().empty());
+        ASSERT_TRUE(get_obj.obj_info().sk().empty());
+        ASSERT_FALSE(get_obj.obj_info().has_encryption_info());
+        ASSERT_EQ(get_obj.name(), new_vault_name) << get_obj.obj_info().ShortDebugString();
+    }
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    // update from role_arn to ak_sk
+    {
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "new_test_alter_s3_vault_111";
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123456ab");
+        obj.set_sk(plain_sk);
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name(new_vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        LOG(INFO) << "instance:" << instance.ShortDebugString();
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB get_obj;
+        get_obj.ParseFromString(val);
+        ASSERT_EQ(get_obj.id(), "2");
+        ASSERT_EQ(get_obj.obj_info().provider(),
+                  ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        ASSERT_EQ(get_obj.obj_info().ak(), "123456ab");
+        ASSERT_EQ(get_obj.obj_info().sk(), cipher_sk);
+        ASSERT_TRUE(get_obj.obj_info().role_arn().empty());
+        ASSERT_TRUE(get_obj.obj_info().external_id().empty());
+        ASSERT_TRUE(get_obj.obj_info().has_encryption_info());
+        ASSERT_FALSE(get_obj.obj_info().has_cred_provider_type());
+        ASSERT_EQ(get_obj.name(), new_vault_name) << get_obj.obj_info().ShortDebugString();
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
 } // namespace doris::cloud

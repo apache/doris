@@ -397,6 +397,10 @@ public:
     long row_store_page_size() const { return _row_store_page_size; }
     void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
     long storage_page_size() const { return _storage_page_size; }
+    void set_storage_dict_page_size(long storage_dict_page_size) {
+        _storage_dict_page_size = storage_dict_page_size;
+    }
+    long storage_dict_page_size() const { return _storage_dict_page_size; }
     bool has_global_row_id() const {
         for (auto [col_name, _] : _field_name_to_index) {
             if (col_name.start_with(StringRef(BeConsts::GLOBAL_ROWID_COL.data(),
@@ -554,17 +558,12 @@ private:
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
     TabletSchema(const TabletSchema&) = default;
 
-    void clear_column_cache_handlers();
-    void clear_index_cache_handlers();
-
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
     std::vector<TabletColumnPtr> _cols;
-    std::vector<Cache::Handle*> _column_cache_handlers;
 
     std::vector<TabletIndexPtr> _indexes;
-    std::vector<Cache::Handle*> _index_cache_handlers;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_uniqueid_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
@@ -597,6 +596,7 @@ private:
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     long _storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+    long _storage_dict_page_size = segment_v2::STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 

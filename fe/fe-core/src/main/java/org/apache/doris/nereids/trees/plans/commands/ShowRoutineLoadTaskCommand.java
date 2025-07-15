@@ -181,6 +181,10 @@ public class ShowRoutineLoadTaskCommand extends ShowCommand {
         return visitor.visitShowRoutineLoadTaskCommand(this, context);
     }
 
+    public static List<String> getTitleNames() {
+        return TITLE_NAMES;
+    }
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();

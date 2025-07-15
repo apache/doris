@@ -55,24 +55,15 @@ using FunctionSubMonthsDate = FunctionDateOrDateTimeComputation<SubtractMonthsIm
 using FunctionSubQuartersDate = FunctionDateOrDateTimeComputation<SubtractQuartersImpl<TYPE_DATE>>;
 using FunctionSubYearsDate = FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_DATE>>;
 
-using FunctionDateDiff =
-        FunctionDateOrDateTimeComputation<DateDiffImpl<TYPE_DATETIME, TYPE_DATETIME>>;
-using FunctionTimeDiff =
-        FunctionDateOrDateTimeComputation<TimeDiffImpl<TYPE_DATETIME, TYPE_DATETIME>>;
-using FunctionYearsDiff =
-        FunctionDateOrDateTimeComputation<YearsDiffImpl<TYPE_DATETIME, TYPE_DATETIME>>;
-using FunctionMonthsDiff =
-        FunctionDateOrDateTimeComputation<MonthsDiffImpl<TYPE_DATETIME, TYPE_DATETIME>>;
-using FunctionDaysDiff =
-        FunctionDateOrDateTimeComputation<DaysDiffImpl<TYPE_DATETIME, TYPE_DATETIME>>;
-using FunctionWeeksDiff =
-        FunctionDateOrDateTimeComputation<WeeksDiffImpl<TYPE_DATETIME, TYPE_DATETIME>>;
-using FunctionHoursDiff =
-        FunctionDateOrDateTimeComputation<HoursDiffImpl<TYPE_DATETIME, TYPE_DATETIME>>;
-using FunctionMinutesDiff =
-        FunctionDateOrDateTimeComputation<MintuesDiffImpl<TYPE_DATETIME, TYPE_DATETIME>>;
-using FunctionSecondsDiff =
-        FunctionDateOrDateTimeComputation<SecondsDiffImpl<TYPE_DATETIME, TYPE_DATETIME>>;
+using FunctionDateDiff = FunctionTimeDiff<DateDiffImpl<TYPE_DATETIME>>;
+using FunctionTimeDiffImpl = FunctionTimeDiff<TimeDiffImpl<TYPE_DATETIME>>;
+using FunctionYearsDiff = FunctionTimeDiff<YearsDiffImpl<TYPE_DATETIME>>;
+using FunctionMonthsDiff = FunctionTimeDiff<MonthsDiffImpl<TYPE_DATETIME>>;
+using FunctionDaysDiff = FunctionTimeDiff<DaysDiffImpl<TYPE_DATETIME>>;
+using FunctionWeeksDiff = FunctionTimeDiff<WeeksDiffImpl<TYPE_DATETIME>>;
+using FunctionHoursDiff = FunctionTimeDiff<HoursDiffImpl<TYPE_DATETIME>>;
+using FunctionMinutesDiff = FunctionTimeDiff<MintuesDiffImpl<TYPE_DATETIME>>;
+using FunctionSecondsDiff = FunctionTimeDiff<SecondsDiffImpl<TYPE_DATETIME>>;
 
 using FunctionToYearWeekTwoArgs =
         FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<TYPE_DATETIME>>;
@@ -144,7 +135,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubHoursDate>();
 
     factory.register_function<FunctionDateDiff>();
-    factory.register_function<FunctionTimeDiff>();
+    factory.register_function<FunctionTimeDiffImpl>();
     factory.register_function<FunctionYearsDiff>();
     factory.register_function<FunctionMonthsDiff>();
     factory.register_function<FunctionWeeksDiff>();
@@ -169,6 +160,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMilliSecToDateTime>();
     factory.register_function<FunctionSecToDateTime>();
     factory.register_function<FunctionMonthsBetween>();
+    factory.register_function<FunctionTime>();
 
     // alias
     factory.register_alias("days_add", "date_add");

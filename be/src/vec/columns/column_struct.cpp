@@ -62,7 +62,7 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     }
 }
 
-ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
+ColumnStruct::MutablePtr ColumnStruct::create(const Columns& columns) {
     for (const auto& column : columns) {
         if (is_column_const(*column)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -75,7 +75,7 @@ ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
     return column_struct;
 }
 
-ColumnStruct::Ptr ColumnStruct::create(const TupleColumns& tuple_columns) {
+ColumnStruct::MutablePtr ColumnStruct::create(const TupleColumns& tuple_columns) {
     for (const auto& column : tuple_columns) {
         if (is_column_const(*column)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -169,22 +169,39 @@ void ColumnStruct::pop_back(size_t n) {
 
 StringRef ColumnStruct::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
-    StringRef res(begin, 0);
+    char* pos = arena.alloc_continue(serialize_size_at(n), begin);
+    return {pos, serialize_impl(pos, n)};
+}
+
+size_t ColumnStruct::serialize_size_at(size_t row) const {
+    size_t sz = 0;
     for (const auto& column : columns) {
-        auto value_ref = column->serialize_value_into_arena(n, arena, begin);
-        res.data = value_ref.data - res.size;
-        res.size += value_ref.size;
+        sz += column->serialize_size_at(row);
     }
 
-    return res;
+    return sz;
+}
+
+size_t ColumnStruct::deserialize_impl(const char* pos) {
+    size_t sz = 0;
+    for (auto& column : columns) {
+        sz += column->deserialize_impl(pos + sz);
+    }
+    return sz;
+}
+
+size_t ColumnStruct::serialize_impl(char* pos, const size_t row) const {
+    size_t sz = 0;
+    for (const auto& column : columns) {
+        sz += column->serialize_impl(pos + sz, row);
+    }
+
+    DCHECK_EQ(sz, serialize_size_at(row));
+    return sz;
 }
 
 const char* ColumnStruct::deserialize_and_insert_from_arena(const char* pos) {
-    for (auto& column : columns) {
-        pos = column->deserialize_and_insert_from_arena(pos);
-    }
-
-    return pos;
+    return pos + deserialize_impl(pos);
 }
 
 int ColumnStruct::compare_at(size_t n, size_t m, const IColumn& rhs_,
@@ -293,7 +310,7 @@ size_t ColumnStruct::filter(const Filter& filter) {
     return result_size;
 }
 
-ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);
 

@@ -36,8 +36,6 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/path_in_data.h"
 
 namespace doris {
 enum class FieldType;
@@ -46,6 +44,7 @@ namespace vectorized {
 class Block;
 class IColumn;
 struct ColumnWithTypeAndName;
+struct ParseConfig;
 } // namespace vectorized
 } // namespace doris
 

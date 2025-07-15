@@ -97,8 +97,6 @@ public:
 
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
-    // FIXME(gabriel):Fixed length object type will be used in some cases but it is not supported by primitive type
-    virtual bool is_fixed_length_object() const { return false; }
 
 protected:
     virtual String do_get_name() const;

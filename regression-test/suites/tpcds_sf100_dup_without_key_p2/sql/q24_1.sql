@@ -25,7 +25,7 @@ WITH
       AND (ss_item_sk = i_item_sk)
       AND (ss_store_sk = s_store_sk)
       and c_current_addr_sk = ca_address_sk
-      AND (c_birth_country = upper(ca_country))
+      AND (c_birth_country <> upper(ca_country))
       AND (s_zip = ca_zip)
       AND (s_market_id = 8)
    GROUP BY c_last_name, c_first_name, s_store_name, ca_state, s_state, i_color, i_current_price, i_manager_id, i_units, i_size

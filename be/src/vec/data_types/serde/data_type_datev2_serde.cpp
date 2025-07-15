@@ -75,15 +75,7 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     }
     auto& column_data = assert_cast<ColumnDateV2&>(column);
     UInt32 val = 0;
-    if (options.date_olap_format) {
-        tm time_tm;
-        char* res = strptime(slice.data, "%Y-%m-%d", &time_tm);
-        if (nullptr != res) {
-            val = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
-        } else {
-            val = MIN_DATE_V2;
-        }
-    } else if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
+    if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }

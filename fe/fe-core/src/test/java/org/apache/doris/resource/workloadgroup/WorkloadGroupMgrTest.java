@@ -221,11 +221,11 @@ public class WorkloadGroupMgrTest {
         // 1 test get workload group by ConnectContext
         ConnectContext ctx = new ConnectContext();
         // 1.1 not set wg, get normal
-        ctx.setComputeGroup(new ComputeGroup("1", cgName1, null));
+        ctx.setComputeGroup(new ComputeGroup(cgName1, cgName1, null));
         List<TPipelineWorkloadGroup> ret = workloadGroupMgr.getWorkloadGroup(ctx);
         Assert.assertTrue(ret.get(0).getId() == 100);
 
-        ctx.setComputeGroup(new ComputeGroup("2", cgName2, null));
+        ctx.setComputeGroup(new ComputeGroup(cgName2, cgName2, null));
         Assert.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).get(0).getId() == 101);
 
 
@@ -262,7 +262,7 @@ public class WorkloadGroupMgrTest {
         try {
             workloadGroupMgr.getWorkloadGroup(ctx);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
         }
     }
@@ -276,15 +276,15 @@ public class WorkloadGroupMgrTest {
 
         Map<String, String> p0 = Maps.newHashMap();
         try {
-            workloadGroupMgr.alterWorkloadGroup("", "", p0);
+            workloadGroupMgr.alterWorkloadGroup(new ComputeGroup("", "", null), "", p0);
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("should contain at least one property"));
         }
 
         p0.put(WorkloadGroup.CPU_SHARE, "10");
         try {
-            workloadGroupMgr.alterWorkloadGroup("", "abc", p0);
-        } catch (DdlException e) {
+            workloadGroupMgr.alterWorkloadGroup(new ComputeGroup("", "", null), "abc", p0);
+        } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
         }
 
@@ -305,14 +305,14 @@ public class WorkloadGroupMgrTest {
         Map<String, String> prop2 = Maps.newHashMap();
         prop2.put(WorkloadGroup.CPU_SHARE, "20");
         try {
-            workloadGroupMgr.alterWorkloadGroup(cgName2, wgName2, prop2);
+            workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cgName2, cgName2, null), wgName2, prop2);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
         }
 
         // test alter success
-        workloadGroupMgr.alterWorkloadGroup(cgName1, wgName1, prop2);
+        workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cgName1, cgName1, null), wgName1, prop2);
         WorkloadGroup wg = workloadGroupMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName1, wgName1));
         Assert.assertTrue(Long.valueOf(wg.getProperties().get(WorkloadGroup.CPU_SHARE)) == 20);
     }
@@ -546,7 +546,7 @@ public class WorkloadGroupMgrTest {
                     Map<String, String> properties = Maps.newHashMap();
                     properties.put(prop, "90%");
                     try {
-                        workloadGroupMgr.alterWorkloadGroup(cg1, "wg1", properties);
+                        workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cg1, cg1, null), "wg1", properties);
                     } catch (DdlException e) {
                         Assert.assertTrue(e.getMessage().contains("current sum val:110"));
                         Assert.assertTrue(e.getMessage().contains("cg1"));
@@ -558,7 +558,7 @@ public class WorkloadGroupMgrTest {
                 {
                     Map<String, String> properties = Maps.newHashMap();
                     properties.put(prop, "20%");
-                    workloadGroupMgr.alterWorkloadGroup(cg1, "wg1", properties);
+                    workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cg1, cg1, null), "wg1", properties);
                 }
         }
     }

@@ -17,14 +17,15 @@
 
 #pragma once
 
+#include "olap/rowset/segment_v2/inverted_index/util/mock_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index/util/term_position_iterator.h"
 #include "priority_queue.h"
-#include "term_position_iterator.h"
 
 namespace doris::segment_v2 {
 
 using namespace inverted_index;
 
-template <class T>
+template <typename T>
 class DocsQueue : public PriorityQueue<T*> {
 public:
     DocsQueue(size_t size) : PriorityQueue<T*>(size) {}
@@ -33,7 +34,7 @@ public:
     bool less_than(T* pp1, T* pp2) const override { return pp1->doc_id() < pp2->doc_id(); }
 };
 
-template <class T>
+template <typename T>
 using DocsQueuePtr = std::unique_ptr<DocsQueue<T>>;
 
 class PositionsQueue {
@@ -72,19 +73,24 @@ private:
 };
 using PositionsQueuePtr = std::unique_ptr<PositionsQueue>;
 
-template <class T>
+template <typename T>
 class UnionTermIterator {
 public:
+    using IterPtr = std::shared_ptr<T>;
+
+    static_assert(std::is_same_v<T, TermPositionsIterator> || std::is_same_v<T, MockIterator>,
+                  "T must be one of: TermPositionsIterPtr or MockIterPtr");
+
     UnionTermIterator() = default;
     ~UnionTermIterator() = default;
 
-    UnionTermIterator(std::vector<T> subs) : _subs(std::move(subs)) {
+    UnionTermIterator(std::vector<IterPtr> subs) : _subs(std::move(subs)) {
         _pos_queue = std::make_unique<PositionsQueue>();
         _docs_queue = std::make_unique<DocsQueue<T>>(_subs.size());
         int64_t cost = 0;
         for (auto& sub : _subs) {
-            _docs_queue->add(&sub);
-            cost += sub.doc_freq();
+            _docs_queue->add(sub.get());
+            cost += sub->doc_freq();
         }
         _cost = cost;
     }
@@ -96,10 +102,10 @@ public:
         if (doc != pos_queue_doc) {
             _pos_queue->clear();
             for (auto& sub : _subs) {
-                if (sub.doc_id() == doc) {
-                    int32_t freq = sub.freq();
+                if (sub->doc_id() == doc) {
+                    int32_t freq = sub->freq();
                     for (int32_t i = 0; i < freq; i++) {
-                        _pos_queue->add(sub.next_position());
+                        _pos_queue->add(sub->next_position());
                     }
                 }
             }
@@ -140,8 +146,8 @@ private:
     int32_t pos_queue_doc = -2;
     DocsQueuePtr<T> _docs_queue;
     PositionsQueuePtr _pos_queue;
-    std::vector<T> _subs;
+    std::vector<IterPtr> _subs;
 };
-using UnionTermIterPtr = std::shared_ptr<UnionTermIterator<TermPositionIterator>>;
+using UnionTermIterPtr = std::shared_ptr<UnionTermIterator<TermPositionsIterator>>;
 
 } // namespace doris::segment_v2

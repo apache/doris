@@ -32,31 +32,60 @@
 
 #include <assert.h>
 
-#include "gutil/integral_types.h"
-#include "gutil/port.h"
+#include "olap/uint24.h"
 #include "vec/core/wide_integer.h"
 
-inline uint64 gbswap_64(uint64 host_int) {
+inline uint16_t UNALIGNED_LOAD16(const void* p) {
+    uint16_t t;
+    memcpy(&t, p, sizeof t);
+    return t;
+}
+
+inline uint32_t UNALIGNED_LOAD32(const void* p) {
+    uint32_t t;
+    memcpy(&t, p, sizeof t);
+    return t;
+}
+
+inline uint64_t UNALIGNED_LOAD64(const void* p) {
+    uint64_t t;
+    memcpy(&t, p, sizeof t);
+    return t;
+}
+
+inline void UNALIGNED_STORE16(void* p, uint16_t v) {
+    memcpy(p, &v, sizeof v);
+}
+
+inline void UNALIGNED_STORE32(void* p, uint32_t v) {
+    memcpy(p, &v, sizeof v);
+}
+
+inline void UNALIGNED_STORE64(void* p, uint64_t v) {
+    memcpy(p, &v, sizeof v);
+}
+
+inline uint64_t gbswap_64(uint64_t host_int) {
 #if defined(__GNUC__) && defined(__x86_64__) && !defined(__APPLE__)
     // Adapted from /usr/include/byteswap.h.  Not available on Mac.
     if (__builtin_constant_p(host_int)) {
         return __bswap_constant_64(host_int);
     } else {
-        uint64 result;
+        uint64_t result;
         __asm__("bswap %0" : "=r"(result) : "0"(host_int));
         return result;
     }
 #elif defined(bswap_64)
     return bswap_64(host_int);
 #else
-    return static_cast<uint64>(bswap_32(static_cast<uint32>(host_int >> 32))) |
-           (static_cast<uint64>(bswap_32(static_cast<uint32>(host_int))) << 32);
+    return static_cast<uint64_t>(bswap_32(static_cast<uint32_t>(host_int >> 32))) |
+           (static_cast<uint64_t>(bswap_32(static_cast<uint32_t>(host_int))) << 32);
 #endif // bswap_64
 }
 
 inline unsigned __int128 gbswap_128(unsigned __int128 host_int) {
-    return static_cast<unsigned __int128>(bswap_64(static_cast<uint64>(host_int >> 64))) |
-           (static_cast<unsigned __int128>(bswap_64(static_cast<uint64>(host_int))) << 64);
+    return static_cast<unsigned __int128>(bswap_64(static_cast<uint64_t>(host_int >> 64))) |
+           (static_cast<unsigned __int128>(bswap_64(static_cast<uint64_t>(host_int))) << 64);
 }
 
 inline wide::UInt256 gbswap_256(wide::UInt256 host_int) {
@@ -70,50 +99,37 @@ inline uint32_t bswap_24(uint32_t x) {
     return ((x & 0x0000ffULL) << 16) | ((x & 0x00ff00ULL)) | ((x & 0xff0000ULL) >> 16);
 }
 
-#ifdef IS_LITTLE_ENDIAN
-
-// Definitions for ntohl etc. that don't require us to include
-// netinet/in.h. We wrap bswap_32 and bswap_16 in functions rather
-// than just #defining them because in debug mode, gcc doesn't
-// correctly handle the (rather involved) definitions of bswap_32.
-// gcc guarantees that inline functions are as fast as macros, so
-// this isn't a performance hit.
-inline uint16 ghtons(uint16 x) {
-    return bswap_16(x);
-}
-inline uint32 ghtonl(uint32 x) {
-    return bswap_32(x);
-}
-inline uint64 ghtonll(uint64 x) {
-    return gbswap_64(x);
-}
-
-#elif defined IS_BIG_ENDIAN
-
-// These definitions are simpler on big-endian machines
-// These are functions instead of macros to avoid self-assignment warnings
-// on calls such as "i = ghtnol(i);".  This also provides type checking.
-inline uint16 ghtons(uint16 x) {
-    return x;
-}
-inline uint32 ghtonl(uint32 x) {
-    return x;
-}
-inline uint64 ghtonll(uint64 x) {
-    return x;
+template <typename T>
+T byte_swap(T x) {
+    if constexpr (sizeof(T) == sizeof(wide::Int256)) {
+        return gbswap_256(x);
+    } else if constexpr (sizeof(T) == sizeof(__int128)) {
+        return gbswap_128(x);
+    } else if constexpr (sizeof(T) == sizeof(int64_t)) {
+        return bswap_64(x);
+    } else if constexpr (sizeof(T) == sizeof(int32_t)) {
+        return bswap_32(x);
+    } else if constexpr (sizeof(T) == sizeof(doris::uint24_t)) {
+        return bswap_24(x);
+    } else if constexpr (sizeof(T) == sizeof(int16_t)) {
+        return bswap_16(x);
+    } else {
+        static_assert(sizeof(T) == 1, "Unsupported type size for byte_swap");
+        return x; // No byte swap needed for unsupported types
+    }
 }
 
-#else
-#error "Unsupported bytesex: Either IS_BIG_ENDIAN or IS_LITTLE_ENDIAN must be defined"  // NOLINT
-#endif // bytesex
-
-// ntoh* and hton* are the same thing for any size and bytesex,
-// since the function is an involution, i.e., its own inverse.
-#if !defined(__APPLE__)
-// This one is safe to take as it's an extension
-#define htonll(x) ghtonll(x)
-#define ntohll(x) htonll(x)
-#endif
+template <std::endian target, typename T>
+T to_endian(T value) {
+    if constexpr (std::endian::native == target) {
+        return value; // No swap needed
+    } else {
+        static_assert(std::endian::native == std::endian::big ||
+                              std::endian::native == std::endian::little,
+                      "Unsupported endianness");
+        return byte_swap(value);
+    }
+}
 
 // Utilities to convert numbers between the current hosts's native byte
 // order and little-endian byte order
@@ -121,103 +137,29 @@ inline uint64 ghtonll(uint64 x) {
 // Load/Store methods are alignment safe
 class LittleEndian {
 public:
-    // Conversion functions.
-#ifdef IS_LITTLE_ENDIAN
-
-    static uint16 FromHost16(uint16 x) { return x; }
-    static uint16 ToHost16(uint16 x) { return x; }
-
-    static uint32 FromHost32(uint32 x) { return x; }
-    static uint32 ToHost32(uint32 x) { return x; }
-
-    static uint64 FromHost64(uint64 x) { return x; }
-    static uint64 ToHost64(uint64 x) { return x; }
-
-    static unsigned __int128 FromHost128(unsigned __int128 x) { return x; }
-    static unsigned __int128 ToHost128(unsigned __int128 x) { return x; }
-
-    static wide::UInt256 FromHost256(wide::UInt256 x) { return x; }
-    static wide::UInt256 ToHost256(wide::UInt256 x) { return x; }
-
-    static bool IsLittleEndian() { return true; }
-
-#elif defined IS_BIG_ENDIAN
-
-    static uint16 FromHost16(uint16 x) { return bswap_16(x); }
-    static uint16 ToHost16(uint16 x) { return bswap_16(x); }
-
-    static uint32 FromHost32(uint32 x) { return bswap_32(x); }
-    static uint32 ToHost32(uint32 x) { return bswap_32(x); }
-
-    static uint64 FromHost64(uint64 x) { return gbswap_64(x); }
-    static uint64 ToHost64(uint64 x) { return gbswap_64(x); }
-
-    static unsigned __int128 FromHost128(unsigned __int128 x) { return gbswap_128(x); }
-    static unsigned __int128 ToHost128(unsigned __int128 x) { return gbswap_128(x); }
-
-    static wide::UInt256 FromHost256(wide::UInt256 x) { return gbswap_256(x); }
-    static wide::UInt256 ToHost256(wide::UInt256 x) { return gbswap_256(x); }
-
-    static bool IsLittleEndian() { return false; }
-
-#endif /* ENDIAN */
-
     // Functions to do unaligned loads and stores in little-endian order.
-    static uint16 Load16(const void* p) { return ToHost16(UNALIGNED_LOAD16(p)); }
-
-    static void Store16(void* p, uint16 v) { UNALIGNED_STORE16(p, FromHost16(v)); }
-
-    static uint32 Load32(const void* p) { return ToHost32(UNALIGNED_LOAD32(p)); }
-
-    static void Store32(void* p, uint32 v) { UNALIGNED_STORE32(p, FromHost32(v)); }
-
-    static uint64 Load64(const void* p) { return ToHost64(UNALIGNED_LOAD64(p)); }
-
-    // Build a uint64 from 1-8 bytes.
-    // 8 * len least significant bits are loaded from the memory with
-    // LittleEndian order. The 64 - 8 * len most significant bits are
-    // set all to 0.
-    // In latex-friendly words, this function returns:
-    //     $\sum_{i=0}^{len-1} p[i] 256^{i}$, where p[i] is unsigned.
-    //
-    // This function is equivalent with:
-    // uint64 val = 0;
-    // memcpy(&val, p, len);
-    // return ToHost64(val);
-    // TODO(user): write a small benchmark and benchmark the speed
-    // of a memcpy based approach.
-    //
-    // For speed reasons this function does not work for len == 0.
-    // The caller needs to guarantee that 1 <= len <= 8.
-    static uint64 Load64VariableLength(const void* const p, int len) {
-        assert(len >= 1 && len <= 8);
-        const char* const buf = static_cast<const char*>(p);
-        uint64 val = 0;
-        --len;
-        do {
-            val = (val << 8) | buf[len];
-            // (--len >= 0) is about 10 % faster than (len--) in some benchmarks.
-        } while (--len >= 0);
-        // No ToHost64(...) needed. The bytes are accessed in little-endian manner
-        // on every architecture.
-        return val;
+    static uint16_t Load16(const void* p) {
+        return to_endian<std::endian::little>(UNALIGNED_LOAD16(p));
     }
 
-    static void Store64(void* p, uint64 v) { UNALIGNED_STORE64(p, FromHost64(v)); }
-
-    // Load & Store in machine's word size.
-    static uword_t LoadUnsignedWord(const void* p) {
-        if (sizeof(uword_t) == 8)
-            return Load64(p);
-        else
-            return Load32(p);
+    static void Store16(void* p, uint16_t v) {
+        UNALIGNED_STORE16(p, to_endian<std::endian::little>(v));
     }
 
-    static void StoreUnsignedWord(void* p, uword_t v) {
-        if (sizeof(v) == 8)
-            Store64(p, v);
-        else
-            Store32(p, v);
+    static uint32_t Load32(const void* p) {
+        return to_endian<std::endian::little>(UNALIGNED_LOAD32(p));
+    }
+
+    static void Store32(void* p, uint32_t v) {
+        UNALIGNED_STORE32(p, to_endian<std::endian::little>(v));
+    }
+
+    static uint64_t Load64(const void* p) {
+        return to_endian<std::endian::little>(UNALIGNED_LOAD64(p));
+    }
+
+    static void Store64(void* p, uint64_t v) {
+        UNALIGNED_STORE64(p, to_endian<std::endian::little>(v));
     }
 };
 
@@ -227,102 +169,29 @@ public:
 // Load/Store methods are alignment safe
 class BigEndian {
 public:
-#ifdef IS_LITTLE_ENDIAN
-
-    static uint16 FromHost16(uint16 x) { return bswap_16(x); }
-    static uint16 ToHost16(uint16 x) { return bswap_16(x); }
-
-    static uint32 FromHost24(uint32 x) { return bswap_24(x); }
-    static uint32 ToHost24(uint32 x) { return bswap_24(x); }
-
-    static uint32 FromHost32(uint32 x) { return bswap_32(x); }
-    static uint32 ToHost32(uint32 x) { return bswap_32(x); }
-
-    static uint64 FromHost64(uint64 x) { return gbswap_64(x); }
-    static uint64 ToHost64(uint64 x) { return gbswap_64(x); }
-
-    static unsigned __int128 FromHost128(unsigned __int128 x) { return gbswap_128(x); }
-    static unsigned __int128 ToHost128(unsigned __int128 x) { return gbswap_128(x); }
-
-    static wide::UInt256 FromHost256(wide::UInt256 x) { return gbswap_256(x); }
-    static wide::UInt256 ToHost256(wide::UInt256 x) { return gbswap_256(x); }
-
-    static bool IsLittleEndian() { return true; }
-
-#elif defined IS_BIG_ENDIAN
-
-    static uint16 FromHost16(uint16 x) { return x; }
-    static uint16 ToHost16(uint16 x) { return x; }
-
-    static uint32 FromHost24(uint32 x) { return x; }
-    static uint32 ToHost24(uint32 x) { return x; }
-
-    static uint32 FromHost32(uint32 x) { return x; }
-    static uint32 ToHost32(uint32 x) { return x; }
-
-    static uint64 FromHost64(uint64 x) { return x; }
-    static uint64 ToHost64(uint64 x) { return x; }
-
-    static wide::UInt256 FromHost256(wide::UInt256 x) { return x; }
-    static wide::UInt256 ToHost256(wide::UInt256 x) { return x; }
-
-    static bool IsLittleEndian() { return false; }
-
-#endif /* ENDIAN */
     // Functions to do unaligned loads and stores in little-endian order.
-    static uint16 Load16(const void* p) { return ToHost16(UNALIGNED_LOAD16(p)); }
-
-    static void Store16(void* p, uint16 v) { UNALIGNED_STORE16(p, FromHost16(v)); }
-
-    static uint32 Load32(const void* p) { return ToHost32(UNALIGNED_LOAD32(p)); }
-
-    static void Store32(void* p, uint32 v) { UNALIGNED_STORE32(p, FromHost32(v)); }
-
-    static uint64 Load64(const void* p) { return ToHost64(UNALIGNED_LOAD64(p)); }
-
-    // Build a uint64 from 1-8 bytes.
-    // 8 * len least significant bits are loaded from the memory with
-    // BigEndian order. The 64 - 8 * len most significant bits are
-    // set all to 0.
-    // In latex-friendly words, this function returns:
-    //     $\sum_{i=0}^{len-1} p[i] 256^{i}$, where p[i] is unsigned.
-    //
-    // This function is equivalent with:
-    // uint64 val = 0;
-    // memcpy(&val, p, len);
-    // return ToHost64(val);
-    // TODO(user): write a small benchmark and benchmark the speed
-    // of a memcpy based approach.
-    //
-    // For speed reasons this function does not work for len == 0.
-    // The caller needs to guarantee that 1 <= len <= 8.
-    static uint64 Load64VariableLength(const void* const p, int len) {
-        assert(len >= 1 && len <= 8);
-        uint64 val = Load64(p);
-        uint64 mask = 0;
-        --len;
-        do {
-            mask = (mask << 8) | 0xff;
-            // (--len >= 0) is about 10 % faster than (len--) in some benchmarks.
-        } while (--len >= 0);
-        return val & mask;
+    static uint16_t Load16(const void* p) {
+        return to_endian<std::endian::big>(UNALIGNED_LOAD16(p));
     }
 
-    static void Store64(void* p, uint64 v) { UNALIGNED_STORE64(p, FromHost64(v)); }
-
-    // Load & Store in machine's word size.
-    static uword_t LoadUnsignedWord(const void* p) {
-        if (sizeof(uword_t) == 8)
-            return Load64(p);
-        else
-            return Load32(p);
+    static void Store16(void* p, uint16_t v) {
+        UNALIGNED_STORE16(p, to_endian<std::endian::big>(v));
     }
 
-    static void StoreUnsignedWord(void* p, uword_t v) {
-        if (sizeof(uword_t) == 8)
-            Store64(p, v);
-        else
-            Store32(p, v);
+    static uint32_t Load32(const void* p) {
+        return to_endian<std::endian::big>(UNALIGNED_LOAD32(p));
+    }
+
+    static void Store32(void* p, uint32_t v) {
+        UNALIGNED_STORE32(p, to_endian<std::endian::big>(v));
+    }
+
+    static uint64_t Load64(const void* p) {
+        return to_endian<std::endian::big>(UNALIGNED_LOAD64(p));
+    }
+
+    static void Store64(void* p, uint64_t v) {
+        UNALIGNED_STORE64(p, to_endian<std::endian::big>(v));
     }
 }; // BigEndian
 

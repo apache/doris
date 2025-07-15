@@ -276,12 +276,12 @@ public:
         }
         bool negative = from_other < 0;
         int64_t from = std::abs((int64_t)from_other);
-        auto seconds = int64(from / 100);
-        int64 hour = 0, minute = 0, second = 0;
-        second = int64(from - 100 * seconds);
+        auto seconds = int64_t(from / 100);
+        int64_t hour = 0, minute = 0, second = 0;
+        second = int64_t(from - 100 * seconds);
         from /= 100;
-        seconds = int64(from / 100);
-        minute = int64(from - 100 * seconds);
+        seconds = int64_t(from / 100);
+        minute = int64_t(from - 100 * seconds);
         hour = seconds;
         if (minute >= 60 || second >= 60) {
             return false;

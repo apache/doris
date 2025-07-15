@@ -203,7 +203,7 @@ public:
                 << "Tried to seek to " << pos << " which is > number of elements (" << _num_elements
                 << ") in the block!";
         // If the block is empty (e.g. the column is filled with nulls), there is no data to seek.
-        if (PREDICT_FALSE(_num_elements == 0)) {
+        if (_num_elements == 0) [[unlikely]] {
             if (pos != 0) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                         "seek pos {} is larger than total elements  {}", pos, _num_elements);
@@ -228,7 +228,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+        if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -252,7 +252,7 @@ public:
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+        if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }

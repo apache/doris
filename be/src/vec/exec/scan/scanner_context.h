@@ -41,7 +41,6 @@
 
 namespace doris {
 
-class ThreadPoolToken;
 class RuntimeState;
 class TupleDescriptor;
 class WorkloadGroup;
@@ -181,7 +180,6 @@ public:
     // the unique id of this context
     std::string ctx_id;
     TUniqueId _query_id;
-    ThreadPoolToken* thread_token = nullptr;
 
     bool _should_reset_thread_name = true;
 

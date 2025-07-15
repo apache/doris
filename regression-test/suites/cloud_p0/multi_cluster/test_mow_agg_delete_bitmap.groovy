@@ -243,6 +243,7 @@ suite('test_mow_agg_delete_bitmap', 'multi_cluster,docker') {
         waitForCompaction(tablet)
         logger.info("after compaction 1")
         getTabletStatus(tablet)
+        GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.vacuum_stale_rowsets") // cloud
         def local_dm = getLocalDeleteBitmapStatus(tablet)
         logger.info("local_dm 0.2: " + local_dm)
         assertEquals(0, local_dm.delete_bitmap_count)

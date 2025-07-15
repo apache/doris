@@ -67,6 +67,7 @@ public enum SchemaTableType {
     SCH_CREATE_TABLE("CREATE_TABLE", "CREATE_TABLE", TSchemaTableType.SCH_CREATE_TABLE),
     SCH_INVALID("NULL", "NULL", TSchemaTableType.SCH_INVALID),
     SCH_ROWSETS("ROWSETS", "ROWSETS", TSchemaTableType.SCH_ROWSETS),
+    SCH_TABLETS("BACKEND_TABLETS", "BACKEND_TABLETS", TSchemaTableType.SCH_BACKEND_TABLETS),
     SCH_PARAMETERS("PARAMETERS", "PARAMETERS", TSchemaTableType.SCH_PARAMETERS),
     SCH_METADATA_NAME_IDS("METADATA_NAME_IDS", "METADATA_NAME_IDS", TSchemaTableType.SCH_METADATA_NAME_IDS),
     SCH_PROFILING("PROFILING", "PROFILING", TSchemaTableType.SCH_PROFILING),
@@ -94,15 +95,11 @@ public enum SchemaTableType {
     SCH_BACKEND_KERBEROS_TICKET_CACHE("BACKEND_KERBEROS_TICKET_CACHE", "BACKEND_KERBEROS_TICKET_CACHE",
             TSchemaTableType.SCH_BACKEND_KERBEROS_TICKET_CACHE),
     SCH_ROUTINE_LOAD_JOBS("ROUTINE_LOAD_JOBS", "ROUTINE_LOAD_JOBS",
-            TSchemaTableType.SCH_ROUTINE_LOAD_JOBS);
+            TSchemaTableType.SCH_ROUTINE_LOAD_JOBS),
+    SCH_VIEW_DEPENDENCY("VIEW_DEPENDENCY", "VIEW_DEPENDENCY",
+                    TSchemaTableType.SCH_VIEW_DEPENDENCY);
 
     private static final String dbName = "INFORMATION_SCHEMA";
-    private static SelectList fullSelectLists;
-
-    static {
-        fullSelectLists = new SelectList();
-        fullSelectLists.addItem(SelectListItem.createStarItem(null));
-    }
 
     private final String description;
     private final String tableName;

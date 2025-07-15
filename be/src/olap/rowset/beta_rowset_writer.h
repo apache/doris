@@ -26,6 +26,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <vector>
@@ -39,7 +40,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_creator.h"
-#include "segment_v2/inverted_index_file_writer.h"
+#include "segment_v2/index_file_writer.h"
 #include "segment_v2/segment.h"
 
 namespace doris {
@@ -86,7 +87,7 @@ public:
     ~InvertedIndexFileCollection();
 
     // `seg_id` -> inverted index file writer
-    Status add(int seg_id, InvertedIndexFileWriterPtr&& writer);
+    Status add(int seg_id, IndexFileWriterPtr&& writer);
 
     // Close all file writers
     // If the inverted index file writer is not closed, an error will be thrown during destruction
@@ -98,7 +99,7 @@ public:
     Result<std::vector<const InvertedIndexFileInfo*>> inverted_index_file_info(int seg_id_offset);
 
     // return all inverted index file writers
-    std::unordered_map<int, InvertedIndexFileWriterPtr>& get_file_writers() {
+    std::unordered_map<int, IndexFileWriterPtr>& get_file_writers() {
         return _inverted_index_file_writers;
     }
 
@@ -106,7 +107,7 @@ public:
 
 private:
     mutable std::mutex _lock;
-    std::unordered_map<int /* seg_id */, InvertedIndexFileWriterPtr> _inverted_index_file_writers;
+    std::unordered_map<int /* seg_id */, IndexFileWriterPtr> _inverted_index_file_writers;
     int64_t _total_size = 0;
 };
 
@@ -128,8 +129,7 @@ public:
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
                               FileType file_type = FileType::SEGMENT_FILE) override;
 
-    Status create_inverted_index_file_writer(uint32_t segment_id,
-                                             InvertedIndexFileWriterPtr* writer) override;
+    Status create_index_file_writer(uint32_t segment_id, IndexFileWriterPtr* writer) override;
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
@@ -190,7 +190,7 @@ public:
         return _seg_files.get_file_writers();
     }
 
-    std::unordered_map<int, InvertedIndexFileWriterPtr>& inverted_index_file_writers() {
+    std::unordered_map<int, IndexFileWriterPtr>& inverted_index_file_writers() {
         return this->_idx_files.get_file_writers();
     }
 
@@ -233,8 +233,10 @@ protected:
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
+
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
+    std::optional<bool> _segments_key_bounds_truncated;
 
     // counters and statistics maintained during add_rowset
     std::atomic<int64_t> _num_rows_written;

@@ -43,23 +43,11 @@ Status DataTypeDate64SerDe<T>::serialize_one_cell_to_json(
         bw.write('"');
     }
     Int64 int_val = assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num);
-    if (options.date_olap_format) {
-        tm time_tm;
-        memset(&time_tm, 0, sizeof(time_tm));
-        time_tm.tm_mday = static_cast<int>(int_val & 31);
-        time_tm.tm_mon = static_cast<int>(int_val >> 5 & 15) - 1;
-        time_tm.tm_year = static_cast<int>(int_val >> 9) - 1900;
-        char buf[20] = {'\0'};
-        strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
-        std::string s = std::string(buf);
-        bw.write(s.c_str(), s.length());
-    } else {
-        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
+    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
-        char buf[64];
-        char* pos = value.to_string(buf);
-        bw.write(buf, pos - buf - 1);
-    }
+    char buf[64];
+    char* pos = value.to_string(buf);
+    bw.write(buf, pos - buf - 1);
     if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
         bw.write('"');
     }
@@ -83,16 +71,7 @@ Status DataTypeDate64SerDe<T>::deserialize_one_cell_from_json(
         slice.trim_quote();
     }
     Int64 val = 0;
-    if (options.date_olap_format) {
-        tm time_tm;
-        char* res = strptime(slice.data, "%Y-%m-%d", &time_tm);
-        if (nullptr != res) {
-            val = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
-        } else {
-            // 1400 - 01 - 01
-            val = 716833;
-        }
-    } else if (ReadBuffer rb(slice.data, slice.size); !read_date_text_impl<Int64>(val, rb)) {
+    if (ReadBuffer rb(slice.data, slice.size); !read_date_text_impl<Int64>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -113,28 +92,11 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
     row_num = result.second;
 
     Int64 int_val = assert_cast<const ColumnDateTime&>(*ptr).get_element(row_num);
-    if (options.date_olap_format) {
-        tm time_tm;
-        int64 part1 = (int_val / 1000000L);
-        int64 part2 = (int_val - part1 * 1000000L);
-        time_tm.tm_year = static_cast<int>((part1 / 10000L) % 10000) - 1900;
-        time_tm.tm_mon = static_cast<int>((part1 / 100) % 100) - 1;
-        time_tm.tm_mday = static_cast<int>(part1 % 100);
+    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
-        time_tm.tm_hour = static_cast<int>((part2 / 10000L) % 10000);
-        time_tm.tm_min = static_cast<int>((part2 / 100) % 100);
-        time_tm.tm_sec = static_cast<int>(part2 % 100);
-        char buf[20] = {'\0'};
-        strftime(buf, 20, "%Y-%m-%d %H:%M:%S", &time_tm);
-        std::string s = std::string(buf);
-        bw.write(s.c_str(), s.length());
-    } else {
-        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
-
-        char buf[64];
-        char* pos = value.to_string(buf);
-        bw.write(buf, pos - buf - 1);
-    }
+    char buf[64];
+    char* pos = value.to_string(buf);
+    bw.write(buf, pos - buf - 1);
     return Status::OK();
 }
 
@@ -149,19 +111,7 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
                                                              const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnDateTime&>(column);
     Int64 val = 0;
-    if (options.date_olap_format) {
-        tm time_tm;
-        char* res = strptime(slice.data, "%Y-%m-%d %H:%M:%S", &time_tm);
-        if (nullptr != res) {
-            val = ((time_tm.tm_year + 1900) * 10000L + (time_tm.tm_mon + 1) * 100L +
-                   time_tm.tm_mday) *
-                          1000000L +
-                  time_tm.tm_hour * 10000L + time_tm.tm_min * 100L + time_tm.tm_sec;
-        } else {
-            // 1400 - 01 - 01
-            val = 14000101000000L;
-        }
-    } else if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
+    if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
         return Status::InvalidArgument("parse datetime fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -337,25 +287,47 @@ Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
     const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-    auto& BUFFER_UNIT_SIZE = DataTypeNumberSerDe<T>::BUFFER_UNIT_SIZE;
-    auto& BUFFER_RESERVED_SIZE = DataTypeNumberSerDe<T>::BUFFER_RESERVED_SIZE;
-    INIT_MEMORY_FOR_ORC_WRITER()
-
+    // First pass: calculate total memory needed and collect serialized values
+    std::vector<std::string> serialized_values;
+    std::vector<size_t> valid_row_indices;
+    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
-        if (cur_batch->notNull[row_id] == 0) {
-            continue;
+        if (cur_batch->notNull[row_id] == 1) {
+            char buf[64];
+            size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id]).to_buffer(buf);
+            total_size += len;
+            // avoid copy
+            serialized_values.emplace_back(buf, len);
+            valid_row_indices.push_back(row_id);
         }
-
-        size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id])
-                             .to_buffer(const_cast<char*>(bufferRef.data) + offset);
-
-        REALLOC_MEMORY_FOR_ORC_WRITER()
-
+    }
+    // Allocate continues memory based on calculated size
+    char* ptr = (char*)malloc(total_size);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory {} error when write variant column data to orc file.", total_size);
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = total_size;
+    buffer_list.emplace_back(bufferRef);
+    // Second pass: copy data to allocated memory
+    size_t offset = 0;
+    for (size_t i = 0; i < serialized_values.size(); i++) {
+        const auto& serialized_value = serialized_values[i];
+        size_t row_id = valid_row_indices[i];
+        size_t len = serialized_value.length();
+        if (offset + len > total_size) {
+            return Status::InternalError(
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
+                    offset, len, total_size);
+        }
+        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
         cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }
-
     cur_batch->numElements = end - start;
     return Status::OK();
 }

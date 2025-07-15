@@ -17,7 +17,8 @@
 
 #include "inverted_index_compaction.h"
 
-#include "inverted_index_file_writer.h"
+#include "index_file_writer.h"
+#include "inverted_index_common.h"
 #include "inverted_index_fs_directory.h"
 #include "io/fs/local_file_system.h"
 #include "olap/tablet_schema.h"
@@ -41,15 +42,17 @@ Status compact_column(int64_t index_id,
                     "debug point: index compaction error");
         }
     })
+
     bool can_use_ram_dir = true;
-    lucene::store::Directory* dir = DorisFSDirectoryFactory::getDirectory(
-            io::global_local_filesystem(), tmp_path.data(), can_use_ram_dir);
+    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> dir(
+            DorisFSDirectoryFactory::getDirectory(io::global_local_filesystem(), tmp_path.data(),
+                                                  can_use_ram_dir));
     DBUG_EXECUTE_IF("compact_column_getDirectory_error", {
         _CLTHROWA(CL_ERR_IO, "debug point: compact_column_getDirectory_error in index compaction");
     })
     lucene::analysis::SimpleAnalyzer<char> analyzer;
-    auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
-                                                           true /* closeDirOnShutdown */);
+    std::unique_ptr<lucene::index::IndexWriter> index_writer(_CLNEW lucene::index::IndexWriter(
+            dir.get(), &analyzer, true /* create */, true /* closeDirOnShutdown */));
     DBUG_EXECUTE_IF("compact_column_create_index_writer_error", {
         _CLTHROWA(CL_ERR_IO,
                   "debug point: compact_column_create_index_writer_error in index compaction");
@@ -71,11 +74,6 @@ Status compact_column(int64_t index_id,
         _CLTHROWA(CL_ERR_IO,
                   "debug point: compact_column_index_writer_close_error in index compaction");
     })
-    _CLDELETE(index_writer);
-    // NOTE: need to ref_cnt-- for dir,
-    // when index_writer is destroyed, if closeDir is set, dir will be close
-    // _CLDECDELETE(dir) will try to ref_cnt--, when it decreases to 1, dir will be destroyed.
-    _CLDECDELETE(dir)
 
     // delete temporary segment_path, only when inverted_index_ram_dir_enable is false
     if (!config::inverted_index_ram_dir_enable) {

@@ -21,6 +21,7 @@
 #include <mutex>
 
 #include "common/logging.h"
+#include "exec/rowid_fetcher.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
@@ -28,6 +29,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime_filter/runtime_filter_consumer.h"
 #include "util/brpc_client_cache.h"
+#include "vec/exec/scan/file_scanner.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -312,7 +314,6 @@ Status AggSharedState::reset_hash_table() {
                                  align_aggregate_states) *
                                         align_aggregate_states));
                         agg_method.hash_table.reset(new HashTableType());
-                        agg_arena_pool.reset(new vectorized::Arena);
                         return Status::OK();
                     }},
             agg_data->method_variant);
@@ -478,8 +479,14 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
     for (int i = 0; i < block_order_results.size(); ++i) {
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
             vectorized::Block partial_block;
+            DCHECK(rpc_struct.callback->response_->blocks_size() > i);
             RETURN_IF_ERROR(
                     partial_block.deserialize(rpc_struct.callback->response_->blocks(i).block()));
+            if (rpc_struct.callback->response_->blocks(i).has_profile()) {
+                auto response_profile = RuntimeProfile::from_proto(
+                        rpc_struct.callback->response_->blocks(i).profile());
+                _update_profile_info(backend_id, response_profile.get());
+            }
 
             if (!partial_block.is_empty_column()) {
                 _block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
@@ -531,6 +538,34 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
     origin_block.clear();
 
     return Status::OK();
+}
+
+void MaterializationSharedState::_update_profile_info(int64_t backend_id,
+                                                      RuntimeProfile* response_profile) {
+    if (!backend_profile_info_string.contains(backend_id)) {
+        backend_profile_info_string.emplace(backend_id,
+                                            std::map<std::string, fmt::memory_buffer> {});
+    }
+    auto& info_map = backend_profile_info_string[backend_id];
+
+    auto update_profile_info_key = [&](const std::string& info_key) {
+        const auto* info_value = response_profile->get_info_string(info_key);
+        if (info_value == nullptr) [[unlikely]] {
+            LOG(WARNING) << "Get row id fetch rpc profile success, but no info key :" << info_key;
+            return;
+        }
+        if (!info_map.contains(info_key)) {
+            info_map.emplace(info_key, fmt::memory_buffer {});
+        }
+        fmt::format_to(info_map[info_key], "{}, ", *info_value);
+    };
+
+    update_profile_info_key(RowIdStorageReader::ScannersRunningTimeProfile);
+    update_profile_info_key(RowIdStorageReader::InitReaderAvgTimeProfile);
+    update_profile_info_key(RowIdStorageReader::GetBlockAvgTimeProfile);
+    update_profile_info_key(RowIdStorageReader::FileReadLinesProfile);
+    update_profile_info_key(vectorized::FileScanner::FileReadBytesProfile);
+    update_profile_info_key(vectorized::FileScanner::FileReadTimeProfile);
 }
 
 void MaterializationSharedState::create_counter_dependency(int operator_id, int node_id,

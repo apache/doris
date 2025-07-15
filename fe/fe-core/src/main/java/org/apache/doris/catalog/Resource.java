@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -126,14 +125,6 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         this.type = type;
     }
 
-    public static Resource fromStmt(CreateResourceStmt stmt) throws DdlException {
-        Resource resource = getResourceInstance(stmt.getResourceType(), stmt.getResourceName());
-        resource.id = Env.getCurrentEnv().getNextId();
-        resource.version = 0;
-        resource.setProperties(stmt.getProperties());
-        return resource;
-    }
-
     public static Resource fromCommand(CreateResourceCommand command) throws DdlException {
         CreateResourceInfo info = command.getInfo();
         Resource resource = getResourceInstance(info.getResourceType(), info.getResourceName());
@@ -181,9 +172,6 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     private static Resource getResourceInstance(ResourceType type, String name) throws DdlException {
         Resource resource;
         switch (type) {
-            case SPARK:
-                resource = new SparkResource(name);
-                break;
             case ODBC_CATALOG:
                 resource = new OdbcCatalogResource(name);
                 break;

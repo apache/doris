@@ -236,20 +236,23 @@ private:
         auto& vec_res = col_res->get_data();
         vec_res.resize(block.rows());
 
-        if (auto col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
-            if (auto col_right = check_and_get_column<ColVecRight>(rcol.get())) {
+        if (const auto* col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
+            if (const auto* col_right = check_and_get_column<ColVecRight>(rcol.get())) {
                 if (left_const) {
-                    static_cast<void>(Impl<LeftDataType, RightDataType>::scalar_vector(
+                    auto st = Impl<LeftDataType, RightDataType>::scalar_vector(
                             col_left->get_data_at(0), col_right->get_chars(),
-                            col_right->get_offsets(), vec_res));
+                            col_right->get_offsets(), vec_res);
+                    RETURN_IF_ERROR(st);
                 } else if (right_const) {
-                    static_cast<void>(Impl<LeftDataType, RightDataType>::vector_scalar(
+                    auto st = Impl<LeftDataType, RightDataType>::vector_scalar(
                             col_left->get_chars(), col_left->get_offsets(),
-                            col_right->get_data_at(0), vec_res));
+                            col_right->get_data_at(0), vec_res);
+                    RETURN_IF_ERROR(st);
                 } else {
-                    static_cast<void>(Impl<LeftDataType, RightDataType>::vector_vector(
+                    auto st = Impl<LeftDataType, RightDataType>::vector_vector(
                             col_left->get_chars(), col_left->get_offsets(), col_right->get_chars(),
-                            col_right->get_offsets(), vec_res));
+                            col_right->get_offsets(), vec_res);
+                    RETURN_IF_ERROR(st);
                 }
 
                 block.replace_by_position(result, std::move(col_res));
@@ -465,9 +468,8 @@ public:
         auto res = Impl::ColumnType::create();
         if (const auto* col = check_and_get_column<ColumnString>(col_ptr.get())) {
             auto col_res = Impl::ColumnType::create();
-            static_cast<void>(Impl::vector(col->get_chars(), col->get_offsets(),
-                                           col_res->get_chars(), col_res->get_offsets(),
-                                           null_map->get_data()));
+            RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(), col_res->get_chars(),
+                                         col_res->get_offsets(), null_map->get_data()));
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {
@@ -506,9 +508,9 @@ public:
             auto& null_map_data = null_map->get_data();
             if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
                 auto col_res = Impl::ColumnType::create();
-                static_cast<void>(Impl::vector(col->get_chars(), col->get_offsets(),
-                                               col_res->get_chars(), col_res->get_offsets(),
-                                               &null_map_data));
+                RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(),
+                                             col_res->get_chars(), col_res->get_offsets(),
+                                             &null_map_data));
                 block.get_by_position(result).column =
                         ColumnNullable::create(std::move(col_res), std::move(null_map));
             } else {
@@ -519,8 +521,8 @@ public:
         } else {
             if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
                 auto col_res = Impl::ColumnType::create();
-                static_cast<void>(Impl::vector(col->get_chars(), col->get_offsets(),
-                                               col_res->get_chars(), col_res->get_offsets()));
+                RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(),
+                                             col_res->get_chars(), col_res->get_offsets()));
                 block.replace_by_position(result, std::move(col_res));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",

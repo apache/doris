@@ -90,7 +90,8 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     rowset_meta.set_num_segments(spec_rowset_meta.num_segments());
     rowset_meta.set_segments_overlap(spec_rowset_meta.segments_overlap());
     rowset_meta.set_rowset_state(spec_rowset_meta.rowset_state());
-
+    rowset_meta.set_segments_key_bounds_truncated(
+            spec_rowset_meta.is_segments_key_bounds_truncated());
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     rowset_meta.set_segments_key_bounds(segments_key_bounds);
@@ -192,7 +193,7 @@ Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id
 
 InvertedIndexFileCollection::~InvertedIndexFileCollection() = default;
 
-Status InvertedIndexFileCollection::add(int seg_id, InvertedIndexFileWriterPtr&& index_writer) {
+Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_writer) {
     std::lock_guard lock(_lock);
     if (_inverted_index_file_writers.find(seg_id) != _inverted_index_file_writers.end())
             [[unlikely]] {
@@ -686,6 +687,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
+    _segments_key_bounds_truncated = rowset->rowset_meta()->is_segments_key_bounds_truncated();
 
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
@@ -898,6 +900,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     for (auto& key_bound : _segments_encoded_key_bounds) {
         segments_encoded_key_bounds.push_back(key_bound);
     }
+    if (_segments_key_bounds_truncated.has_value()) {
+        rowset_meta->set_segments_key_bounds_truncated(_segments_key_bounds_truncated.value());
+    }
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
     // the overlap property when key bounds are empty.
     // for mow table with cluster keys, the overlap is used for cluster keys,
@@ -984,9 +989,9 @@ Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWri
             fmt::format("failed to create file = {}, file type = {}", segment_path, file_type));
 }
 
-Status BaseBetaRowsetWriter::create_inverted_index_file_writer(
-        uint32_t segment_id, InvertedIndexFileWriterPtr* index_file_writer) {
-    RETURN_IF_ERROR(RowsetWriter::create_inverted_index_file_writer(segment_id, index_file_writer));
+Status BaseBetaRowsetWriter::create_index_file_writer(uint32_t segment_id,
+                                                      IndexFileWriterPtr* index_file_writer) {
+    RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(segment_id, index_file_writer));
     // used for inverted index format v1
     (*index_file_writer)->set_file_writer_opts(_context.get_file_writer_options());
     return Status::OK();
@@ -1000,7 +1005,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     io::FileWriterPtr file_writer;
     RETURN_IF_ERROR(_create_file_writer(path, file_writer));
 
-    InvertedIndexFileWriterPtr index_file_writer;
+    IndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index()) {
         io::FileWriterPtr idx_file_writer;
         std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(path));
@@ -1009,7 +1014,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
             std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
             RETURN_IF_ERROR(_create_file_writer(index_path, idx_file_writer));
         }
-        index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
                 std::move(idx_file_writer));

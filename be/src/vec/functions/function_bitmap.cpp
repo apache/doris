@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionBitmap.h
 // and modified by Doris
 
+#include <absl/strings/numbers.h>
 #include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <stdint.h>
@@ -34,7 +35,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "util/bitmap_value.h"
 #include "util/hash_util.hpp"
 #include "util/murmur_hash3.h"
@@ -235,7 +235,7 @@ struct BitmapFromString {
             auto res = absl::StrSplit(std::string_view {raw_str, str_size}, ",", absl::SkipEmpty());
             uint64_t value = 0;
             for (auto s : res) {
-                if (!safe_strtou64(std::string(s), &value)) {
+                if (!absl::SimpleAtoi(s, &value)) {
                     return false;
                 }
                 bits.push_back(value);
@@ -304,8 +304,8 @@ struct BitmapFromBase64 {
             } else {
                 BitmapValue bitmap_val;
                 if (!bitmap_val.deserialize(decode_buff.data())) {
-                    return Status::RuntimeError(
-                            fmt::format("bitmap_from_base64 decode failed: base64: {}", src_str));
+                    return Status::RuntimeError("bitmap_from_base64 decode failed: base64: {}",
+                                                std::string(src_str, src_size));
                 }
                 res.emplace_back(std::move(bitmap_val));
             }

@@ -18,6 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -31,8 +33,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -197,6 +197,18 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        List<String> list = new ArrayList<>(children.size());
+        for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
+            list.add(
+                    children.get(i).toSqlImpl(disableTableName, needExternalSql, tableType, table) + ":" + children.get(
+                            i + 1).toSqlImpl(disableTableName, needExternalSql, tableType, table));
+        }
+        return "MAP{" + StringUtils.join(list, ", ") + "}";
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.MAP_LITERAL;
         TTypeDesc container = new TTypeDesc();
@@ -218,22 +230,6 @@ public class MapLiteral extends LiteralExpr {
     @Override
     public int compareLiteral(LiteralExpr expr) {
         return 0;
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int size = in.readInt();
-        children = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            children.add(Expr.readIn(in));
-        }
-    }
-
-    public static MapLiteral read(DataInput in) throws IOException {
-        MapLiteral literal = new MapLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

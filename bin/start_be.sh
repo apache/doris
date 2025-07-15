@@ -243,6 +243,14 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
+# add jindofs
+# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
+if [[ -d "${DORIS_HOME}/lib/java_extensions/jindofs" ]]; then
+    for f in "${DORIS_HOME}/lib/java_extensions/jindofs"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
 # add custom_libs to CLASSPATH
 # ATTN, custom_libs is deprecated, use plugins/java_extensions
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
@@ -333,11 +341,12 @@ export AWS_MAX_ATTEMPTS=2
 # filter known leak
 export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
 export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+export UBSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/ubsan_suppr.conf
 
 ## set asan and ubsan env to generate core file
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
-export UBSAN_OPTIONS=print_stacktrace=1
+export UBSAN_OPTIONS=print_stacktrace=1:${UBSAN_OPTIONS}
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
 set_tcmalloc_heap_limit() {

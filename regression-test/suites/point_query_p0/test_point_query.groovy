@@ -280,8 +280,8 @@ suite("test_point_query", "nonConcurrent") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "store_row_column" = "true"
-            ); 
-        """                
+            );
+        """
         sql "insert into test_ODS_EBA_LLREPORT(RPTNO) values('567890')"
         sql "select  /*+ SET_VAR(enable_nereids_planner=true) */  substr(RPTNO,2,5) from test_ODS_EBA_LLREPORT where  RPTNO = '567890'"
 
@@ -298,14 +298,14 @@ suite("test_point_query", "nonConcurrent") {
         "enable_unique_key_merge_on_write" = "true",
         "store_row_column" = "true"
         );
-        """                
+        """
         sql """insert into `test_cc_aaaid2` values('1111111')"""
         qt_sql """SELECT
              `__DORIS_DELETE_SIGN__`,
              aaaid
 
             FROM
-             `test_cc_aaaid2` 
+             `test_cc_aaaid2`
             WHERE
              aaaid = '1111111'"""
     } finally {
@@ -333,7 +333,7 @@ suite("test_point_query", "nonConcurrent") {
     explain {
         sql("select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'")
         contains "SHORT-CIRCUIT"
-    } 
+    }
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql "delete from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     // read delete sign
@@ -444,4 +444,25 @@ suite("test_point_query", "nonConcurrent") {
     sql "insert into table_with_chars values (20, 30, 'aabc', 'value');"
     sql "set enable_short_circuit_query = true"
     qt_sql "select length(loc3) from table_with_chars where col1 = 10"
+
+    // test variant type
+    sql "DROP TABLE IF EXISTS test_with_variant"
+    sql """
+    CREATE TABLE `test_with_variant` (
+        `col1` bigint NULL,
+        `col2` variant NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(`col1`)
+    DISTRIBUTED BY HASH(`col1`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_merge_on_write" = "true",
+        "store_row_column" = "true"
+    );
+    """
+    sql """
+        INSERT INTO test_with_variant VALUES(1, '{"k1":"v1", "k2": 200}');
+    """
+    qt_sql "select col2['k1'] from test_with_variant where col1=1"
+
 }

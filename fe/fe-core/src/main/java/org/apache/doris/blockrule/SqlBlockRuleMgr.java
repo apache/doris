@@ -20,7 +20,6 @@ package org.apache.doris.blockrule;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
-import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -73,14 +72,6 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     public boolean existRule(String name) {
         return nameToSqlBlockRuleMap.containsKey(name);
-    }
-
-    /**
-     * Get SqlBlockRule by show stmt.
-     **/
-    public List<SqlBlockRule> getSqlBlockRule(ShowSqlBlockRuleStmt stmt) throws AnalysisException {
-        String ruleName = stmt.getRuleName();
-        return getSqlBlockRule(ruleName);
     }
 
     /**
@@ -247,7 +238,7 @@ public class SqlBlockRuleMgr implements Writable {
             return;
         }
         if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().internalSession) {
+                && ConnectContext.get().getState().isInternal()) {
             return;
         }
         // match global rule
@@ -286,7 +277,7 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
             throws AnalysisException {
-        if (ConnectContext.get().getSessionVariable().internalSession) {
+        if (ConnectContext.get().getState().isInternal()) {
             return;
         }
         // match global rule

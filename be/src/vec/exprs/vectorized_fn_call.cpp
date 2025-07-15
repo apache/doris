@@ -224,7 +224,7 @@ size_t VectorizedFnCall::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,
+Status VectorizedFnCall::execute_runtime_filter(doris::vectorized::VExprContext* context,
                                                 doris::vectorized::Block* block,
                                                 int* result_column_id, ColumnNumbers& args) {
     return _do_execute(context, block, result_column_id, args);

@@ -36,6 +36,7 @@ import java.util.Map.Entry;
 public class ParquetFileFormatProperties extends FileFormatProperties {
     public static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
     public static final String PARQUET_VERSION = "version";
+    public static final String ENABLE_INT96_TIMESTAMPS = "enable_int96_timestamps";
     public static final String PARQUET_PROP_PREFIX = "parquet.";
 
     public static final Logger LOG = LogManager.getLogger(ParquetFileFormatProperties.class);
@@ -60,6 +61,7 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
     private boolean parquetDisableDictionary = false;
     private TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
+    private boolean enableInt96Timestamps = true;
 
     public ParquetFileFormatProperties() {
         super(TFileFormatType.FORMAT_PARQUET, FileFormatProperties.FORMAT_PARQUET);
@@ -80,6 +82,11 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
                         + formatProperties.get(PROP_COMPRESS_TYPE)
                         + "] is invalid, please choose one among SNAPPY, GZIP, BROTLI, ZSTD, LZ4, LZO, BZ2 or PLAIN");
             }
+        }
+
+        //save the enable int96 timestamp property
+        if (formatProperties.containsKey(ENABLE_INT96_TIMESTAMPS)) {
+            this.enableInt96Timestamps = Boolean.valueOf(formatProperties.get(ENABLE_INT96_TIMESTAMPS)).booleanValue();
         }
 
         // save all parquet prefix property
@@ -109,6 +116,7 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
         sinkOptions.setParquetCompressionType(parquetCompressionType);
         sinkOptions.setParquetDisableDictionary(parquetDisableDictionary);
         sinkOptions.setParquetVersion(parquetVersion);
+        sinkOptions.setEnableInt96Timestamps(enableInt96Timestamps);
     }
 
     @Override
@@ -125,5 +133,9 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
 
     public boolean isParquetDisableDictionary() {
         return parquetDisableDictionary;
+    }
+
+    public boolean isEnableInt96Timestamps() {
+        return enableInt96Timestamps;
     }
 }

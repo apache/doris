@@ -50,9 +50,11 @@
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_table_properties_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
+#include "exec/schema_scanner/schema_tablets_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
+#include "exec/schema_scanner/schema_view_dependency_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
 #include "exec/schema_scanner/schema_workload_group_privileges.h"
 #include "exec/schema_scanner/schema_workload_group_resource_usage_scanner.h"
@@ -233,6 +235,10 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
     case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
         return SchemaRoutineLoadJobScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_TABLETS:
+        return SchemaTabletsScanner::create_unique();
+    case TSchemaTableType::SCH_VIEW_DEPENDENCY:
+        return SchemaViewDependencyScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

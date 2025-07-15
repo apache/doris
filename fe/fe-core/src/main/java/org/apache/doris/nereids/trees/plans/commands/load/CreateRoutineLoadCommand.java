@@ -83,6 +83,15 @@ public class CreateRoutineLoadCommand extends Command implements ForwardWithSync
         Env.getCurrentEnv().getRoutineLoadManager().createRoutineLoadJob(createRoutineLoadStmt);
     }
 
+    /**
+     * getCreateRoutineLoadInfo
+     *
+     * @return createRoutineLoadInfo
+     */
+    public CreateRoutineLoadInfo getCreateRoutineLoadInfo() {
+        return createRoutineLoadInfo;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCreateRoutineLoadCommand(this, context);

@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TFunctionName;
 
 import com.google.common.base.Strings;
@@ -31,8 +30,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Objects;
 
 /**
@@ -164,19 +161,6 @@ public class FunctionName {
         name.setDbName(db);
         name.setFunctionName(fn);
         return name;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            db = Text.readString(in);
-        }
-        fn = Text.readString(in);
-    }
-
-    public static FunctionName read(DataInput in) throws IOException {
-        FunctionName functionName = new FunctionName();
-        functionName.readFields(in);
-        return functionName;
     }
 
     @Override

@@ -18,7 +18,6 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
-import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -41,6 +40,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUserIdentity;
@@ -176,17 +176,20 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         return wg;
     }
 
+    public WorkloadGroup getWorkloadGroupByComputeGroup(WorkloadGroupKey wgKey) {
+        return keyToWorkloadGroup.get(wgKey);
+    }
+
     public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
         String wgName = getWorkloadGroupNameAndCheckPriv(context);
-        Set<String> cgNames = context.getComputeGroup().getNames();
+        ComputeGroup cg = context.getComputeGroup();
 
         List<TPipelineWorkloadGroup> workloadGroups = Lists.newArrayList();
         readLock();
         try {
-            for (String cgName : cgNames) {
-                WorkloadGroup workloadGroup = getWorkloadGroupByComputeGroupUnlock(
-                        WorkloadGroupKey.get(cgName, wgName));
-                workloadGroups.add(workloadGroup.toThrift());
+            List<WorkloadGroup> wgList = cg.getWorkloadGroup(wgName, this);
+            for (WorkloadGroup wg : wgList) {
+                workloadGroups.add(wg.toThrift());
             }
             context.setWorkloadGroupName(wgName);
         } finally {
@@ -310,10 +313,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         LOG.info("Create workload group {} for compute group {} success.", workloadGroup, computeGroup);
     }
 
-    public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {
-        throw new DdlException("Unsupported create statement");
-    }
-
     // NOTE: used for checking sum value of 100%  for cpu_hard_limit and memory_limit
     //  when create/alter workload group with same tag.
     //  when oldWg is not null it means caller is an alter stmt.
@@ -351,7 +350,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         sumOfAllMemLimit += newWg.getMemoryLimitPercentWhenCalSum();
 
         // 3 check total sum
-        if (sumOfAllMemLimit > 100.0 + 1e-6) {
+        if (Config.enable_wg_memory_sum_limit && sumOfAllMemLimit > 100.0 + 1e-6) {
             throw new DdlException(
                     "The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT + " within compute group " + (
                             newWgCg)
@@ -370,17 +369,25 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         throw new DdlException("Unsupported alter statement");
     }
 
-    public void alterWorkloadGroup(String computeGroup, String workloadGroupName, Map<String, String> properties)
-            throws DdlException {
+    public void alterWorkloadGroup(ComputeGroup cg, String workloadGroupName, Map<String, String> properties)
+            throws UserException {
         if (properties.size() == 0) {
             throw new DdlException("Alter workload group should contain at least one property");
         }
 
         WorkloadGroup newWorkloadGroup;
-        WorkloadGroupKey wgKey = WorkloadGroupKey.get(computeGroup, workloadGroupName);
+        WorkloadGroupKey wgKey = WorkloadGroupKey.get(cg.getId(), workloadGroupName);
         writeLock();
         try {
-            WorkloadGroup currentWorkloadGroup = getWorkloadGroupByComputeGroupUnlock(wgKey);
+            // get 0 idx here because there can only be one wg in cg with specify wg name.
+            List<WorkloadGroup> ret = cg.getWorkloadGroup(workloadGroupName, this);
+            if (ret.size() != 1) {
+                throw new RuntimeException(
+                        "Unexpected error: find " + ret.size() + " workload group " + workloadGroupName
+                                + " in compute group "
+                                + cg.getName());
+            }
+            WorkloadGroup currentWorkloadGroup = ret.get(0);
             newWorkloadGroup = WorkloadGroup.copyAndUpdate(currentWorkloadGroup, properties);
             checkGlobalUnlock(newWorkloadGroup, currentWorkloadGroup);
             keyToWorkloadGroup.put(wgKey, newWorkloadGroup);
@@ -389,7 +396,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         } finally {
             writeUnlock();
         }
-        LOG.info("Alter workload group {} for compute group {} success: {}", newWorkloadGroup, computeGroup);
+        LOG.info("Alter workload group {} for compute group {} success: {}", newWorkloadGroup, cg.getName());
     }
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {

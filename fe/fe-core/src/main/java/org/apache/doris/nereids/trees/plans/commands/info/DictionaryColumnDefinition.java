@@ -19,21 +19,15 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Objects;
 
 /**
  * Definition of a dictionary column.
  */
-public class DictionaryColumnDefinition implements Writable {
+public class DictionaryColumnDefinition {
     @SerializedName(value = "name")
     private final String name;
     @SerializedName(value = "isKey")
@@ -89,16 +83,5 @@ public class DictionaryColumnDefinition implements Writable {
 
     public Column getOriginColumn() {
         return originColumn;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static DictionaryColumnDefinition read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, DictionaryColumnDefinition.class);
     }
 }

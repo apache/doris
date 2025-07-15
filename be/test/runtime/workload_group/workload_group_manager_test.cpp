@@ -99,7 +99,7 @@ private:
         auto st = wg->add_resource_ctx(query_context->query_id(), query_context->resource_ctx());
         EXPECT_TRUE(st.ok()) << "add query to workload group failed: " << st.to_string();
 
-        query_context->set_workload_group(wg);
+        static_cast<void>(query_context->set_workload_group(wg));
         return query_context;
     }
 

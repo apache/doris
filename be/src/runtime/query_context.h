@@ -106,15 +106,6 @@ public:
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
 
-    void set_thread_token(int concurrency, bool is_serial) {
-        _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
-                is_serial ? ThreadPool::ExecutionMode::SERIAL
-                          : ThreadPool::ExecutionMode::CONCURRENT,
-                concurrency);
-    }
-
-    ThreadPoolToken* get_token() { return _thread_token.get(); }
-
     void set_ready_to_execute(Status reason);
 
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
@@ -148,7 +139,7 @@ public:
         }
     }
 
-    void set_workload_group(WorkloadGroupPtr& wg);
+    Status set_workload_group(WorkloadGroupPtr& wg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -287,13 +278,6 @@ private:
     bool _is_nereids = false;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
-
-    // A token used to submit olap scanner to the "_limited_scan_thread_pool",
-    // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
-    // And will be shared by all instances of this query.
-    // So that we can control the max thread that a query can be used to execute.
-    // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
     void _init_resource_context();
     void _init_query_mem_tracker();

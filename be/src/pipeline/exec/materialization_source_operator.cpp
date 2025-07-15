@@ -41,16 +41,27 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
     *eos = local_state._shared_state->last_block;
 
     if (!*eos) {
-        local_state._shared_state->sink_deps.back()->set_ready();
-
         ((CountedFinishDependency*)(local_state._shared_state->source_deps.back().get()))
                 ->add(local_state._shared_state->rpc_struct_map.size());
+
+        local_state._shared_state->sink_deps.back()->set_ready();
     } else {
         uint64_t max_rpc_time = 0;
         for (auto& [_, rpc_struct] : local_state._shared_state->rpc_struct_map) {
             max_rpc_time = std::max(max_rpc_time, rpc_struct.rpc_timer.elapsed_time());
         }
         COUNTER_SET(local_state._max_rpc_timer, (int64_t)max_rpc_time);
+
+        for (const auto& [backend_id, child_info] :
+             local_state._shared_state->backend_profile_info_string) {
+            auto child_profile = local_state.operator_profile()->create_child(
+                    "RowIDFetcher: BackendId:" + std::to_string(backend_id));
+            for (const auto& [info_key, info_value] :
+                 local_state._shared_state->backend_profile_info_string[backend_id]) {
+                child_profile->add_info_string(info_key, "{" + fmt::to_string(info_value) + "}");
+            }
+            local_state.operator_profile()->add_child(child_profile, true);
+        }
     }
 
     return Status::OK();

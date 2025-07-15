@@ -94,6 +94,9 @@ public class CreateRoutineLoadInfo {
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+
+    public static final String STRICT_MODE = "strict_mode";
+    public static final String TIMEZONE = "timezone";
     public static final java.util.function.Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final java.util.function.Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final java.util.function.Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
@@ -113,6 +116,8 @@ public class CreateRoutineLoadInfo {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
+            .add(STRICT_MODE)
+            .add(TIMEZONE)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
@@ -360,9 +365,9 @@ public class CreateRoutineLoadInfo {
             RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
             MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 10GB");
 
-        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
+        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(STRICT_MODE),
             RoutineLoadJob.DEFAULT_STRICT_MODE,
-            LoadStmt.STRICT_MODE + " should be a boolean");
+            STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
             RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED,
             EXEC_MEM_LIMIT_PROPERTY + " must be greater than 0");
@@ -378,7 +383,6 @@ public class CreateRoutineLoadInfo {
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             ConnectContext tmpCtx = new ConnectContext();
             tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
             tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
             if (Config.isCloudMode()) {
                 tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
@@ -394,7 +398,7 @@ public class CreateRoutineLoadInfo {
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
-        timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
+        timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(TIMEZONE, timezone));
 
         String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
@@ -404,6 +408,15 @@ public class CreateRoutineLoadInfo {
     private void checkDataSourceProperties() throws UserException {
         this.dataSourceProperties.setTimezone(this.timezone);
         this.dataSourceProperties.analyze();
+    }
+
+    /**
+     * getRoutineLoadDesc
+     *
+     * @return routineLoadDesc
+     */
+    public RoutineLoadDesc getRoutineLoadDesc() {
+        return routineLoadDesc;
     }
 
     /**

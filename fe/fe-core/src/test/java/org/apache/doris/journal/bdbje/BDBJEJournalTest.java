@@ -155,14 +155,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
 
         journal.rollJournal();
         for (int i = 0; i < 10; i++) {
-            String data = "OperationType.OP_TIMESTAMP";
-            Writable writable = new Writable() {
-                @Override
-                public void write(DataOutput out) throws IOException {
-                    Text.writeString(out, data);
-                }
-            };
-            journal.write(OperationType.OP_TIMESTAMP, writable);
+            journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
         }
 
         Assertions.assertEquals(10, journal.getMaxJournalId());
@@ -183,14 +176,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
             if (i % 10 == 0) {
                 journal.rollJournal();
             }
-            String data = "OperationType.OP_TIMESTAMP";
-            Writable writable = new Writable() {
-                @Override
-                public void write(DataOutput out) throws IOException {
-                    Text.writeString(out, data);
-                }
-            };
-            journal.write(OperationType.OP_TIMESTAMP, writable);
+            journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
         }
 
         Assertions.assertEquals(50, journal.getMaxJournalId());
@@ -213,13 +199,13 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
             Assertions.assertEquals(OperationType.OP_TIMESTAMP, entity.getOpCode());
         }
 
-        Assertions.assertEquals(null, cursor.next());
+        Assertions.assertNull(cursor.next());
 
         journal.close();
-        Assertions.assertEquals(null, journal.getBDBEnvironment());
+        Assertions.assertNull(journal.getBDBEnvironment());
 
         journal.open();
-        Assertions.assertTrue(journal.getBDBEnvironment() != null);
+        Assertions.assertNotNull(journal.getBDBEnvironment());
         // BDBEnvrinment need several seconds election from unknown to master
         for (int i = 0; i < 10; i++) {
             if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()

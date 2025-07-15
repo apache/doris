@@ -363,7 +363,7 @@ void EngineStorageMigrationTask::_generate_new_header(
 }
 
 Status EngineStorageMigrationTask::_copy_index_and_data_files(
-        const string& full_path, const std::vector<RowsetSharedPtr>& consistent_rowsets,
+        const std::string& full_path, const std::vector<RowsetSharedPtr>& consistent_rowsets,
         RowsetBinlogMetasPB* all_binlog_metas_pb) const {
     RowsetBinlogMetasPB rowset_binlog_metas_pb;
     for (const auto& rs : consistent_rowsets) {

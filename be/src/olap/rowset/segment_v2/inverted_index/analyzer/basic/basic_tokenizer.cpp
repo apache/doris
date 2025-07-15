@@ -92,8 +92,7 @@ void BasicTokenizer::cut() {
             const int32_t prev_i = i;
 
             U8_NEXT(s, i, length, c);
-
-            if (c == U_SENTINEL) {
+            if (c < 0) {
                 continue;
             }
 

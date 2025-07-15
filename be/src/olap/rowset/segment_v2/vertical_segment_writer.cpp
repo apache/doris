@@ -46,8 +46,8 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -89,14 +89,14 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
                                              const VerticalSegmentWriterOptions& opts,
-                                             InvertedIndexFileWriter* inverted_file_writer)
+                                             IndexFileWriter* index_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _inverted_index_file_writer(inverted_file_writer),
+          _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(
                   vertical_segment_writer_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
@@ -222,8 +222,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
-        DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        DCHECK(_index_file_writer != nullptr);
+        opts.index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
     }
 
@@ -253,6 +253,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     if (storage_page_size >= 4096 && storage_page_size <= 10485760) {
         opts.data_page_size = storage_page_size;
     }
+    opts.dict_page_size = _tablet_schema->storage_dict_page_size();
     DBUG_EXECUTE_IF("VerticalSegmentWriter._create_column_writer.storage_page_size", {
         auto table_id = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
                 "VerticalSegmentWriter._create_column_writer.storage_page_size", "table_id",
@@ -375,13 +376,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
                                       specified_rowsets, &loc, _mow_context->max_version,
                                       segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
-        if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-            ++stats.num_rows_filtered;
-            // delete the invalid newly inserted row
-            _mow_context->delete_bitmap->add(
-                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                    segment_pos);
-        } else if (!have_delete_sign) {
+        if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
@@ -557,8 +552,10 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
         auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema);
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema, [&]() -> std::string {
+                        return data.block->dump_one_line(block_pos, _num_sort_key_columns);
+                    });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos);
@@ -879,8 +876,12 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
                                  delete_sign_column_data[block_pos] != 0);
 
         auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema, &skip_bitmap);
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema,
+                    [&]() -> std::string {
+                        return data.block->dump_one_line(block_pos, _num_sort_key_columns);
+                    },
+                    &skip_bitmap);
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos, skip_bitmap);
@@ -1340,7 +1341,7 @@ Status VerticalSegmentWriter::_generate_short_key_index(
     return Status::OK();
 }
 
-void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, string* encoded_keys) {
+void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_keys) {
     encoded_keys->push_back(KEY_NORMAL_MARKER);
     _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
 }
@@ -1381,7 +1382,8 @@ std::string VerticalSegmentWriter::_full_encode_keys(
 }
 
 void VerticalSegmentWriter::_encode_seq_column(
-        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos, string* encoded_keys) {
+        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+        std::string* encoded_keys) {
     const auto* field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column

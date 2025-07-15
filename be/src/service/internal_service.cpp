@@ -884,7 +884,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_AVRO: {
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
@@ -893,6 +892,12 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             st.to_protobuf(result->mutable_status());
             return;
         }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to create reader, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        st = reader->init_schema_reader();
         if (!st.ok()) {
             LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
@@ -1805,8 +1810,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     brpc::ClosureGuard closure_guard(done);
     const RowsetMetaPB& rowset_meta_pb = request->rowset_meta();
     const std::string& rowset_path = request->rowset_path();
-    google::protobuf::Map<int64, int64> segments_size = request->segments_size();
-    google::protobuf::Map<int64, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
+    google::protobuf::Map<int64_t, int64_t> segments_size = request->segments_size();
+    google::protobuf::Map<int64_t, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
             request->inverted_indices_size();
     std::string host = request->host();
     int64_t http_port = request->http_port();
@@ -2093,7 +2098,9 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                                         const PMultiGetRequestV2* request,
                                         PMultiGetResponseV2* response,
                                         google::protobuf::Closure* done) {
-    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(request->wg_id());
+    std::vector<uint64_t> id_set;
+    id_set.push_back(request->wg_id());
+    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(id_set);
     Status st = Status::OK();
 
     if (!wg) [[unlikely]] {
@@ -2112,13 +2119,13 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
 
     st = remote_scan_sched->submit_scan_task(vectorized::SimplifiedScanTask(
             [request, response, done]() {
+                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
                 signal::set_signal_task_id(request->query_id());
                 // multi get data by rowid
                 MonotonicStopWatch watch;
                 watch.start();
                 brpc::ClosureGuard closure_guard(done);
                 response->mutable_status()->set_status_code(0);
-                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
                 Status st = RowIdStorageReader::read_by_rowids(*request, response);
                 st.to_protobuf(response->mutable_status());
                 LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;

@@ -19,11 +19,11 @@
 
 #include <arrow/builder.h>
 
-#include <type_traits>
-
 #include "common/exception.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
@@ -265,6 +265,70 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 }
 
 template <PrimitiveType T>
+constexpr bool can_write_to_jsonb_from_number() {
+    return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+           T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE;
+}
+
+template <PrimitiveType T>
+bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer) {
+    if constexpr (T == TYPE_BOOLEAN) {
+        return writer.writeBool(data);
+    } else if constexpr (T == TYPE_TINYINT) {
+        return writer.writeInt8(data);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        return writer.writeInt16(data);
+    } else if constexpr (T == TYPE_INT) {
+        return writer.writeInt32(data);
+    } else if constexpr (T == TYPE_BIGINT) {
+        return writer.writeInt64(data);
+    } else if constexpr (T == TYPE_LARGEINT) {
+        return writer.writeInt128(data);
+    } else if constexpr (T == TYPE_FLOAT) {
+        return writer.writeFloat(data);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        return writer.writeDouble(data);
+    } else {
+        return false;
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                         int64_t row_num,
+                                                         JsonbWriter& writer) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    }
+    const auto& data = assert_cast<const ColumnType&>(from_column).get_element(row_num);
+    if (!write_to_jsonb_from_number<T>(data, writer)) {
+        return Status::InvalidArgument("DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed");
+    }
+
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                ColumnString& to_column) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    }
+    const auto size = from_column.size();
+    JsonbWriter writer;
+    const auto& data = assert_cast<const ColumnType&>(from_column).get_data();
+    for (int i = 0; i < size; i++) {
+        writer.reset();
+        if (!write_to_jsonb_from_number<T>(data[i], writer)) {
+            return Status::InvalidArgument(
+                    "DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed for row {}", i);
+        }
+        to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
                                                                      uint64_t times) const {
     if (times < 1) [[unlikely]] {
@@ -360,17 +424,40 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
 
     if constexpr (T == TYPE_LARGEINT) { // largeint
         auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
-
-        INIT_MEMORY_FOR_ORC_WRITER()
-
+        // First pass: calculate total memory needed and collect serialized values
+        size_t total_size = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
                 std::string value_str = fmt::format("{}", col_data[row_id]);
                 size_t len = value_str.size();
-
-                REALLOC_MEMORY_FOR_ORC_WRITER()
-
-                strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
+                total_size += len;
+            }
+        }
+        // Allocate continues memory based on calculated size
+        char* ptr = (char*)malloc(total_size);
+        if (!ptr) {
+            return Status::InternalError(
+                    "malloc memory {} error when write variant column data to orc file.",
+                    total_size);
+        }
+        StringRef bufferRef;
+        bufferRef.data = ptr;
+        bufferRef.size = total_size;
+        buffer_list.emplace_back(bufferRef);
+        // Second pass: fill the data and update the batch
+        size_t offset = 0;
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                std::string value_str = fmt::format("{}", col_data[row_id]);
+                size_t len = value_str.size();
+                if (offset + len > total_size) {
+                    return Status::InternalError(
+                            "Buffer overflow when writing column data to ORC file. offset {} with "
+                            "len {} exceed total_size {} . ",
+                            offset, len, total_size);
+                }
+                // do not use strcpy here, because this buffer is not null-terminated
+                memcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str(), len);
                 cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
                 cur_batch->length[row_id] = len;
                 offset += len;
@@ -392,6 +479,128 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
     } else if constexpr (T == TYPE_IPV4) { // ipv4
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
+                                                      const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnType&>(column);
+    if constexpr (T == TYPE_TINYINT || T == TYPE_BOOLEAN) {
+        col.insert_value(arg->unpack<JsonbInt8Val>()->val());
+    } else if constexpr (T == TYPE_SMALLINT) {
+        col.insert_value(arg->unpack<JsonbInt16Val>()->val());
+    } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
+        col.insert_value(arg->unpack<JsonbInt32Val>()->val());
+    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
+                         T == TYPE_DATETIMEV2) {
+        col.insert_value(arg->unpack<JsonbInt64Val>()->val());
+    } else if constexpr (T == TYPE_LARGEINT) {
+        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
+    } else if constexpr (T == TYPE_FLOAT) {
+        col.insert_value(arg->unpack<JsonbFloatVal>()->val());
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+        col.insert_value(arg->unpack<JsonbDoubleVal>()->val());
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_one_cell_from_jsonb with type '{}'", arg->typeName());
+    }
+}
+template <PrimitiveType T>
+void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
+                                                     JsonbWriterT<JsonbOutStream>& result,
+                                                     Arena& mem_pool, int32_t col_id,
+                                                     int64_t row_num) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
+    StringRef data_ref = column.get_data_at(row_num);
+    // TODO: Casting unsigned integers to signed integers may result in loss of data precision.
+    // However, as Doris currently does not support unsigned integers, only the boolean type uses
+    // uint8_t for representation, making the cast acceptable. In the future, we should add support for
+    // both unsigned integers in Doris types and the JSONB types.
+    if constexpr (T == TYPE_TINYINT || T == TYPE_BOOLEAN) {
+        int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
+        result.writeInt8(val);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data);
+        result.writeInt16(val);
+    } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
+        int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
+        result.writeInt32(val);
+    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
+                         T == TYPE_DATETIMEV2) {
+        int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
+        result.writeInt64(val);
+    } else if constexpr (T == TYPE_LARGEINT) {
+        __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
+        result.writeInt128(val);
+    } else if constexpr (T == TYPE_FLOAT) {
+        float val = *reinterpret_cast<const float*>(data_ref.data);
+        result.writeFloat(val);
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+        double val = *reinterpret_cast<const double*>(data_ref.data);
+        result.writeDouble(val);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_one_cell_to_jsonb with type " + column.get_name());
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
+                                                      rapidjson::Value& result,
+                                                      rapidjson::Document::AllocatorType& allocator,
+                                                      Arena& mem_pool, int64_t row_num) const {
+    const auto& data = reinterpret_cast<const ColumnType&>(column).get_data();
+    if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT) {
+        result.SetInt(data[row_num]);
+    } else if constexpr (T == TYPE_BOOLEAN || T == TYPE_DATEV2 || T == TYPE_IPV4) {
+        result.SetUint(data[row_num]);
+    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME) {
+        result.SetInt64(data[row_num]);
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        result.SetUint64(data[row_num]);
+    } else if constexpr (T == TYPE_FLOAT) {
+        result.SetFloat(data[row_num]);
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+        result.SetDouble(data[row_num]);
+    } else {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "unknown column type {} for writing to jsonb " + column.get_name());
+        __builtin_unreachable();
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
+                                                       const rapidjson::Value& value) const {
+    auto& col = reinterpret_cast<ColumnType&>(column);
+    switch (value.GetType()) {
+    case rapidjson::Type::kNumberType:
+        if (value.IsUint()) {
+            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetUint());
+        } else if (value.IsInt()) {
+            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetInt());
+        } else if (value.IsUint64()) {
+            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetUint64());
+        } else if (value.IsInt64()) {
+            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetInt64());
+        } else if (value.IsFloat() || value.IsDouble()) {
+            col.insert_value(typename PrimitiveTypeTraits<T>::ColumnItemType(value.GetDouble()));
+        } else {
+            CHECK(false) << "Improssible";
+        }
+        break;
+    case rapidjson::Type::kFalseType:
+        col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)0);
+        break;
+    case rapidjson::Type::kTrueType:
+        col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)1);
+        break;
+    default:
+        col.insert_default();
+        break;
     }
     return Status::OK();
 }

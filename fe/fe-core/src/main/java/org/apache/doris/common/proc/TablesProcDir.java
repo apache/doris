@@ -28,11 +28,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -45,6 +48,7 @@ import java.util.Map.Entry;
  * show table family groups' info within a db
  */
 public class TablesProcDir implements ProcDirInterface {
+    private static final Logger LOG = LogManager.getLogger(ProcDirInterface.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TableId").add("TableName").add("IndexNum").add("PartitionColumnName")
             .add("PartitionNum").add("State").add("Type").add("LastConsistencyCheckTime").add("ReplicaCount")
@@ -119,6 +123,13 @@ public class TablesProcDir implements ProcDirInterface {
                             ++idx;
                         }
                     }
+                    long version = 0;
+                    try {
+                        version = ((OlapTable) table).getVisibleVersion();
+                    } catch (RpcException e) {
+                        LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+                        throw new AnalysisException(e.getMessage());
+                    }
                     replicaCount = olapTable.getReplicaCount();
                     tableInfo.add(table.getId());
                     tableInfo.add(table.getName());
@@ -130,7 +141,7 @@ public class TablesProcDir implements ProcDirInterface {
                     // last check time
                     tableInfo.add(TimeUtils.longToTimeString(olapTable.getLastCheckTime()));
                     tableInfo.add(replicaCount);
-                    tableInfo.add(olapTable.getVisibleVersion());
+                    tableInfo.add(version);
                     tableInfo.add(olapTable.getVisibleVersionTime());
                 } else {
                     tableInfo.add(table.getId());

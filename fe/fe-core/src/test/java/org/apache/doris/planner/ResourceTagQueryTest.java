@@ -18,10 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
@@ -38,8 +36,14 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroup;
@@ -49,6 +53,7 @@ import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -60,10 +65,10 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 import java.util.UUID;
 
 public class ResourceTagQueryTest {
@@ -145,8 +150,12 @@ public class ResourceTagQueryTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
         // must set replicas' path hash, or the tablet scheduler won't work
         updateReplicaPathHash();
     }
@@ -207,9 +216,8 @@ public class ResourceTagQueryTest {
         ComputeGroup cg2 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
         Assert.assertTrue(cg2 instanceof MergedComputeGroup);
         MergedComputeGroup cg3 = (MergedComputeGroup) cg2;
-        Set<String> cgNameSet1 = cg3.getNames();
-        Assert.assertTrue(cgNameSet1.size() == 1);
-        Assert.assertTrue(cgNameSet1.contains("default"));
+        String cg3Name = cg3.getName();
+        Assert.assertTrue(cg3Name.contains("default"));
 
         // update connection context and query
         connectContext.setComputeGroup(cg2);
@@ -224,8 +232,7 @@ public class ResourceTagQueryTest {
         ComputeGroup cg4 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
         Assert.assertTrue(cg4 instanceof MergedComputeGroup);
         MergedComputeGroup cg5 = (MergedComputeGroup) cg4;
-        Assert.assertTrue(cg5.getNames().size() == 1);
-        Assert.assertTrue(cg5.getNames().contains("zone1"));
+        Assert.assertTrue(cg5.getName().contains("zone1"));
 
         // update connection context and query, it will failed because no zone1 backend
         connectContext.setComputeGroup(cg4);
@@ -242,10 +249,14 @@ public class ResourceTagQueryTest {
             if (i > 2) {
                 break;
             }
-            String stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
-                    + "\" set ('tag.location' = '" + tag + "')";
-            AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
-            DdlExecutor.execute(Env.getCurrentEnv(), stmt);
+            // "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
+            //   + "\" set ('tag.location' = '" + tag + "')";
+            String hostPort = be.getHost() + ":" + be.getHeartbeatPort();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("tag.location", tag);
+            ModifyBackendOp op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
+            AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+            command.doRun(connectContext, new StmtExecutor(connectContext, ""));
         }
         Assert.assertEquals(tag1, backends.get(0).getLocationTag());
         Assert.assertEquals(tag1, backends.get(1).getLocationTag());
@@ -287,7 +298,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(14, userProps.size());
+        Assert.assertEquals(13, userProps.size());
 
         // now :
         // be1 be2 be3 ==>tag1;

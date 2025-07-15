@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -72,6 +71,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         BACKEND_TABLE.add("file_cache_statistics");
         BACKEND_TABLE.add("backend_kerberos_ticket_cache");
 
+        BACKEND_TABLE.add("backend_tablets");
         BACKEND_TABLE.add("backend_configuration");
     }
 
@@ -97,19 +97,6 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
                                             String schemaCatalog, String schemaDatabase, String schemaTable) {
         super(id, desc, schemaCatalog, schemaDatabase, schemaTable);
         this.tableIf = table;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        computeColumnsFilter();
-        computePartitionInfo();
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        super.finalize(analyzer);
-        createScanRangeLocations();
     }
 
     @Override

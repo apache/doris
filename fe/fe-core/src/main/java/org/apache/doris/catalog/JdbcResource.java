@@ -111,6 +111,7 @@ public class JdbcResource extends Resource {
     public static final String CHECK_SUM = "checksum";
     public static final String CREATE_TIME = "create_time";
     public static final String TEST_CONNECTION = "test_connection";
+    public static final String FUNCTION_RULES = "function_rules";
 
     private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,

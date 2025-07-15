@@ -134,7 +134,7 @@ private:
     std::mutex _range_lock;
     RuntimeState* _state;
     RuntimeProfile::Counter* _get_split_timer;
-    int64 _split_source_id;
+    int64_t _split_source_id;
     int _num_splits;
 
     std::vector<TScanRangeLocations> _scan_ranges;
@@ -144,7 +144,7 @@ private:
 
 public:
     RemoteSplitSourceConnector(RuntimeState* state, RuntimeProfile::Counter* get_split_timer,
-                               int64 split_source_id, int num_splits, int max_scanners)
+                               int64_t split_source_id, int num_splits, int max_scanners)
             : _state(state),
               _get_split_timer(get_split_timer),
               _split_source_id(split_source_id),

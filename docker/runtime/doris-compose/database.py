@@ -281,11 +281,11 @@ class DBManager(object):
                         dict(zip(fields, row)) for row in cursor.fetchall()
                     ]
             except Exception as e:
-                LOG.warn(
+                LOG.warning(
                     f"Error occurred: fe {self.fe_ip}:{self.fe_port}, sql `{sql}`, err {e}"
                 )
                 if "timed out" in str(e).lower() and attempt < retries - 1:
-                    LOG.warn(
+                    LOG.warning(
                         f"Query timed out, fe {self.fe_ip}:{self.fe_port}. Retrying {attempt + 1}/{retries}..."
                     )
                     self._reset_conn()

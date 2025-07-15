@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 /**
@@ -30,7 +31,7 @@ public class LogicalProjectToPhysicalProject extends OneImplementationRuleFactor
         return logicalProject().then(project -> new PhysicalProject<>(
                 project.getProjects(),
                 project.getLogicalProperties(),
-                project.child())
+                (Plan) project.child())
         ).toRule(RuleType.LOGICAL_PROJECT_TO_PHYSICAL_PROJECT_RULE);
     }
 }

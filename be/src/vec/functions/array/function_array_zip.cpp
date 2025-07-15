@@ -124,9 +124,9 @@ public:
 
         auto tuples = ColumnStruct::create(tuple_columns);
         auto nullable_tuples =
-                ColumnNullable::create(tuples, ColumnUInt8::create(tuples->size(), 0));
+                ColumnNullable::create(std::move(tuples), ColumnUInt8::create(tuples->size(), 0));
         auto res_column = ColumnArray::create(
-                nullable_tuples,
+                std::move(nullable_tuples),
                 static_cast<const ColumnArray&>(*first_array_column).get_offsets_ptr());
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();

@@ -71,7 +71,7 @@ protected:
     DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
 
     // common ip data
-    std::vector<string> data_files;
+    std::vector<std::string> data_files;
 };
 
 TEST_F(ColumnIPTest, InsertRangeFromTest) {

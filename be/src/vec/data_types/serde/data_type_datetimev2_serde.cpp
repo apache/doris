@@ -18,6 +18,7 @@
 #include "data_type_datetimev2_serde.h"
 
 #include <arrow/builder.h>
+#include <cctz/time_zone.h>
 
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
@@ -57,18 +58,10 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
-    if (options.date_olap_format) {
-        std::string format = "%Y-%m-%d %H:%i:%s.%f";
-        char buf[30 + SAFE_FORMAT_STRING_MARGIN];
-        val.to_format_string_conservative(format.c_str(), cast_set<int>(format.size()), buf,
-                                          30 + SAFE_FORMAT_STRING_MARGIN);
-        std::string s = std::string(buf);
-        bw.write(s.c_str(), s.length());
-    } else {
-        char buf[64];
-        char* pos = val.to_string(buf);
-        bw.write(buf, pos - buf - 1);
-    }
+    char buf[64];
+    char* pos = val.to_string(buf);
+    bw.write(buf, pos - buf - 1);
+
     if (_nesting_level > 1) {
         bw.write('"');
     }
@@ -88,19 +81,8 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         slice.trim_quote();
     }
     UInt64 val = 0;
-    if (options.date_olap_format) {
-        DateV2Value<DateTimeV2ValueType> datetimev2_value;
-        std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
-        if (datetimev2_value.from_date_format_str(date_format.data(),
-                                                  cast_set<int>(date_format.size()), slice.data,
-                                                  slice.size)) {
-            val = datetimev2_value.to_date_int_val();
-        } else {
-            val = MIN_DATETIME_V2;
-        }
-
-    } else if (ReadBuffer rb(slice.data, slice.size);
-               !read_datetime_v2_text_impl<UInt64>(val, rb, scale)) {
+    if (ReadBuffer rb(slice.data, slice.size);
+        !read_datetime_v2_text_impl<UInt64>(val, rb, scale)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -115,6 +97,10 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
                                                       const cctz::time_zone& ctz) const {
     const auto& col_data = static_cast<const ColumnDateTimeV2&>(column).get_data();
     auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
+    std::shared_ptr<arrow::TimestampType> timestamp_type =
+            std::static_pointer_cast<arrow::TimestampType>(array_builder->type());
+    const std::string& timezone = timestamp_type->timezone();
+    const cctz::time_zone& real_ctz = timezone == "" ? cctz::utc_time_zone() : ctz;
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
@@ -123,7 +109,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
             int64_t timestamp = 0;
             DateV2Value<DateTimeV2ValueType> datetime_val =
                     binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[i]);
-            datetime_val.unix_timestamp(&timestamp, ctz);
+            datetime_val.unix_timestamp(&timestamp, real_ctz);
 
             if (scale > 3) {
                 uint32_t microsecond = datetime_val.microsecond();

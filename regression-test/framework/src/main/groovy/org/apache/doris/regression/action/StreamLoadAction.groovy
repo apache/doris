@@ -198,7 +198,7 @@ class StreamLoadAction implements SuiteAction {
         long endTime = System.currentTimeMillis()
 
         log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
-                " response: ${responseText}" + ex.toString())
+                "response: ${responseText}, " + ex.toString())
         checkResult(responseText, ex, startTime, endTime)
     }
 
@@ -216,10 +216,7 @@ class StreamLoadAction implements SuiteAction {
             throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
         }
 
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        resp.getEntity().writeTo(buffer); // 完整读取数据
-        log.info("entity new size is ${buffer.size()}")
-        return new ByteArrayInputStream(buffer.toByteArray());
+        return resp.getEntity().getContent()
     }
 
     private RequestBuilder prepareRequestHeader(RequestBuilder requestBuilder) {

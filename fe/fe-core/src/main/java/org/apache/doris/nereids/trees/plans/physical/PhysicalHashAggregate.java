@@ -206,7 +206,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public String toString() {
         TopnPushInfo topnPushInfo = (TopnPushInfo) getMutableState(
-                MutableState.KEY_PUSH_TOPN_TO_AGG).orElseGet(() -> null);
+                MutableState.KEY_PUSH_TOPN_TO_AGG).orElse(null);
         return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "stats", statistics,
                 "aggPhase", aggregateParam.aggPhase,

@@ -28,16 +28,19 @@
 #include <string>
 #include <tuple>
 
+#include "common/bvars.h"
+#include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/network_util.h"
+#include "common/stats.h"
 #include "common/string_util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 using namespace std::chrono;
 
@@ -50,13 +53,6 @@ bool is_valid_storage_vault_name(const std::string& str) {
 } // namespace
 
 namespace doris::cloud {
-
-static void* run_bthread_work(void* arg) {
-    auto f = reinterpret_cast<std::function<void()>*>(arg);
-    (*f)();
-    delete f;
-    return nullptr;
-}
 
 static std::string_view print_cluster_status(const ClusterStatus& status) {
     switch (status) {
@@ -202,7 +198,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
                                          const GetObjStoreInfoRequest* request,
                                          GetObjStoreInfoResponse* response,
                                          ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_obj_store_info);
+    RPC_PREPROCESS(get_obj_store_info, get);
     TEST_SYNC_POINT_CALLBACK("obj-store-info_sk_response", &response);
     TEST_SYNC_POINT_RETURN_WITH_VOID("obj-store-info_sk_response_return");
     // Prepare data
@@ -226,7 +222,6 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -677,14 +672,6 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         return -1;
     }
 
-    if (obj_info.has_ak() ^ obj_info.has_sk()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        std::stringstream ss;
-        ss << "Accesskey and secretkey must be alter together";
-        msg = ss.str();
-        return -1;
-    }
-
     const auto& name = vault.name();
     // Here we try to get mutable iter since we might need to alter the vault name
     auto name_itr = std::find_if(instance.mutable_storage_vault_names()->begin(),
@@ -723,6 +710,8 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         return -1;
     }
 
+    auto origin_vault_info = new_vault.DebugString();
+
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -742,13 +731,26 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
-    auto origin_vault_info = new_vault.DebugString();
 
-    // For ak or sk is not altered.
-    EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
-    AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
+    if (obj_info.has_role_arn() && (obj_info.has_ak() || obj_info.has_sk())) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+        LOG(WARNING) << msg;
+        return -1;
+    }
+
+    if (obj_info.has_ak() ^ obj_info.has_sk()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "Accesskey and secretkey must be alter together";
+        msg = ss.str();
+        return -1;
+    }
 
     if (obj_info.has_ak()) {
+        EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
+        AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
+
         // ak and sk must be altered together, there is check before.
         auto ret = encrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), &encryption_info,
                                         &new_ak_sk_pair, code, msg);
@@ -758,14 +760,35 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
             LOG(WARNING) << msg;
             return -1;
         }
+        new_vault.mutable_obj_info()->clear_role_arn();
+        new_vault.mutable_obj_info()->clear_external_id();
+        new_vault.mutable_obj_info()->clear_cred_provider_type();
+
+        new_vault.mutable_obj_info()->set_ak(new_ak_sk_pair.first);
+        new_vault.mutable_obj_info()->set_sk(new_ak_sk_pair.second);
+        new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
     }
 
-    new_vault.mutable_obj_info()->set_ak(new_ak_sk_pair.first);
-    new_vault.mutable_obj_info()->set_sk(new_ak_sk_pair.second);
-    new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
+    if (obj_info.has_role_arn()) {
+        new_vault.mutable_obj_info()->clear_ak();
+        new_vault.mutable_obj_info()->clear_sk();
+        new_vault.mutable_obj_info()->clear_encryption_info();
+
+        new_vault.mutable_obj_info()->set_role_arn(obj_info.role_arn());
+        new_vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        if (obj_info.has_external_id()) {
+            new_vault.mutable_obj_info()->set_external_id(obj_info.external_id());
+        }
+    }
+
     if (obj_info.has_use_path_style()) {
         new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
     }
+
+    auto now_time = std::chrono::system_clock::now();
+    uint64_t time =
+            std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
+    new_vault.mutable_obj_info()->set_mtime(time);
 
     auto new_vault_info = new_vault.DebugString();
     val = new_vault.SerializeAsString();
@@ -825,6 +848,7 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
         if (!obj.has_ak() || !obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 obj info err " + proto_to_json(*request);
+            LOG(INFO) << msg;
             return -1;
         }
 
@@ -839,13 +863,12 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
         ak = cipher_ak_sk_pair.first;
         sk = cipher_ak_sk_pair.second;
     } else {
-        if (!obj.has_cred_provider_type() ||
-            obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-            !obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+        if (obj.has_ak() || obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err with role_arn, please check it";
+            msg = "invaild argument, both set ak/sk and role_arn is not allowed";
             return -1;
         }
+
         role_arn = obj.has_role_arn() ? obj.role_arn() : "";
         external_id = obj.has_external_id() ? obj.external_id() : "";
     }
@@ -908,7 +931,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     bool use_path_style;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
-    RPC_PREPROCESS(alter_storage_vault);
+    RPC_PREPROCESS(alter_storage_vault, get, put, del);
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
     case AlterObjStoreInfoRequest::DROP_S3_VAULT: {
@@ -987,7 +1010,6 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1042,6 +1064,16 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;
+        }
+
+        if (!role_arn.empty()) {
+            if (!obj.has_cred_provider_type() ||
+                obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
+                !obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "s3 conf info err with role_arn, please check it";
+                return;
+            }
         }
 
         auto& objs = instance.obj_info();
@@ -1206,10 +1238,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     bool use_path_style;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
-    RPC_PREPROCESS(alter_obj_store_info);
+    RPC_PREPROCESS(alter_obj_store_info, get, put);
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
+    case AlterObjStoreInfoRequest::ALTER_OBJ_INFO:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
         auto tmp_desc = ObjectStorageDesc {ak,       sk,
                                            bucket,   prefix,
@@ -1255,7 +1288,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1287,7 +1319,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     }
 
     switch (request->op()) {
-    case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK: {
+    case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
+    case AlterObjStoreInfoRequest::ALTER_OBJ_INFO: {
         // get id
         std::string id = request->obj().has_id() ? request->obj().id() : "0";
         int idx = std::stoi(id);
@@ -1301,20 +1334,55 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                 const_cast<std::decay_t<decltype(instance.obj_info())>&>(instance.obj_info());
         for (auto& it : obj_info) {
             if (std::stoi(it.id()) == idx) {
-                if (it.ak() == ak && it.sk() == sk) {
-                    // not change, just return ok
-                    code = MetaServiceCode::OK;
-                    msg = "";
-                    return;
+                if (role_arn.empty()) {
+                    if (it.ak() == ak && it.sk() == sk) {
+                        // not change, just return ok
+                        code = MetaServiceCode::OK;
+                        msg = "ak/sk not changed";
+                        return;
+                    }
+                    it.clear_role_arn();
+                    it.clear_external_id();
+                    it.clear_cred_provider_type();
+
+                    it.set_ak(ak);
+                    it.set_sk(sk);
+                    it.mutable_encryption_info()->CopyFrom(encryption_info);
+                } else {
+                    if (!ak.empty() || !sk.empty()) {
+                        code = MetaServiceCode::INVALID_ARGUMENT;
+                        msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+                        LOG(INFO) << msg;
+                        return;
+                    }
+
+                    if (it.provider() != ObjectStoreInfoPB::S3) {
+                        code = MetaServiceCode::INVALID_ARGUMENT;
+                        msg = "role_arn is only supported for s3 provider";
+                        LOG(INFO) << msg << " provider=" << it.provider();
+                        return;
+                    }
+
+                    if (it.role_arn() == role_arn && it.external_id() == external_id) {
+                        // not change, just return ok
+                        code = MetaServiceCode::OK;
+                        msg = "ak/sk not changed";
+                        return;
+                    }
+                    it.clear_ak();
+                    it.clear_sk();
+                    it.clear_encryption_info();
+
+                    it.set_role_arn(role_arn);
+                    it.set_external_id(external_id);
+                    it.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
                 }
+
                 auto now_time = std::chrono::system_clock::now();
                 uint64_t time = std::chrono::duration_cast<std::chrono::seconds>(
                                         now_time.time_since_epoch())
                                         .count();
                 it.set_mtime(time);
-                it.set_ak(ak);
-                it.set_sk(sk);
-                it.mutable_encryption_info()->CopyFrom(encryption_info);
             }
         }
     } break;
@@ -1396,7 +1464,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
 void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
                                    const UpdateAkSkRequest* request, UpdateAkSkResponse* response,
                                    ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(update_ak_sk);
+    RPC_PREPROCESS(update_ak_sk, get, put);
     instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (instance_id.empty()) {
         msg = "instance id not set";
@@ -1415,7 +1483,6 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1594,7 +1661,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
                                       const CreateInstanceRequest* request,
                                       CreateInstanceResponse* response,
                                       ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(create_instance);
+    RPC_PREPROCESS(create_instance, get, put);
     if (request->has_ram_user()) {
         auto& ram_user = request->ram_user();
         std::string ram_user_id = ram_user.has_user_id() ? ram_user.user_id() : "";
@@ -1646,7 +1713,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         return;
     }
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1712,17 +1778,16 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     std::string msg = "OK";
     [[maybe_unused]] std::stringstream ss;
     std::string instance_id = request->has_instance_id() ? request->instance_id() : "";
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&code, &msg, &response, &ctrl, &closure_guard, &sw, &instance_id](int*) {
-                response->mutable_status()->set_code(code);
-                response->mutable_status()->set_msg(msg);
-                LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
-                          << __PRETTY_FUNCTION__ << " " << ctrl->remote_side() << " " << msg;
-                closure_guard.reset(nullptr);
-                if (config::use_detailed_metrics && !instance_id.empty()) {
-                    g_bvar_ms_alter_instance.put(instance_id, sw.elapsed_us());
-                }
-            });
+    DORIS_CLOUD_DEFER {
+        response->mutable_status()->set_code(code);
+        response->mutable_status()->set_msg(msg);
+        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
+                  << __PRETTY_FUNCTION__ << " " << ctrl->remote_side() << " " << msg;
+        closure_guard.reset(nullptr);
+        if (config::use_detailed_metrics && !instance_id.empty()) {
+            g_bvar_ms_alter_instance.put(instance_id, sw.elapsed_us());
+        }
+    };
 
     std::pair<MetaServiceCode, std::string> ret;
     switch (request->op()) {
@@ -1900,7 +1965,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     if (request->op() == AlterInstanceRequest::REFRESH) return;
 
     auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        notify_refresh_instance(txn_kv, instance_id);
+        notify_refresh_instance(txn_kv, instance_id, nullptr);
     });
     bthread_t bid;
     if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
@@ -1912,7 +1977,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
 void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
                                    const GetInstanceRequest* request, GetInstanceResponse* response,
                                    ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_instance);
+    RPC_PREPROCESS(get_instance, get);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1932,7 +1997,6 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2026,7 +2090,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                                     const AlterClusterRequest* request,
                                     AlterClusterResponse* response,
                                     ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(alter_cluster);
+    RPC_PREPROCESS(alter_cluster, get);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (!cloud_unique_id.empty() && instance_id.empty()) {
@@ -2377,7 +2441,13 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     if (code != MetaServiceCode::OK) return;
 
     auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        notify_refresh_instance(txn_kv, instance_id);
+        // the func run with a thread, so if use macro proved stats, maybe cause stack-use-after-return error
+        KVStats stats;
+        notify_refresh_instance(txn_kv, instance_id, &stats);
+        if (config::use_detailed_metrics && !instance_id.empty()) {
+            g_bvar_rpc_kv_alter_cluster_get_bytes.put({instance_id}, stats.get_bytes);
+            g_bvar_rpc_kv_alter_cluster_get_counter.put({instance_id}, stats.get_counter);
+        }
     });
     bthread_t bid;
     if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
@@ -2389,7 +2459,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
 void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
                                   const GetClusterRequest* request, GetClusterResponse* response,
                                   ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_cluster);
+    RPC_PREPROCESS(get_cluster, get, put);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     std::string cluster_id = request->has_cluster_id() ? request->cluster_id() : "";
     std::string cluster_name = request->has_cluster_name() ? request->cluster_name() : "";
@@ -2443,7 +2513,6 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2534,7 +2603,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
 void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller,
                                    const CreateStageRequest* request, CreateStageResponse* response,
                                    ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(create_stage);
+    RPC_PREPROCESS(create_stage, get, put);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2591,7 +2660,6 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2721,7 +2789,7 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
 void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                                 const GetStageRequest* request, GetStageResponse* response,
                                 ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_stage);
+    RPC_PREPROCESS(get_stage, get);
     TEST_SYNC_POINT_CALLBACK("stage_sk_response", &response);
     TEST_SYNC_POINT_RETURN_WITH_VOID("stage_sk_response_return");
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
@@ -2751,7 +2819,6 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2971,18 +3038,16 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
     std::string msg = "OK";
     std::string instance_id;
     bool drop_request = false;
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&ret, &code, &msg, &response, &ctrl, &closure_guard, &sw, &instance_id,
-                         &drop_request](int*) {
-                response->mutable_status()->set_code(code);
-                response->mutable_status()->set_msg(msg);
-                LOG(INFO) << (ret == 0 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
-                          << ctrl->remote_side() << " " << msg;
-                closure_guard.reset(nullptr);
-                if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {
-                    g_bvar_ms_drop_stage.put(instance_id, sw.elapsed_us());
-                }
-            });
+    DORIS_CLOUD_DEFER {
+        response->mutable_status()->set_code(code);
+        response->mutable_status()->set_msg(msg);
+        LOG(INFO) << (ret == 0 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
+                  << ctrl->remote_side() << " " << msg;
+        closure_guard.reset(nullptr);
+        if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {
+            g_bvar_ms_drop_stage.put(instance_id, sw.elapsed_us());
+        }
+    };
 
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
@@ -3111,7 +3176,7 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
 void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
                               const GetIamRequest* request, GetIamResponse* response,
                               ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_iam);
+    RPC_PREPROCESS(get_iam, get);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3133,7 +3198,6 @@ void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3208,7 +3272,7 @@ void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
 void MetaServiceImpl::alter_iam(google::protobuf::RpcController* controller,
                                 const AlterIamRequest* request, AlterIamResponse* response,
                                 ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(alter_iam);
+    RPC_PREPROCESS(alter_iam, get, put);
     std::string arn_id = request->has_account_id() ? request->account_id() : "";
     std::string arn_ak = request->has_ak() ? request->ak() : "";
     std::string arn_sk = request->has_sk() ? request->sk() : "";
@@ -3217,12 +3281,13 @@ void MetaServiceImpl::alter_iam(google::protobuf::RpcController* controller,
         msg = "invalid argument";
         return;
     }
-
     RPC_RATE_LIMIT(alter_iam)
+
+    // for metric, give it a common instance id
+    instance_id = "alter_iam_instance";
 
     std::string key = system_meta_service_arn_info_key();
     std::string val;
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3298,7 +3363,7 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
                                      const AlterRamUserRequest* request,
                                      AlterRamUserResponse* response,
                                      ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(alter_ram_user);
+    RPC_PREPROCESS(alter_ram_user, get, put);
     instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3318,7 +3383,6 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3381,7 +3445,7 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
 void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
                                  const BeginCopyRequest* request, BeginCopyResponse* response,
                                  ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(begin_copy);
+    RPC_PREPROCESS(begin_copy, get, put);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3397,7 +3461,6 @@ void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
         return;
     }
     RPC_RATE_LIMIT(begin_copy)
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3498,7 +3561,7 @@ void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
 void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
                                   const FinishCopyRequest* request, FinishCopyResponse* response,
                                   ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(finish_copy);
+    RPC_PREPROCESS(finish_copy, get, put, del);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3515,7 +3578,6 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
     }
     RPC_RATE_LIMIT(finish_copy)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3603,7 +3665,7 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
 void MetaServiceImpl::get_copy_job(google::protobuf::RpcController* controller,
                                    const GetCopyJobRequest* request, GetCopyJobResponse* response,
                                    ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_copy_job);
+    RPC_PREPROCESS(get_copy_job, get);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3619,7 +3681,6 @@ void MetaServiceImpl::get_copy_job(google::protobuf::RpcController* controller,
         return;
     }
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3655,7 +3716,7 @@ void MetaServiceImpl::get_copy_files(google::protobuf::RpcController* controller
                                      const GetCopyFilesRequest* request,
                                      GetCopyFilesResponse* response,
                                      ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_copy_files);
+    RPC_PREPROCESS(get_copy_files, get);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3672,7 +3733,6 @@ void MetaServiceImpl::get_copy_files(google::protobuf::RpcController* controller
     }
     RPC_RATE_LIMIT(get_copy_files)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3719,7 +3779,7 @@ void MetaServiceImpl::filter_copy_files(google::protobuf::RpcController* control
                                         const FilterCopyFilesRequest* request,
                                         FilterCopyFilesResponse* response,
                                         ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(filter_copy_files);
+    RPC_PREPROCESS(filter_copy_files, get);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3736,7 +3796,6 @@ void MetaServiceImpl::filter_copy_files(google::protobuf::RpcController* control
     }
     RPC_RATE_LIMIT(filter_copy_files)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3771,7 +3830,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
                                          const GetClusterStatusRequest* request,
                                          GetClusterStatusResponse* response,
                                          ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_cluster_status);
+    RPC_PREPROCESS(get_cluster_status, get);
     if (request->instance_ids().empty() && request->cloud_unique_ids().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "cloud_unique_ids or instance_ids must be given, instance_ids.size: " +
@@ -3821,6 +3880,13 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             LOG(WARNING) << "failed to create txn err=" << err;
             return;
         }
+        DORIS_CLOUD_DEFER {
+            if (config::use_detailed_metrics && txn != nullptr) {
+                g_bvar_rpc_kv_get_cluster_status_get_bytes.put({instance_id}, txn->get_bytes());
+                g_bvar_rpc_kv_get_cluster_status_get_counter.put({instance_id},
+                                                                 txn->num_get_keys());
+            }
+        };
         err = txn->get(key, &val);
         LOG(INFO) << "get instance_key=" << hex(key);
 
@@ -3828,7 +3894,6 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             LOG(WARNING) << "failed to get instance, instance_id=" << instance_id << " err=" << err;
             return;
         }
-
         InstanceInfoPB instance;
         if (!instance.ParseFromString(val)) {
             LOG(WARNING) << "failed to parse InstanceInfoPB";
@@ -3865,7 +3930,8 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
     msg = proto_to_json(*response);
 }
 
-void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id) {
+void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                             KVStats* stats) {
     LOG(INFO) << "begin notify_refresh_instance";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -3876,10 +3942,16 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
     std::string key = system_meta_service_registry_key();
     std::string val;
     err = txn->get(key, &val);
+    if (stats) {
+        stats->get_counter++;
+    }
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to get server registry"
                      << " err=" << err;
         return;
+    }
+    if (stats) {
+        stats->get_bytes += val.size() + key.size();
     }
     std::string self_endpoint =
             config::hostname.empty() ? get_local_ip(config::priority_networks) : config::hostname;

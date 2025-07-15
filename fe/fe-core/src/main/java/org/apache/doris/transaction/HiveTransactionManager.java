@@ -19,7 +19,7 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.fsv2.FileSystemProvider;
+import org.apache.doris.fs.FileSystemProvider;
 
 import java.util.concurrent.Executor;
 

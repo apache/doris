@@ -187,7 +187,8 @@ CompactionSubmitRegistry::TabletSet& CompactionSubmitRegistry::_get_tablet_set(
 static int32_t get_cumu_compaction_threads_num(size_t data_dirs_num) {
     int32_t threads_num = config::max_cumu_compaction_threads;
     if (threads_num == -1) {
-        threads_num = data_dirs_num;
+        int num_cores = doris::CpuInfo::num_cores();
+        threads_num = std::max<size_t>(data_dirs_num, num_cores / 6);
     }
     threads_num = threads_num <= 0 ? 1 : threads_num;
     return threads_num;
@@ -288,10 +289,6 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
                             .set_max_threads(max_checkpoint_thread_num)
                             .build(&_tablet_meta_checkpoint_thread_pool));
 
-    RETURN_IF_ERROR(ThreadPoolBuilder("MultiGetTaskThreadPool")
-                            .set_min_threads(config::multi_get_max_threads)
-                            .set_max_threads(config::multi_get_max_threads)
-                            .build(&_bg_multi_get_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
             [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
@@ -387,7 +384,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
-        auto curr_interval = uint32_t(max_interval * ratio);
+        curr_interval = uint32_t(max_interval * ratio);
         curr_interval = std::max(curr_interval, min_interval);
         curr_interval = std::min(curr_interval, max_interval);
 
@@ -402,6 +399,8 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
                          << "see previous message for detail. err code=" << res;
             // do nothing. continue next loop.
         }
+        LOG(INFO) << "trash thread check usage=" << usage << " ratio=" << ratio
+                  << " curr_interval=" << curr_interval;
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval)));
 }
 

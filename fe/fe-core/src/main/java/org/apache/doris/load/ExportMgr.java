@@ -480,8 +480,8 @@ public class ExportMgr {
         }
         infoMap.put("db", job.getTableName().getDb());
         infoMap.put("tbl", job.getTableName().getTbl());
-        if (job.getWhereExpr() != null) {
-            infoMap.put("where expr", job.getWhereExpr().toSql());
+        if (!StringUtils.isEmpty(job.getWhereStr())) {
+            infoMap.put("where expr", job.getWhereStr());
         }
         infoMap.put("partitions", partitions);
         infoMap.put("broker", job.getBrokerDesc().getName());

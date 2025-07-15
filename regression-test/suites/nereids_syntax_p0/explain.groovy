@@ -41,7 +41,7 @@ suite("explain") {
 
     explain {
         sql("parsed plan select 100")
-        contains "LogicalOneRowRelation"
+        contains "UnboundOneRowRelation"
     }
 
     explain {

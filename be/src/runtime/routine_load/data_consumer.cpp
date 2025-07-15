@@ -243,7 +243,8 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                 // ignore msg with length 0.
                 // put empty msg into queue will cause the load process shutting down.
                 break;
-            } else if (!queue->blocking_put(msg.get())) {
+            } else if (!queue->controlled_blocking_put(msg.get(),
+                                                       config::blocking_queue_cv_wait_timeout_ms)) {
                 // queue is shutdown
                 done = true;
             } else {
@@ -270,7 +271,8 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             VLOG_NOTICE << "consumer meet partition eof: " << _id
                         << " partition offset: " << msg->offset();
             _consuming_partition_ids.erase(msg->partition());
-            if (!queue->blocking_put(msg.get())) {
+            if (!queue->controlled_blocking_put(msg.get(),
+                                                config::blocking_queue_cv_wait_timeout_ms)) {
                 done = true;
             } else if (_consuming_partition_ids.size() <= 0) {
                 LOG(INFO) << "all partitions meet eof: " << _id;

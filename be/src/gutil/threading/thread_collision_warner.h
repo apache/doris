@@ -6,9 +6,8 @@
 
 #include <cstdint>
 
+#include "butil/macros.h"
 #include "gutil/atomicops.h"
-// IWYU pragma: no_include <butil/macros.h>
-#include "gutil/macros.h" // IWYU pragma: keep
 
 #ifndef BASE_EXPORT
 #define BASE_EXPORT

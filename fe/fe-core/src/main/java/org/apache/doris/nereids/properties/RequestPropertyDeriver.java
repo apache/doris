@@ -281,30 +281,24 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalUnion(PhysicalUnion union, PlanContext context) {
+        List<PhysicalProperties> requestAny = Lists.newArrayListWithCapacity(context.arity());
+        for (int i = context.arity(); i > 0; --i) {
+            requestAny.add(PhysicalProperties.ANY);
+        }
+        addRequestPropertyToChildren(requestAny);
+
         // TODO: we do not generate gather union until we could do better cost computation on set operation
-        List<PhysicalProperties> requiredPropertyList =
-                Lists.newArrayListWithCapacity(context.arity());
         if (union.getConstantExprsList().isEmpty()) {
             // translate requestPropertyFromParent to other children's request.
             DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
             if (distributionRequestFromParent instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
-                requiredPropertyList = createHashRequestAccordingToParent(union, distributionSpecHash, context);
-            } else {
-                for (int i = context.arity(); i > 0; --i) {
-                    requiredPropertyList.add(PhysicalProperties.ANY);
-                }
-            }
-
-        } else {
-            // current be could not run const expr on appropriate node,
-            // so if we have constant exprs on union, the output of union always any
-            // then any other request on children is useless.
-            for (int i = context.arity(); i > 0; --i) {
-                requiredPropertyList.add(PhysicalProperties.ANY);
+                List<PhysicalProperties> requestHash
+                        = createHashRequestAccordingToParent(union, distributionSpecHash, context);
+                addRequestPropertyToChildren(requestHash);
             }
         }
-        addRequestPropertyToChildren(requiredPropertyList);
+
         return null;
     }
 

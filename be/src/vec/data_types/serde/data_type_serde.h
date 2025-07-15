@@ -28,7 +28,6 @@
 #include "arrow/status.h"
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_buffer.hpp"
@@ -74,35 +73,17 @@ struct ColumnVectorBatch;
         ++*num_deserialized;                                                             \
     }
 
-#define INIT_MEMORY_FOR_ORC_WRITER()                                                 \
-    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);                                     \
-    if (!ptr) {                                                                      \
-        return Status::InternalError(                                                \
-                "malloc memory error when write largeint column data to orc file."); \
-    }                                                                                \
-    StringRef bufferRef;                                                             \
-    bufferRef.data = ptr;                                                            \
-    bufferRef.size = BUFFER_UNIT_SIZE;                                               \
-    size_t offset = 0;                                                               \
-    buffer_list.emplace_back(bufferRef);
-
-#define REALLOC_MEMORY_FOR_ORC_WRITER()                                                  \
-    while (bufferRef.size - BUFFER_RESERVED_SIZE < offset + len) {                       \
-        char* new_ptr = (char*)malloc(bufferRef.size + BUFFER_UNIT_SIZE);                \
-        if (!new_ptr) {                                                                  \
-            return Status::InternalError(                                                \
-                    "malloc memory error when write largeint column data to orc file."); \
-        }                                                                                \
-        memcpy(new_ptr, bufferRef.data, bufferRef.size);                                 \
-        free(const_cast<char*>(bufferRef.data));                                         \
-        bufferRef.data = new_ptr;                                                        \
-        bufferRef.size = bufferRef.size + BUFFER_UNIT_SIZE;                              \
-    }
-
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
+class JsonbOutStream;
 class SlotDescriptor;
+
+template <class OS_TYPE>
+class JsonbWriterT;
+
+using JsonbWriter = JsonbWriterT<JsonbOutStream>;
+
 #include "common/compile_check_begin.h"
 namespace vectorized {
 class IColumn;
@@ -124,14 +105,11 @@ using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 // the developer does not know how many datatypes has to deal.
 class DataTypeSerDe {
 public:
+    // return type name , such as "BOOL", "BIGINT", "ARRAY<DATE>"
+    virtual std::string get_name() const = 0;
     // Text serialization/deserialization of data types depend on some settings witch we define
     // in formatOptions.
     struct FormatOptions {
-        /**
-         * if true, we will use olap format which defined in src/olap/types.h, but we do not suggest
-         * use this format in olap, because it is more slower, keep this option is for compatibility.
-         */
-        bool date_olap_format = false;
         /**
          * field delimiter is used to separate fields in one row
          */
@@ -328,6 +306,14 @@ public:
         return serialize_one_cell_to_json(column, row_num, bw, options);
     }
 
+    virtual Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                             JsonbWriter& writer) const {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    }
+
+    virtual Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                    ColumnString& to_column) const;
+
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                                       int64_t end) const = 0;
@@ -336,7 +322,7 @@ public:
 
     // JSONB serializer and deserializer, should write col_id
     virtual void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                         Arena* mem_pool, int32_t col_id,
+                                         Arena& mem_pool, int32_t col_id,
                                          int64_t row_num) const = 0;
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;

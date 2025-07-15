@@ -20,6 +20,8 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -37,6 +39,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <set>
@@ -49,6 +52,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "gen_cpp/FrontendService.h"
 #include "io/fs/local_file_system.h"
 #include "olap/binlog.h"
 #include "olap/data_dir.h"
@@ -67,6 +71,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
+#include "runtime/client_cache.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
@@ -74,8 +79,10 @@
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
+#include "vec/common/assert_cast.h"
 
 using std::filesystem::directory_iterator;
 using std::filesystem::path;
@@ -87,7 +94,7 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
-extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+extern void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap(
@@ -531,7 +538,7 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
-int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
+int StorageEngine::_get_and_set_next_disk_index(int64_t partition_id,
                                                 TStorageMedium::type storage_medium) {
     auto key = CreateTabletRRIdxCache::get_key(partition_id, storage_medium);
     int curr_index = _create_tablet_idx_lru_cache->get_index(key);
@@ -605,7 +612,7 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
 }
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
-        int64 partition_id, TStorageMedium::type storage_medium) {
+        int64_t partition_id, TStorageMedium::type storage_medium) {
     std::vector<DirInfo> dir_infos;
     int curr_index = 0;
     std::vector<DataDir*> stores;
@@ -622,7 +629,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
 }
 
 // maintain in stores LOW,MID,HIGH level round robin
-void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_infos,
                             std::vector<DataDir*>& stores) {
     for (size_t i = 0; i < dir_infos.size();) {
         size_t end = i + 1;
@@ -950,14 +957,27 @@ void StorageEngine::_clean_unused_rowset_metas() {
     for (auto data_dir : data_dirs) {
         static_cast<void>(
                 RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func));
+        // 1. delete delete_bitmap
+        std::set<int64_t> tablets_to_save_meta;
+        for (auto& rowset_meta : invalid_rowset_metas) {
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
+            if (tablet && tablet->tablet_meta()->enable_unique_key_merge_on_write()) {
+                tablet->tablet_meta()->remove_rowset_delete_bitmap(rowset_meta->rowset_id(),
+                                                                   rowset_meta->version());
+                tablets_to_save_meta.emplace(tablet->tablet_id());
+            }
+        }
+        for (const auto& tablet_id : tablets_to_save_meta) {
+            auto tablet = _tablet_manager->get_tablet(tablet_id);
+            if (tablet) {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->save_meta();
+            }
+        }
+        // 2. delete rowset meta
         for (auto& rowset_meta : invalid_rowset_metas) {
             static_cast<void>(RowsetMetaManager::remove(
                     data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()));
-            TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
-            if (tablet && tablet->tablet_meta()->enable_unique_key_merge_on_write()) {
-                tablet->tablet_meta()->delete_bitmap().remove_rowset_cache_version(
-                        rowset_meta->rowset_id());
-            }
         }
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
@@ -1192,6 +1212,7 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
+    DBUG_EXECUTE_IF("StorageEngine::start_delete_unused_rowset.block", DBUG_BLOCK);
     LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size()
               << ", unused delete bitmap size: " << _unused_delete_bitmap.size();
     std::vector<RowsetSharedPtr> unused_rowsets_copy;
@@ -1250,13 +1271,6 @@ void StorageEngine::start_delete_unused_rowset() {
             it = _unused_delete_bitmap.erase(it);
         }
     }
-    for (const auto& tablet_id : tablets_to_save_meta) {
-        auto tablet = _tablet_manager->get_tablet(tablet_id);
-        if (tablet) {
-            std::shared_lock rlock(tablet->get_header_lock());
-            tablet->save_meta();
-        }
-    }
     LOG(INFO) << "collected " << unused_rowsets_copy.size() << " unused rowsets to remove, skipped "
               << due_to_use_count << " rowsets due to use count > 1, skipped "
               << due_to_not_delete_file << " rowsets due to don't need to delete file, skipped "
@@ -1268,13 +1282,19 @@ void StorageEngine::start_delete_unused_rowset() {
         // delete delete_bitmap of unused rowsets
         if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
             tablet && tablet->enable_unique_key_merge_on_write()) {
-            tablet->tablet_meta()->delete_bitmap().remove({rs->rowset_id(), 0, 0},
-                                                          {rs->rowset_id(), UINT32_MAX, 0});
-            tablet->tablet_meta()->delete_bitmap().remove_rowset_cache_version(rs->rowset_id());
+            tablet->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
+            tablets_to_save_meta.emplace(tablet->tablet_id());
         }
         Status status = rs->remove();
         unused_rowsets_counter << -1;
         VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
+    }
+    for (const auto& tablet_id : tablets_to_save_meta) {
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet) {
+            std::shared_lock rlock(tablet->get_header_lock());
+            tablet->save_meta();
+        }
     }
     LOG(INFO) << "removed all collected unused rowsets";
 }
@@ -1487,6 +1507,79 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
     return false;
 }
 
+bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends) {
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
+        return false;
+    }
+    int64_t cur_time = UnixMillis();
+    if (cur_time - _last_get_peers_replica_backends_time_ms < 10000) {
+        LOG_WARNING("failed to get peers replica backens.")
+                .tag("last time", _last_get_peers_replica_backends_time_ms)
+                .tag("cur time", cur_time);
+        return false;
+    }
+    LOG_INFO("start get peers replica backends info.").tag("tablet id", tablet_id);
+    ClusterInfo* cluster_info = ExecEnv::GetInstance()->cluster_info();
+    if (cluster_info == nullptr) {
+        LOG(WARNING) << "Have not get FE Master heartbeat yet";
+        return false;
+    }
+    TNetworkAddress master_addr = cluster_info->master_fe_addr;
+    if (master_addr.hostname.empty() || master_addr.port == 0) {
+        LOG(WARNING) << "Have not get FE Master heartbeat yet";
+        return false;
+    }
+    TGetTabletReplicaInfosRequest request;
+    TGetTabletReplicaInfosResult result;
+    request.tablet_ids.emplace_back(tablet_id);
+    Status rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->getTabletReplicaInfos(result, request);
+            });
+
+    if (!rpc_st.ok()) {
+        LOG(WARNING) << "Failed to get tablet replica infos, encounter rpc failure, "
+                        "tablet id: "
+                     << tablet_id;
+        return false;
+    }
+    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+    if (result.tablet_replica_infos.contains(tablet_id)) {
+        std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
+        DCHECK_NE(reps.size(), 0);
+        for (const auto& rep : reps) {
+            if (rep.replica_id != tablet->replica_id()) {
+                TBackend backend;
+                backend.__set_host(rep.host);
+                backend.__set_be_port(rep.be_port);
+                backend.__set_http_port(rep.http_port);
+                backend.__set_brpc_port(rep.brpc_port);
+                if (rep.__isset.is_alive) {
+                    backend.__set_is_alive(rep.is_alive);
+                }
+                if (rep.__isset.backend_id) {
+                    backend.__set_id(rep.backend_id);
+                }
+                backends->emplace_back(backend);
+                std::stringstream backend_string;
+                backend.printTo(backend_string);
+                LOG_INFO("get 1 peer replica backend info.")
+                        .tag("tablet id", tablet_id)
+                        .tag("backend info", backend_string.str());
+            }
+        }
+        _last_get_peers_replica_backends_time_ms = UnixMillis();
+        LOG_INFO("succeed get peers replica backends info.")
+                .tag("tablet id", tablet_id)
+                .tag("replica num", backends->size());
+        return true;
+    }
+    return false;
+}
+
 bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
 #ifdef BE_TEST
     if (tablet_id % 2 == 0) {
@@ -1601,6 +1694,36 @@ Status StorageEngine::_persist_broken_paths() {
         return st;
     }
 
+    return Status::OK();
+}
+
+Status StorageEngine::submit_clone_task(Tablet* tablet, int64_t version) {
+    std::vector<TBackend> backends;
+    if (!get_peers_replica_backends(tablet->tablet_id(), &backends)) {
+        LOG(WARNING) << tablet->tablet_id() << " tablet doesn't have peer replica backends";
+        return Status::InternalError("");
+    }
+    TAgentTaskRequest task;
+    TCloneReq req;
+    req.__set_tablet_id(tablet->tablet_id());
+    req.__set_schema_hash(tablet->schema_hash());
+    req.__set_src_backends(backends);
+    req.__set_version(version);
+    req.__set_replica_id(tablet->replica_id());
+    req.__set_partition_id(tablet->partition_id());
+    req.__set_table_id(tablet->table_id());
+    task.__set_task_type(TTaskType::CLONE);
+    task.__set_clone_req(req);
+    task.__set_priority(TPriority::HIGH);
+    task.__set_signature(tablet->tablet_id());
+    LOG_INFO("BE start to submit missing rowset clone task.")
+            .tag("tablet_id", tablet->tablet_id())
+            .tag("version", version)
+            .tag("replica_id", tablet->replica_id())
+            .tag("partition_id", tablet->partition_id())
+            .tag("table_id", tablet->table_id());
+    RETURN_IF_ERROR(assert_cast<PriorTaskWorkerPool*>(workers->at(TTaskType::CLONE).get())
+                            ->submit_high_prior_and_cancel_low(task));
     return Status::OK();
 }
 
