@@ -202,6 +202,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_stage_objects();
 
+    // scan and recycle operation logs
+    // returns 0 for success otherwise error
+    int recycle_operation_logs();
+
     bool check_recycle_tasks();
 
     int scan_and_statistics_indexes();
@@ -272,6 +276,11 @@ private:
 
     // for scan all rs of tablet and statistics metrics
     int scan_tablet_and_statistics(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
+
+    // Recycle operation log and the log key.
+    //
+    // Both `operation_log` and `log_key` will be removed in the same transaction, to ensure atomicity.
+    int recycle_operation_log(std::string_view log_key, OperationLogPB operation_log);
 
 private:
     std::atomic_bool stopped_ {false};
