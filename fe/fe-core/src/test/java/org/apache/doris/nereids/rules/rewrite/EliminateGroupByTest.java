@@ -138,7 +138,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .rewrite()
                 .matches(
                         logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
-                                && p.getProjects().get(1).toSql().equals("cast((age + 1) as DOUBLE) AS `avg(age+1)`")
+                                && p.getProjects().get(1).toSql().equals("cast((cast(age as BIGINT) + 1) as DOUBLE) AS `avg(age+1)`")
                                 && p.getProjects().get(1).getDataType().isDoubleType()
                                 && p.getProjects().get(2).toSql().equals("abs(age) AS `min(abs(age))`")
                                 && p.getProjects().get(2).getDataType().isBigIntType()

@@ -839,22 +839,22 @@ struct DoubleRoundOneImpl {
     }
 };
 
-template <typename Name>
+template <typename Name, PrimitiveType Type>
 struct DecimalRoundTwoImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal32>(9, 0),
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
                 std::make_shared<vectorized::DataTypeInt32>()};
     }
 };
 
-template <typename Name>
+template <typename Name, PrimitiveType Type>
 struct DecimalRoundOneImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal32>(9, 0)};
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 };
 

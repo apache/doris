@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Multiply.cpp
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionBinaryArithmetic.h
 // and modified by Doris
 
-#include <stddef.h>
+#pragma once
 
 #include "runtime/decimalv2_value.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/arithmetic_overflow.h"
@@ -33,10 +34,12 @@
 
 namespace doris::vectorized {
 
-template <PrimitiveType Type>
-struct MultiplyIntegralImpl {
+template <typename Impl>
+struct PlusMinusIntegralImpl {
+    static constexpr PrimitiveType Type = Impl::PType;
     static constexpr bool result_is_decimal = false;
-    using Arg = typename PrimitiveTypeTraits<Type>::ColumnItemType;
+    static constexpr auto name = Impl::name;
+    using Arg = typename Impl::Arg;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
     using ArgA = Arg;
     using ArgB = Arg;
@@ -49,13 +52,9 @@ struct MultiplyIntegralImpl {
                 std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
-    static inline typename PrimitiveTypeTraits<Type>::CppNativeType apply(Arg a, Arg b) {
-        return a * b;
-    }
-
     static ColumnPtr constant_constant(Arg a, Arg b) {
         auto column_result = ColumnType ::create(1);
-        column_result->get_element(0) = apply(a, b);
+        column_result->get_element(0) = Impl::apply(a, b);
         return column_result;
     }
 
@@ -67,7 +66,7 @@ struct MultiplyIntegralImpl {
         auto& c = column_result->get_data();
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
-            c[i] = apply(a[i], b);
+            c[i] = Impl::apply(a[i], b);
         }
         return column_result;
     }
@@ -81,7 +80,7 @@ struct MultiplyIntegralImpl {
         auto& c = column_result->get_data();
         size_t size = b.size();
         for (size_t i = 0; i < size; ++i) {
-            c[i] = apply(a, b[i]);
+            c[i] = Impl::apply(a, b[i]);
         }
         return column_result;
     }
@@ -97,22 +96,22 @@ struct MultiplyIntegralImpl {
         auto& c = column_result->get_data();
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
-            c[i] = apply(a[i], b[i]);
+            c[i] = Impl::apply(a[i], b[i]);
         }
         return column_result;
     }
 };
 
-template <PrimitiveType TypeA, PrimitiveType TypeB>
-struct MultiplyDecimalImpl {
+template <typename Impl>
+struct PlusMinusDecimalImpl {
     static constexpr bool result_is_decimal = true;
-    static_assert(is_decimal(TypeA) && is_decimal(TypeB));
-    static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
-                  (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
+    static constexpr auto name = Impl::name;
+    static constexpr PrimitiveType TypeA = Impl::PTypeA;
+    static constexpr PrimitiveType TypeB = Impl::PTypeB;
     using ArgA = typename PrimitiveTypeTraits<TypeA>::ColumnItemType;
     using ArgB = typename PrimitiveTypeTraits<TypeB>::ColumnItemType;
-    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
-    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    using ArgNativeTypeA = typename Impl::ArgNativeTypeA;
+    using ArgNativeTypeB = typename Impl::ArgNativeTypeA;
     using DataTypeA = typename PrimitiveTypeTraits<TypeA>::DataType;
     using DataTypeB = typename PrimitiveTypeTraits<TypeB>::DataType;
     using ColumnTypeA = typename PrimitiveTypeTraits<TypeA>::ColumnType;
@@ -121,28 +120,6 @@ struct MultiplyDecimalImpl {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<TypeA>::DataType>(),
                 std::make_shared<typename PrimitiveTypeTraits<TypeB>::DataType>()};
-    }
-
-    template <PrimitiveType Result>
-        requires(is_decimal(Result))
-    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(ArgNativeTypeA a,
-                                                                            ArgNativeTypeB b) {
-        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) * b;
-    }
-
-    template <PrimitiveType Result = TYPE_DECIMALV2>
-    static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
-        return a * b;
-    }
-
-    /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
-    template <PrimitiveType Result>
-        requires(is_decimal(Result))
-    static inline bool apply(ArgNativeTypeA a, ArgNativeTypeB b,
-                             typename PrimitiveTypeTraits<Result>::CppNativeType& c) {
-        return common::mul_overflow(
-                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a),
-                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(b), c);
     }
 
     template <PrimitiveType ResultType>
@@ -157,15 +134,14 @@ struct MultiplyDecimalImpl {
         if (check_overflow_for_decimal) {
             column_result->get_element(0) =
                     typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<true, true>(a, b, *type_left, *type_right, res_data_type,
-                                              max_result_number, scale_diff_multiplier));
+                            apply<true>(a, b, *type_left, *type_right, res_data_type,
+                                        max_result_number, scale_diff_multiplier));
         } else {
             column_result->get_element(0) =
                     typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<true, false>(a, b, *type_left, *type_right, res_data_type,
-                                               max_result_number, scale_diff_multiplier));
+                            apply<false>(a, b, *type_left, *type_right, res_data_type,
+                                         max_result_number, scale_diff_multiplier));
         }
-
         return column_result;
     }
 
@@ -181,19 +157,17 @@ struct MultiplyDecimalImpl {
                 ColumnDecimal<ResultType>::create(column_left->size(), res_data_type.get_scale());
         DCHECK(column_left_ptr != nullptr);
 
-        bool need_adjust_scale = scale_diff_multiplier.value > 1;
         const auto& a = column_left_ptr->get_data();
         auto& c = column_result->get_data();
         std::visit(
-                [&](auto need_adjust_scale, auto check_overflow_for_decimal) {
+                [&](auto check_overflow_for_decimal) {
                     for (size_t i = 0; i < column_left->size(); ++i) {
                         c[i] = typename DataTypeDecimal<ResultType>::FieldType(
-                                apply<need_adjust_scale, check_overflow_for_decimal>(
-                                        a[i], b, *type_left, *type_right, res_data_type,
-                                        max_result_number, scale_diff_multiplier));
+                                apply<check_overflow_for_decimal>(a[i], b, *type_left, *type_right,
+                                                                  res_data_type, max_result_number,
+                                                                  scale_diff_multiplier));
                     }
                 },
-                make_bool_variant(need_adjust_scale),
                 make_bool_variant(check_overflow_for_decimal));
 
         return column_result;
@@ -210,19 +184,17 @@ struct MultiplyDecimalImpl {
         auto column_result =
                 ColumnDecimal<ResultType>::create(column_right->size(), res_data_type.get_scale());
 
-        bool need_adjust_scale = scale_diff_multiplier.value > 1;
         auto& b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         std::visit(
-                [&](auto need_adjust_scale, auto check_overflow_for_decimal) {
+                [&](auto check_overflow_for_decimal) {
                     for (size_t i = 0; i < column_right->size(); ++i) {
                         c[i] = typename DataTypeDecimal<ResultType>::FieldType(
-                                apply<need_adjust_scale, check_overflow_for_decimal>(
-                                        a, b[i], *type_left, *type_right, res_data_type,
-                                        max_result_number, scale_diff_multiplier));
+                                apply<check_overflow_for_decimal>(a, b[i], *type_left, *type_right,
+                                                                  res_data_type, max_result_number,
+                                                                  scale_diff_multiplier));
                     }
                 },
-                make_bool_variant(need_adjust_scale),
                 make_bool_variant(check_overflow_for_decimal));
         return column_result;
     }
@@ -257,7 +229,7 @@ struct MultiplyDecimalImpl {
                                          i128_mul_result)) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                     "Arithmetic overflow: {} {} {} = {}, result type: {}",
-                                    DecimalV2Value(a[i]).to_string(), "multiply",
+                                    DecimalV2Value(a[i]).to_string(), "add",
                                     DecimalV2Value(b[i]).to_string(),
                                     DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
                 }
@@ -265,7 +237,7 @@ struct MultiplyDecimalImpl {
                 if (c[i].value > max.value() || c[i].value < min.value()) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                     "Arithmetic overflow: {} {} {} = {}, result type: {}",
-                                    DecimalV2Value(a[i]).to_string(), "multiply",
+                                    DecimalV2Value(a[i]).to_string(), "add",
                                     DecimalV2Value(b[i]).to_string(),
                                     DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
                 }
@@ -296,49 +268,23 @@ struct MultiplyDecimalImpl {
         auto column_result =
                 ColumnDecimal<ResultType>::create(column_left->size(), res_data_type.get_scale());
         auto sz = column_left->size();
-        if constexpr (ResultType == TYPE_DECIMALV2) {
-            if (check_overflow_for_decimal) {
-                vector_vector<true>(column_left_ptr->get_data().data(),
-                                    column_right_ptr->get_data().data(),
-                                    column_result->get_data().data(), sz);
-            } else {
-                vector_vector<false>(column_left_ptr->get_data().data(),
-                                     column_right_ptr->get_data().data(),
-                                     column_result->get_data().data(), sz);
-            }
-        } else {
-            const auto& a = column_left_ptr->get_data().data();
-            const auto& b = column_right_ptr->get_data().data();
-            const auto& c = column_result->get_data().data();
-            bool need_adjust_scale = scale_diff_multiplier.value > 1;
-            std::visit(
-                    [&](auto need_adjust_scale, auto check_overflow_for_decimal) {
-                        for (size_t i = 0; i < sz; i++) {
-                            c[i] = typename ColumnDecimal<ResultType>::value_type(
-                                    apply<need_adjust_scale, check_overflow_for_decimal>(
-                                            a[i], b[i], *type_left, *type_right, res_data_type,
-                                            max_result_number, scale_diff_multiplier));
-                        }
-                    },
-                    make_bool_variant(need_adjust_scale && check_overflow_for_decimal),
-                    make_bool_variant(check_overflow_for_decimal));
-
-            if (need_adjust_scale && !check_overflow_for_decimal) {
-                auto sig_uptr = std::unique_ptr<int8_t[]>(new int8_t[sz]);
-                int8_t* sig = sig_uptr.get();
-                for (size_t i = 0; i < sz; i++) {
-                    sig[i] = sgn(c[i].value);
-                }
-                for (size_t i = 0; i < sz; i++) {
-                    c[i].value = (c[i].value - sig[i]) / scale_diff_multiplier.value + sig[i];
-                }
-            }
-        }
-
+        const auto& a = column_left_ptr->get_data().data();
+        const auto& b = column_right_ptr->get_data().data();
+        const auto& c = column_result->get_data().data();
+        std::visit(
+                [&](auto check_overflow_for_decimal) {
+                    for (size_t i = 0; i < sz; i++) {
+                        c[i] = typename ColumnDecimal<ResultType>::value_type(
+                                apply<check_overflow_for_decimal>(
+                                        a[i], b[i], *type_left, *type_right, res_data_type,
+                                        max_result_number, scale_diff_multiplier));
+                    }
+                },
+                make_bool_variant(check_overflow_for_decimal));
         return column_result;
     }
 
-    template <bool need_adjust_scale, bool check_overflow, PrimitiveType ResultType>
+    template <bool check_overflow, PrimitiveType ResultType>
         requires(is_decimal(ResultType))
     static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
             ArgNativeTypeA a, ArgNativeTypeB b, const DataTypeA& type_left,
@@ -348,93 +294,40 @@ struct MultiplyDecimalImpl {
         if constexpr (ResultType == TYPE_DECIMALV2) {
             // Now, Doris only support decimal +-*/ decimal.
             if constexpr (check_overflow) {
-                auto res = apply(DecimalV2Value(a), DecimalV2Value(b)).value();
+                auto res = Impl::apply(DecimalV2Value(a), DecimalV2Value(b)).value();
                 if (res > max_result_number.value || res < -max_result_number.value) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                     "Arithmetic overflow: {} {} {} = {}, result type: {}",
-                                    DecimalV2Value(a).to_string(), "multiply",
+                                    DecimalV2Value(a).to_string(), "add",
                                     DecimalV2Value(b).to_string(), DecimalV2Value(res).to_string(),
                                     type_to_string(ResultType));
                 }
                 return res;
             } else {
-                return apply(DecimalV2Value(a), DecimalV2Value(b)).value();
+                return Impl::apply(DecimalV2Value(a), DecimalV2Value(b)).value();
             }
         } else {
             typename PrimitiveTypeTraits<ResultType>::CppNativeType res;
             if constexpr (check_overflow) {
                 // TODO handle overflow gracefully
-                if (UNLIKELY(apply<ResultType>(a, b, res))) {
-                    // multiply
-                    if constexpr (ResultType == TYPE_DECIMAL128I) {
-                        wide::Int256 res256 = apply<TYPE_DECIMAL256>(a, b);
-                        if constexpr (need_adjust_scale) {
-                            if (res256 > 0) {
-                                res256 = (res256 + scale_diff_multiplier.value / 2) /
-                                         scale_diff_multiplier.value;
-
-                            } else {
-                                res256 = (res256 - scale_diff_multiplier.value / 2) /
-                                         scale_diff_multiplier.value;
-                            }
-                        }
-                        // check if final result is overflow
-                        if (res256 > wide::Int256(max_result_number.value) ||
-                            res256 < wide::Int256(-max_result_number.value)) {
-                            auto result_str =
-                                    DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                        type_result.get_scale()}
-                                            .to_string(Decimal256(res256));
-                            throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                            "Arithmetic overflow: {} {} {} = {}, result type: {}",
-                                            type_left.to_string(ArgA(a)), "multiply",
-                                            type_right.to_string(ArgB(b)), result_str,
-                                            type_result.get_name());
-                        } else {
-                            res = res256;
-                        }
-                    } else {
-                        auto result_str = DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                              type_result.get_scale()}
-                                                  .to_string(Decimal256(res));
-                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                        "Arithmetic overflow: {} {} {} = {}, result type: {}",
-                                        type_left.to_string(ArgA(a)), "multiply",
-                                        type_right.to_string(ArgB(b)), result_str,
-                                        type_result.get_name());
-                    }
+                if (UNLIKELY(Impl::template apply<ResultType>(a, b, res))) {
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                    "Arithmetic overflow: {} {} {} = {}, result type: {}",
+                                    type_left.to_string(ArgA(a)), "add",
+                                    type_right.to_string(ArgB(b)), type_to_string(ResultType),
+                                    type_result.get_name());
                 } else {
-                    // round to final result precision
-                    if constexpr (need_adjust_scale) {
-                        if (res >= 0) {
-                            res = (res + scale_diff_multiplier.value / 2) /
-                                  scale_diff_multiplier.value;
-                        } else {
-                            res = (res - scale_diff_multiplier.value / 2) /
-                                  scale_diff_multiplier.value;
-                        }
-                    }
                     if (res > max_result_number.value || res < -max_result_number.value) {
-                        auto result_str = DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                              type_result.get_scale()}
-                                                  .to_string(Decimal256(res));
                         throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                         "Arithmetic overflow: {} {} {} = {}, result type: {}",
-                                        type_left.to_string(ArgA(a)), "multiply",
-                                        type_right.to_string(ArgB(b)), result_str,
+                                        type_left.to_string(ArgA(a)), "add",
+                                        type_right.to_string(ArgB(b)), type_to_string(ResultType),
                                         type_result.get_name());
                     }
                 }
                 return res;
             } else {
-                res = apply<ResultType>(a, b);
-                if constexpr (need_adjust_scale) {
-                    if (res >= 0) {
-                        res = (res + scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
-                    } else {
-                        res = (res - scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
-                    }
-                }
+                res = Impl::template apply<ResultType>(a, b);
                 return res;
             }
         }
@@ -459,16 +352,16 @@ struct MultiplyDecimalImpl {
 };
 
 template <typename Impl>
-class FunctionMultiply : public IFunction {
+class FunctionPlusMinus : public IFunction {
     static constexpr bool result_is_decimal = Impl::result_is_decimal;
     mutable bool need_replace_null_data_to_default_ = false;
 
 public:
-    static constexpr auto name = "multiply";
+    static constexpr auto name = Impl::name;
 
-    static FunctionPtr create() { return std::make_shared<FunctionMultiply>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionPlusMinus>(); }
 
-    FunctionMultiply() = default;
+    FunctionPlusMinus() = default;
 
     String get_name() const override { return name; }
 
@@ -725,54 +618,5 @@ private:
         return res;
     }
 };
-
-void register_function_multiply(SimpleFunctionFactory& factory) {
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMALV2, TYPE_DECIMALV2>>>();
-
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL32>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL64>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL128I>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL256>>>();
-
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL32>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL64>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL128I>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL256>>>();
-
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL32>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL64>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL128I>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL256>>>();
-
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL32>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL64>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL128I>>>();
-    factory.register_function<
-            FunctionMultiply<MultiplyDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL256>>>();
-
-    factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_TINYINT>>>();
-    factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_SMALLINT>>>();
-    factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_INT>>>();
-    factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_BIGINT>>>();
-    factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_LARGEINT>>>();
-    factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_FLOAT>>>();
-    factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_DOUBLE>>>();
-}
 
 } // namespace doris::vectorized
