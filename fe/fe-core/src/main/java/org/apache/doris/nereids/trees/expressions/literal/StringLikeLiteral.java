@@ -58,7 +58,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             + "((?<timestamp>\\d{14})(?<fraction3>\\.\\d*)?\\s*"
             + "(?:\\s*(?<tz1>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)([A-Za-z]+\\S*)))?)";
     public static final String toDateUnStrictRegex
-            = "^\\s*((?<year>\\d{2,4})[^a-zA-Z\\d](?<month>\\d{1,2})[^a-zA-Z\\d](?<date>\\d{1,2}))"
+            = "^\\s*((?<year>\\d{2}|\\d{4})[^a-zA-Z\\d](?<month>\\d{1,2})[^a-zA-Z\\d](?<date>\\d{1,2}))"
             + "(?:[ T]"
             + "(?<hour>\\d{1,2})[^a-zA-Z\\d](?<minute>\\d{1,2})[^a-zA-Z\\d](?<"
             + "second>\\d{1,2})(?<fraction>\\.\\d*)?"
