@@ -21,6 +21,9 @@
 
 #include <vector>
 
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+
 using doris::vectorized::JSONDataParser;
 using doris::vectorized::SimdJSONParser;
 using doris::vectorized::ParseConfig;
@@ -74,13 +77,13 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->values.size(), 1);
     EXPECT_EQ(result->paths.size(), 1);
-    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+    EXPECT_EQ(result->values[0].get_type(), doris::vectorized::Field::Types::Array);
 
     result = parser.parse("[[[1],[2]],[[3],[4]]]", 21, config);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->values.size(), 1);
     EXPECT_EQ(result->paths.size(), 1);
-    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+    EXPECT_EQ(result->values[0].get_type(), doris::vectorized::Field::Types::Array);
 
     result = parser.parse("[[1,2],[3],[4,5,6]]", 19, config);
     ASSERT_TRUE(result.has_value());
@@ -95,7 +98,7 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->values.size(), 1);
     EXPECT_EQ(result->paths.size(), 1);
-    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+    EXPECT_EQ(result->values[0].get_type(), doris::vectorized::Field::Types::Array);
 
     std::string json = R"({"nested": [{"a": [1,2,3]}]})";
     // result should be jsonbField
@@ -103,7 +106,7 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->values.size(), 1);
     EXPECT_EQ(result->paths.size(), 1);
-    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(result->values[0].get_type(), doris::vectorized::Field::Types::JSONB);
 
     // multi level nested array in nested array object
     std::string json2 = R"({"a":[{"b":[[1,2,3]]}]})";
@@ -111,7 +114,7 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->values.size(), 1);
     EXPECT_EQ(result->paths.size(), 1);
-    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(result->values[0].get_type(), doris::vectorized::Field::Types::JSONB);
 
     // test flatten nested
     config.enable_flatten_nested = true;
@@ -122,7 +125,7 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->values.size(), 1);
     EXPECT_EQ(result->paths.size(), 1);
-    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+    EXPECT_EQ(result->values[0].get_type(), doris::vectorized::Field::Types::Array);
 
     EXPECT_ANY_THROW(parser.parse(json2.c_str(), json2.size(), config));
 }
