@@ -36,6 +36,7 @@ import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -100,6 +101,9 @@ public class JdbcTable extends Table {
     private boolean connectionPoolKeepAlive;
 
     private ExternalFunctionRules functionRules;
+    // This is used for edit log
+    @SerializedName("frs")
+    private String functionRulesString;
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
@@ -381,8 +385,9 @@ public class JdbcTable extends Table {
 
     private void checkAndSetExternalFunctionRules(Map<String, String> properties) throws DdlException {
         ExternalFunctionRules.check(properties.getOrDefault(JdbcResource.FUNCTION_RULES, ""));
-        this.functionRules = ExternalFunctionRules.create(jdbcTypeName,
-                properties.getOrDefault(JdbcResource.FUNCTION_RULES, ""));
+        String functionRulesString = properties.getOrDefault(JdbcResource.FUNCTION_RULES, "");
+        this.functionRules = ExternalFunctionRules.create(jdbcTypeName, functionRulesString);
+        this.functionRulesString = functionRulesString;
     }
 
     /**
@@ -491,4 +496,11 @@ public class JdbcTable extends Table {
     public ExternalFunctionRules getExternalFunctionRules() {
         return functionRules;
     }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        functionRules = ExternalFunctionRules.create(jdbcTypeName, Strings.nullToEmpty(functionRulesString));
+    }
 }
+

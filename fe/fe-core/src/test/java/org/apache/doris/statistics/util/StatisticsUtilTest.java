@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics.util;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -35,8 +36,10 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -48,8 +51,10 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
+import org.apache.iceberg.CatalogProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -402,7 +407,10 @@ class StatisticsUtilTest {
             }
         };
         IcebergExternalDatabase icebergDatabase = new IcebergExternalDatabase(null, 1L, "", "");
-        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", null, icebergDatabase);
+        Map<String, String> props = Maps.newHashMap();
+        props.put(CatalogProperties.WAREHOUSE_LOCATION, "s3://tmp");
+        IcebergExternalCatalog catalog = new IcebergHadoopExternalCatalog(0, "iceberg_ctl", "", props, "");
+        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", catalog, icebergDatabase);
         Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(icebergTable, Pair.of("index", column.getName())));
 
         // Test table stats meta is null.
@@ -557,5 +565,48 @@ class StatisticsUtilTest {
         column = new Column("testColumn", Type.INT, true, null, null, "");
         Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
 
+    }
+
+    @Test
+    void testGetHotValues() {
+        String value1 = "1234 :0.33 ;222 :0.22";
+        Map<LiteralExpr, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
+        Assertions.assertEquals(2, hotValues.size());
+
+        int i = 0;
+        for (Map.Entry<LiteralExpr, Float> entry : hotValues.entrySet()) {
+            if (i == 0) {
+                Assertions.assertEquals(1234, entry.getKey().getLongValue());
+                Assertions.assertEquals("0.33", entry.getValue().toString());
+                i++;
+            } else {
+                Assertions.assertEquals(222, entry.getKey().getLongValue());
+                Assertions.assertEquals("0.22", entry.getValue().toString());
+            }
+        }
+
+        String value2 = "1234 :0.33";
+        hotValues = StatisticsUtil.getHotValues(value2, Type.INT);
+        Assertions.assertEquals(1, hotValues.size());
+
+        for (Map.Entry<LiteralExpr, Float> entry : hotValues.entrySet()) {
+            Assertions.assertEquals(1234, entry.getKey().getLongValue());
+            Assertions.assertEquals("0.33", entry.getValue().toString());
+        }
+
+        String value3 = "aabbcc\\:\\; :0.33 ; dd :0.22";
+        hotValues = StatisticsUtil.getHotValues(value3, Type.STRING);
+        Assertions.assertEquals(2, hotValues.size());
+        i = 0;
+        for (Map.Entry<LiteralExpr, Float> entry : hotValues.entrySet()) {
+            if (i == 0) {
+                Assertions.assertEquals("aabbcc:;", entry.getKey().getStringValue());
+                Assertions.assertEquals("0.33", entry.getValue().toString());
+                i++;
+            } else {
+                Assertions.assertEquals(" dd", entry.getKey().getStringValue());
+                Assertions.assertEquals("0.22", entry.getValue().toString());
+            }
+        }
     }
 }

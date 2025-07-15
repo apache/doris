@@ -41,19 +41,19 @@
 #pragma clang diagnostic pop
 #endif
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 
 using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisFSDirectoryFactory;
-using doris::segment_v2::InvertedIndexFileWriter;
+using doris::segment_v2::IndexFileWriter;
 using doris::segment_v2::InvertedIndexDescriptor;
-using doris::segment_v2::InvertedIndexFileReader;
+using doris::segment_v2::IndexFileReader;
 using doris::io::FileInfo;
 using doris::TabletIndex;
 using namespace doris::segment_v2;
@@ -118,9 +118,9 @@ std::vector<std::string> split(const std::string& s, char delimiter) {
 
 void search(lucene::store::Directory* dir, std::string& field, std::string& token,
             std::string& pred) {
-    IndexReader* reader = IndexReader::open(dir);
+    lucene::index::IndexReader* reader = lucene::index::IndexReader::open(dir);
 
-    IndexReader* newreader = reader->reopen();
+    lucene::index::IndexReader* newreader = reader->reopen();
     if (newreader != reader) {
         reader->close();
         _CLDELETE(reader);
@@ -172,7 +172,11 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         ConjunctionQuery conjunct_query(s, queryOptions, nullptr);
         InvertedIndexQueryInfo query_info;
         query_info.field_name = field_ws;
-        query_info.terms = terms;
+        for (auto& term : terms) {
+            doris::segment_v2::TermInfo term_info;
+            term_info.term = term;
+            query_info.term_infos.push_back(term_info);
+        }
         conjunct_query.add(query_info);
         conjunct_query.search(result);
 
@@ -196,7 +200,7 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
 }
 
 void check_terms_stats(lucene::store::Directory* dir) {
-    IndexReader* r = IndexReader::open(dir);
+    lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
     printf("Max Docs: %d\n", r->maxDoc());
     printf("Num Docs: %d\n", r->numDocs());
@@ -550,14 +554,14 @@ int main(int argc, char** argv) {
         }
 
         auto fs = doris::io::global_local_filesystem();
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs,
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                         doris::local_segment_path(file_dir, rowset_id, seg_id))},
                 rowset_id, seg_id, doris::InvertedIndexStorageFormatPB::V2);
         auto st = index_file_writer->open(&index_meta);
         if (!st.has_value()) {
-            std::cerr << "InvertedIndexFileWriter init error:" << st.error() << std::endl;
+            std::cerr << "IndexFileWriter init error:" << st.error() << std::endl;
             return -1;
         }
         using T = std::decay_t<decltype(st)>;
@@ -601,7 +605,7 @@ int main(int argc, char** argv) {
 
         auto ret = index_file_writer->close();
         if (!ret.ok()) {
-            std::cerr << "InvertedIndexFileWriter close error:" << ret.msg() << std::endl;
+            std::cerr << "IndexFileWriter close error:" << ret.msg() << std::endl;
             return -1;
         }
     } else if (FLAGS_operation == "show_nested_files_v2") {
@@ -613,11 +617,11 @@ int main(int argc, char** argv) {
                 google::protobuf::StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
-            auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
+            auto index_file_reader = std::make_unique<IndexFileReader>(
                     fs, index_path_prefix, doris::InvertedIndexStorageFormatPB::V2);
             auto st = index_file_reader->init(4096);
             if (!st.ok()) {
-                std::cerr << "InvertedIndexFileReader init error:" << st.msg() << std::endl;
+                std::cerr << "IndexFileReader init error:" << st.msg() << std::endl;
                 return -1;
             }
             std::cout << "Nested files for " << index_path_prefix << std::endl;
@@ -638,7 +642,7 @@ int main(int argc, char** argv) {
                 CLuceneError err;
                 auto ret = index_file_reader->open(&index_meta);
                 if (!ret.has_value()) {
-                    std::cerr << "InvertedIndexFileReader open error:" << ret.error() << std::endl;
+                    std::cerr << "IndexFileReader open error:" << ret.error() << std::endl;
                     return -1;
                 }
                 using T = std::decay_t<decltype(ret)>;
@@ -660,11 +664,11 @@ int main(int argc, char** argv) {
                 google::protobuf::StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
-            auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
+            auto index_file_reader = std::make_unique<IndexFileReader>(
                     fs, index_path_prefix, doris::InvertedIndexStorageFormatPB::V2);
             auto st = index_file_reader->init(4096);
             if (!st.ok()) {
-                std::cerr << "InvertedIndexFileReader init error:" << st.msg() << std::endl;
+                std::cerr << "IndexFileReader init error:" << st.msg() << std::endl;
                 return -1;
             }
             std::vector<std::string> files;
@@ -677,7 +681,7 @@ int main(int argc, char** argv) {
             index_meta.init_from_pb(index_pb);
             auto ret = index_file_reader->open(&index_meta);
             if (!ret.has_value()) {
-                std::cerr << "InvertedIndexFileReader open error:" << ret.error() << std::endl;
+                std::cerr << "IndexFileReader open error:" << ret.error() << std::endl;
                 return -1;
             }
             using T = std::decay_t<decltype(ret)>;

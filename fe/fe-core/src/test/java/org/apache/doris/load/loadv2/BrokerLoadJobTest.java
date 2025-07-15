@@ -34,8 +34,6 @@ import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
-import org.apache.doris.load.LoadExprTransformUtils;
-import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -46,8 +44,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -166,14 +162,6 @@ public class BrokerLoadJobTest {
                 loadStmt.getProperties();
                 minTimes = 0;
                 result = properties;
-            }
-        };
-
-        new MockUp<LoadExprTransformUtils>() {
-            @Mock
-            public void checkAndCreateSource(Database db, DataDescription dataDescription,
-                                             Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) {
-
             }
         };
 

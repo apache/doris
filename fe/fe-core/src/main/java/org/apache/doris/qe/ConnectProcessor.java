@@ -18,9 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
@@ -579,9 +577,7 @@ public abstract class ConnectProcessor {
         // because write profile maybe take too much time
         // explain query stmt do not have profile
         if (executor != null && executor.getParsedStmt() != null && !executor.getParsedStmt().isExplain()
-                && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
-                || executor.getParsedStmt() instanceof LogicalPlanAdapter
-                || executor.getParsedStmt() instanceof InsertStmt)) {
+                && (executor.getParsedStmt() instanceof LogicalPlanAdapter)) {
             executor.updateProfile(true);
             StatsErrorEstimator statsErrorEstimator = ConnectContext.get().getStatsErrorEstimator();
             if (statsErrorEstimator != null) {
@@ -593,7 +589,6 @@ public abstract class ConnectProcessor {
 
     public TMasterOpResult proxyExecute(TMasterOpRequest request) throws TException {
         ctx.setDatabase(request.db);
-        ctx.setQualifiedUser(request.user);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.getState().reset();
         if (request.isSetUserIp()) {
@@ -605,6 +600,8 @@ public abstract class ConnectProcessor {
         if (request.isSetCurrentUserIdent()) {
             UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
             ctx.setCurrentUserIdentity(currentUserIdentity);
+        } else {
+            ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.user, "%"));
         }
         if (request.isFoldConstantByBe()) {
             ctx.getSessionVariable().setEnableFoldConstantByBe(request.foldConstantByBe);
@@ -619,7 +616,7 @@ public abstract class ConnectProcessor {
         }
 
         // set compute group
-        ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.qualifiedUser));
+        ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;

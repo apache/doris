@@ -41,8 +41,8 @@ public:
 
     Status init(doris::RuntimeState* state, doris::pipeline::LocalStateInfo& info) override {
         RETURN_IF_ERROR(Base::init(state, info));
-        _max_rpc_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "MaxRpcTime", 2);
-        _merge_response_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "MergeResponseTime", 2);
+        _max_rpc_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "MaxRpcTime", 2);
+        _merge_response_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "MergeResponseTime", 2);
         return Status::OK();
     }
 

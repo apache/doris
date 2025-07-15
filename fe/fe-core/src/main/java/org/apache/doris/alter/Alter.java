@@ -27,9 +27,10 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateOrReplaceBranchClause;
 import org.apache.doris.analysis.CreateOrReplaceTagClause;
-import org.apache.doris.analysis.DropMaterializedViewStmt;
+import org.apache.doris.analysis.DropBranchClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
+import org.apache.doris.analysis.DropTagClause;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyEngineClause;
@@ -76,6 +77,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
@@ -153,14 +155,15 @@ public class Alter {
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(command, db, olapTable);
     }
 
-    public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        TableName tableName = stmt.getTableName();
+    public void processDropMaterializedView(DropMaterializedViewCommand command)
+            throws DdlException, MetaNotFoundException {
+        TableNameInfo tableName = command.getTableName();
         String dbName = tableName.getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         String name = tableName.getTbl();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
-        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
+        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(command, db, olapTable);
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -388,12 +391,20 @@ public class Alter {
                 setExternalTableAutoAnalyzePolicy(table, alterClauses);
             } else if (alterClause instanceof CreateOrReplaceBranchClause) {
                 table.getCatalog().createOrReplaceBranch(
-                        table.getDbName(), table.getName(),
+                        table,
                         ((CreateOrReplaceBranchClause) alterClause).getBranchInfo());
             } else if (alterClause instanceof CreateOrReplaceTagClause) {
                 table.getCatalog().createOrReplaceTag(
-                        table.getDbName(), table.getName(),
+                        table,
                         ((CreateOrReplaceTagClause) alterClause).getTagInfo());
+            } else if (alterClause instanceof DropBranchClause) {
+                table.getCatalog().dropBranch(
+                        table,
+                        ((DropBranchClause) alterClause).getDropBranchInfo());
+            } else if (alterClause instanceof DropTagClause) {
+                table.getCatalog().dropTag(
+                        table,
+                        ((DropTagClause) alterClause).getDropTagInfo());
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
             }

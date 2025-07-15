@@ -108,12 +108,13 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalUnion",
+        return Utils.toSqlStringSkipNull("LogicalUnion",
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
                 "constantExprsList", constantExprsList,
-                "hasPushedFilter", hasPushedFilter);
+                "hasPushedFilter", hasPushedFilter,
+                "stats", statistics);
     }
 
     @Override

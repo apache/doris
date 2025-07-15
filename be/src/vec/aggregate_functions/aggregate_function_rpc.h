@@ -246,13 +246,13 @@ public:
         } else {
             LOG(ERROR) << "serialize empty buf";
         }
-        write_binary(serialize_data, buf);
+        buf.write_binary(serialize_data);
     }
 
     void deserialize(BufferReadable& buf) {
         static_cast<void>(send_buffer_to_rpc_server());
         std::string serialize_data;
-        read_binary(serialize_data, buf);
+        buf.read_binary(serialize_data);
         if (error_default_str != serialize_data) {
             _res.ParseFromString(serialize_data);
             set_last_result(true);
@@ -364,20 +364,20 @@ public:
     DataTypePtr get_return_type() const override { return _return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         static_cast<void>(
                 this->data(place).buffer_add(columns, row_num, row_num + 1, argument_types));
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena&) const override {
         static_cast<void>(this->data(place).add(columns, 0, batch_size, argument_types));
     }
 
     void reset(AggregateDataPtr place) const override {}
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         static_cast<void>(this->data(place).merge(this->data(const_cast<AggregateDataPtr>(rhs))));
     }
 
@@ -386,7 +386,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).deserialize(buf);
     }
 

@@ -525,7 +525,6 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
                 tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
             }
             tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
             tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
             List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroup(tmpCtx);

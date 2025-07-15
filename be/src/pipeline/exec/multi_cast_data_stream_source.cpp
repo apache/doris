@@ -34,13 +34,17 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
-    _shared_state->multi_cast_data_streamer->set_source_profile(p._consumer_id,
-                                                                _runtime_profile.get());
+    // Pass operator profile to multi cast data streamer
+    // so that it could get common_profile and custom_profile as same time.
+    _shared_state->multi_cast_data_streamer->set_source_profile(p._consumer_id, operator_profile());
     _shared_state->multi_cast_data_streamer->set_dep_by_sender_idx(p._consumer_id, _dependency);
-    _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
-    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
-    _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
-    _materialize_data_timer = ADD_TIMER(_runtime_profile, "MaterializeDataTime");
+    _wait_for_rf_timer = ADD_TIMER(common_profile(), "WaitForRuntimeFilter");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
+    _get_data_timer = ADD_TIMER(custom_profile(), "GetDataTime");
+    _materialize_data_timer = ADD_TIMER(custom_profile(), "MaterializeDataTime");
+
+    // TODO: Not sure if runtime profile info shuold be added to common_profile or custom_profile
+    // init profile for runtime filter
     RETURN_IF_ERROR(_helper.init(state, false, p.dest_id_from_sink(), p.operator_id(),
                                  _filter_dependencies, p.get_name() + "_FILTER_DEPENDENCY"));
     return Status::OK();
@@ -80,7 +84,7 @@ Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
         rf_time += dep->watcher_elapse_time();
     }
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-    _helper.collect_realtime_profile(profile());
+    _helper.collect_realtime_profile(custom_profile());
     return Base::close(state);
 }
 
