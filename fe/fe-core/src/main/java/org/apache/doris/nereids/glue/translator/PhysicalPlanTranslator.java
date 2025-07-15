@@ -49,6 +49,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.doris.DorisExternalTable;
+import org.apache.doris.datasource.doris.source.DorisScanNode;
 import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -121,6 +123,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOla
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDorisScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
@@ -846,6 +849,30 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment planFragment = createPlanFragment(olapScanNode, dataPartition, olapScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), olapScan);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalDorisScan(PhysicalDorisScan dorisScan, PlanTranslatorContext context) {
+        List<Slot> slots = dorisScan.getOutput();
+        TableIf table = dorisScan.getTable();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
+        DorisScanNode dorisScanNode = new DorisScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                table instanceof DorisExternalTable);
+        dorisScanNode.setNereidsId(dorisScan.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(dorisScan.getId(), dorisScanNode.getId());
+        Utils.execWithUncheckedException(dorisScanNode::init);
+        context.addScanNode(dorisScanNode, dorisScan);
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(dorisScan).forEach(
+                    expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, dorisScanNode, context)
+            )
+        );
+        context.getTopnFilterContext().translateTarget(dorisScan, dorisScanNode, context);
+        DataPartition dataPartition = DataPartition.RANDOM;
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), dorisScanNode, dataPartition);
+        context.addPlanFragment(planFragment);
+        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), dorisScan);
         return planFragment;
     }
 

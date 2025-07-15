@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDorisScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -253,6 +254,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalJdbcScan(PhysicalJdbcScan physicalJdbcScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
+    }
+
+    @Override
+    public Cost visitPhysicalDorisScan(PhysicalDorisScan physicalDorisScan, PlanContext context) {
+        Statistics statistics = context.getStatisticsWithCheck();
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
     }
 
     @Override
