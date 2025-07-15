@@ -34,19 +34,19 @@ AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_ARRAY:
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_ARRAY>>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_MAP:
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_MAP>>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_STRUCT:
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRUCT>>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_VARIANT:
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_VARIANT>>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     default:
         auto res = creator_with_any::create<AggregateFunctionApproxCountDistinct>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
         if (!res) {
             throw Exception(
                     ErrorCode::NOT_IMPLEMENTED_ERROR,
