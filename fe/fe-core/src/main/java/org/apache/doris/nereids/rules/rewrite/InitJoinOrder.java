@@ -19,11 +19,11 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.qe.ConnectContext;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,12 +35,13 @@ import org.slf4j.LoggerFactory;
  */
 public class InitJoinOrder extends OneRewriteRuleFactory {
     private static final Logger LOG = LoggerFactory.getLogger(InitJoinOrder.class);
+    private static final double SWAP_THRESHOLD = 0.1;
+    private final StatsDerive derive = new StatsDerive(false);
 
     @Override
     public Rule build() {
         return logicalJoin()
                 .whenNot(LogicalJoin::isMarkJoin)
-                .when(join -> join.getMutableState("swapJoinChildren") == null)
                 .thenApply(ctx -> {
                     if (ctx.statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
                             || !ctx.statementContext.getConnectContext().getSessionVariable().enableInitJoinOrder
@@ -55,25 +56,28 @@ public class InitJoinOrder extends OneRewriteRuleFactory {
     }
 
     private Plan swapJoinChildrenIfNeed(LogicalJoin<? extends Plan, ? extends Plan> join) {
+        if (join.getJoinType().isLeftSemiOrAntiJoin()) {
+            // TODO: currently, the transform rules for right semi/anti join is not complete,
+            //  for example LogicalJoinSemiJoinTransposeProject (tpch 22) only works for left semi/anti join
+            //  if we swap left semi/anti to right semi/anti, we lost the opportunity to optimize join order
+            return null;
+        }
         JoinType swapType = join.getJoinType().swap();
         if (swapType == null) {
             return null;
         }
         AbstractPlan left = (AbstractPlan) join.left();
         AbstractPlan right = (AbstractPlan) join.right();
-        if (left.getStats() == null || right.getStats() == null) {
-            if (ConnectContext.get().getSessionVariable().feDebug) {
-                throw new RuntimeException("missing stats");
-            }
-            LOG.warn("missing stats: {}", join.treeString());
-            return null;
+        if (left.getStats() == null) {
+            left.accept(derive, new DeriveContext());
         }
-        if (left.getStats().getRowCount() < right.getStats().getRowCount() * 5) {
-            join = (LogicalJoin<? extends Plan, ? extends Plan>) join.withChildren(right, left);
-            if (join.getJoinType() != swapType) {
-                join = join.withJoinType(swapType);
-            }
-            join.setMutableState("swapJoinChildren", true);
+        if (right.getStats() == null) {
+            right.accept(derive, new DeriveContext());
+        }
+
+        if (left.getStats().getRowCount() <= right.getStats().getRowCount() * SWAP_THRESHOLD) {
+            join = join.withTypeChildren(swapType, right, left,
+                    join.getJoinReorderContext());
             return join;
         }
         return null;

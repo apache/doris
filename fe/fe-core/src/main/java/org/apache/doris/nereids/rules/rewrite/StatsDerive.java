@@ -68,11 +68,18 @@ import java.util.List;
  */
 public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveContext> implements CustomRewriter {
 
+    private final boolean deepDerive;
+
     /**
-     * context
-     */
+    * context
+    */
     public static class DeriveContext {
         StatsCalculator calculator = new StatsCalculator(null);
+    }
+
+    public StatsDerive(boolean deepDerive) {
+        super();
+        this.deepDerive = deepDerive;
     }
 
     @Override
@@ -83,19 +90,24 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
 
     @Override
     public Statistics visit(Plan plan, DeriveContext context) {
-        Statistics result = null;
-        for (int i = plan.children().size() - 1; i >= 0; i--) {
-            result = plan.children().get(i).accept(this, context);
+        Statistics result = ((AbstractPlan) plan).getStats();
+        if (result == null || deepDerive) {
+            for (int i = plan.children().size() - 1; i >= 0; i--) {
+                result = plan.children().get(i).accept(this, context);
+            }
+            ((AbstractPlan) plan).setStatistics(result);
         }
-        ((AbstractPlan) plan).setStatistics(result);
         return result;
     }
 
     @Override
     public Statistics visitLogicalProject(LogicalProject<? extends Plan> project, DeriveContext context) {
-        Statistics childStats = project.child().accept(this, context);
-        Statistics stats = context.calculator.computeProject(project, childStats);
-        project.setStatistics(stats);
+        Statistics stats = project.getStats();
+        if (stats == null || deepDerive) {
+            Statistics childStats = project.child().accept(this, context);
+            stats = context.calculator.computeProject(project, childStats);
+            project.setStatistics(stats);
+        }
         return stats;
     }
 
@@ -130,9 +142,12 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
 
     @Override
     public Statistics visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, DeriveContext context) {
-        Statistics childStats = aggregate.child().accept(this, context);
-        Statistics stats = context.calculator.computeAggregate(aggregate, childStats);
-        aggregate.setStatistics(stats);
+        Statistics stats = aggregate.getStats();
+        if (stats == null || deepDerive) {
+            Statistics childStats = aggregate.child().accept(this, context);
+            stats = context.calculator.computeAggregate(aggregate, childStats);
+            aggregate.setStatistics(stats);
+        }
         return stats;
     }
 
@@ -146,16 +161,22 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
 
     @Override
     public Statistics visitLogicalFilter(LogicalFilter<? extends Plan> filter, DeriveContext context) {
-        Statistics childStats = filter.child().accept(this, context);
-        Statistics stats = context.calculator.computeFilter(filter, childStats);
-        filter.setStatistics(stats);
+        Statistics stats = filter.getStats();
+        if (stats == null || deepDerive) {
+            Statistics childStats = filter.child().accept(this, context);
+            stats = context.calculator.computeFilter(filter, childStats);
+            filter.setStatistics(stats);
+        }
         return stats;
     }
 
     @Override
     public Statistics visitLogicalOlapScan(LogicalOlapScan olapScan, DeriveContext context) {
-        Statistics stats = context.calculator.computeOlapScan(olapScan);
-        olapScan.setStatistics(stats);
+        Statistics stats = olapScan.getStats();
+        if (stats == null || deepDerive) {
+            stats = context.calculator.computeOlapScan(olapScan);
+            olapScan.setStatistics(stats);
+        }
         return stats;
     }
 
@@ -169,8 +190,11 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
 
     @Override
     public Statistics visitLogicalCatalogRelation(LogicalCatalogRelation relation, DeriveContext context) {
-        Statistics stats = context.calculator.computeCatalogRelation(relation);
-        relation.setStatistics(stats);
+        Statistics stats = relation.getStats();
+        if (stats == null || deepDerive) {
+            stats = context.calculator.computeCatalogRelation(relation);
+            relation.setStatistics(stats);
+        }
         return stats;
     }
 
@@ -183,46 +207,62 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
 
     @Override
     public Statistics visitLogicalSort(LogicalSort<? extends Plan> sort, DeriveContext context) {
-        Statistics childStats = sort.child().accept(this, context);
-        sort.setStatistics(childStats);
-        return childStats;
+        Statistics stats = sort.getStats();
+        if (stats == null || deepDerive) {
+            stats = sort.child().accept(this, context);
+            sort.setStatistics(stats);
+        }
+        return stats;
     }
 
     @Override
     public Statistics visitLogicalTopN(LogicalTopN<? extends Plan> topN, DeriveContext context) {
-        Statistics childStats = topN.child().accept(this, context);
-        Statistics stats = context.calculator.computeTopN(topN, childStats);
-        topN.setStatistics(stats);
+        Statistics stats = topN.getStats();
+        if (stats == null || deepDerive) {
+            Statistics childStats = topN.child().accept(this, context);
+            stats = context.calculator.computeTopN(topN, childStats);
+            topN.setStatistics(stats);
+        }
         return stats;
     }
 
     @Override
     public Statistics visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN,
             DeriveContext context) {
-        Statistics childStats = topN.child().accept(this, context);
-        Statistics stats = context.calculator.computeTopN(topN, childStats);
-        topN.setStatistics(stats);
+        Statistics stats = topN.getStats();
+        if (stats == null && deepDerive) {
+            Statistics childStats = topN.child().accept(this, context);
+            stats = context.calculator.computeTopN(topN, childStats);
+            topN.setStatistics(stats);
+        }
         return stats;
     }
 
     @Override
     public Statistics visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN,
             DeriveContext context) {
-        Statistics childStats = partitionTopN.child().accept(this, context);
-        Statistics stats = context.calculator.computePartitionTopN(partitionTopN, childStats);
-        partitionTopN.setStatistics(stats);
+        Statistics stats = partitionTopN.getStats();
+        if (stats == null || deepDerive) {
+            Statistics childStats = partitionTopN.child().accept(this, context);
+            stats = context.calculator.computePartitionTopN(partitionTopN, childStats);
+            partitionTopN.setStatistics(stats);
+        }
         return stats;
     }
 
     @Override
     public Statistics visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, DeriveContext context) {
-        Statistics leftStats = join.left().accept(this, context);
-        Statistics rightStats = join.right().accept(this, context);
-        Statistics joinStats = context.calculator.computeJoin(join, leftStats,
-                rightStats);
-        joinStats = new StatisticsBuilder(joinStats).setWidthInJoinCluster(
-                leftStats.getWidthInJoinCluster() + rightStats.getWidthInJoinCluster()).build();
-        join.setStatistics(joinStats);
+        Statistics joinStats = join.getStats();
+        if (joinStats == null || deepDerive) {
+            Statistics leftStats = join.left().accept(this, context);
+            Statistics rightStats = join.right().accept(this, context);
+            joinStats = context.calculator.computeJoin(join, leftStats,
+                    rightStats);
+            joinStats = new StatisticsBuilder(joinStats).setWidthInJoinCluster(
+                    leftStats.getWidthInJoinCluster() + rightStats.getWidthInJoinCluster()).build();
+            join.setStatistics(joinStats);
+
+        }
         return joinStats;
     }
 
@@ -239,58 +279,72 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalUnion(
             LogicalUnion union, DeriveContext context) {
-        List<Statistics> childrenStats = new ArrayList<>();
-        for (Plan child : union.children()) {
-            Statistics childStats = child.accept(this, context);
-            childrenStats.add(childStats);
+        Statistics stats = union.getStats();
+        if (stats == null || deepDerive) {
+            List<Statistics> childrenStats = new ArrayList<>();
+            for (Plan child : union.children()) {
+                Statistics childStats = child.accept(this, context);
+                childrenStats.add(childStats);
+            }
+            stats = context.calculator.computeUnion(union, childrenStats);
+            union.setStatistics(stats);
         }
-        Statistics stats = context.calculator.computeUnion(union, childrenStats);
-        union.setStatistics(stats);
         return stats;
     }
 
     @Override
     public Statistics visitLogicalExcept(
             LogicalExcept except, DeriveContext context) {
-        Statistics leftStats = null;
-        for (Plan child : except.children()) {
-            Statistics childStats = child.accept(this, context);
-            if (leftStats == null) {
-                leftStats = childStats;
+        Statistics stats = except.getStats();
+        if (stats == null || deepDerive) {
+            for (Plan child : except.children()) {
+                Statistics childStats = child.accept(this, context);
+                if (stats == null) {
+                    stats = childStats;
+                }
             }
+            stats = context.calculator.computeExcept(except, stats);
+            except.setStatistics(stats);
         }
-        Statistics stats = context.calculator.computeExcept(except, leftStats);
-        except.setStatistics(leftStats);
         return stats;
     }
 
     @Override
     public Statistics visitLogicalIntersect(
             LogicalIntersect intersect, DeriveContext context) {
-        List<Statistics> childrenStats = new ArrayList<>();
-        for (Plan child : intersect.children()) {
-            Statistics childStats = child.accept(this, context);
-            childrenStats.add(childStats);
-        }
+        Statistics stats = intersect.getStats();
+        if (stats == null || deepDerive) {
+            List<Statistics> childrenStats = new ArrayList<>();
+            for (Plan child : intersect.children()) {
+                Statistics childStats = child.accept(this, context);
+                childrenStats.add(childStats);
+            }
 
-        Statistics stats = context.calculator.computeIntersect(intersect, childrenStats);
-        intersect.setStatistics(stats);
+            stats = context.calculator.computeIntersect(intersect, childrenStats);
+            intersect.setStatistics(stats);
+        }
         return stats;
     }
 
     @Override
     public Statistics visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, DeriveContext context) {
-        Statistics childStats = generate.child().accept(this, context);
-        Statistics stats = context.calculator.computeGenerate(generate, childStats);
-        generate.setStatistics(stats);
+        Statistics stats = generate.getStats();
+        if (stats == null || deepDerive) {
+            Statistics childStats = generate.child().accept(this, context);
+            stats = context.calculator.computeGenerate(generate, childStats);
+            generate.setStatistics(stats);
+        }
         return stats;
     }
 
     @Override
     public Statistics visitLogicalWindow(LogicalWindow<? extends Plan> window, DeriveContext context) {
-        Statistics childStats = window.child().accept(this, context);
-        Statistics stats = context.calculator.computeWindow(window, childStats);
-        window.setStatistics(stats);
+        Statistics stats = window.getStats();
+        if (stats == null || deepDerive) {
+            Statistics childStats = window.child().accept(this, context);
+            stats = context.calculator.computeWindow(window, childStats);
+            window.setStatistics(stats);
+        }
         return stats;
     }
 
