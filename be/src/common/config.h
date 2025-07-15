@@ -1612,6 +1612,9 @@ DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
 
 DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 
+// The maximum number of threads supported when executing LLMFunction
+DECLARE_mInt32(llm_max_concurrent_requests);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
