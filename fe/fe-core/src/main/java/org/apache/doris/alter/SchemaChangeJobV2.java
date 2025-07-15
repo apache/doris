@@ -146,7 +146,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected boolean hasRowStoreChange = false;
 
     // save all schema change tasks
-    private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
+    AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
     protected SchemaChangeJobV2() {
         super(JobType.SCHEMA_CHANGE);
@@ -667,14 +667,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                 healthyReplicaNum++;
                             }
                         }
-                        if (!FeConstants.runningUnitTest) {
-                            if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
-                                LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
-                                        + " healthyReplicaNum {} expectReplicationNum {}",
-                                        shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
-                                throw new AlterCancelException(
+
+                        if ((healthyReplicaNum < expectReplicationNum / 2 + 1) && !FeConstants.runningUnitTest) {
+                            LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
+                                    + " healthyReplicaNum {} expectReplicationNum {}",
+                                    shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
+                            throw new AlterCancelException(
                                     "shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
-                            }
                         }
                     } // end for tablets
                 }
