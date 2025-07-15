@@ -316,10 +316,10 @@ void TimeSharingTaskExecutor::stop() {
     _pool_status = Status::Error<ErrorCode::SERVICE_UNAVAILABLE, false>(
             "The thread pool {} has been shut down.", _thread_name);
 
-    // // Clear the various queues under the lock, but defer the releasing
-    // // of the tasks outside the lock, in case there are concurrent threads
-    // // wanting to access the SplitThreadPool. The task's destructors may acquire
-    // // locks, etc, so this also prevents lock inversions.
+    // Clear the various queues under the lock, but defer the releasing
+    // of the tasks outside the lock, in case there are concurrent threads
+    // wanting to access the SplitThreadPool. The task's destructors may acquire
+    // locks, etc, so this also prevents lock inversions.
 
     std::deque<std::shared_ptr<SplitQueue>> to_release;
     if (_tokenless->_entries->size() > 0) {
@@ -937,12 +937,6 @@ std::shared_ptr<PrioritizedSplitRunner> TimeSharingTaskExecutor::_poll_next_spli
         ++it;
     }
     return nullptr;
-}
-
-void TimeSharingTaskExecutor::_interrupt() {
-    /*std::lock_guard<std::mutex> guard(_mutex);
-    _condition.notify_all();
-    _waiting_splits->interrupt();*/
 }
 
 int64_t TimeSharingTaskExecutor::_get_running_tasks_for_level(int level) const {

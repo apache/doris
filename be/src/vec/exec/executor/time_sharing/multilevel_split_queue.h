@@ -17,9 +17,7 @@
 
 #pragma once
 #include <array>
-#include <condition_variable>
 #include <memory>
-#include <mutex>
 #include <queue>
 
 #include "common/factory_creator.h"
@@ -79,15 +77,13 @@ public:
     void remove(std::shared_ptr<PrioritizedSplitRunner> split) override;
     void remove_all(const std::vector<std::shared_ptr<PrioritizedSplitRunner>>& splits) override;
     void clear() override;
-    void interrupt() override;
 
     int64_t level_scheduled_time(int level) const { return _level_scheduled_time[level].load(); }
 
 private:
-    int64_t _get_level0_target_time(std::unique_lock<std::mutex>& lock);
-    std::shared_ptr<PrioritizedSplitRunner> _poll_split(std::unique_lock<std::mutex>& lock);
-    void _offer_locked(std::shared_ptr<PrioritizedSplitRunner> split, int level,
-                       std::unique_lock<std::mutex>& lock);
+    int64_t _get_level0_target_time();
+    std::shared_ptr<PrioritizedSplitRunner> _poll_split();
+    void _do_offer(std::shared_ptr<PrioritizedSplitRunner> split, int level);
 
     const double _level_time_multiplier;
 
@@ -99,10 +95,6 @@ private:
 
     std::array<std::atomic<int64_t>, LEVEL_THRESHOLD_SECONDS.size()> _level_scheduled_time;
     std::array<std::atomic<int64_t>, LEVEL_THRESHOLD_SECONDS.size()> _level_min_priority;
-
-    std::atomic<bool> _interrupted {false};
-    mutable std::mutex _mutex;
-    std::condition_variable _not_empty;
 };
 
 } // namespace vectorized

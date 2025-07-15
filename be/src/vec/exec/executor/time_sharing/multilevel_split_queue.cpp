@@ -99,44 +99,30 @@ int64_t MultilevelSplitQueue::get_level_min_priority(int level, int64_t task_thr
 void MultilevelSplitQueue::offer(std::shared_ptr<PrioritizedSplitRunner> split) {
     split->set_ready();
     int level = split->priority().level();
-    std::unique_lock<std::mutex> lock(_mutex);
-    _offer_locked(split, level, lock);
+    _do_offer(split, level);
 }
 
-void MultilevelSplitQueue::_offer_locked(std::shared_ptr<PrioritizedSplitRunner> split, int level,
-                                         std::unique_lock<std::mutex>& lock) {
+void MultilevelSplitQueue::_do_offer(std::shared_ptr<PrioritizedSplitRunner> split, int level) {
     if (_level_waiting_splits[level].empty()) {
-        // Accesses to _level_scheduled_time are not synchronized, so we have a data race
-        // here - our level time math will be off. However, the staleness is bounded by
-        // the fact that only running splits that complete during this computation
-        // can update the level time. Therefore, this is benign.
-        int64_t level0_time = _get_level0_target_time(lock);
+        int64_t level0_time = _get_level0_target_time();
         int64_t level_expected_time =
                 static_cast<int64_t>(level0_time / std::pow(_level_time_multiplier, level));
         int64_t delta = level_expected_time - _level_scheduled_time[level].load();
         _level_scheduled_time[level].fetch_add(delta);
     }
-
     _level_waiting_splits[level].push(split);
-    _not_empty.notify_all();
 }
 
 std::shared_ptr<PrioritizedSplitRunner> MultilevelSplitQueue::take() {
-    std::unique_lock<std::mutex> lock(_mutex);
-
-    while (!_interrupted) {
-        auto split = _poll_split(lock);
-        if (split) {
-            if (split->update_level_priority()) {
-                _offer_locked(split, split->priority().level(), lock);
-                continue;
-            }
-            int selected_level = split->priority().level();
-            _level_min_priority[selected_level].store(split->priority().level_priority());
-            return split;
+    auto split = _poll_split();
+    if (split) {
+        if (split->update_level_priority()) {
+            _do_offer(split, split->priority().level());
+            return take();
         }
-
-        _not_empty.wait(lock);
+        int selected_level = split->priority().level();
+        _level_min_priority[selected_level].store(split->priority().level_priority());
+        return split;
     }
     return nullptr;
 }
@@ -149,9 +135,8 @@ std::shared_ptr<PrioritizedSplitRunner> MultilevelSplitQueue::take() {
  * with the objective of minimizing deviation from the target scheduled time. From this level,
  * we pick the split with the lowest priority.
  */
-std::shared_ptr<PrioritizedSplitRunner> MultilevelSplitQueue::_poll_split(
-        std::unique_lock<std::mutex>& lock) {
-    int64_t target_scheduled_time = _get_level0_target_time(lock);
+std::shared_ptr<PrioritizedSplitRunner> MultilevelSplitQueue::_poll_split() {
+    int64_t target_scheduled_time = _get_level0_target_time();
     double worst_ratio = 1.0;
     int selected_level = -1;
 
@@ -179,14 +164,11 @@ std::shared_ptr<PrioritizedSplitRunner> MultilevelSplitQueue::_poll_split(
 }
 
 void MultilevelSplitQueue::remove(std::shared_ptr<PrioritizedSplitRunner> split) {
-    std::lock_guard<std::mutex> lock(_mutex);
-
     for (auto& level_queue : _level_waiting_splits) {
         std::priority_queue<std::shared_ptr<PrioritizedSplitRunner>,
                             std::vector<std::shared_ptr<PrioritizedSplitRunner>>,
                             SplitRunnerComparator>
                 new_queue;
-
         while (!level_queue.empty()) {
             auto current = level_queue.top();
             level_queue.pop();
@@ -196,17 +178,10 @@ void MultilevelSplitQueue::remove(std::shared_ptr<PrioritizedSplitRunner> split)
         }
         level_queue.swap(new_queue);
     }
-
-    if (std::all_of(_level_waiting_splits.begin(), _level_waiting_splits.end(),
-                    [](const auto& q) { return q.empty(); })) {
-        _not_empty.notify_all();
-    }
 }
 
 void MultilevelSplitQueue::remove_all(
         const std::vector<std::shared_ptr<PrioritizedSplitRunner>>& splits) {
-    std::lock_guard<std::mutex> lock(_mutex);
-
     std::unordered_set<std::shared_ptr<PrioritizedSplitRunner>> to_remove(splits.begin(),
                                                                           splits.end());
 
@@ -215,7 +190,6 @@ void MultilevelSplitQueue::remove_all(
                             std::vector<std::shared_ptr<PrioritizedSplitRunner>>,
                             SplitRunnerComparator>
                 new_queue;
-
         while (!level_queue.empty()) {
             auto current = level_queue.top();
             level_queue.pop();
@@ -225,26 +199,14 @@ void MultilevelSplitQueue::remove_all(
         }
         level_queue.swap(new_queue);
     }
-
-    if (std::all_of(_level_waiting_splits.begin(), _level_waiting_splits.end(),
-                    [](const auto& q) { return q.empty(); })) {
-        _not_empty.notify_all();
-    }
 }
 
 size_t MultilevelSplitQueue::size() const {
-    std::lock_guard<std::mutex> lock(_mutex);
     return std::accumulate(_level_waiting_splits.begin(), _level_waiting_splits.end(), size_t(0),
                            [](size_t sum, const auto& queue) { return sum + queue.size(); });
 }
 
-void MultilevelSplitQueue::interrupt() {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _interrupted = true;
-    _not_empty.notify_all();
-}
-
-int64_t MultilevelSplitQueue::_get_level0_target_time(std::unique_lock<std::mutex>& lock) {
+int64_t MultilevelSplitQueue::_get_level0_target_time() {
     int64_t level0_target_time = _level_scheduled_time[0].load();
     double current_multiplier = _level_time_multiplier;
 
@@ -258,7 +220,6 @@ int64_t MultilevelSplitQueue::_get_level0_target_time(std::unique_lock<std::mute
 }
 
 void MultilevelSplitQueue::clear() {
-    std::lock_guard<std::mutex> lock(_mutex);
     for (auto& queue : _level_waiting_splits) {
         while (!queue.empty()) {
             queue.pop();

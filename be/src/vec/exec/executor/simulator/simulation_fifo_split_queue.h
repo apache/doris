@@ -34,34 +34,18 @@ public:
 
     int compute_level(int64_t scheduled_nanos) override { return 0; }
 
-    void offer(std::shared_ptr<PrioritizedSplitRunner> split) override {
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            _queue.push(split);
-        }
-        _not_empty.notify_one();
-    }
+    void offer(std::shared_ptr<PrioritizedSplitRunner> split) override { _queue.push(split); }
 
     std::shared_ptr<PrioritizedSplitRunner> take() override {
-        std::unique_lock<std::mutex> lock(_mutex);
-        _not_empty.wait(lock, [this] { return !_queue.empty() || _interrupted; });
-
-        if (_interrupted) {
-            return nullptr;
-        }
-
+        if (_queue.empty()) return nullptr;
         auto split = _queue.front();
         _queue.pop();
         return split;
     }
 
-    size_t size() const override {
-        std::lock_guard<std::mutex> lock(_mutex);
-        return _queue.size();
-    }
+    size_t size() const override { return _queue.size(); }
 
     void remove(std::shared_ptr<PrioritizedSplitRunner> split) override {
-        std::lock_guard<std::mutex> lock(_mutex);
         std::queue<std::shared_ptr<PrioritizedSplitRunner>> new_queue;
         while (!_queue.empty()) {
             auto current = _queue.front();
@@ -71,13 +55,9 @@ public:
             }
         }
         _queue.swap(new_queue);
-        if (_queue.empty()) {
-            _not_empty.notify_all();
-        }
     }
 
     void remove_all(const std::vector<std::shared_ptr<PrioritizedSplitRunner>>& splits) override {
-        std::lock_guard<std::mutex> lock(_mutex);
         std::unordered_set<std::shared_ptr<PrioritizedSplitRunner>> to_remove(splits.begin(),
                                                                               splits.end());
         std::queue<std::shared_ptr<PrioritizedSplitRunner>> new_queue;
@@ -89,24 +69,12 @@ public:
             }
         }
         _queue.swap(new_queue);
-        if (_queue.empty()) {
-            _not_empty.notify_all();
-        }
     }
 
     void clear() override {
-        std::lock_guard<std::mutex> lock(_mutex);
         while (!_queue.empty()) {
             _queue.pop();
         }
-    }
-
-    void interrupt() override {
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            _interrupted = true;
-        }
-        _not_empty.notify_all();
     }
 
     Priority update_priority(const Priority& old_priority, int64_t quanta_nanos,
@@ -120,9 +88,6 @@ public:
 
 private:
     std::queue<std::shared_ptr<PrioritizedSplitRunner>> _queue;
-    mutable std::mutex _mutex;
-    std::condition_variable _not_empty;
-    std::atomic<bool> _interrupted {false};
 };
 
 } // namespace vectorized

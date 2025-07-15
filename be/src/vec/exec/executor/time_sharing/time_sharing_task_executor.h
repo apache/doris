@@ -245,7 +245,6 @@ private:
             std::unique_lock<std::mutex>& lock);
     void _record_leaf_splits_size(std::unique_lock<std::mutex>& lock);
     void _split_finished(std::shared_ptr<PrioritizedSplitRunner> split, const Status& status);
-    void _interrupt();
     // Waits until all the tasks are completed.
     void wait();
 
