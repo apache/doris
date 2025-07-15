@@ -127,11 +127,7 @@ suite("test_predefine_ddl", "p0"){
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("""Duplicate field name ab in variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text,
-PROPERTIES (
-"variant_max_subcolumns_count" = "10",
-"variant_enable_typed_paths_to_sparse" = "true"
-)>""")
+        exception("""Duplicate field name ab in variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text,PROPERTIES ("variant_max_subcolumns_count" = "10","variant_enable_typed_paths_to_sparse" = "true")>""")
     }
 
     test {
@@ -332,4 +328,21 @@ PROPERTIES (
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
     sql "create index idx_ab2 on test_ddl_table (var) using inverted"
+
+    sql """alter table test_ddl_table add column var2 variant<properties("variant_max_subcolumns_count" = "15")> NULL"""
+
+    test {
+        sql """alter table test_ddl_table add column var3 variant<properties("variant_max_subcolumns_count" = "0")> NULL"""
+        exception("The variant_max_subcolumns_count must either be 0 in all columns or greater than 0 in all columns")
+    }
+
+    sql "alter table test_ddl_table add column var3 variant NULL"
+
+    qt_sql "desc test_ddl_table"
+
+    sql "create index idx_ab3 on test_ddl_table (var2) using inverted"
+
+    sql "create index idx_ab4 on test_ddl_table (var2) using inverted properties(\"parser\"=\"unicode\")"
+
+    qt_sql "show create table test_ddl_table"
 }

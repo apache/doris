@@ -1726,9 +1726,10 @@ complexColType
     ;
 
 variantTypeDefinitions
-    : VARIANT (LT variantSubColTypeList COMMA properties=propertyClause GT)?  #variantWithFieldsAndProps
-    | VARIANT (LT variantSubColTypeList GT)?                                  #variantWithOnlyFields
-    | VARIANT (LT properties=propertyClause GT)?                              #variantWithOnlyProps
+    : VARIANT LT variantSubColTypeList COMMA properties=propertyClause GT  #variantWithFieldsAndProps
+    | VARIANT LT variantSubColTypeList GT                                  #variantWithOnlyFields
+    | VARIANT LT properties=propertyClause GT                              #variantWithOnlyProps
+    | VARIANT                                                              #variant
     ;
 
 variantSubColTypeList

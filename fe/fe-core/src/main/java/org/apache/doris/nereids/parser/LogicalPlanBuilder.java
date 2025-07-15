@@ -209,6 +209,7 @@ import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
 import org.apache.doris.nereids.DorisParser.UpdateContext;
 import org.apache.doris.nereids.DorisParser.UserIdentifyContext;
 import org.apache.doris.nereids.DorisParser.UserVariableContext;
+import org.apache.doris.nereids.DorisParser.VariantContext;
 import org.apache.doris.nereids.DorisParser.VariantPredefinedFieldsContext;
 import org.apache.doris.nereids.DorisParser.VariantSubColTypeContext;
 import org.apache.doris.nereids.DorisParser.VariantSubColTypeListContext;
@@ -477,6 +478,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.system.NodeType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -3522,28 +3524,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         List<VariantField> fields = Lists.newArrayList();
         Map<String, String> properties = Maps.newHashMap();
-        do {
-            if (variantDef instanceof VariantWithFieldsAndPropsContext) {
-                VariantWithFieldsAndPropsContext withBoth = (VariantWithFieldsAndPropsContext) variantDef;
-                if (withBoth.variantSubColTypeList() == null) {
-                    break;
-                }
-                fields = visitVariantSubColTypeList(withBoth.variantSubColTypeList());
-                properties = Maps.newHashMap(visitPropertyClause(withBoth.properties));
-            } else if (variantDef instanceof VariantWithOnlyFieldsContext) {
-                VariantWithOnlyFieldsContext withFields = (VariantWithOnlyFieldsContext) variantDef;
-                if (withFields.variantSubColTypeList() == null) {
-                    break;
-                }
-                fields = visitVariantSubColTypeList(withFields.variantSubColTypeList());
-            } else if (variantDef instanceof VariantWithOnlyPropsContext) {
-                VariantWithOnlyPropsContext withProps = (VariantWithOnlyPropsContext) variantDef;
-                if (withProps.properties == null) {
-                    break;
-                }
-                properties = Maps.newHashMap(visitPropertyClause(withProps.properties));
-            }
-        } while (false);
+        if (variantDef instanceof VariantWithFieldsAndPropsContext) {
+            VariantWithFieldsAndPropsContext withBoth = (VariantWithFieldsAndPropsContext) variantDef;
+            fields = visitVariantSubColTypeList(withBoth.variantSubColTypeList());
+            properties = Maps.newHashMap(visitPropertyClause(withBoth.properties));
+        } else if (variantDef instanceof VariantWithOnlyFieldsContext) {
+            VariantWithOnlyFieldsContext withFields = (VariantWithOnlyFieldsContext) variantDef;
+            fields = visitVariantSubColTypeList(withFields.variantSubColTypeList());
+        } else if (variantDef instanceof VariantWithOnlyPropsContext) {
+            VariantWithOnlyPropsContext withProps = (VariantWithOnlyPropsContext) variantDef;
+            properties = Maps.newHashMap(visitPropertyClause(withProps.properties));
+        } else {
+            Preconditions.checkState(variantDef instanceof VariantContext,
+                                        "Unsupported variant definition: " + variantDef.getText());
+        }
 
         int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getGlobalVariantMaxSubcolumnsCount();

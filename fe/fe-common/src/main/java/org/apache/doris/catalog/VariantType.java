@@ -104,26 +104,26 @@ public class VariantType extends ScalarType {
             sb.append(predefinedFields.stream()
                                 .map(variantField -> variantField.toSql(depth)).collect(Collectors.joining(",")));
             if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse) {
-                sb.append(">\n");
+                sb.append(">");
                 return sb.toString();
             } else {
                 sb.append(",");
             }
         }
 
-        sb.append("\nPROPERTIES (");
+        sb.append("PROPERTIES (");
         if (variantMaxSubcolumnsCount != 0) {
-            sb.append("\n\"variant_max_subcolumns_count\" = \"")
+            sb.append("\"variant_max_subcolumns_count\" = \"")
                                     .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
         }
         if (variantMaxSubcolumnsCount != 0 && enableTypedPathsToSparse) {
             sb.append(",");
         }
         if (enableTypedPathsToSparse) {
-            sb.append("\n\"variant_enable_typed_paths_to_sparse\" = \"")
+            sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
                                     .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
         }
-        sb.append("\n)>");
+        sb.append(")>");
         return sb.toString();
     }
 
