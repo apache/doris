@@ -74,9 +74,7 @@ statementBase
 
 unsupportedStatement
     : unsupportedStatsStatement
-    | unsupportedAdminStatement
     | unsupportedLoadStatement
-    | unsupportedOtherStatement
     ;
 
 materializedViewStatement
@@ -96,7 +94,7 @@ materializedViewStatement
         | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
-        (ON tableName=multipartIdentifier)?                                                     #dropMTMV
+        (ON tableName=multipartIdentifier)?                                                     #dropMV
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                 #pauseMTMV
     | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                #resumeMTMV
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
@@ -440,6 +438,9 @@ supportedShowStatement
 supportedLoadStatement
     : SYNC                                                                          #sync
     | createRoutineLoad                                                             #createRoutineLoadAlias
+    | LOAD mysqlDataDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?                                                              #mysqlLoad
     | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
     | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
@@ -473,10 +474,7 @@ supportedOtherStatement
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
-    ;
-
-unsupportedOtherStatement
-    : START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
+    | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
     ;
 
  warmUpItem
@@ -497,10 +495,7 @@ createRoutineLoad
     ;
 
 unsupportedLoadStatement
-    : LOAD mysqlDataDesc
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?                                                              #mysqlLoad
-    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
+    : SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     ;
 
 loadProperty
@@ -592,6 +587,8 @@ supportedAdminStatement
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
     | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
+    | ADMIN SET TABLE name=multipartIdentifier
+        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 supportedRecoverStatement
@@ -600,11 +597,6 @@ supportedRecoverStatement
         id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
     | RECOVER PARTITION name=identifier id=INTEGER_VALUE? (AS alias=identifier)?
         FROM tableName=multipartIdentifier                                          #recoverPartition
-    ;
-
-unsupportedAdminStatement
-    : ADMIN SET TABLE name=multipartIdentifier
-        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 baseTableRef
@@ -1248,6 +1240,10 @@ relationHint
     | HINT_START identifier (COMMA identifier)* HINT_END              #commentRelationHint
     ;
 
+expressionWithOrder
+    :  expression ordering = (ASC | DESC)?
+    ;
+
 aggClause
     : GROUP BY groupingElement
     ;
@@ -1256,7 +1252,7 @@ groupingElement
     : ROLLUP LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | CUBE LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | GROUPING SETS LEFT_PAREN groupingSet (COMMA groupingSet)* RIGHT_PAREN
-    | expression (COMMA expression)* (WITH ROLLUP)?
+    | expressionWithOrder (COMMA expressionWithOrder)* (WITH ROLLUP)?
     ;
 
 groupingSet

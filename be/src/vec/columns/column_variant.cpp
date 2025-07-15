@@ -78,12 +78,6 @@ namespace doris::vectorized {
 namespace {
 
 DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable) {
-    if (type == ColumnVariant::MOST_COMMON_TYPE_ID) {
-        // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
-        // So we ignored num_dimensions.
-        return is_nullable ? make_nullable(std::make_shared<ColumnVariant::MostCommonType>())
-                           : std::make_shared<ColumnVariant::MostCommonType>();
-    }
     DataTypePtr result = type == PrimitiveType::INVALID_TYPE
                                  ? is_nullable ? make_nullable(std::make_shared<DataTypeNothing>())
                                                : std::dynamic_pointer_cast<IDataType>(
@@ -897,10 +891,25 @@ void ColumnVariant::Subcolumn::get(size_t n, Field& res) const {
         return;
     }
     if (is_finalized()) {
-        if (least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
-            // JsonbFiled is special case
-            res = Field::create_field<TYPE_JSONB>(JsonbField());
+        // TODO(hangyu) : we should use data type to get the field value
+        // here is a special case for Array<JsonbField>
+        if (least_common_type.get_type_id() == PrimitiveType::TYPE_ARRAY &&
+            least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
+            // Array of JsonbField is special case
+            get_finalized_column().get(n, res);
+            // here we will get a Array<String> Field or NULL, if it is Array<String>, we need to convert it to Array<JsonbField>
+            convert_array_string_to_array_jsonb(res);
+            return;
         }
+
+        // here is a special case for JsonbField
+        if (least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
+            res = Field::create_field<TYPE_JSONB>(JsonbField());
+            get_finalized_column().get(n, res);
+            return;
+        }
+
+        // common type to get the field value
         get_finalized_column().get(n, res);
         return;
     }
@@ -2025,6 +2034,25 @@ bool ColumnVariant::try_insert_default_from_nested(const Subcolumns::NodePtr& en
             FieldVisitorReplaceScalars(default_scalar, leaf_num_dimensions), last_field);
     entry->data.insert(std::move(default_field));
     return true;
+}
+
+void ColumnVariant::Subcolumn::convert_array_string_to_array_jsonb(Field& array_field) {
+    if (array_field.is_null()) {
+        return;
+    }
+    if (array_field.get_type() != PrimitiveType::TYPE_ARRAY) {
+        return;
+    }
+    Field converted_res = Field::create_field<TYPE_ARRAY>(Array());
+    for (auto& item : array_field.get<Array&>()) {
+        Field jsonb_item;
+        DCHECK(item.get_type() == PrimitiveType::TYPE_STRING);
+        auto& string_item = item.get<String&>();
+        jsonb_item = Field::create_field<TYPE_JSONB>(
+                JsonbField(string_item.c_str(), string_item.size()));
+        converted_res.get<Array&>().emplace_back(std::move(jsonb_item));
+    }
+    array_field = std::move(converted_res);
 }
 
 } // namespace doris::vectorized

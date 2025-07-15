@@ -105,6 +105,7 @@ void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFact
     factory.register_alias("variance", "variance_pop");
     factory.register_function_both("stddev", create_aggregate_function_stddev_pop);
     factory.register_alias("stddev", "stddev_pop");
+    factory.register_alias("stddev", "std");
 }
 
 void register_aggregate_function_stddev_variance_samp_old(AggregateFunctionSimpleFactory& factory) {

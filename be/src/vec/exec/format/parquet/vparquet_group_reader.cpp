@@ -74,6 +74,7 @@ struct IOContext;
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
+static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const std::vector<std::string>& read_columns,
@@ -82,7 +83,7 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const PositionDeleteContext& position_delete_ctx,
                                const LazyReadContext& lazy_read_ctx, RuntimeState* state)
         : _file_reader(file_reader),
-          _read_columns(read_columns),
+          _read_table_columns(read_columns),
           _row_group_id(row_group_id),
           _row_group_meta(row_group),
           _remaining_rows(row_group.num_rows),
@@ -110,15 +111,18 @@ Status RowGroupReader::init(
     _col_name_to_slot_id = colname_to_slot_id;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _merge_read_ranges(row_ranges);
-    if (_read_columns.empty()) {
+    if (_read_table_columns.empty()) {
         // Query task that only select columns in path.
         return Status::OK();
     }
     const size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
-    size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
-    for (const auto& read_col : _read_columns) {
-        auto* field = const_cast<FieldSchema*>(schema.get_column(read_col));
+    size_t max_buf_size =
+            std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_table_columns.size());
+    for (const auto& read_table_col : _read_table_columns) {
+        auto read_file_col = _table_info_node_ptr->children_file_column_name(read_table_col);
+
+        auto* field = const_cast<FieldSchema*>(schema.get_column(read_file_col));
         auto physical_index = field->physical_column_index;
         std::unique_ptr<ParquetColumnReader> reader;
         // TODO : support rested column types
@@ -132,7 +136,7 @@ Status RowGroupReader::init(
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
         }
-        _column_readers[read_col] = std::move(reader);
+        _column_readers[read_table_col] = std::move(reader);
     }
 
     bool disable_dict_filter = false;
@@ -150,7 +154,9 @@ Status RowGroupReader::init(
         for (size_t i = 0; i < predicate_col_names.size(); ++i) {
             const std::string& predicate_col_name = predicate_col_names[i];
             int slot_id = predicate_col_slot_ids[i];
-            auto field = const_cast<FieldSchema*>(schema.get_column(predicate_col_name));
+            auto predicate_file_col_name =
+                    _table_info_node_ptr->children_file_column_name(predicate_col_name);
+            auto field = const_cast<FieldSchema*>(schema.get_column(predicate_file_col_name));
             if (!disable_dict_filter && !_lazy_read_ctx.has_complex_type &&
                 _can_filter_by_dict(
                         slot_id, _row_group_meta.columns[field->physical_column_index].meta_data)) {
@@ -294,9 +300,10 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
     }
 
     // Process external table query task that select columns are all from path.
-    if (_read_columns.empty()) {
+    if (_read_table_columns.empty()) {
         bool modify_row_ids = false;
         RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof, &modify_row_ids));
+
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
@@ -378,12 +385,13 @@ void RowGroupReader::_merge_read_ranges(std::vector<RowRange>& row_ranges) {
     }
 }
 
-Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::string>& columns,
+Status RowGroupReader::_read_column_data(Block* block,
+                                         const std::vector<std::string>& table_columns,
                                          size_t batch_size, size_t* read_rows, bool* batch_eof,
                                          FilterMap& filter_map) {
     size_t batch_read_rows = 0;
     bool has_eof = false;
-    for (auto& read_col_name : columns) {
+    for (auto& read_col_name : table_columns) {
         auto& column_with_type_and_name = block->get_by_name(read_col_name);
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
@@ -416,8 +424,8 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
         while (!col_eof && col_read_rows < batch_size) {
             size_t loop_rows = 0;
             RETURN_IF_ERROR(_column_readers[read_col_name]->read_column_data(
-                    column_ptr, column_type, filter_map, batch_size - col_read_rows, &loop_rows,
-                    &col_eof, is_dict_filter));
+                    column_ptr, column_type, _table_info_node_ptr->get_children_node(read_col_name),
+                    filter_map, batch_size - col_read_rows, &loop_rows, &col_eof, is_dict_filter));
             col_read_rows += loop_rows;
         }
         if (batch_read_rows > 0 && batch_read_rows != col_read_rows) {

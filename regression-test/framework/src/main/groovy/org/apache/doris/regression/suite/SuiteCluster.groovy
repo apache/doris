@@ -59,6 +59,7 @@ class ClusterOptions {
         'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
+        'enable_java_support=false',
     ]
 
     List<String> msConfigs = []
@@ -167,6 +168,9 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getBasePath() {
+        return path
+    }
 }
 
 class Frontend extends ServerNode {
@@ -224,6 +228,10 @@ class Backend extends ServerNode {
 
     String getConfFilePath() {
         return path + '/conf/be.conf'
+    }
+
+    String getHeartbeatPort() {
+        return heartbeatPort;
     }
 
 }

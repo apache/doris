@@ -84,7 +84,7 @@ public class CreateViewInfo extends BaseViewInfo {
             cols.add(def.translateToColWithComment());
         }
         CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, orReplace, viewName.transferToTableName(), cols,
-                comment, null);
+                comment);
         createViewStmt.setInlineViewDef(rewrittenSql);
         createViewStmt.setFinalColumns(finalCols);
         return createViewStmt;

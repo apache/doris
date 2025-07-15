@@ -350,7 +350,7 @@ void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& c
 
 template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                      Arena* mem_pool, int32_t col_id,
+                                                      Arena& mem_pool, int32_t col_id,
                                                       int64_t row_num) const {
     StringRef data_ref = column.get_data_at(row_num);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
@@ -377,6 +377,43 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
     }
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                          int64_t row_num,
+                                                          JsonbWriter& writer) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb");
+    } else {
+        const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_element(row_num);
+        if (!writer.writeDecimal(data, precision, scale)) {
+            return Status::InvalidArgument(
+                    "DataTypeDecimalSerDe<T>::serialize_column_to_jsonb failed");
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                 ColumnString& to_column) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb_vector");
+    } else {
+        const auto size = from_column.size();
+        JsonbWriter writer;
+        const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_data();
+        for (int i = 0; i < size; i++) {
+            writer.reset();
+            if (!writer.writeDecimal(data[i], precision, scale)) {
+                return Status::InvalidArgument(
+                        "DataTypeDecimalSerDe<T>::serialize_column_to_jsonb failed");
+            }
+            to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        }
+    }
+    return Status::OK();
 }
 
 template <PrimitiveType T>

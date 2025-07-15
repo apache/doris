@@ -422,6 +422,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
+    public static final String USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER
+            = "use_one_phase_agg_for_group_concat_with_order";
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
@@ -1752,6 +1754,17 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
 
+    @VariableMgr.VarAttr(
+            name = USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER,
+            needForward = true,
+            fuzzy = true,
+            description = {
+                    "允许使用一阶段聚合来执行带有order的group_concat函数",
+                    "Enable to use one stage aggregation to execute the group_concat function with order"
+            }
+    )
+    public boolean useOnePhaseAggForGroupConcatWithOrder = false;
+
     // Whether enable two phase read optimization
     // 1. read related rowids along with necessary column data
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
@@ -2256,7 +2269,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SYNC_MV_COST_BASED_REWRITE, needForward = true,
             description = {"是否允许基于代价改写同步物化视图",
-                    "Whether enable cost based rewrite for sync mv"})
+                    "Whether enable cost based rewrite for sync mv"}, varType = VariableAnnotation.REMOVED)
     public boolean enableSyncMvCostBasedRewrite = true;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS, needForward = true,
@@ -4765,14 +4778,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewNestRewrite() {
         return enableMaterializedViewNestRewrite;
-    }
-
-    public boolean isEnableSyncMvCostBasedRewrite() {
-        return enableSyncMvCostBasedRewrite;
-    }
-
-    public void setEnableSyncMvCostBasedRewrite(boolean enableSyncMvCostBasedRewrite) {
-        this.enableSyncMvCostBasedRewrite = enableSyncMvCostBasedRewrite;
     }
 
     public int getMaterializedViewRelationMappingMaxCount() {

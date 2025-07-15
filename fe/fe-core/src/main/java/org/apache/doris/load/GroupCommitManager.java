@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -29,7 +30,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.SlidingWindowCounter;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
 import org.apache.doris.qe.ConnectContext;
@@ -388,7 +388,7 @@ public class GroupCommitManager {
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
             // set user to ADMIN_USER, so that we can get the proper resource tag
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.setThreadLocalInfo();
             try {
                 new MasterOpExecutor(ctx).updateLoadData(tableId, receiveData);
