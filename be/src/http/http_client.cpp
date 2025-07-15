@@ -346,9 +346,6 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         return Status::InternalError("fail to set CURLOPT_WRITEDATA");
     }
 
-    // std::string escaped_url;
-    // RETURN_IF_ERROR(_escape_url(url, &escaped_url));
-
     // set url
     code = curl_easy_setopt(_curl, CURLOPT_URL, url.c_str());
     if (code != CURLE_OK) {

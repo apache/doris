@@ -26,7 +26,6 @@
 #include <cstdint>
 #include <memory>
 #include <ostream>
-#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -152,14 +151,12 @@ Status UserFunctionCache::_load_cached_lib() {
 Status UserFunctionCache::_load_entry_from_lib(const std::string& dir,
                                                const std::string& file_name) {
     LibType lib_type;
-    if (ends_with(file_name, ".so")) {
-        lib_type = LibType::SO;
-    } else if (ends_with(file_name, ".jar")) {
+    if (ends_with(file_name, ".jar")) {
         lib_type = LibType::JAR;
     } else {
         //TODO: should delete the .tmp file
         return Status::InternalError(
-                "unknown library file format. the file type is not end with xxx.jar or xxx.so : " +
+                "unknown library file format. the file type is not end with xxx.jar : " +
                 file_name);
     }
 
