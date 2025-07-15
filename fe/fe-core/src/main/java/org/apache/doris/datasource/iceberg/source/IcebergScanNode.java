@@ -60,20 +60,22 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -312,11 +314,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {
-        if (isPartitionedTable) {
-            StructLike structLike = fileScanTask.file().partition();
-            // Counts the number of partitions read
-            partitionPathSet.add(structLike.toString());
-        }
         String originalPath = fileScanTask.file().path().toString();
         LocationPath locationPath = LocationPath.of(originalPath,
                 source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
@@ -335,6 +332,18 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         split.setTableFormatType(TableFormatType.ICEBERG);
         split.setTargetSplitSize(targetSplitSize);
+        if (isPartitionedTable) {
+            PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
+            Map<String, String> partitionValues = new HashMap<>();
+            List<NestedField> fileds = partitionData.getPartitionType().asNestedType().fields();
+            for (int i = 0; i < fileds.size(); i++) {
+                NestedField field = fileds.get(i);
+                Object value = partitionData.get(i);
+                partitionValues.put(field.name().toLowerCase(), value == null ? null : value.toString());
+            }
+            // Counts the number of partitions read
+            partitionPathSet.add(partitionData.toString());
+        }
         return split;
     }
 
