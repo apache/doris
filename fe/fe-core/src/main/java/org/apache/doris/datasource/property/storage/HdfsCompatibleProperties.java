@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.UserException;
 import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;

@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import lombok.Getter;
+import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -62,6 +63,8 @@ public abstract class StorageProperties extends ConnectionProperties {
     }
 
     public abstract Map<String, String> getBackendConfigProperties();
+    
+    public Configuration hadoopStorageConfig;
 
     @Getter
     protected Type type;
@@ -91,6 +94,7 @@ public abstract class StorageProperties extends ConnectionProperties {
 
         for (StorageProperties storageProperties : result) {
             storageProperties.initNormalizeAndCheckProps();
+            storageProperties.initializeHadoopStorageConfig();
         }
         return result;
     }
@@ -110,6 +114,7 @@ public abstract class StorageProperties extends ConnectionProperties {
             StorageProperties p = func.apply(origProps);
             if (p != null) {
                 p.initNormalizeAndCheckProps();
+                p.initializeHadoopStorageConfig();
                 return p;
             }
         }
@@ -188,4 +193,6 @@ public abstract class StorageProperties extends ConnectionProperties {
     public abstract String validateAndGetUri(Map<String, String> loadProps) throws UserException;
 
     public abstract String getStorageName();
+    
+    public abstract void initializeHadoopStorageConfig();
 }
