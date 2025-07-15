@@ -470,15 +470,9 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         boolean isMow = targetTable.getEnableUniqueKeyMergeOnWrite();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         boolean hasClusterKey = targetTable.getBaseSchema().stream().anyMatch(Column::isClusterKey);
-        boolean hasSyncMaterializedView = false;
+        boolean hasSyncMaterializedView = !targetTable.getIndexIdListExceptBaseIndex().isEmpty();
         // currently cluster key doesn't support partial update, so we can't convert
         // a delete stmt to partial update load if the table has cluster key
-        for (Column column : targetTable.getFullSchema()) {
-            if (column.isMaterializedViewColumn()) {
-                hasSyncMaterializedView = true;
-                break;
-            }
-        }
         for (Column column : targetTable.getBaseSchema(true)) {
             NamedExpression expr;
             if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {

@@ -211,22 +211,6 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
         return name;
     }
 
-    private static boolean mvMatch(String name, String prefix) {
-        return MaterializedIndexMeta.normalizeName(name).startsWith(prefix);
-    }
-
-    public static boolean isMVColumn(String name) {
-        return isMVColumnAggregate(name) || isMVColumnNormal(name);
-    }
-
-    public static boolean isMVColumnAggregate(String name) {
-        return mvMatch(name, MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
-    }
-
-    public static boolean isMVColumnNormal(String name) {
-        return mvMatch(name, MATERIALIZED_VIEW_NAME_PREFIX);
-    }
-
     @Override
     public String toSql() {
         return null;

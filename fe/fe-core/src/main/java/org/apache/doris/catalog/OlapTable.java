@@ -3582,4 +3582,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     protected void addIndexNameToIdForUnitTest(String name, long id) {
         indexNameToId.put(name, id);
     }
+
+    @Override
+    public boolean isExternalIndex(long indexId) {
+        return indexId != baseIndexId;
+    }
 }

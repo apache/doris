@@ -715,7 +715,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 List<Column> schema = entry.getValue();
                 for (Column column : schema) {
                     String columnName = column.getName();
-                    if (column.isMaterializedViewColumn()) {
+                    if (olapTable.isExternalIndex(entry.getKey())) {
                         throw new DdlException("Can not modify column contained by mv, mv="
                                 + olapTable.getIndexNameById(entry.getKey()));
                     }
@@ -732,7 +732,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     Column otherCol = null;
                     Column col = otherIndexSchema.get(i);
                     String columnName = col.getName();
-                    if (col.isMaterializedViewColumn()) {
+                    if (olapTable.isExternalIndex(otherIndexId)) {
                         throw new DdlException("Can not modify column contained by mv, mv="
                                 + olapTable.getIndexNameById(otherIndexId));
                     }

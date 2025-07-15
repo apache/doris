@@ -1053,18 +1053,6 @@ public class StatisticsUtil {
         }
     }
 
-    /**
-     * Check if the given column name is a materialized view column.
-     * @param table
-     * @param columnName
-     * @return True for mv column.
-     */
-    public static boolean isMvColumn(TableIf table, String columnName) {
-        return table instanceof OlapTable
-            && columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
-            || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
-    }
-
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
         int waitRowCountReportedTime = 120;
         if (!(table instanceof OlapTable) || method.equals(AnalysisInfo.AnalysisMethod.FULL)) {
