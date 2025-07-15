@@ -83,7 +83,7 @@ suite("test_query_json_replace", "query") {
     // struct
     qt_sql_struct """ SELECT json_replace('{"struct": {"name": "x", "age": 0}}', '\$.struct', named_struct('name', 'a', 'age', 1)); """
     qt_sql_struct """ SELECT json_replace('{"struct": {"name": "x", "age": 0}}', '\$.struct', named_struct('name', 'a', 'age', 1.1)); """
-    qt_sql_struct """ /*+ set_var(enable_fold_constant_by_be=0) */ SELECT json_replace('{"struct": {"name": "x", "age": 0}}', '\$.struct', named_struct('name', 'a', 'age', cast(1 as decimal))); """
+    qt_sql_struct """SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_replace('{"struct": {"name": "x", "age": 0}}', '\$.struct', named_struct('name', 'a', 'age', cast(1 as decimal))); """
     // json
     qt_sql_json """ SELECT json_replace('{"json": {"x": "y"}}', '\$.json', cast('{\"a\":\"b\"}' as JSON)); """
     qt_sql_json """ SELECT json_replace('{"json": {"x": "y"}}', '\$.json', cast('{\"a\":1}' as JSON)); """
