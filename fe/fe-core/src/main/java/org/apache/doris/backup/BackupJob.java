@@ -1006,6 +1006,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
         snapshotInfos.clear();
 
+        // Clean up temporary records to reduce editlog size
+        droppedPartitionsByTable.clear();
+        droppedTables.clear();
+
         // log
         env.getEditLog().logBackupJob(this);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
