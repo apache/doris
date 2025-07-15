@@ -292,18 +292,13 @@ class Suite implements GroovyInterceptable {
     //         }
     //     )
     // }
-    public void awaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
-        def connInfo = context.threadLocalConn.get()
-        Awaitility.await()
-            .atMost(atMostSeconds, SECONDS)
-            .pollInterval(intervalSecond, SECONDS)
-            .until({
-                if (connInfo == null) {
-                    return actionSupplier.call()
-                } else {
-                    return connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-                }
-            })
+    public void awaitUntil(int atMostSeconds, double intervalSecond = 1, Closure actionSupplier) {
+        Awaitility
+            .with().pollInSameThread()
+            .await()
+            .atMost(atMostSeconds, TimeUnit.SECONDS)
+            .pollInterval(int(1000 * intervalSecond), TimeUnit.MILLISECONDS)
+            .until(actionSupplier)
     }
 
     // more explaination can see example file: demo_p0/docker_action.groovy
