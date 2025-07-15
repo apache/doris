@@ -1178,6 +1178,22 @@ public abstract class ExternalCatalog
         return preExecutionAuthenticator;
     }
 
+    public Optional<Boolean> getUseMetaCache() {
+        return useMetaCache;
+    }
+
+    public CatalogProperty getCatalogProperty() {
+        return catalogProperty;
+    }
+
+    public Map<Pair<String, String>, String> getTableAutoAnalyzePolicy() {
+        return tableAutoAnalyzePolicy;
+    }
+
+    public TransactionManager getTransactionManager() {
+        return transactionManager;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
