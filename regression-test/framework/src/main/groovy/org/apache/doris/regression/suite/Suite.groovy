@@ -23,8 +23,6 @@ import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 
-import static java.util.concurrent.TimeUnit.SECONDS
-
 import com.google.common.base.Strings
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
@@ -278,13 +276,22 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, connInfo.conn.getMetaData().getURL(), actionSupplier)
     }
 
-    public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
-        def connInfo = context.threadLocalConn.get()
-        Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
-            {
-                connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-            }
-        )
+    // delete 'dockerAwaitUntil', should call 'Awaitility.await()...' directly or use 'awaitUntil(..., f)'
+    // public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+    //     def connInfo = context.threadLocalConn.get()
+    //     Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+    //         {
+    //             connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+    //         }
+    //     )
+    // }
+    public void awaitUntil(int atMostSeconds, double intervalSecond = 1, Closure actionSupplier) {
+        Awaitility
+            .with().pollInSameThread()
+            .await()
+            .atMost(atMostSeconds, TimeUnit.SECONDS)
+            .pollInterval((int) (1000 * intervalSecond), TimeUnit.MILLISECONDS)
+            .until(actionSupplier)
     }
 
     // more explaination can see example file: demo_p0/docker_action.groovy
@@ -319,6 +326,7 @@ class Suite implements GroovyInterceptable {
 
     private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
         logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
+        def originConnection = context.threadLocalConn.get()
         try {
             cluster.destroy(true)
             cluster.init(options, isCloud)
@@ -345,18 +353,18 @@ class Suite implements GroovyInterceptable {
 
             // wait be report
             Thread.sleep(5000)
-            def url = String.format(
+            def jdbcUrl = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
-            def conn = DriverManager.getConnection(url, user, password)
-            def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
-            logger.info("try create database if not exists {}", context.dbName)
-            JdbcUtils.executeToList(conn, sql)
-
-            url = Config.buildUrlWithDb(url, context.dbName)
-            logger.info("connect to docker cluster: suite={}, url={}", name, url)
-            connect(user, password, url, actionSupplier)
+            cluster.jdbcUrl = jdbcUrl
+            context.threadLocalConn.remove()
+            actionSupplier.call()
         } finally {
+            if (originConnection == null) {
+                context.threadLocalConn.remove()
+            } else {
+                context.threadLocalConn.set(originConnection)
+            }
             if (!context.config.dockerEndNoKill) {
                 cluster.destroy(context.config.dockerEndDeleteFiles)
             }
@@ -650,7 +658,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getCurDbConnectUrl() {
-        return context.config.getConnectionUrlByDbName(getCurDbName())
+        return Config.buildUrlWithDb(context.getJdbcUrl(), getCurDbName())
     }
 
     long getDbId() {
@@ -1893,8 +1901,7 @@ class Suite implements GroovyInterceptable {
 
     void waitAddFeFinished(String host, int port) {
         logger.info("waiting for ${host}:${port}")
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             logger.info("frontends ${frontends}")
             boolean matched = false
@@ -1906,12 +1913,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropFeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        logger.info("waiting drop fe ${host}:${port}");
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             boolean matched = false
             for (frontend: frontends) {
@@ -1920,13 +1927,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waitAddBeFinished(String host, int port) {
         logger.info("waiting ${host}:${port} added");
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -1937,12 +1943,11 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropBeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -1953,7 +1958,7 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waiteCreateTableFinished(String tableName) {

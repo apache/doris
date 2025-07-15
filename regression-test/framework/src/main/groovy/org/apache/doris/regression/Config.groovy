@@ -1060,17 +1060,6 @@ class Config {
         return DriverManager.getConnection(jdbcUrl, 'root', '')
     }
 
-    Connection getConnectionByDbName(String dbName) {
-        String dbUrl = getConnectionUrlByDbName(dbName)
-        tryCreateDbIfNotExist(dbName)
-        log.info("connect to ${dbUrl}".toString())
-        return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
-    }
-
-    String getConnectionUrlByDbName(String dbName) {
-        return buildUrlWithDb(jdbcUrl, dbName)
-    }
-
     Connection getConnectionByArrowFlightSqlDbName(String dbName) {
         Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
         String arrowFlightSqlHost = otherConfigs.get("extArrowFlightSqlHost")

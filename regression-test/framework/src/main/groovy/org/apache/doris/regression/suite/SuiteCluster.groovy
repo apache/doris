@@ -279,6 +279,8 @@ class SuiteCluster {
 
     static final Logger logger = LoggerFactory.getLogger(this.class)
 
+    // dockerImpl() will set jdbcUrl
+    String jdbcUrl = ""
     final String name
     final Config config
     private boolean running
