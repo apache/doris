@@ -1781,10 +1781,6 @@ create_stmt ::=
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
     :}
-    | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role opt_comment:comment
-    {:
-        RESULT = new CreateRoleStmt(ifNotExists, role, comment);
-    :}
     | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = new AlterRoleStmt(role, comment);
