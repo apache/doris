@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include <future>
 #include <map>
 #include <memory>
 #include <string>
