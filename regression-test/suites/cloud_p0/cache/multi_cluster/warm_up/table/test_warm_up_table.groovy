@@ -31,7 +31,6 @@ suite("test_warm_up_table") {
     }
     def getTablesFromShowCommand = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         logger.info(jobStateResult)
          return jobStateResult[0][9]
     }
 
@@ -153,7 +152,6 @@ suite("test_warm_up_table") {
     for (; j < retryTime; j++) {
         sleep(1000)
         def statuses = getJobState(jobId[0][0])
-        logger.info(statuses)
         if (statuses.any { it.equals("CANCELLED") }) {
             assertTrue(false);
         }

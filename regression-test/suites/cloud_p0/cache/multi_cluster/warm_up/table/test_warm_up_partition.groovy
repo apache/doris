@@ -126,8 +126,7 @@ suite("test_warm_up_partition") {
         int i = 0
         for (; i < retryTime; i++) {
             sleep(1000)
-            def statuses = getJobState(jodId[0][0])
-            logger.info(statuses)
+            def statuses = getJobState(jobId[0][0])
             if (statuses.any { it.equals("CANCELLED") }) {
                 assertTrue(false);
             }

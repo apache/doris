@@ -135,7 +135,6 @@ suite("test_warm_up_same_table_multi_times") {
     for (; j < retryTime; j++) {
         sleep(1000)
         def statuses = getJobState(jobId[0][0])
-        logger.info(statuses)
         if (statuses.any { it.equals("CANCELLED") }) {
             assertTrue(false);
         }
@@ -197,12 +196,11 @@ suite("test_warm_up_same_table_multi_times") {
     j = 0
     for (; j < retryTime; j++) {
         sleep(1000)
-        def status = getJobState(jobId[0][0])
-        logger.info(status)
-        if (status.equals("CANCELLED")) {
+        def statuses = getJobState(jobId[0][0])
+        if (statuses.any { it.equals("CANCELLED") }) {
             assertTrue(false);
         }
-        if (status.equals("FINISHED")) {
+        if (statuses.any { it.equals("FINISHED") }) {
             break;
         }
     }
