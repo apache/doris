@@ -94,7 +94,7 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
                                                     cast(AVG(total_amount) as decimal(9,3)) AS avg_price,
                                                     COUNT(*) AS total_count,
                                                     cast(SUM(total_amount) as decimal(9,3)) AS total_price from ${tableName} FOR VERSION AS OF ${snapshotId} ;"""
-                "${baseQueryName}_version_group_by_is_paid" """select is_paid, count(*) as cnt from ${tableName} FOR VERSION AS OF ${snapshotId} GROUP BY is_paid order by cnt;"""
+                "${baseQueryName}_version_group_by_is_paid" """select is_paid, count(*) as cnt from ${tableName} FOR VERSION AS OF ${snapshotId} GROUP BY is_paid order by cnt,is_paid;"""
 
 
 
@@ -109,7 +109,7 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
                                        cast(AVG(total_amount) as decimal(9,3)) AS avg_price,
                                        COUNT(*) AS total_count,
                                        cast(SUM(total_amount) as decimal(9,3)) AS total_price from ${tableName} FOR VERSION AS OF '${tagName}' ;"""
-                "${baseQueryName}_tag_group_by_is_paid" """select is_paid, count(*) as cnt from ${tableName} FOR VERSION AS OF '${tagName}' GROUP BY is_paid order by cnt;"""
+                "${baseQueryName}_tag_group_by_is_paid" """select is_paid, count(*) as cnt from ${tableName} FOR VERSION AS OF '${tagName}' GROUP BY is_paid order by cnt,is_paid;"""
 
                 // 3. Time travel by time string
                 "${baseQueryName}_time_string_count" """select count(*) from ${tableName} FOR TIME AS OF \"${snapshotTime}\" ;"""
@@ -122,7 +122,7 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
                                               cast(AVG(total_amount) as decimal(9,3)) AS avg_price,
                                               COUNT(*) AS total_count,
                                               cast(SUM(total_amount) as decimal(9,3)) AS total_price from ${tableName} FOR TIME AS OF \"${snapshotTime}\" ;"""
-                "${baseQueryName}_time_string_group_by_is_paid" """select is_paid, count(*) as cnt from ${tableName} FOR TIME AS OF \"${snapshotTime}\" GROUP BY is_paid order by cnt;"""
+                "${baseQueryName}_time_string_group_by_is_paid" """select is_paid, count(*) as cnt from ${tableName} FOR TIME AS OF \"${snapshotTime}\" GROUP BY is_paid order by cnt,is_paid;"""
 
                 // 4. Time travel by millisecond timestamp
                 "${baseQueryName}_time_millis_count" """select count(*) from ${tableName} FOR TIME AS OF ${timestamp};"""
@@ -135,7 +135,7 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
                                              cast(AVG(total_amount) as decimal(9,3)) AS avg_price,
                                              COUNT(*) AS total_count,
                                              cast(SUM(total_amount) as decimal(9,3)) AS total_price from ${tableName} FOR TIME AS OF ${timestamp} ;"""
-                "${baseQueryName}_time_millis_group_by_is_paid" """select is_paid, count(*) as cnt from ${tableName} FOR TIME AS OF ${timestamp} GROUP BY is_paid order by cnt;"""
+                "${baseQueryName}_time_millis_group_by_is_paid" """select is_paid, count(*) as cnt from ${tableName} FOR TIME AS OF ${timestamp} GROUP BY is_paid order by cnt,is_paid;"""
 
 
                 logger.info("Completed queries for snapshot ${snapshotId} with timestamp ${timestamp}")
@@ -181,8 +181,8 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
                                                     cast(AVG(total_amount) as decimal(9,3)) AS avg_price,
                                                     COUNT(*) AS total_count,
                                                     cast(SUM(total_amount) as decimal(9,3)) AS total_price from ${tableName}@branch(\"name\"="${branchName}") ;"""
-                "${baseQueryName}_group_by_is_paid_list" """select is_paid, count(*) as cnt from ${tableName}@branch(${branchName}) GROUP BY is_paid order by cnt;"""
-                "${baseQueryName}_group_by_is_paid_map" """select is_paid, count(*) as cnt from ${tableName}@branch(\"name\"="${branchName}") GROUP BY is_paid order by cnt;"""
+                "${baseQueryName}_group_by_is_paid_list" """select is_paid, count(*) as cnt from ${tableName}@branch(${branchName}) GROUP BY is_paid order by cnt,is_paid;"""
+                "${baseQueryName}_group_by_is_paid_map" """select is_paid, count(*) as cnt from ${tableName}@branch(\"name\"="${branchName}") GROUP BY is_paid order by cnt,is_paid;"""
                 logger.info("Completed queries for branch: ${branchName}")
 
             } catch (Exception e) {
@@ -228,8 +228,8 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
                                         cast(AVG(total_amount) as decimal(9,3)) AS avg_price,
                                         COUNT(*) AS total_count,
                                         cast(SUM(total_amount) as decimal(9,3)) AS total_price from ${tableName}@tag(\"name\"="${tagName}");"""
-                "${baseQueryName}_group_by_is_paid_list" """select is_paid, count(*) as cnt from ${tableName}@tag(${tagName}) GROUP BY is_paid order by cnt;"""
-                "${baseQueryName}_group_by_is_paid_map" """select is_paid, count(*) as cnt from ${tableName}@tag(\"name\"="${tagName}") GROUP BY is_paid order by cnt;"""
+                "${baseQueryName}_group_by_is_paid_list" """select is_paid, count(*) as cnt from ${tableName}@tag(${tagName}) GROUP BY is_paid order by cnt,is_paid;"""
+                "${baseQueryName}_group_by_is_paid_map" """select is_paid, count(*) as cnt from ${tableName}@tag(\"name\"="${tagName}") GROUP BY is_paid order by cnt,is_paid;"""
 
                 logger.info("Completed queries for tag: ${tagName} (snapshot: ${snapshotId})")
 

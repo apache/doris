@@ -118,8 +118,8 @@ false	188.90	2003	3003
 67.250	445.750	207.898	6	1247.390
 
 -- !time_travel_snapshot_2_version_group_by_is_paid --
-true	3
 false	3
+true	3
 
 -- !time_travel_snapshot_2_tag_count --
 6
@@ -148,8 +148,8 @@ false	188.90	2003	3003
 67.250	445.750	207.898	6	1247.390
 
 -- !time_travel_snapshot_2_tag_group_by_is_paid --
-true	3
 false	3
+true	3
 
 -- !time_travel_snapshot_2_time_string_count --
 6
@@ -178,8 +178,8 @@ false	188.90	2003	3003
 67.250	445.750	207.898	6	1247.390
 
 -- !time_travel_snapshot_2_time_string_group_by_is_paid --
-true	3
 false	3
+true	3
 
 -- !time_travel_snapshot_2_time_millis_count --
 6
@@ -208,8 +208,8 @@ false	188.90	2003	3003
 67.250	445.750	207.898	6	1247.390
 
 -- !time_travel_snapshot_2_time_millis_group_by_is_paid --
-true	3
 false	3
+true	3
 
 -- !time_travel_snapshot_3_version_count --
 9
@@ -816,12 +816,12 @@ true	2
 67.250	445.750	207.898	6	1247.390
 
 -- !tag_2_group_by_is_paid_list --
-true	3
 false	3
+true	3
 
 -- !tag_2_group_by_is_paid_map --
-true	3
 false	3
+true	3
 
 -- !tag_3_count_list --
 9
