@@ -283,19 +283,27 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, connInfo.conn.getMetaData().getURL(), actionSupplier)
     }
 
-    // Deprecated, should call 'Awaitility.await()...' directly
-    @Deprecated
-    public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
-        // def connInfo = context.threadLocalConn.get()
-        // Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
-        //     {
-        //         connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-        //     }
-        // )
+    // delete 'dockerAwaitUntil', should call 'Awaitility.await()...' directly or use 'awaitUntil(..., f)'
+    // public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+    //     def connInfo = context.threadLocalConn.get()
+    //     Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+    //         {
+    //             connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+    //         }
+    //     )
+    // }
+    public void awaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
         Awaitility.await()
             .atMost(atMostSeconds, SECONDS)
             .pollInterval(intervalSecond, SECONDS)
-            .until(() -> actionSupplier.call())
+            .until({
+                if (connInfo == null) {
+                    return actionSupplier.call()
+                } else {
+                    return connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+                }
+            })
     }
 
     // more explaination can see example file: demo_p0/docker_action.groovy
