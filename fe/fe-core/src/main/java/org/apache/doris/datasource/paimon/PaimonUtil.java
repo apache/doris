@@ -462,7 +462,7 @@ public class PaimonUtil {
      */
     public static Table buildSnapshotTimestampTable(Table baseTable, String timestampStr) {
         Map<String, String> options = new HashMap<>(
-                PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
+                PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
 
         // For Paimon FROM_TIMESTAMP startup mode, must set only one key in:
         // [scan_timestamp, scan_timestamp_millis]
@@ -551,7 +551,7 @@ public class PaimonUtil {
         }
 
         Map<String, String> options = new HashMap<>(
-                PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
+                PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
 
         // For Paimon FROM_SNAPSHOT startup mode, must set only one key in:
         // [scan_tag_name, scan_watermark, scan_snapshot_id]
