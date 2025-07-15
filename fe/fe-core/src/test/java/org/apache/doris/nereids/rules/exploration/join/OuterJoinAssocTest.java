@@ -28,6 +28,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -40,22 +41,22 @@ class OuterJoinAssocTest implements MemoPatternMatchSupported {
     LogicalOlapScan scan2;
     LogicalOlapScan scan3;
 
-    public OuterJoinAssocTest() throws Exception {
-        // clear id so that slot id keep consistent every running
+    @Test
+    public void testInnerLeft() throws Exception {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
         StatementScopeIdGenerator.clear();
+
+        // clear id so that slot id keep consistent every running
         scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
         scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
-    }
 
-    @Test
-    public void testInnerLeft() {
         LogicalPlan join = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
                 .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(2, 0)) // t2.id = t3.id
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+        PlanChecker.from(ctx, join)
                 .applyExploration(OuterJoinAssoc.INSTANCE.build())
                 .matchesExploration(
                         logicalJoin(
@@ -66,13 +67,21 @@ class OuterJoinAssocTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    public void testLeftLeft() {
+    public void testLeftLeft() throws Exception {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        StatementScopeIdGenerator.clear();
+
+        // clear id so that slot id keep consistent every running
+        scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+
         LogicalPlan join = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
                 .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(2, 0)) // t2.id = t3.id
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+        PlanChecker.from(ctx, join)
                 .applyExploration(OuterJoinAssoc.INSTANCE.build())
                 .matchesExploration(
                         logicalJoin(
@@ -83,14 +92,22 @@ class OuterJoinAssocTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    public void rejectNull() {
+    public void rejectNull() throws Exception {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        StatementScopeIdGenerator.clear();
+
+        // clear id so that slot id keep consistent every running
+        scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+
         IsNull isNull = new IsNull(scan3.getOutput().get(0));
         LogicalPlan join = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
                 .join(scan3, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(), ImmutableList.of(isNull)) // t3.id is not null
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+        PlanChecker.from(ctx, join)
                 .applyExploration(OuterJoinAssoc.INSTANCE.build())
                 .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
     }
