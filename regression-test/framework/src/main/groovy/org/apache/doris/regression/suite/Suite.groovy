@@ -23,8 +23,6 @@ import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 
-import static java.util.concurrent.TimeUnit.SECONDS
-
 import com.google.common.base.Strings
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
@@ -1981,8 +1979,7 @@ class Suite implements GroovyInterceptable {
 
     void waitAddFeFinished(String host, int port) {
         logger.info("waiting for ${host}:${port}")
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             logger.info("frontends ${frontends}")
             boolean matched = false
@@ -1994,12 +1991,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropFeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        logger.info("waiting drop fe ${host}:${port}");
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             boolean matched = false
             for (frontend: frontends) {
@@ -2008,13 +2005,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waitAddBeFinished(String host, int port) {
         logger.info("waiting ${host}:${port} added");
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -2025,12 +2021,11 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropBeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -2041,7 +2036,7 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waiteCreateTableFinished(String tableName) {
