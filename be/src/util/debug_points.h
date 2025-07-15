@@ -38,7 +38,7 @@
         auto dp = DebugPoints::instance()->get_debug_point(debug_point_name); \
         if (dp) {                                                             \
             [[maybe_unused]] auto DP_NAME = debug_point_name;                 \
-            code;                                                             \
+            { code; }                                                         \
         }                                                                     \
     }
 
@@ -55,10 +55,8 @@
 
 // DBUG_RUN_CALLBACK is usually use in be ut, to exchange local variable between the injected code and callback code.
 // usage example: DBUG_EXECUTE_IF("xxx", DBUG_RUN_CALLBACK(yyy,...));
-#define DBUG_RUN_CALLBACK(...)             \
-    do {                                   \
-        dp->execute_callback(__VA_ARGS__); \
-    } while (0)
+#define DBUG_RUN_CALLBACK(...) \
+    { dp->execute_callback(__VA_ARGS__); }
 
 // example of debug point with callback.
 //
@@ -189,7 +187,9 @@ private:
     void update(std::function<void(DebugPointMap&)>&& handler);
 
 private:
-    std::atomic<std::shared_ptr<const DebugPointMap>> _debug_points;
+    /// TODO: replace atomic_load/store() on shared_ptr (which is deprecated as of C++20) by C++20 std::atomic<std::shared_ptr>.
+    /// Clang 15 currently does not support it.
+    std::shared_ptr<const DebugPointMap> _debug_points;
 };
 
 } // namespace doris
