@@ -114,6 +114,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_LARGE_EDIT_LOG;
 
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
+    public static Histogram HISTO_JOURNAL_WRITE_LATENCY;
     public static Histogram HISTO_JOURNAL_BATCH_SIZE;
     public static Histogram HISTO_JOURNAL_BATCH_DATA_SIZE;
     public static Histogram HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY;
@@ -449,6 +450,8 @@ public final class MetricRepo {
 
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("editlog", "write", "latency", "ms"));
+        HISTO_JOURNAL_WRITE_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("journal", "write", "latency", "ms"));
         HISTO_JOURNAL_BATCH_SIZE = METRIC_REGISTER.histogram(
                 MetricRegistry.name("journal", "write", "batch_size"));
         HISTO_JOURNAL_BATCH_DATA_SIZE = METRIC_REGISTER.histogram(
