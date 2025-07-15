@@ -21,6 +21,7 @@
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <iterator>
 #include <random>
@@ -29,6 +30,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -2103,7 +2105,8 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
 
 int32_t BaseTablet::max_version_config() {
     int32_t max_version = tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
-                                  ? config::time_series_max_tablet_version_num
+                                  ? std::max(config::time_series_max_tablet_version_num,
+                                             config::max_tablet_version_num)
                                   : config::max_tablet_version_num;
     return max_version;
 }
