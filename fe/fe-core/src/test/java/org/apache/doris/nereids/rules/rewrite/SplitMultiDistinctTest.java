@@ -46,23 +46,25 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                     physicalCTEAnchor(
                             physicalCTEProducer(any()),
                             physicalResultSink(
-                                    physicalProject(
+
                                             physicalNestedLoopJoin(
+                                                    physicalProject(
                                                     physicalHashAggregate(
                                                             physicalDistribute(
                                                                     physicalHashAggregate(
                                                                             physicalHashAggregate(
                                                                                     physicalDistribute(
-                                                                                            physicalHashAggregate(any())))))),
+                                                                                            physicalHashAggregate(any()))))))),
                                                     physicalDistribute(
+                                                            physicalProject(
                                                             physicalHashAggregate(
                                                                     physicalDistribute(
                                                                             physicalHashAggregate(
                                                                                     physicalHashAggregate(
                                                                                             physicalDistribute(
-                                                                                                    physicalHashAggregate(any())))))))
+                                                                                                    physicalHashAggregate(any()))))))))
                                             )
-                                    )
+
                             )
                     )
             );
@@ -78,23 +80,25 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                     physicalCTEAnchor(
                             physicalCTEProducer(any()),
                             physicalResultSink(
-                                    physicalProject(
+
                                             physicalNestedLoopJoin(
+                                                    physicalProject(
                                                     physicalHashAggregate(
                                                             physicalDistribute(
                                                                     physicalHashAggregate(
                                                                             physicalHashAggregate(
                                                                                     physicalDistribute(
-                                                                                            physicalHashAggregate(any())))))),
+                                                                                            physicalHashAggregate(any()))))))),
                                                     physicalDistribute(
+                                                            physicalProject(
                                                             physicalHashAggregate(
                                                                     physicalDistribute(
                                                                             physicalHashAggregate(
                                                                                     physicalHashAggregate(
                                                                                             physicalDistribute(
-                                                                                                    physicalHashAggregate(any())))))))
+                                                                                                    physicalHashAggregate(any()))))))))
                                             )
-                                    )
+
                             )
                     )
             );
@@ -108,26 +112,26 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
             Plan plan = planner.getOptimizedPlan();
             MatchingUtils.assertMatches(plan,
                     physicalCTEAnchor(
-                            physicalCTEProducer(any()),
-                            physicalResultSink(
-                                    physicalProject(
-                                            physicalNestedLoopJoin(
-                                                    physicalHashAggregate(
-                                                            physicalDistribute(
-                                                                    physicalHashAggregate(
-                                                                            physicalHashAggregate(
-                                                                                    physicalDistribute(
-                                                                                            physicalHashAggregate(any())))))),
-                                                    physicalDistribute(
-                                                            physicalHashAggregate(
-                                                                    physicalDistribute(
-                                                                            physicalHashAggregate(
-                                                                                    physicalHashAggregate(
-                                                                                            physicalDistribute(
-                                                                                                    physicalHashAggregate(any())))))))
-                                            )
-                                    )
-                            )
+                        physicalCTEProducer(any()),
+                        physicalResultSink(
+                             physicalNestedLoopJoin(
+                                 physicalProject(
+                                     physicalHashAggregate(
+                                         physicalDistribute(
+                                             physicalHashAggregate(
+                                                 physicalHashAggregate(
+                                                     physicalDistribute(
+                                                         physicalHashAggregate(any()))))))),
+                                     physicalDistribute(
+                                         physicalProject(
+                                             physicalHashAggregate(
+                                                 physicalDistribute(
+                                                     physicalHashAggregate(
+                                                         physicalHashAggregate(
+                                                             physicalDistribute(
+                                                                physicalHashAggregate(any()))))))))
+                                )
+                        )
                     )
             );
         });
@@ -142,19 +146,21 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                     physicalCTEAnchor(
                             physicalCTEProducer(any()),
                             physicalResultSink(
-                                    physicalProject(
+
                                             physicalNestedLoopJoin(
+                                                    physicalProject(
                                                     physicalHashAggregate(
                                                             physicalHashAggregate(
                                                                     physicalDistribute(
-                                                                            physicalHashAggregate(any())))),
+                                                                            physicalHashAggregate(any()))))),
                                                     physicalDistribute(
+                                                            physicalProject(
                                                             physicalHashAggregate(
                                                                     physicalHashAggregate(
                                                                             physicalDistribute(
-                                                                                    physicalHashAggregate(any())))))
+                                                                                    physicalHashAggregate(any()))))))
                                             )
-                                    )
+
                             )
                     )
             );
@@ -174,14 +180,16 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                                     physicalDistribute(
                                             physicalProject(
                                                     physicalHashJoin(
+                                                            physicalProject(
                                                             physicalHashAggregate(
                                                                     physicalHashAggregate(
                                                                             physicalDistribute(
-                                                                                    physicalHashAggregate(any())))),
+                                                                                    physicalHashAggregate(any()))))),
+                                                            physicalProject(
                                                             physicalHashAggregate(
                                                                     physicalHashAggregate(
                                                                             physicalDistribute(
-                                                                                    physicalHashAggregate(any()))))
+                                                                                    physicalHashAggregate(any())))))
                                                     ).when(join ->
                                                         join.getJoinType() == JoinType.INNER_JOIN && join.getHashJoinConjuncts().get(0) instanceof NullSafeEqual
                                                     )
