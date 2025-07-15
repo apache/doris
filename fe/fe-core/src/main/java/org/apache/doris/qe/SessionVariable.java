@@ -422,6 +422,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
+    public static final String USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER
+            = "use_one_phase_agg_for_group_concat_with_order";
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
@@ -1322,7 +1324,7 @@ public class SessionVariable implements Serializable, Writable {
     public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
-    private boolean enableParallelResultSink = false;
+    private boolean enableParallelResultSink = true;
 
     @VariableMgr.VarAttr(name = "sort_phase_num", fuzzy = true, needForward = true,
             description = {"如设置为1，则只生成1阶段sort，设置为2，则只生成2阶段sort，设置其它值，优化器根据代价选择sort类型",
@@ -1751,6 +1753,17 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
+
+    @VariableMgr.VarAttr(
+            name = USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER,
+            needForward = true,
+            fuzzy = true,
+            description = {
+                    "允许使用一阶段聚合来执行带有order的group_concat函数",
+                    "Enable to use one stage aggregation to execute the group_concat function with order"
+            }
+    )
+    public boolean useOnePhaseAggForGroupConcatWithOrder = false;
 
     // Whether enable two phase read optimization
     // 1. read related rowids along with necessary column data
@@ -2916,10 +2929,6 @@ public class SessionVariable implements Serializable, Writable {
         return queryTimeoutS;
     }
 
-    public int getAnalyzeTimeoutS() {
-        return analyzeTimeoutS;
-    }
-
     public void setEnableTwoPhaseReadOpt(boolean enable) {
         enableTwoPhaseReadOpt = enable;
     }
@@ -3861,6 +3870,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDisableNereidsRules(String disableNereidsRules) {
         this.disableNereidsRules = disableNereidsRules;
+    }
+
+    public void setEnableParallelResultSink(boolean enableParallelResultSink) {
+        this.enableParallelResultSink = enableParallelResultSink;
     }
 
     public void setDisableNereidsExpressionRules(String disableNereidsExpressionRules) {

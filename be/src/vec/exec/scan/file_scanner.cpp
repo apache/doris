@@ -95,6 +95,9 @@ class ShardedKVCache;
 namespace doris::vectorized {
 using namespace ErrorCode;
 
+const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
+const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
+
 FileScanner::FileScanner(
         RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
         std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
@@ -1349,7 +1352,7 @@ Status FileScanner::_generate_truncate_columns(bool need_to_get_parsed_schema) {
     return Status::OK();
 }
 
-Status FileScanner::prepare_for_read_one_line(const TFileRangeDesc& range) {
+Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     _current_range = range;
 
     RETURN_IF_ERROR(_init_io_ctx());
@@ -1366,10 +1369,10 @@ Status FileScanner::prepare_for_read_one_line(const TFileRangeDesc& range) {
     return Status::OK();
 }
 
-Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
-                                             const segment_v2::rowid_t rowid, Block* result_block,
-                                             const ExternalFileMappingInfo& external_info,
-                                             int64_t* init_reader_ms, int64_t* get_block_ms) {
+Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
+                                          const std::list<int64_t>& row_ids, Block* result_block,
+                                          const ExternalFileMappingInfo& external_info,
+                                          int64_t* init_reader_ms, int64_t* get_block_ms) {
     _current_range = range;
     RETURN_IF_ERROR(_generate_parititon_columns());
 
@@ -1389,7 +1392,8 @@ Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
                                             ? ExecEnv::GetInstance()->file_meta_cache()
                                             : nullptr,
                                     false);
-                    RETURN_IF_ERROR(parquet_reader->set_read_lines_mode({rowid}));
+
+                    RETURN_IF_ERROR(parquet_reader->set_read_lines_mode(row_ids));
                     RETURN_IF_ERROR(_init_parquet_reader(std::move(parquet_reader)));
                     break;
                 }
@@ -1399,7 +1403,7 @@ Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
                                                                  1, _state->timezone(),
                                                                  _io_ctx.get(), false);
 
-                    RETURN_IF_ERROR(orc_reader->set_read_lines_mode({rowid}));
+                    RETURN_IF_ERROR(orc_reader->set_read_lines_mode(row_ids));
                     RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader)));
                     break;
                 }
@@ -1419,11 +1423,15 @@ Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
 
     RETURN_IF_ERROR(scope_timer_run(
             [&]() -> Status {
-                bool eof = false;
-                return _get_block_impl(_state, result_block, &eof);
+                while (!_cur_reader_eof) {
+                    bool eof = false;
+                    RETURN_IF_ERROR(_get_block_impl(_state, result_block, &eof));
+                }
+                return Status::OK();
             },
             get_block_ms));
 
+    _cur_reader->collect_profile_before_close();
     RETURN_IF_ERROR(_cur_reader->close());
     return Status::OK();
 }

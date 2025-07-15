@@ -278,10 +278,7 @@ struct RuntimeFilterTimerQueue {
 struct AggSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AggSharedState)
 public:
-    AggSharedState() {
-        agg_data = std::make_unique<AggregatedDataVariants>();
-        agg_arena_pool = std::make_unique<vectorized::Arena>();
-    }
+    AggSharedState() { agg_data = std::make_unique<AggregatedDataVariants>(); }
     ~AggSharedState() override {
         if (!probe_expr_ctxs.empty()) {
             _close_with_serialized_key();
@@ -303,7 +300,6 @@ public:
 
     AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<AggregateDataContainer> aggregate_data_container;
-    ArenaUPtr agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
@@ -828,6 +824,10 @@ public:
 
     void create_counter_dependency(int operator_id, int node_id, const std::string& name);
 
+private:
+    void _update_profile_info(int64_t backend_id, RuntimeProfile* response_profile);
+
+public:
     bool rpc_struct_inited = false;
     AtomicStatus rpc_status;
 
@@ -842,6 +842,8 @@ public:
     // Register each line in which block to ensure the order of the result.
     // Zero means NULL value.
     std::vector<std::vector<int64_t>> block_order_results;
+    // backend id => <rpc profile info string key, rpc profile info string value>.
+    std::map<int64_t, std::map<std::string, fmt::memory_buffer>> backend_profile_info_string;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -35,6 +35,7 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                 + "distributed by hash(a) properties('replication_num'='1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setEnableParallelResultSink(false);
     }
 
     @Test

@@ -1243,14 +1243,6 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
-    | KW_REFRESH KW_LDAP KW_ALL
-    {:
-        RESULT = new RefreshLdapStmt(true, "");
-    :}
-    | KW_REFRESH KW_LDAP opt_user:user
-    {:
-        RESULT = new RefreshLdapStmt(false, user);
-    :}
     ;
 
 clean_stmt ::=
@@ -2610,59 +2602,6 @@ show_create_load_stmt ::=
     :}
     ;
 
-// analyze statment
-analyze_stmt ::=
-    // statistics
-    KW_ANALYZE KW_TABLE table_name:tbl opt_partition_names:partitions opt_col_list:cols
-      opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
-    {:
-        if (properties == null) {
-            properties = Maps.newHashMap();
-        }
-        for (Map<String, String> property : withAnalysisProperties) {
-            properties.putAll(property);
-        }
-        // Rule: If no type is specified, see if there is a specified column
-        if (!properties.containsKey("analysis.type")) {
-            properties.put("analysis.type", "FUNDAMENTALS");
-        }
-        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
-        RESULT = new AnalyzeTblStmt(tbl, partitions, cols, analyzeProperties);
-    :}
-    | KW_ANALYZE KW_DATABASE ident:ctlName DOT ident:dbName
-          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
-    {:
-        if (properties == null) {
-            properties = Maps.newHashMap();
-        }
-        for (Map<String, String> property : withAnalysisProperties) {
-            properties.putAll(property);
-        }
-        // Rule: If no type is specified, see if there is a specified column
-        if (!properties.containsKey("analysis.type")) {
-            properties.put("analysis.type", "FUNDAMENTALS");
-        }
-        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
-        RESULT = new AnalyzeDBStmt(ctlName, dbName, analyzeProperties);
-    :}
-    | KW_ANALYZE KW_DATABASE ident:dbName
-          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
-    {:
-        if (properties == null) {
-            properties = Maps.newHashMap();
-        }
-        for (Map<String, String> property : withAnalysisProperties) {
-            properties.putAll(property);
-        }
-        // Rule: If no type is specified, see if there is a specified column
-        if (!properties.containsKey("analysis.type")) {
-            properties.put("analysis.type", "FUNDAMENTALS");
-        }
-        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
-        RESULT = new AnalyzeDBStmt(null, dbName, analyzeProperties);
-    :}
-    ;
-
 tbl_pattern ::=
     ident_or_star:db
     {:
@@ -2763,10 +2702,6 @@ drop_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
     :}
-    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
-    {:
-        RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
-    :}
     | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
     {:
         RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
@@ -2794,11 +2729,6 @@ drop_stmt ::=
     | KW_DROP KW_INVERTED KW_INDEX KW_TOKEN_FILTER opt_if_exists:ifExists ident:policyName
     {:
         RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKEN_FILTER, policyName);
-    :}
-    /* statistics */
-    | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
-    {:
-        RESULT = new DropStageStmt(ifExists, stageName);
     :}
     ;
 
@@ -6329,19 +6259,7 @@ integer_list ::=
     ;
 
 admin_stmt ::=
-    KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
-    {:
-        RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, false);
-    :}
-    | KW_ADMIN KW_SET KW_ALL KW_FRONTENDS KW_CONFIG opt_key_value_map:configs
-    {:
-        RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
-    :}
-    | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs KW_ALL
-    {:
-        RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
-    :}
-    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
+    KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
     {:
         RESULT = new AdminSetPartitionVersionStmt(name, properties);
     :}

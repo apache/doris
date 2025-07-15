@@ -514,8 +514,7 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
             SCOPED_TIMER(_deserialize_data_timer);
             Base::_shared_state->aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
                     _places.data(), _shared_state->offsets_of_aggregate_states[i],
-                    _deserialize_buffer.data(), column.get(), _shared_state->agg_arena_pool.get(),
-                    rows);
+                    _deserialize_buffer.data(), column.get(), _agg_arena_pool, rows);
         }
     }
 
@@ -559,8 +558,7 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                         agg_method.init_serialized_keys(key_columns, num_rows);
 
                         auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                            HashMethodType::try_presis_key_and_origin(
-                                    key, origin, *_shared_state->agg_arena_pool);
+                            HashMethodType::try_presis_key_and_origin(key, origin, _agg_arena_pool);
                             auto mapped =
                                     Base::_shared_state->aggregate_data_container->append_data(
                                             origin);
@@ -572,7 +570,7 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                         };
 
                         auto creator_for_null_key = [&](auto& mapped) {
-                            mapped = _shared_state->agg_arena_pool->aligned_alloc(
+                            mapped = _agg_arena_pool.aligned_alloc(
                                     _shared_state->total_size_of_aggregate_states,
                                     _shared_state->align_aggregate_states);
                             auto st = _create_agg_status(mapped);
@@ -598,7 +596,7 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                                 static_cast<int64_t>(
                                         _shared_state->aggregate_data_container->memory_usage()));
                         COUNTER_SET(_memory_usage_arena,
-                                    static_cast<int64_t>(_shared_state->agg_arena_pool->size()));
+                                    static_cast<int64_t>(_agg_arena_pool.size()));
                     }},
             _shared_state->agg_data->method_variant);
 }

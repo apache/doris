@@ -224,7 +224,7 @@ PhysicalResultSink
 
 -- !infer_predicate_join_with_function --
 PhysicalResultSink
---NestedLoopJoin[INNER_JOIN](abs((score - score)) < 40)
+--NestedLoopJoin[INNER_JOIN](abs((cast(score as BIGINT) - cast(score as BIGINT))) < 40)
 ----PhysicalOlapScan[t]
 ----PhysicalOlapScan[t]
 

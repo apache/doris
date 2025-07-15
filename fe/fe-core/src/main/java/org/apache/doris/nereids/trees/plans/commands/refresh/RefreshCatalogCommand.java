@@ -99,7 +99,7 @@ public class RefreshCatalogCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
-        handleRefreshCatalog();
+        Env.getCurrentEnv().getRefreshManager().handleRefreshCatalog(catalogName, invalidCache);
     }
 
     @Override

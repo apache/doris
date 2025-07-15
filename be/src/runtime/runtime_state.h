@@ -97,7 +97,8 @@ public:
     // Only used in the materialization phase of delayed materialization,
     // when there may be no corresponding QueryContext.
     RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env,
+                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);

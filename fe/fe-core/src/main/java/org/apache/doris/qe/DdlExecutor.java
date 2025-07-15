@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
@@ -59,11 +58,9 @@ import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropIndexPolicyStmt;
-import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
-import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
@@ -74,7 +71,6 @@ import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
-import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
@@ -84,7 +80,6 @@ import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
@@ -95,7 +90,6 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
-import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -208,8 +202,6 @@ public class DdlExecutor {
             env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
-        } else if (ddlStmt instanceof AdminSetConfigStmt) {
-            env.setConfig((AdminSetConfigStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {
             env.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else if (ddlStmt instanceof InstallPluginStmt) {
@@ -235,9 +227,13 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterDatabasePropertyStmt) {
             env.alterDatabaseProperty((AlterDatabasePropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshTableStmt) {
-            env.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
+            RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
+            env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),
+                    refreshTableStmt.getTblName(), false);
         } else if (ddlStmt instanceof RefreshDbStmt) {
-            env.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
+            RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
+            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName(),
+                    refreshDbStmt.isInvalidCache());
         } else if (ddlStmt instanceof AlterColocateGroupStmt) {
             env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
@@ -252,20 +248,16 @@ public class DdlExecutor {
             env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanLabelStmt) {
             env.getLoadManager().cleanLabel(((CleanLabelStmt) ddlStmt).getDb(), ((CleanLabelStmt) ddlStmt).getLabel());
-        } else if (ddlStmt instanceof DropMaterializedViewStmt) {
-            env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
-            env.getRefreshManager().handleRefreshCatalog((RefreshCatalogStmt) ddlStmt);
-        } else if (ddlStmt instanceof RefreshLdapStmt) {
-            env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
+            RefreshCatalogStmt refreshCatalogStmt = (RefreshCatalogStmt) ddlStmt;
+            env.getRefreshManager()
+                    .handleRefreshCatalog(refreshCatalogStmt.getCatalogName(), refreshCatalogStmt.isInvalidCache());
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
                     false);
-        } else if (ddlStmt instanceof DropStageStmt) {
-            ((CloudEnv) env).dropStage((DropStageStmt) ddlStmt);
         } else if (ddlStmt instanceof CopyStmt) {
             executeCopyStmt(env, (CopyStmt) ddlStmt);
         } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
@@ -365,13 +357,6 @@ public class DdlExecutor {
         // check stmt has been supported in cloud mode
         if (Config.isNotCloudMode()) {
             return;
-        }
-
-        if (ddlStmt instanceof AdminSetConfigStmt) {
-            if (!ConnectContext.get().getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
-                LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
-                throw new DdlException("Unsupported operation");
-            }
         }
 
         if (ddlStmt instanceof BackupStmt
