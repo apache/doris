@@ -297,7 +297,7 @@ class Suite implements GroovyInterceptable {
             .with().pollInSameThread()
             .await()
             .atMost(atMostSeconds, TimeUnit.SECONDS)
-            .pollInterval(int(1000 * intervalSecond), TimeUnit.MILLISECONDS)
+            .pollInterval((int) (1000 * intervalSecond), TimeUnit.MILLISECONDS)
             .until(actionSupplier)
     }
 
