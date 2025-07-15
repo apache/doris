@@ -46,9 +46,9 @@ suite("virtual_slot_ref_basic") {
     [  SlotDescriptor{id=1, col=val, colUniqueId=1, type=smallint, nullable=true, isAutoIncrement=false, subColPath=null, virtualColumn=null}]
     [  SlotDescriptor{id=2, col=__DORIS_VIRTUAL_COL__1, colUniqueId=2147483646, type=bigint, nullable=true, isAutoIncrement=false, subColPath=null, virtualColumn=(id[#0] + val[#1])}]
     */
-    assertTrue(result0.contains("(id + val)[#2]"));
+    assertTrue(result0.contains("(cast(id as BIGINT) + cast(val as BIGINT))[#2]"));
     assertTrue(result0.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result0.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result0.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_0 """${sql0}"""
 
     // Make sure topn global lazy materialization works
@@ -66,9 +66,9 @@ suite("virtual_slot_ref_basic") {
     [  SlotDescriptor{id=1, col=val, colUniqueId=1, type=smallint, nullable=true, isAutoIncrement=false, subColPath=null, virtualColumn=null}]
     [  SlotDescriptor{id=2, col=__DORIS_VIRTUAL_COL__1, colUniqueId=2147483646, type=bigint, nullable=true, isAutoIncrement=false, subColPath=null, virtualColumn=(id[#0] + val[#1])}]
     */
-    assertTrue(result2.contains("(id + val)[#2]"));
+    assertTrue(result2.contains("(cast(id as BIGINT) + cast(val as BIGINT))[#2]"));
     assertTrue(result2.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result2.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result2.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_2 """SELECT id + val FROM virtual_slot_ref_basic WHERE (id + val) > 10 OR (id + val) < 30 ORDER BY (id + val);"""
 
     // Virtual column exists in different conditions
@@ -82,9 +82,9 @@ suite("virtual_slot_ref_basic") {
     [  SlotDescriptor{id=1, col=val, colUniqueId=1, type=smallint, nullable=true, isAutoIncrement=false, subColPath=null, virtualColumn=null}]
     [  SlotDescriptor{id=2, col=__DORIS_VIRTUAL_COL__1, colUniqueId=2147483646, type=bigint, nullable=true, isAutoIncrement=false, subColPath=null, virtualColumn=(id[#0] + val[#1])}]
     */
-    assertTrue(result3.contains("(id + val)[#2]"));
+    assertTrue(result3.contains("(cast(id as BIGINT) + cast(val as BIGINT))[#2]"));
     assertTrue(result3.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result3.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result3.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_3 """SELECT id + val FROM virtual_slot_ref_basic WHERE (id + val) > 10 AND (id + val) < 30 ORDER BY (id + val);"""
 
     // Nested virtual column
@@ -98,9 +98,9 @@ suite("virtual_slot_ref_basic") {
     [  SlotDescriptor{id=1, col=val, colUniqueId=1, type=smallint, nullable=true, isAutoIncrement=false, subColPath=null, virtualColumn=null}]
     [  SlotDescriptor{id=2, col=__DORIS_VIRTUAL_COL__1, colUniqueId=2147483646, type=bigint, nullable=true, isAutoIncrement=false, subColPath=null, virtualColumn=(id[#0] + val[#1])}]
     */
-    assertTrue(result4.contains("(id + val)[#2]"));
+    assertTrue(result4.contains("(cast(id as BIGINT) + cast(val as BIGINT))[#2]"));
     assertTrue(result4.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result4.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result4.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_4 """SELECT id + val FROM virtual_slot_ref_basic WHERE round((id + val), 0) > 30 ORDER BY (id + val)"""
 
     // Test case 5: Multiple different virtual columns in WHERE clause
@@ -109,8 +109,8 @@ suite("virtual_slot_ref_basic") {
     result5 = result5.join("\n")
     // Should have two virtual columns: (id + val) and (id * val)
     assertTrue(result5.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result5.contains("virtualColumn=(id[#0] + val[#1])"));
-    assertTrue(result5.contains("virtualColumn=(id[#0] * val[#1])"));
+    assertTrue(result5.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
+    assertTrue(result5.contains("virtualColumn=(CAST(id[#0] AS bigint) * CAST(val[#1] AS bigint)"));
     qt_5 """SELECT id + val, id * val FROM virtual_slot_ref_basic WHERE (id + val) > 20 AND (id * val) < 100 ORDER BY (id + val);"""
 
     // Test case 6: Virtual column in both WHERE and SELECT with repeated expression
@@ -119,8 +119,8 @@ suite("virtual_slot_ref_basic") {
     result6 = result6.join("\n")
     // Should have virtual columns for both expressions
     assertTrue(result6.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result6.contains("virtualColumn=(id[#0] + val[#1])"));
-    assertTrue(result6.contains("virtualColumn=(id[#0] - val[#1])"));
+    assertTrue(result6.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
+    assertTrue(result6.contains("virtualColumn=(CAST(id[#0] AS bigint) - CAST(val[#1] AS bigint)"));
     qt_6 """SELECT id + val, id - val FROM virtual_slot_ref_basic WHERE (id + val) > 10 AND (id - val) > 0 ORDER BY (id + val), (id - val);"""
 
     // Test case 7: Complex expression with function calls
@@ -129,7 +129,7 @@ suite("virtual_slot_ref_basic") {
     result7 = result7.join("\n")
     // Should have virtual column for abs(id - val)
     assertTrue(result7.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result7.contains("abs((id - val))[#2] > 5"));
+    assertTrue(result7.contains("(abs((cast(id as BIGINT) - cast(val as BIGINT)))[#2] > 5)"));
     qt_7 """SELECT abs(id - val) FROM virtual_slot_ref_basic WHERE abs(id - val) > 5 ORDER BY abs(id - val);"""
 
     // Test case 8: Virtual column with nested expressions
@@ -146,7 +146,7 @@ suite("virtual_slot_ref_basic") {
     result9 = result9.join("\n")
     // Should have virtual column for (id + val) which appears multiple times
     assertTrue(result9.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result9.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result9.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_9 """SELECT id + val, (id + val) * 2 FROM virtual_slot_ref_basic WHERE (id + val) > 15 AND (id + val) < 50 ORDER BY (id + val);"""
 
     // Test case 10: Virtual column with CASE WHEN expression
@@ -163,7 +163,7 @@ suite("virtual_slot_ref_basic") {
     result11 = result11.join("\n")
     // Should have virtual column for (id + val)
     assertTrue(result11.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result11.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result11.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_11 """SELECT id + val FROM virtual_slot_ref_basic WHERE (id + val) IN (11, 22, 33, 44) ORDER BY (id + val);"""
 
     // Test case 12: Virtual column with BETWEEN clause
@@ -172,7 +172,7 @@ suite("virtual_slot_ref_basic") {
     result12 = result12.join("\n")
     // Should have virtual column for (id + val)
     assertTrue(result12.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result12.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result12.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_12 """SELECT id + val FROM virtual_slot_ref_basic WHERE (id + val) BETWEEN 20 AND 40 ORDER BY (id + val);"""
 
     // Test case 13: Virtual column with GROUP BY
@@ -181,7 +181,7 @@ suite("virtual_slot_ref_basic") {
     result13 = result13.join("\n")
     // Should have virtual column for (id + val)
     assertTrue(result13.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result13.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result13.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_13 """SELECT id + val, COUNT(*) FROM virtual_slot_ref_basic WHERE (id + val) > 10 GROUP BY (id + val) ORDER BY (id + val);"""
 
     // Test case 14: Virtual column with HAVING clause
@@ -220,7 +220,7 @@ suite("virtual_slot_ref_basic") {
     result18 = result18.join("\n")
     // Should have virtual column for (id + val)
     assertTrue(result18.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result18.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result18.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_18 """SELECT id + val FROM virtual_slot_ref_basic WHERE NOT ((id + val) <= 20) ORDER BY (id + val);"""
 
     // Test case 19: Virtual column with IS NULL check
@@ -229,7 +229,7 @@ suite("virtual_slot_ref_basic") {
     result19 = result19.join("\n")
     // Should have virtual column for (id + val)
     assertTrue(result19.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result19.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result19.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_19 """SELECT id + val FROM virtual_slot_ref_basic WHERE (id + val) IS NOT NULL ORDER BY (id + val);"""
 
     // Test case 20: Virtual column with LIMIT
@@ -238,7 +238,7 @@ suite("virtual_slot_ref_basic") {
     result20 = result20.join("\n")
     // Should have virtual column for (id + val)
     assertTrue(result20.contains("__DORIS_VIRTUAL_COL__"));
-    assertTrue(result20.contains("virtualColumn=(id[#0] + val[#1])"));
+    assertTrue(result20.contains("virtualColumn=(CAST(id[#0] AS bigint) + CAST(val[#1] AS bigint)"));
     qt_20 """SELECT id + val FROM virtual_slot_ref_basic WHERE (id + val) > 10 ORDER BY (id + val) LIMIT 3;"""
 
 }
