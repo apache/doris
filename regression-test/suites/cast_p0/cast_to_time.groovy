@@ -15,14 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//cast -123
-// cast "2023-07-16T1920+00:00" as date
-// SELECT DATEV2('0000-00-00 00:00:00');
-// 1986 as time
-//select cast("9999-12-31 23:59:59.999999" as datetime(3));
-
 suite("cast_to_time") {
     sql "set debug_skip_fold_constant = true"
+    sql "set enable_strict_cast = false"
+
 qt_sql1 """ select cast("0" as time(6)) """
 qt_sql2 """ select cast("1" as time(6)) """
 qt_sql3 """ select cast("123" as time(6)) """
