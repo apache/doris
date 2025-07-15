@@ -85,6 +85,8 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_seconds_diff_DateTime_DateTimeV2_notnull "select seconds_diff(kdtm, kdtmv2s1) from fn_test_not_nullable order by kdtm, kdtmv2s1"
 	qt_sql_sign_Double "select sign(kdbl) from fn_test order by kdbl"
 	qt_sql_sign_Double_notnull "select sign(kdbl) from fn_test_not_nullable order by kdbl"
+	qt_sql_signbit_Double "select signbit(kdbl) from fn_test order by kdbl"
+	qt_sql_signbit_Double_notnull "select signbit(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_sin_Double "select sin(kdbl) from fn_test order by kdbl"
 	qt_sql_sin_Double_notnull "select sin(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_sleep_Integer "select sleep(0.1) from fn_test order by kint"
