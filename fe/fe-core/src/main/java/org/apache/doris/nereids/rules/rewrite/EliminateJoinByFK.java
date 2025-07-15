@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.JoinUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -95,10 +96,14 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
         return project;
     }
 
-    // include two types:
-    // primary slot => foreign slot
-    // foreign slot => NonNullable(foreign slot)
-    private Map<Slot, Expression> getReplaceSlotMap(Map<Slot, Slot> outputToForeign,
+    /**
+     * get replace slots, include replace the primary slots and replace the nullable foreign slots.
+     * @param outputToForeign primary slot to foreign slot map
+     * @param compensationForeignSlots foreign slots which are nullable but add a filter 'slot is not null'
+     * @return the replaced map, include primary slot to foreign slot, and foreign nullable slot to non-nullable(slot)
+     */
+    @VisibleForTesting
+    public Map<Slot, Expression> getReplaceSlotMap(Map<Slot, Slot> outputToForeign,
             Set<Slot> compensationForeignSlots) {
         Map<Slot, Expression> replacedSlots = Maps.newHashMap();
         for (Map.Entry<Slot, Slot> entry : outputToForeign.entrySet()) {
@@ -129,7 +134,11 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
         return builder.build();
     }
 
-    private Pair<Plan, Set<Slot>> applyNullCompensationFilter(Plan child, Set<Slot> childSlots) {
+    /**
+     * add a filter for foreign slots which is nullable, the filter is 'slot is not null'
+     */
+    @VisibleForTesting
+    public Pair<Plan, Set<Slot>> applyNullCompensationFilter(Plan child, Set<Slot> childSlots) {
         ImmutableSet.Builder<Expression> predicatesBuilder = ImmutableSet.builder();
         Set<Slot> filterNotNullSlots = Sets.newHashSet();
         for (Slot slot : childSlots) {

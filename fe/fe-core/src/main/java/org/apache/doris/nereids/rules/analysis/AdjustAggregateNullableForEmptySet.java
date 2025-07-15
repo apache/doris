@@ -65,9 +65,11 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
     }
 
     private LogicalPlan replaceSort(LogicalSort<?> sort, boolean alwaysNullable) {
-        List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
-                .map(key -> key.withExpression(replaceExpression(key.getExpr(), alwaysNullable)))
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<OrderKey> newOrderKeysBuilder
+                = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
+        sort.getOrderKeys().forEach(
+                key -> newOrderKeysBuilder.add(key.withExpression(replaceExpression(key.getExpr(), alwaysNullable))));
+        List<OrderKey> newOrderKeys = newOrderKeysBuilder.build();
         if (newOrderKeys.equals(sort.getOrderKeys())) {
             return null;
         }
@@ -101,16 +103,29 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
 
         @Override
         public Expression visitWindow(WindowExpression windowExpression, Boolean alwaysNullable) {
-            return windowExpression.withPartitionKeysOrderKeys(
-                    windowExpression.getPartitionKeys().stream()
-                            .map(k -> k.accept(this, alwaysNullable))
-                            .collect(Collectors.toList()),
-                    windowExpression.getOrderKeys().stream()
-                            .map(k -> (OrderExpression) k.withChildren(k.children().stream()
-                                    .map(c -> c.accept(this, alwaysNullable))
-                                    .collect(Collectors.toList())))
-                            .collect(Collectors.toList())
-            );
+            ImmutableList.Builder<Expression> newFunctionChildrenBuilder
+                    = ImmutableList.builderWithExpectedSize(windowExpression.getFunction().children().size());
+            for (Expression child : windowExpression.getFunction().children()) {
+                newFunctionChildrenBuilder.add(child.accept(this, alwaysNullable));
+            }
+            Expression newFunction = windowExpression.getFunction().withChildren(newFunctionChildrenBuilder.build());
+            ImmutableList.Builder<Expression> newPartitionKeysBuilder
+                    = ImmutableList.builderWithExpectedSize(windowExpression.getPartitionKeys().size());
+            for (Expression partitionKey : windowExpression.getPartitionKeys()) {
+                newPartitionKeysBuilder.add(partitionKey.accept(this, alwaysNullable));
+            }
+            ImmutableList.Builder<OrderExpression> newOrderKeysBuilder
+                    = ImmutableList.builderWithExpectedSize(windowExpression.getOrderKeys().size());
+            for (OrderExpression orderKey : windowExpression.getOrderKeys()) {
+                ImmutableList.Builder<Expression> newChildrenBuilder
+                        = ImmutableList.builderWithExpectedSize(orderKey.children().size());
+                for (Expression child : orderKey.children()) {
+                    newChildrenBuilder.add(child.accept(this, alwaysNullable));
+                }
+                newOrderKeysBuilder.add((OrderExpression) orderKey.withChildren(newChildrenBuilder.build()));
+            }
+            return windowExpression.withFunctionPartitionKeysOrderKeys(
+                    newFunction, newPartitionKeysBuilder.build(), newOrderKeysBuilder.build());
         }
 
         @Override

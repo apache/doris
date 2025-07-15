@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -51,13 +52,14 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -71,6 +73,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * So, we need add a rule to adjust all expression's nullable attribute after rewrite.
  */
 public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> implements CustomRewriter {
+
+    private static final Logger LOG = LogManager.getLogger(AdjustNullable.class);
 
     private final boolean isAnalyzedPhase;
 
@@ -152,10 +156,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, replaceMap);
         Optional<List<Expression>> hashConjuncts = updateExpressions(join.getHashJoinConjuncts(), replaceMap, true);
         Optional<List<Expression>> markConjuncts = Optional.empty();
-
         boolean hadUpdatedMarkConjuncts = false;
         if (isAnalyzedPhase || join.getHashJoinConjuncts().isEmpty()) {
-            // if hashConjuncts is empty, mark join conjuncts may used to build hash table
+            // if hashConjuncts is empty, mark join conjuncts may use to build hash table
             // so need call updateExpressions for mark join conjuncts before adjust nullable by output slot
             markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap, true);
             hadUpdatedMarkConjuncts = true;
@@ -445,11 +448,15 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 // so analyzed phase don't assert not-nullable -> nullable, otherwise adjust plan above
                 // repeat may check fail.
                 if (!slotReference.nullable() && newSlotReference.nullable()
-                        && !isAnalyzedPhase && debugCheck
-                        && ConnectContext.get() != null
-                        && ConnectContext.get().getSessionVariable().feDebug) {
-                    throw new AnalysisException("AdjustNullable convert slot " + slotReference
-                            + " from not-nullable to nullable. You can disable this check by set fe_debug = false.");
+                        && !isAnalyzedPhase && debugCheck && ConnectContext.get() != null) {
+                    if (ConnectContext.get().getSessionVariable().feDebug) {
+                        throw new AnalysisException("AdjustNullable convert slot " + slotReference
+                                + " from not-nullable to nullable. You can disable check by set fe_debug = false.");
+                    } else {
+                        LOG.warn("adjust nullable convert slot '" + slotReference
+                                + "' from not-nullable to nullable for query "
+                                + DebugUtil.printId(ConnectContext.get().queryId()));
+                    }
                 }
                 return newSlotReference;
             } else {
