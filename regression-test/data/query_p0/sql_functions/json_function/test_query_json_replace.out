@@ -32,7 +32,7 @@ null
 {"arr":[1.1,2.0]}
 
 -- !sql_array --
-{"arr":[1.0,1.2]}
+{"arr":[1.000000000,1.200000000]}
 
 -- !sql_map --
 {"map":{"a":"b","c":"d"}}
@@ -44,10 +44,10 @@ null
 {"map":{"a":1.1,"c":2.2}}
 
 -- !sql_map --
-{"map":{"a":1.1,"c":2.0}}
+{"map":{"a":1.1,"c":2}}
 
 -- !sql_map --
-{"map":{"a":1.0,"c":1.2}}
+{"map":{"a":1,"c":1.2}}
 
 -- !sql_struct --
 {"struct":{"name":"a","age":1}}
@@ -56,7 +56,7 @@ null
 {"struct":{"name":"a","age":1.1}}
 
 -- !sql_struct --
-{"struct":{"name":"a","age":1.0}}
+{"struct":{"name":"a","age":1.000000000}}
 
 -- !sql_json --
 {"json":{"a":"b"}}

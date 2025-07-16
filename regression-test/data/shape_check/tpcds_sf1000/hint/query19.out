@@ -35,6 +35,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(customer_address { customer { store_sales item date_dim } } store )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

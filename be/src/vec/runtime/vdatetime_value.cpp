@@ -42,7 +42,7 @@
 #include "vec/common/int_exp.h"
 
 namespace doris {
-
+#include "common/compile_check_avoid_begin.h"
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
@@ -3988,5 +3988,5 @@ template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MONTH>(
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris
