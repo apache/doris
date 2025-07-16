@@ -109,4 +109,12 @@ public class AlterViewInfo extends BaseViewInfo {
     public String getInlineViewDef() {
         return inlineViewDef;
     }
+
+    public void setInlineViewDef(String inlineViewDef) {
+        this.inlineViewDef = inlineViewDef;
+    }
+
+    public void setFinalColumns(List<Column> columns) {
+        finalCols.addAll(columns);
+    }
 }
