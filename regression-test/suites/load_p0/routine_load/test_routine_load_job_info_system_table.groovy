@@ -131,7 +131,7 @@ suite("test_routine_load_job_info_system_table","p0") {
                 sleep(1000)
                 count++
             }
-            def res = sql "SELECT JOB_NAME FROM information_schema.routine_load_job WHERE CURRENT_ABORT_TASK_NUM > 0 OR IS_ABNORMAL_PAUSE = TRUE"
+            def res = sql "SELECT JOB_NAME FROM information_schema.routine_load_jobs WHERE CURRENT_ABORT_TASK_NUM > 0 OR IS_ABNORMAL_PAUSE = TRUE"
             log.info("res: ${res}".toString())
             assertTrue(res.toString().contains("${jobName}"))
         } finally {

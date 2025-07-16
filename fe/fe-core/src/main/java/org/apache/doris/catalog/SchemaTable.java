@@ -573,8 +573,8 @@ public class SchemaTable extends Table {
                                     .column("BUCKETS_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .build()))
-            .put("routine_load_job",
-                    new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_job", TableType.SCHEMA,
+            .put("routine_load_jobs",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_jobs", TableType.SCHEMA,
                             builder().column("JOB_ID", ScalarType.createStringType())
                                     .column("JOB_NAME", ScalarType.createStringType())
                                     .column("CREATE_TIME", ScalarType.createStringType())
