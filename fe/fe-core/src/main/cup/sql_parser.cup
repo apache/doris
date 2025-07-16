@@ -2690,10 +2690,6 @@ drop_stmt ::=
     {:
         RESULT = new DropRoleStmt(ifExists, role);
     :}
-    | KW_DROP KW_FILE STRING_LITERAL:fileName opt_db:dbName KW_PROPERTIES LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new DropFileStmt(fileName, dbName, properties);
-    :}
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
