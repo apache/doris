@@ -60,6 +60,12 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     }
 
     private static boolean check(DataType originalType, DataType targetType) {
+        if ((originalType.isJsonType() || originalType.isIPType() || originalType.isBitmapType()
+                || originalType.isHllType() || originalType.isArrayType() || originalType.isStructType()
+                || originalType.isVariantType())
+                && (targetType.isNumericType() || targetType.isDateLikeType() || targetType.isTimeType())) {
+            return false;
+        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;
