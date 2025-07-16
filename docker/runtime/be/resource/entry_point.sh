@@ -19,6 +19,9 @@
 set -eo pipefail
 shopt -s nullglob
 
+DORIS_HOME="/opt/apache-doris"
+BE_ALREADY_EXISTS=false
+
 # Obtain necessary and basic information to complete initialization
 
 # logging functions
@@ -52,102 +55,28 @@ _is_sourced() {
         [ "${FUNCNAME[1]}" = 'source' ]
 }
 
-docker_setup_env() {
-    declare -g DATABASE_ALREADY_EXISTS
-    if [ -d "${DORIS_HOME}/be/storage/data" ]; then
-        DATABASE_ALREADY_EXISTS='true'
-    fi
-}
-
 # Check the variables required for startup
 docker_required_variables_env() {
-    declare -g RUN_TYPE
-    if [[ -n "$FE_SERVERS" && -n "$BE_ADDR" ]]; then
-        RUN_TYPE="ELECTION"
-        if [[ $FE_SERVERS =~ ^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ || $FE_SERVERS =~ ^.+:([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
-            doris_warn "FE_SERVERS" $FE_SERVERS
-        else
-            doris_error "FE_SERVERS rule error！example: \$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT[,\$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT]..."
-        fi
-        if [[ $BE_ADDR =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}$ || $BE_ADDR =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:):[1-6]{0,1}[0-9]{1,4}$ ]]; then
-            doris_warn "BE_ADDR" $BE_ADDR
-        else
-            doris_error "BE_ADDR rule error！example: \$BE_IP:\$HEARTBEAT_SERVICE_PORT"
-        fi
-        export RUN_TYPE=${RUN_TYPE}
-        return
-    fi
-
-    if [[ -n "$FE_MASTER_IP"  && -n "$BE_IP" && -n "$BE_PORT" ]]; then
-        RUN_TYPE="ASSIGN"
-        if [[ $FE_MASTER_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $FE_MASTER_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
-            doris_warn "FE_MASTER_IP" $FE_MASTER_IP
-        else
-            doris_error "FE_MASTER_IP rule error！example: \$FE_MASTER_IP"
-        fi
-        if [[ $BE_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $BE_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
-            doris_warn "BE_IP" $BE_IP
-        else
-            doris_error "BE_IP rule error！example: \$BE_IP"
-        fi
-        if [[ $BE_PORT =~ ^[1-6]{0,1}[0-9]{1,4}$ ]]; then
-            doris_warn "BE_PORT" $BE_PORT
-        else
-            doris_error "BE_PORT rule error！example: \$BE_PORT."
-        fi
-        export RUN_TYPE=${RUN_TYPE}
-        return
-    fi
-
-    doris_error EOF "
-                 Note that you did not configure the required parameters!
-                 plan 1:
-                 FE_SERVERS & BE_ADDR
-                 plan 2:
-                 FE_MASTER_IP & FE_MASTER_PORT & BE_IP & BE_PORT"
-                EOF
+    check_arg "MASTER_FE" $MASTER_FE
+    check_arg "CURRENT_BE" $CURRENT_BE
 }
 
 get_doris_args() {
-    declare -g MASTER_FE_IP CURRENT_BE_IP CURRENT_BE_PORT PRIORITY_NETWORKS
-    if [ $RUN_TYPE == "ELECTION" ]; then
-        local feServerArray=($(echo "${FE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
-        for i in "${feServerArray[@]}"; do
-            val=${i}
-            val=${val// /}
-            tmpFeName=$(echo "${val}" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
-            tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
-            tmpFeEditLogPort=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$3}')
-            check_arg "TMP_FE_NAME" $tmpFeName
-            feIpArray[$tmpFeName]=${tmpFeIp}
-        done
 
-        FE_MASTER_IP=${feIpArray[1]}
-        check_arg "FE_MASTER_IP" $FE_MASTER_IP
-        BE_IP=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$1}')
-        check_arg "BE_IP" $BE_IP
-        BE_PORT=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$2}')
-        check_arg "BE_PORT" $BE_PORT
+    export MASTER_FE_HOST=$(echo "${MASTER_FE}" | awk -F ':' '{ sub(/ /, ""); print$1}')
+    export CURRENT_BE_HOST=$(echo "${CURRENT_BE}" | awk -F ':' '{ sub(/ /, ""); print$1}')
+    export CURRENT_BE_PORT=$(echo "${CURRENT_BE}" | awk -F ':' '{ sub(/ /, ""); print$2}')
 
-    elif [ $RUN_TYPE == "ASSIGN" ]; then
-        check_arg "FE_MASTER_IP" $FE_MASTER_IP
-        check_arg "BE_IP" $BE_IP
-        check_arg "BE_PORT" $BE_PORT
+    if [[ -z $DORIS_PRIORITY_NETWORKS ]]; then
+       DORIS_PRIORITY_NETWORKS=$(echo "${CURRENT_BE_HOST}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
+       export DORIS_PRIORITY_NETWORKS=${DORIS_PRIORITY_NETWORKS}
     fi
-
-    PRIORITY_NETWORKS=$(echo "${BE_IP}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
-    check_arg "PRIORITY_NETWORKS" $PRIORITY_NETWORKS
-
-    # export be args
-    export MASTER_FE_IP=${FE_MASTER_IP}
-    export CURRENT_BE_IP=${BE_IP}
-    export CURRENT_BE_PORT=${BE_PORT}
-    export PRIORITY_NETWORKS=${PRIORITY_NETWORKS}
-
-    doris_note "MASTER_FE_IP ${MASTER_FE_IP}"
-    doris_note "CURRENT_BE_IP ${CURRENT_BE_IP}"
+    check_arg "PRIORITY_NETWORKS" $DORIS_PRIORITY_NETWORKS
+    
+    doris_note "MASTER_FE_HOST ${MASTER_FE_HOST}"
+    doris_note "CURRENT_BE_HOST ${CURRENT_BE_HOST}"
     doris_note "CURRENT_BE_PORT ${CURRENT_BE_PORT}"
-    doris_note "PRIORITY_NETWORKS ${PRIORITY_NETWORKS}"
+    doris_note "DORIS_PRIORITY_NETWORKS ${DORIS_PRIORITY_NETWORKS}"
 
     check_be_status true
 }
@@ -158,16 +87,17 @@ get_doris_args() {
 #    ie: docker_process_sql --database=mydb <my-file.sql
 docker_process_sql() {
     set +e
-    mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>&1
+    mysql -uroot -P9030 -h${MASTER_FE_HOST} --comments "$@" 2>&1
 }
 
 check_be_status() {
     set +e
-    for i in {1..30}; do
+    BE_ALREADY_EXISTS=false
+    for i in {0..30}; do
         if [[ $1 == true ]]; then
-            docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]"
+            docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_HOST}[[:space:]]"
         else
-            docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
+            docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_HOST}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
         fi
         be_join_status=$?
         if [[ "${be_join_status}" == 0 ]]; then
@@ -179,11 +109,11 @@ check_be_status() {
             fi
             return
         fi
-        if [[ $(( $i % 15 )) == 1 ]]; then
+        if [[ $(( $i % 15 )) == 0 ]]; then
             if [[ $1 == true ]]; then
-                doris_note "MASTER FE is not started. retry."
+                doris_note "MASTER FE is not started. Tried ${i} times, retry..."
             else
-                doris_note "BE is not register. retry."
+                doris_note "BE has not been registered in cluster. Tried ${i} times, retry..."
             fi
         fi
         sleep 1
@@ -247,17 +177,29 @@ check_arg() {
 
 _main() {
     docker_required_variables_env
+
     # get init args
     get_doris_args
-    docker_setup_env
+
     # Start Doris BE
     {
         set +e
         bash init_be.sh 2>/dev/null
     } &
-    # check BE started status
-    check_be_status
-    if [ -z ${DATABASE_ALREADY_EXISTS} ]; then
+
+    times=1
+    while [[ $BE_ALREADY_EXISTS != "true" ]]; do
+      times=$((times+1))
+      # wait for 5min
+      if [[ $times > 10 ]]; then
+        doris_error "be is not registered in cluster! Byebye..."
+      fi
+      
+      # check BE started status
+      check_be_status
+    done
+    
+    if [ -d "${DORIS_HOME}/be/storage/data" ]; then
         # run script
         sleep 15
         docker_process_init_files /docker-entrypoint-initdb.d/*
