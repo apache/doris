@@ -459,13 +459,12 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
     if (config::is_cloud_mode() && !_sync_tablet) {
         _pending_tablets_num = _scan_ranges.size();
         if (_pending_tablets_num > 0) {
+            _sync_cloud_tablets_watcher.start();
             _cloud_tablet_dependency = Dependency::create_shared(
                     _parent->operator_id(), _parent->node_id(), "CLOUD_TABLET_DEP");
             _tablets.resize(_scan_ranges.size());
             _tasks.reserve(_scan_ranges.size());
             _sync_statistics.resize(_scan_ranges.size());
-            SCOPED_RAW_TIMER(&_duration_ns);
-            DCHECK_GT(_pending_tablets_num, 0);
             for (size_t i = 0; i < _scan_ranges.size(); i++) {
                 auto* sync_stats = &_sync_statistics[i];
                 int64_t version = 0;
@@ -481,6 +480,7 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                     Defer defer([&] {
                         if (_pending_tablets_num.fetch_sub(1) == 1) {
                             _cloud_tablet_dependency->set_ready();
+                            _sync_cloud_tablets_watcher.stop();
                         }
                     });
                     auto tablet =
@@ -520,7 +520,7 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
             return Status::OK();
         }
         DCHECK(_cloud_tablet_future.valid() && _cloud_tablet_future.get().ok());
-        COUNTER_UPDATE(_sync_rowset_timer, _duration_ns);
+        COUNTER_UPDATE(_sync_rowset_timer, _sync_cloud_tablets_watcher.elapsed_time());
         auto total_rowsets = std::accumulate(
                 _tablets.cbegin(), _tablets.cend(), 0LL,
                 [](long long acc, const auto& tabletWithVersion) {
@@ -546,14 +546,16 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
                            sync_stats.get_remote_delete_bitmap_rpc_ns);
         }
-        auto time_ms = _duration_ns / 1000 / 1000;
+        auto time_ms = _sync_cloud_tablets_watcher.elapsed_time_microseconds();
         if (time_ms >= config::sync_rowsets_slow_threshold_ms) {
             DorisMetrics::instance()->get_remote_tablet_slow_time_ms->increment(time_ms);
             DorisMetrics::instance()->get_remote_tablet_slow_cnt->increment(1);
             LOG_WARNING("get tablet takes too long")
                     .tag("query_id", print_id(PipelineXLocalState<>::_state->query_id()))
                     .tag("node_id", _parent->node_id())
-                    .tag("total_time", PrettyPrinter::print(_duration_ns, TUnit::TIME_NS))
+                    .tag("total_time",
+                         PrettyPrinter::print(_sync_cloud_tablets_watcher.elapsed_time(),
+                                              TUnit::TIME_NS))
                     .tag("num_tablets", _tablets.size())
                     .tag("tablet_meta_cache_hit", _sync_rowset_tablet_meta_cache_hit->value())
                     .tag("tablet_meta_cache_miss", _sync_rowset_tablet_meta_cache_miss->value())
