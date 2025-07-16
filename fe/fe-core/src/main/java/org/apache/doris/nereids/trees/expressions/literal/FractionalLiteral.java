@@ -130,7 +130,7 @@ public abstract class FractionalLiteral extends NumericLiteral {
         String decimalFormat = this instanceof DoubleLiteral ? "%.17f" : "%.9f";
         String sciFormat = this instanceof DoubleLiteral ? "%.16E" : "%.5E";
         MathContext mc = new MathContext(precision, RoundingMode.HALF_UP);
-        BigDecimal bd = new BigDecimal(num).round(mc);
+        BigDecimal bd = new BigDecimal(String.valueOf(num)).round(mc);
         double value = bd.doubleValue();
         int exponent = (int) Math.floor(Math.log10(Math.abs(value)));
         if (exponent < expUpper && exponent >= -4) {
