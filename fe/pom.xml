@@ -245,7 +245,7 @@ under the License.
         <aspectj.version>1.9.7</aspectj.version>
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
-        <commons-filerupload.version>1.5</commons-filerupload.version>
+        <commons-filerupload.version>1.6.0</commons-filerupload.version>
         <commons-configuration2.version>2.11.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang.version>2.6</commons-lang.version>
