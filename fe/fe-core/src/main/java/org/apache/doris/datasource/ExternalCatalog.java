@@ -73,7 +73,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
@@ -101,7 +100,6 @@ import java.util.stream.Collectors;
 /**
  * The abstract class for all types of external catalogs.
  */
-@Data
 public abstract class ExternalCatalog
         implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
@@ -358,7 +356,7 @@ public abstract class ExternalCatalog
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
         // check refresh parameter of catalog
-        Map<String, String> properties = getCatalogProperty().getProperties();
+        Map<String, String> properties = catalogProperty.getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
                 int metadataRefreshIntervalSec = Integer.parseInt(
@@ -391,7 +389,7 @@ public abstract class ExternalCatalog
      * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */
     public void initAccessController(boolean isDryRun) {
-        Map<String, String> properties = getCatalogProperty().getProperties();
+        Map<String, String> properties = catalogProperty.getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
         if (Strings.isNullOrEmpty(className)) {
@@ -551,7 +549,7 @@ public abstract class ExternalCatalog
      * @param invalidCache if {@code true}, the catalog cache will be invalidated
      *                     and reloaded during the refresh process.
      */
-    public void resetToUninitialized(boolean invalidCache) {
+    public synchronized void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         synchronized (this.propLock) {
@@ -1004,6 +1002,14 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
+    /**
+     * Set the initialized status for testing purposes only.
+     * This method should only be used in test cases.
+     */
+    public void setInitializedForTest(boolean initialized) {
+        this.initialized = initialized;
+    }
+
     @Override
     public void createDb(CreateDbStmt stmt) throws DdlException {
         makeSureInitialized();
@@ -1178,6 +1184,22 @@ public abstract class ExternalCatalog
             throw new RuntimeException("PreExecutionAuthenticator is null, please confirm it is initialized.");
         }
         return preExecutionAuthenticator;
+    }
+
+    public Optional<Boolean> getUseMetaCache() {
+        return useMetaCache;
+    }
+
+    public CatalogProperty getCatalogProperty() {
+        return catalogProperty;
+    }
+
+    public Map<Pair<String, String>, String> getTableAutoAnalyzePolicy() {
+        return tableAutoAnalyzePolicy;
+    }
+
+    public TransactionManager getTransactionManager() {
+        return transactionManager;
     }
 
     @Override
