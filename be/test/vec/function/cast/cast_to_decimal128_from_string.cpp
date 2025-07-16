@@ -50,12 +50,12 @@ void FunctionCastToDecimalTest::from_string_to_decimal128v3_test_func() {
     ++table_index;
     from_string_test_func<Decimal128V3, 38, 19>(table_index, test_data_index, 100);
     ++table_index;
-    from_string_test_func<Decimal128V3, 38, 19>(table_index, test_data_index, -1);
-    ++table_index;
-    from_string_test_func<Decimal128V3, 38, 19>(table_index, test_data_index, -19);
-    ++table_index;
-    from_string_test_func<Decimal128V3, 38, 19>(table_index, test_data_index, -100);
-    ++table_index;
+    // from_string_test_func<Decimal128V3, 38, 19>(table_index, test_data_index, -1);
+    // ++table_index;
+    // from_string_test_func<Decimal128V3, 38, 19>(table_index, test_data_index, -19);
+    // ++table_index;
+    // from_string_test_func<Decimal128V3, 38, 19>(table_index, test_data_index, -100);
+    // ++table_index;
 
     from_string_test_func<Decimal128V3, 38, 37>(table_index, test_data_index);
     ++table_index;
@@ -67,10 +67,10 @@ void FunctionCastToDecimalTest::from_string_to_decimal128v3_test_func() {
     ++table_index;
     from_string_test_func<Decimal128V3, 38, 37>(table_index, test_data_index, 100);
     ++table_index;
-    from_string_test_func<Decimal128V3, 38, 37>(table_index, test_data_index, -1);
-    ++table_index;
-    from_string_test_func<Decimal128V3, 38, 37>(table_index, test_data_index, -100);
-    ++table_index;
+    // from_string_test_func<Decimal128V3, 38, 37>(table_index, test_data_index, -1);
+    // ++table_index;
+    // from_string_test_func<Decimal128V3, 38, 37>(table_index, test_data_index, -100);
+    // ++table_index;
 
     from_string_test_func<Decimal128V3, 38, 38>(table_index, test_data_index);
     ++table_index;

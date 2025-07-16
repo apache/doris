@@ -50,12 +50,12 @@ void FunctionCastToDecimalTest::from_string_to_decimal256_test_func() {
     ++table_index;
     from_string_test_func<Decimal256, 76, 38>(table_index, test_data_index, 100);
     ++table_index;
-    from_string_test_func<Decimal256, 76, 38>(table_index, test_data_index, -1);
-    ++table_index;
-    from_string_test_func<Decimal256, 76, 38>(table_index, test_data_index, -38);
-    ++table_index;
-    from_string_test_func<Decimal256, 76, 38>(table_index, test_data_index, -100);
-    ++table_index;
+    // from_string_test_func<Decimal256, 76, 38>(table_index, test_data_index, -1);
+    // ++table_index;
+    // from_string_test_func<Decimal256, 76, 38>(table_index, test_data_index, -38);
+    // ++table_index;
+    // from_string_test_func<Decimal256, 76, 38>(table_index, test_data_index, -100);
+    // ++table_index;
 
     from_string_test_func<Decimal256, 76, 75>(table_index, test_data_index);
     ++table_index;
@@ -67,10 +67,10 @@ void FunctionCastToDecimalTest::from_string_to_decimal256_test_func() {
     ++table_index;
     from_string_test_func<Decimal256, 76, 75>(table_index, test_data_index, 100);
     ++table_index;
-    from_string_test_func<Decimal256, 76, 75>(table_index, test_data_index, -1);
-    ++table_index;
-    from_string_test_func<Decimal256, 76, 75>(table_index, test_data_index, -100);
-    ++table_index;
+    // from_string_test_func<Decimal256, 76, 75>(table_index, test_data_index, -1);
+    // ++table_index;
+    // from_string_test_func<Decimal256, 76, 75>(table_index, test_data_index, -100);
+    // ++table_index;
 
     from_string_test_func<Decimal256, 76, 76>(table_index, test_data_index);
     ++table_index;

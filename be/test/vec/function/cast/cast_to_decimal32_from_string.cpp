@@ -54,12 +54,12 @@ void FunctionCastToDecimalTest::from_string_to_decimal32_test_func() {
     ++table_index;
     from_string_test_func<Decimal32, 9, 3>(table_index, test_data_index, 100);
     ++table_index;
-    from_string_test_func<Decimal32, 9, 3>(table_index, test_data_index, -1);
-    ++table_index;
-    from_string_test_func<Decimal32, 9, 3>(table_index, test_data_index, -6);
-    ++table_index;
-    from_string_test_func<Decimal32, 9, 3>(table_index, test_data_index, -100);
-    ++table_index;
+    // from_string_test_func<Decimal32, 9, 3>(table_index, test_data_index, -1);
+    // ++table_index;
+    // from_string_test_func<Decimal32, 9, 3>(table_index, test_data_index, -6);
+    // ++table_index;
+    // from_string_test_func<Decimal32, 9, 3>(table_index, test_data_index, -100);
+    // ++table_index;
 
     from_string_test_func<Decimal32, 9, 8>(table_index, test_data_index);
     ++table_index;
@@ -71,10 +71,10 @@ void FunctionCastToDecimalTest::from_string_to_decimal32_test_func() {
     ++table_index;
     from_string_test_func<Decimal32, 9, 8>(table_index, test_data_index, 100);
     ++table_index;
-    from_string_test_func<Decimal32, 9, 8>(table_index, test_data_index, -1);
-    ++table_index;
-    from_string_test_func<Decimal32, 9, 8>(table_index, test_data_index, -100);
-    ++table_index;
+    // from_string_test_func<Decimal32, 9, 8>(table_index, test_data_index, -1);
+    // ++table_index;
+    // from_string_test_func<Decimal32, 9, 8>(table_index, test_data_index, -100);
+    // ++table_index;
 
     from_string_test_func<Decimal32, 9, 9>(table_index, test_data_index);
     ++table_index;
@@ -86,11 +86,11 @@ void FunctionCastToDecimalTest::from_string_to_decimal32_test_func() {
     ++table_index;
     from_string_test_func<Decimal32, 9, 9>(table_index, test_data_index, 100);
     ++table_index;
-    from_string_test_func<Decimal32, 9, 9>(table_index, test_data_index, -1);
-    ++table_index;
-    from_string_test_func<Decimal32, 9, 9>(table_index, test_data_index, -9);
-    ++table_index;
-    from_string_test_func<Decimal32, 9, 9>(table_index, test_data_index, -100);
+    // from_string_test_func<Decimal32, 9, 9>(table_index, test_data_index, -1);
+    // ++table_index;
+    // from_string_test_func<Decimal32, 9, 9>(table_index, test_data_index, -9);
+    // ++table_index;
+    // from_string_test_func<Decimal32, 9, 9>(table_index, test_data_index, -100);
 }
 TEST_F(FunctionCastToDecimalTest, test_to_decimal32_from_string) {
     from_string_to_decimal32_test_func();

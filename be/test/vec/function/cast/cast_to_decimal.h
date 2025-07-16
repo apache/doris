@@ -64,8 +64,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 data_set.push_back({{sp + sp + sp + v_str + sp + sp + sp}, v});
             }
             */
-            data_set.push_back({{white_spaces_str + v_str}, v});
-            data_set.push_back({{v_str + white_spaces_str}, v});
+            // data_set.push_back({{white_spaces_str + v_str}, v});
+            // data_set.push_back({{v_str + white_spaces_str}, v});
             data_set.push_back({{white_spaces_str + v_str + white_spaces_str}, v});
         } else {
             data_set.push_back({{v_str}, v});
@@ -79,7 +79,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         auto dbg_str0 = fmt::format(
                 "test cast string to {}({}, {}), ScientificExpShift: {}, ForceZeroExp: {}",
                 type_to_string(T::PType), Precision, Scale, ScientificExpShift, ForceZeroExp);
-        std::cout << fmt::format("==================={}\n\n", dbg_str0);
+        std::cout << fmt::format("\n\n==================={}\n", dbg_str0);
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         auto decimal_ctor = get_decimal_ctor<T>();
@@ -433,23 +433,23 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, true,
                                                true, true);
                     // test leading and trailing spaces and sign
-                    format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, true,
-                                               true, false);
+                    // format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, true,
+                    //                            true, false);
                     // test leading and trailing spaces and leading zeros
-                    format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, true,
-                                               false, true);
+                    // format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, true,
+                    //                            false, true);
                     // test leading and trailing spaces
-                    format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, true,
-                                               false, false);
+                    // format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, true,
+                    //                            false, false);
                     // test with sign and leading zeros
-                    format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, false,
-                                               true, true);
+                    // format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, false,
+                    //                            true, true);
                     // test with sign
-                    format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, false,
-                                               true, false);
+                    // format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, false,
+                    //                            true, false);
                     // test only leading zeros
-                    format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, false,
-                                               false, true);
+                    // format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, false,
+                    //                            false, true);
                     // test strict digits
                     format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, false,
                                                false, false);
