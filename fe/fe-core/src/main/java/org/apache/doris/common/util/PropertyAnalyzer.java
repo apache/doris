@@ -1752,6 +1752,7 @@ public class PropertyAnalyzer {
      */
     private static Map<String, String> rewriteReplicaAllocationProperties(
             String ctl, String db, Map<String, String> properties, int tableReplicaCountOverrideForTest) {
+         LOG.info("rewriteReplicaAllocationProperties={}", tableReplicaCountOverrideForTest);
         if (tableReplicaCountOverrideForTest <= 0) {
             return rewriteReplicaAllocationPropertiesByDatabase(ctl, db, properties);
         }
@@ -1774,6 +1775,8 @@ public class PropertyAnalyzer {
             newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
                     String.valueOf(tableReplicaCountOverrideForTest));
         }
+
+        LOG.info("rewriteReplicaAllocationProperties properties={}", newProperties)
         return newProperties;
     }
 
