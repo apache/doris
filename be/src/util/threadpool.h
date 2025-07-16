@@ -466,6 +466,11 @@ public:
         return _entries.size();
     }
 
+    // Clear all queued tasks from the thread pool and all tokens
+    // Running tasks will continue to execute, but all pending tasks will be removed
+    // Returns the number of tasks that were cleared
+    int clear();
+
     ThreadPoolToken(const ThreadPoolToken&) = delete;
     void operator=(const ThreadPoolToken&) = delete;
 
