@@ -252,8 +252,7 @@ suite("regression_test_variant", "p0"){
         // sql """insert into ${table_name} values (8, '{"a" : [123, 111........]}')"""
         sql """insert into ${table_name} values (9, '{"a" : [123, {"a" : 1}]}')"""
         sql """insert into ${table_name} values (10, '{"a" : [{"a" : 1}, 123]}')"""
-        // select first to get newest data
-        sql "select v['a'] from ${table_name} order by k limit 1"
+        sql "select v['a'] from ${table_name} order by k"
         trigger_and_wait_compaction(table_name, "full")
         qt_sql_29 "select cast(v['a'] as string) from ${table_name} order by k"
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
