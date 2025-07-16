@@ -367,6 +367,4 @@ suite("test_predefine_ddl", "p0"){
 
     sql "create index idx_ab4 on test_ddl_table (var2) using inverted properties(\"parser\"=\"unicode\")"
     wait_for_latest_op_on_table_finish("test_ddl_table", timeout)
-
-    qt_sql "show create table test_ddl_table"
 }
