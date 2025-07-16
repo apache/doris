@@ -19,6 +19,7 @@
 #include <common/multi_version.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <simdjson.h>
 #include <sys/resource.h>
 
 #include <cerrno> // IWYU pragma: keep
@@ -131,6 +132,7 @@
 #include "runtime/memory/tcmalloc_hook.h"
 
 namespace doris {
+
 #include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -183,6 +185,26 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
     return env->_init(store_paths, spill_store_paths, broken_paths);
+}
+
+// pick simdjson implementation based on CPU capabilities
+inline void init_simdjson_parser() {
+    // haswell: AVX2 (2013 Intel Haswell or later, all AMD Zen processors)
+    const auto* haswell_implementation = simdjson::get_available_implementations()["haswell"];
+    if (!haswell_implementation || !haswell_implementation->supported_by_runtime_system()) {
+        // pick available implementation
+        for (const auto* implementation : simdjson::get_available_implementations()) {
+            if (implementation->supported_by_runtime_system()) {
+                LOG(INFO) << "Using SimdJSON implementation : " << implementation->name() << ": "
+                          << implementation->description();
+                simdjson::get_active_implementation() = implementation;
+                return;
+            }
+        }
+        LOG(WARNING) << "No available SimdJSON implementation found.";
+    } else {
+        LOG(INFO) << "Using SimdJSON Haswell implementation";
+    }
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
@@ -376,6 +398,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
     _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
+
+    init_simdjson_parser();
 
     // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
     S3ClientFactory::instance();

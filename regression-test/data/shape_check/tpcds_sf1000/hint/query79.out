@@ -32,6 +32,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(store_sales date_dim household_demographics store ) leading(ms customer )
-UnUsed: 
+UnUsed:
 SyntaxError:
 
