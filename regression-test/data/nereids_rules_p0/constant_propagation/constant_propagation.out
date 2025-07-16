@@ -52,9 +52,9 @@ PhysicalResultSink
 -- !sort_2_shape --
 PhysicalResultSink
 --PhysicalProject[t1.a, t1.b, t1.c]
-----PhysicalQuickSort[MERGE_SORT, orderKeys=((2 + cast(c as BIGINT)) asc null first)]
-------PhysicalQuickSort[LOCAL_SORT, orderKeys=((2 + cast(c as BIGINT)) asc null first)]
---------PhysicalProject[t1.a, t1.b, t1.c, (cast(c as BIGINT) + 2) AS `(2 + cast(c as BIGINT))`]
+----PhysicalQuickSort[MERGE_SORT, orderKeys=((cast(b as BIGINT) + cast(c as BIGINT)) asc null first)]
+------PhysicalQuickSort[LOCAL_SORT, orderKeys=((cast(b as BIGINT) + cast(c as BIGINT)) asc null first)]
+--------PhysicalProject[t1.a, t1.b, t1.c, (cast(c as BIGINT) + 2) AS `(cast(b as BIGINT) + cast(c as BIGINT))`]
 ----------filter((t1.a = 1) and (t1.b = 2))
 ------------PhysicalOlapScan[t1]
 
@@ -64,9 +64,9 @@ PhysicalResultSink
 -- !sort_3_shape --
 PhysicalResultSink
 --PhysicalProject[t1.a, t1.b, t1.c]
-----PhysicalQuickSort[MERGE_SORT, orderKeys=((cast(a as BIGINT) + 2) asc null first)]
-------PhysicalQuickSort[LOCAL_SORT, orderKeys=((cast(a as BIGINT) + 2) asc null first)]
---------PhysicalProject[t1.a, t1.b, t1.c, (cast(a as BIGINT) + 2) AS `(cast(a as BIGINT) + 2)`]
+----PhysicalQuickSort[MERGE_SORT, orderKeys=((cast(a as BIGINT) + cast(b as BIGINT)) asc null first)]
+------PhysicalQuickSort[LOCAL_SORT, orderKeys=((cast(a as BIGINT) + cast(b as BIGINT)) asc null first)]
+--------PhysicalProject[t1.a, t1.b, t1.c, (cast(a as BIGINT) + 2) AS `(cast(a as BIGINT) + cast(b as BIGINT))`]
 ----------filter((t1.b = 2) and (t1.c = 3))
 ------------PhysicalOlapScan[t1]
 
@@ -455,8 +455,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalProject[10 AS `a`, count(a)]
 ----filter((sum(b) > 10))
-------hashAgg[GLOBAL, groupByExpr=(t1.a), outputExpr=(count(*) AS `count(a)`, sum(b) AS `sum(b)`, t1.a)]
---------hashAgg[LOCAL, groupByExpr=(t1.a), outputExpr=(partial_count(*) AS `partial_count(*)`, partial_sum(b) AS `partial_sum(b)`, t1.a)]
+------hashAgg[GLOBAL, groupByExpr=(t1.a), outputExpr=(count(10) AS `count(a)`, sum(b) AS `sum(b)`, t1.a)]
+--------hashAgg[LOCAL, groupByExpr=(t1.a), outputExpr=(partial_count(10) AS `partial_count(10)`, partial_sum(b) AS `partial_sum(b)`, t1.a)]
 ----------PhysicalProject[t1.a, t1.b]
 ------------filter((t1.a = 10))
 --------------PhysicalOlapScan[t1]

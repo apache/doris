@@ -259,7 +259,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new InlineLogicalView())
                 ),
                 topic("Eliminate optimization",
-                        custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
+                        // custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         bottomUp(
                                 new EliminateLimit(),
                                 new EliminateFilter(),
@@ -303,8 +303,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new InferFilterNotNull(),
                                 new InferJoinNotNull()
                         ),
-                        bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
+                        // bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                        // custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         // ReorderJoin depends PUSH_DOWN_FILTERS
                         // the PUSH_DOWN_FILTERS depends on lots of rules, e.g. merge project, eliminate outer,
                         // sometimes transform the bottom plan make some rules usable which can apply to the top plan,
@@ -384,7 +384,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // column pruning create new project, so we should use PUSH_DOWN_FILTERS
                         // to change filter-project to project-filter
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
+                        // custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         // after eliminate outer join in the PUSH_DOWN_FILTERS,
                         // we can infer more predicate and push down
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
@@ -397,7 +397,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // in the non-equivalent join condition and turn it into slotReference,
                         // This results in the inability to obtain Cast child information in INFER_PREDICATES,
                         // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
-                        topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                        topDown(
+                                new ProjectOtherJoinConditionForNestedLoopJoin(),
+                                // constant propagation and push down condition may change join conditions empty or not
+                                new ConvertInnerOrCrossJoin())
                     )
                 ),
                 // this rule should invoke after ColumnPruning
