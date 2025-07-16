@@ -3,8 +3,8 @@
 With newly organized service bootstraper, you just need two steps to start up doris in less than 3 miniutes. Single mode or cluster mode? It's your choice! 
 
 What you need to do is
-1. check the doris config in .env file and change them if neccesary, say newly version controlled by TAG, your own subset used by doris or more memory that should be consumed by fe and be.
-2. start doris in single node mode or cluster mode, that is
+1. Check the doris config in .env file and change them if neccesary, say newly version controlled by TAG, your own subset used by doris or more memory that should be consumed by fe and be.
+2. Start doris in single node mode or cluster mode, that is
    + Start a fe container and a be container. This is sufficient for daily development and verification scenarios.
      ```shell
      docker compose --profile single up -d
@@ -69,7 +69,8 @@ With this feature, you can conveniently and efficiently override or add configur
 > Remove the DORIS_ prefix from the environment variable, then compare it with the configuration name in the conf file. If they are the same, the configuration in the file will be overridden; otherwise, a new configuration will be added.
 
 # Others
-For cross-cluster access, such as when a Flink cluster uses flink-connector-doris to access a doris cluster, please configure the hostname and ip mapping of each be node in the flink cluster. The reason is that the internal communication addresses and port numbers of the be nodes are registered in the doris cluster, and flink-connector-doris needs to communicate directly with the be nodes.
-For a multi-node fe cluster, the internal communication ports of each node must be consistent, such as 8030. If you modify the port of one node, all nodes must be adjusted consistently. This means you cannot map all ports to the host with the same port number like you can with modifying the port numbers of be nodes.
-This deployment solution does not involve the node management strategy within the doris cluster. Therefore, node scaling and FQDN switching under this deployment method are consistent with other deployment methods. If changes are needed, please operate with caution. For details, see elastic-expansion and FQDN.
+
+1. For cross-cluster access, such as when a Flink cluster uses flink-connector-doris to access a doris cluster, please configure the hostname and ip mapping of each be node in the flink cluster. The reason is that the internal communication addresses and port numbers of the be nodes are registered in the doris cluster, and flink-connector-doris needs to communicate directly with the be nodes.
+2. For a multi-node fe cluster, the internal communication ports of each node must be consistent, such as 8030. If you modify the port of one node, all nodes must be adjusted consistently. This means you cannot map all ports to the host with the same port number like you can with modifying the port numbers of be nodes.
+3. This deployment solution does not involve the node management strategy within the doris cluster. Therefore, node scaling and FQDN switching under this deployment method are consistent with other deployment methods. If changes are needed, please operate with caution. For details, see elastic-expansion and FQDN.
 
