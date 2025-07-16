@@ -22,7 +22,6 @@ services:
       - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
       - DORIS_JAVA_OPTS_FOR_JDK_17="${FE_JAVA_OPT}"
     volumes:
-      - ./volume/bin/fe/init_fe.sh:/usr/local/bin/init_fe.sh
       - ./volume/doris-meta:/opt/apache-doris/fe/doris-meta
     restart: on-failure
     healthcheck:
@@ -52,7 +51,6 @@ services:
       - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
       - DORIS_JAVA_OPTS_FOR_JDK_17=${FE_JAVA_OPT}
     volumes:
-      - ./volume/bin/fe/init_fe.sh:/usr/local/bin/init_fe.sh
       - ./volume/doris-meta2:/opt/apache-doris/fe/doris-meta
     restart: on-failure
     healthcheck:
@@ -85,7 +83,6 @@ services:
       - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
       - DORIS_JAVA_OPTS_FOR_JDK_17=${FE_JAVA_OPT}
     volumes:
-      - ./volume/bin/fe/init_fe.sh:/usr/local/bin/init_fe.sh
       - ./volume/doris-meta3:/opt/apache-doris/fe/doris-meta
     restart: on-failure
     healthcheck:
@@ -121,8 +118,6 @@ services:
      - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
      - DORIS_JAVA_OPTS_FOR_JDK_17=${BE_JAVA_OPT}
     volumes:
-      - ./volume/bin/be/entry_point.sh:/usr/local/bin/entry_point.sh
-      - ./volume/bin/be/init_be.sh:/usr/local/bin/init_be.sh
       - ./volume/storage:/opt/apache-doris/be/storage
 #    deploy:
 #      resources:
@@ -165,8 +160,6 @@ services:
      - DORIS_HEARTBEAT_SERVICE_PORT=9052
      - DORIS_BE_PORT=9062
     volumes:
-      - ./volume/bin/be/entry_point.sh:/usr/local/bin/entry_point.sh
-      - ./volume/bin/be/init_be.sh:/usr/local/bin/init_be.sh
       - ./volume/storage2:/opt/apache-doris/be/storage
 #    deploy:
 #      resources:
@@ -209,8 +202,6 @@ services:
      - DORIS_HEARTBEAT_SERVICE_PORT=9053
      - DORIS_BE_PORT=9063
     volumes:
-      - ./volume/bin/be/entry_point.sh:/usr/local/bin/entry_point.sh
-      - ./volume/bin/be/init_be.sh:/usr/local/bin/init_be.sh
       - ./volume/storage3:/opt/apache-doris/be/storage
 #    deploy:
 #      resources:
