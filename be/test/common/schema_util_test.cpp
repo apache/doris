@@ -295,11 +295,13 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
 
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         tablet_schema->init_from_pb(schema_pb);
+        std::vector<TabletColumn> subcolumns;
 
         // Add subcolumns with different paths
         construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_STRING, 1, "v1.name",
-                            nullptr);
-        construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_INT, 1, "v1.age", nullptr);
+                            &subcolumns);
+        construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_INT, 1, "v1.age",
+                            &subcolumns);
 
         std::vector<TabletSchemaSPtr> schemas = {tablet_schema};
         TabletSchemaSPtr output_schema;
@@ -344,8 +346,9 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
 
         TabletSchemaSPtr tablet_schema1 = std::make_shared<TabletSchema>();
         tablet_schema1->init_from_pb(schema_pb1);
+        std::vector<TabletColumn> subcolumns;
         construct_subcolumn(tablet_schema1, FieldType::OLAP_FIELD_TYPE_STRING, 1, "v1.address",
-                            nullptr);
+                            &subcolumns);
 
         // Create second schema with same path but different structure
         TabletSchemaPB schema_pb2;
@@ -355,8 +358,9 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
 
         TabletSchemaSPtr tablet_schema2 = std::make_shared<TabletSchema>();
         tablet_schema2->init_from_pb(schema_pb2);
+        std::vector<TabletColumn> subcolumns2;
         construct_subcolumn(tablet_schema2, FieldType::OLAP_FIELD_TYPE_INT, 1, "v1.address",
-                            nullptr);
+                            &subcolumns2);
 
         std::vector<TabletSchemaSPtr> schemas = {tablet_schema1, tablet_schema2};
         TabletSchemaSPtr output_schema;

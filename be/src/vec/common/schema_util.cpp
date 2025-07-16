@@ -241,13 +241,9 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 // check if two paths which same prefix have different structure
 static bool has_different_structure_in_same_path(const PathInData::Parts& lhs,
                                                  const PathInData::Parts& rhs) {
-    if (lhs.size() != rhs.size()) {
-        return false;
-    }
+    // Since we group by path string, lhs and rhs must have the same size and keys
+    // We only need to check if they have different nested structure
     for (size_t i = 0; i < lhs.size(); ++i) {
-        if (lhs[i].key != rhs[i].key) {
-            return false;
-        }
         if (lhs[i] != rhs[i]) {
             VLOG_DEBUG << fmt::format(
                     "Check different structure: {} vs {}, lhs[i].is_nested: {}, rhs[i].is_nested: "
@@ -260,14 +256,31 @@ static bool has_different_structure_in_same_path(const PathInData::Parts& lhs,
 }
 
 Status check_variant_has_no_ambiguous_paths(const PathsInData& tuple_paths) {
+    // Group paths by their string representation to reduce comparisons
+    std::unordered_map<std::string, std::vector<size_t>> path_groups;
+
     for (size_t i = 0; i < tuple_paths.size(); ++i) {
-        for (size_t j = 0; j < i; ++j) {
-            if (has_different_structure_in_same_path(tuple_paths[i].get_parts(),
-                                                     tuple_paths[j].get_parts())) {
-                return Status::DataQualityError(
-                        "Ambiguous paths: {} vs {} with different nested part {} vs {}",
-                        tuple_paths[i].get_path(), tuple_paths[j].get_path(),
-                        tuple_paths[i].has_nested_part(), tuple_paths[j].has_nested_part());
+        // same path should have same structure, so we group them by path
+        path_groups[tuple_paths[i].get_path()].push_back(i);
+    }
+
+    // Only compare paths within the same group
+    for (const auto& [path_str, indices] : path_groups) {
+        if (indices.size() <= 1) {
+            continue; // No conflicts possible
+        }
+
+        // Compare all pairs within this group
+        for (size_t i = 0; i < indices.size(); ++i) {
+            for (size_t j = 0; j < i; ++j) {
+                if (has_different_structure_in_same_path(tuple_paths[indices[i]].get_parts(),
+                                                         tuple_paths[indices[j]].get_parts())) {
+                    return Status::DataQualityError(
+                            "Ambiguous paths: {} vs {} with different nested part {} vs {}",
+                            tuple_paths[indices[i]].get_path(), tuple_paths[indices[j]].get_path(),
+                            tuple_paths[indices[i]].has_nested_part(),
+                            tuple_paths[indices[j]].has_nested_part());
+                }
             }
         }
     }
