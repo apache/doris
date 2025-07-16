@@ -23,8 +23,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -73,13 +71,6 @@ public class RefreshCatalogCommand extends Command implements ForwardWithSync {
                     .equalsIgnoreCase("false"));
         }
 
-    }
-
-    private void refreshCatalogInternal(CatalogIf catalog) {
-        if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
-            LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
-        }
     }
 
     @Override

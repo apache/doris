@@ -131,9 +131,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    public synchronized void setUnInitialized() {
-        LOG.info("yy debug setUnInitialized db name {}, id {}, iid{}, isInitializing: {}, initialized: {}",
-                this.name, this.id, System.identityHashCode(this), isInitializing, initialized, new Exception());
+    public synchronized void resetToUninitialized() {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
+                    this.name, this.id, isInitializing, initialized, new Exception());
+        }
         this.initialized = false;
         this.lowerCaseToTableName = Maps.newConcurrentMap();
         if (extCatalog.getUseMetaCache().isPresent()) {
@@ -153,8 +155,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public final synchronized void makeSureInitialized() {
-        LOG.info("yy debug makeSureInitialized db name {}, id {}, iid{}, isInitializing: {}, initialized: {}",
-                this.name, this.id, System.identityHashCode(this), isInitializing, initialized, new Exception());
         if (isInitializing) {
             return;
         }
@@ -182,17 +182,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     init();
                 }
                 initialized = true;
-                LOG.info(
-                        "yy debug makeSureInitialized after db name {}, id {}, iid{}, isInitializing: {},"
-                                + " initialized: {}",
-                        this.name, this.id, System.identityHashCode(this), isInitializing, initialized,
-                        new Exception());
             }
         } catch (Exception e) {
-            LOG.info(
-                    "yy debug makeSureInitialized exception db name {}, id {}, iid{}, isInitializing: {}, "
-                            + "initialized: {}",
-                    this.name, this.id, System.identityHashCode(this), isInitializing, initialized, e);
+            LOG.warn("failed to init db {}, id {}, isInitializing: {}, initialized: {}",
+                    this.name, this.id, isInitializing, initialized, e);
+            initialized = false;
         } finally {
             isInitializing = false;
         }
@@ -206,8 +200,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             tableNameToId = Maps.newConcurrentMap();
             idToTbl = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
-            LOG.info("yy debug replayInitDb db name {}, id {}, iid{}, isInitializing: {}, initialized: {}",
-                    this.name, this.id, System.identityHashCode(this), isInitializing, initialized, new Exception());
             initialized = false;
             return;
         }
@@ -256,9 +248,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 tableNameToId = Maps.newConcurrentMap();
                 idToTbl = Maps.newConcurrentMap();
                 lastUpdateTime = log.getLastUpdateTime();
-                LOG.info("yy debug replayInitDb 2 db name {}, id {}, iid{}, isInitializing: {}, initialized: {}",
-                        this.name, this.id, System.identityHashCode(this), isInitializing, initialized,
-                        new Exception());
                 initialized = false;
                 return;
             }
@@ -266,8 +255,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         tableNameToId = tmpTableNameToId;
         idToTbl = tmpIdToTbl;
         lastUpdateTime = log.getLastUpdateTime();
-        LOG.info("yy debug replayInitDb 3 db name {}, id {}, iid{}, isInitializing: {}, initialized: {}",
-                this.name, this.id, System.identityHashCode(this), isInitializing, initialized, new Exception());
         initialized = true;
     }
 
@@ -317,8 +304,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     private void buildMetaCache() {
         if (metaCache == null) {
-            LOG.info("yy debug buildMetaCache. db: {}, iid: {}", this.name, System.identityHashCode(this),
-                    new Exception());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("buildMetaCache for database: {}:{}", this.name, this.id, new Exception());
+            }
             metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
@@ -409,11 +397,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             try {
                 List<String> tblNames = Lists.newArrayList(getTableNamesWithLock());
                 if (!tblNames.contains(localTableName)) {
+                    // reset the table name list to ensure it is up-to-date
                     resetMetaCacheNames();
                     tblNames = Lists.newArrayList(getTableNamesWithLock());
                     if (!tblNames.contains(localTableName)) {
-                        LOG.warn("Table {} does not exist in the remote system. Skipping initialization.",
-                                localTableName);
+                        LOG.warn("Table {} does not exist in the remote database {}. Skipping initialization.",
+                                localTableName, this.name);
                         return null;
                     }
                 }
@@ -488,21 +477,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
      */
     public Optional<T> getTableForReplay(String tblName) {
         Preconditions.checkState(extCatalog.getUseMetaCache().isPresent(), extCatalog.getName() + "." + name);
-        String finalName = getLocalTableName(tblName, true);
-        if (finalName == null) {
-            LOG.warn("yy debug getTableForReplay: table name is null, db: {}, iid: {}, init: {}",
-                    this.name, System.identityHashCode(this), isInitialized());
+        String localName = getLocalTableName(tblName, true);
+        if (localName == null) {
             return Optional.empty();
         }
         if (extCatalog.getUseMetaCache().get()) {
-            LOG.info("yy debug getTableForReplay {} from metacache, db: {}, iid: {}, init: {}",
-                    finalName, this.name, System.identityHashCode(this), isInitialized());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getTableForReplay from metacache, db: {}.{}, is db init: {}",
+                        this.extCatalog.getName(), this.name, isInitialized());
+            }
             if (!isInitialized()) {
                 return Optional.empty();
             }
-            return metaCache.tryGetMetaObj(finalName);
-        } else if (tableNameToId.containsKey(finalName)) {
-            return Optional.ofNullable(idToTbl.get(tableNameToId.get(finalName)));
+            return metaCache.tryGetMetaObj(localName);
+        } else if (tableNameToId.containsKey(localName)) {
+            return Optional.ofNullable(idToTbl.get(tableNameToId.get(localName)));
         } else {
             return Optional.empty();
         }
@@ -660,6 +649,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
+    /**
+     * Get the local table name based on the given table name.
+     *
+     * @param tableName
+     * @param isReplay, if true, only check local cache, will not visit remote system
+     * @return
+     */
     @Nullable
     private String getLocalTableName(String tableName, boolean isReplay) {
         String finalName = tableName;
@@ -779,7 +775,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public void unregisterTable(String tableName) {
         makeSureInitialized();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("try unregister table [{}]", tableName);
+            LOG.debug("unregister table {}.{}", this.name, tableName);
         }
         setLastUpdateTime(System.currentTimeMillis());
         // check if the table exists in cache, it not, does return
@@ -885,7 +881,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (extCatalog.getUseMetaCache().isPresent() && extCatalog.getUseMetaCache().get() && metaCache != null) {
             metaCache.resetNames();
         } else {
-            setUnInitialized();
+            resetToUninitialized();
         }
     }
 }

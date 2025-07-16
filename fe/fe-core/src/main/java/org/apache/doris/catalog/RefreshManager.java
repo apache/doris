@@ -78,7 +78,7 @@ public class RefreshManager {
     }
 
     // Refresh database
-    public void handleRefreshDb(String catalogName, String dbName, boolean invalidCache) throws DdlException {
+    public void handleRefreshDb(String catalogName, String dbName) throws DdlException {
         Env env = Env.getCurrentEnv();
         CatalogIf catalog = catalogName != null ? env.getCatalogMgr().getCatalog(catalogName) : env.getCurrentCatalog();
         if (catalog == null) {
@@ -88,9 +88,9 @@ public class RefreshManager {
             throw new DdlException("Only support refresh database in external catalog");
         }
         DatabaseIf db = catalog.getDbOrDdlException(dbName);
-        refreshDbInternal((ExternalDatabase) db, invalidCache);
+        refreshDbInternal((ExternalDatabase) db);
 
-        ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(catalog.getId(), db.getFullName(), invalidCache);
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(catalog.getId(), db.getFullName());
         Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
     }
 
@@ -109,14 +109,13 @@ public class RefreshManager {
         if (!db.isPresent()) {
             LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
         } else {
-            refreshDbInternal(db.get(), log.isInvalidCache());
+            refreshDbInternal(db.get());
         }
     }
 
-    private void refreshDbInternal(ExternalDatabase db, boolean invalidCache) {
-        db.setUnInitialized();
-        LOG.info("refresh database {} in catalog {} with invalidCache {}", db.getFullName(),
-                db.getCatalog().getName(), invalidCache);
+    private void refreshDbInternal(ExternalDatabase db) {
+        db.resetToUninitialized();
+        LOG.info("refresh database {} in catalog {}", db.getFullName(), db.getCatalog().getName());
     }
 
     // Refresh table

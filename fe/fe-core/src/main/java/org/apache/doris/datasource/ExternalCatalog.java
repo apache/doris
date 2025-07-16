@@ -352,8 +352,9 @@ public abstract class ExternalCatalog
 
     private void buildMetaCache() {
         if (metaCache == null) {
-            LOG.info("yy debug buildMetaCache. catalog: {}, iid: {}", this.name, System.identityHashCode(this),
-                    new Exception());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
+            }
             metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
@@ -363,7 +364,7 @@ public abstract class ExternalCatalog
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized()));
+                    (key, value, cause) -> value.ifPresent(v -> v.resetToUninitialized()));
         }
     }
 
@@ -578,8 +579,9 @@ public abstract class ExternalCatalog
         refreshOnlyCatalogCache(invalidCache);
     }
 
-    public void onRefreshCache(boolean invalidCache) {
-        refreshOnlyCatalogCache(invalidCache);
+    // Only for hms event handling.
+    public void onRefreshCache() {
+        refreshOnlyCatalogCache(true);
     }
 
     private void refreshOnlyCatalogCache(boolean invalidCache) {
@@ -589,7 +591,7 @@ public abstract class ExternalCatalog
             } else if (!useMetaCache.get()) {
                 this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-                    db.setUnInitialized();
+                    db.resetToUninitialized();
                 }
             }
         }
@@ -888,8 +890,10 @@ public abstract class ExternalCatalog
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(String dbName) {
         Preconditions.checkState(useMetaCache.isPresent(), name);
         if (useMetaCache.get()) {
-            LOG.info("yy debug getDbForReplay {} from metacache, db: {}, iid: {}, init: {}",
-                    dbName, this.name, System.identityHashCode(this), isInitialized());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getDbForReplay from metacache, db: {}.{}, catalog id: {}, is catalog init: {}",
+                        this.name, dbName, this.id, isInitialized());
+            }
             if (!isInitialized()) {
                 return Optional.empty();
             }
@@ -1163,9 +1167,15 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Unregisters a database from the catalog.
+     * Internally, remove the database meta from cache
+     *
+     * @param dbName
+     */
     public void unregisterDatabase(String dbName) {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("drop database [{}]", dbName);
+            LOG.debug("unregister database [{}]", dbName);
         }
         if (useMetaCache.get()) {
             if (isInitialized()) {
@@ -1174,7 +1184,7 @@ public abstract class ExternalCatalog
         } else {
             Long dbId = dbNameToId.remove(dbName);
             if (dbId == null) {
-                LOG.warn("drop database [{}] failed", dbName);
+                LOG.warn("unregister database {}.{} failed, not find in map. ignore.", this.name, dbName);
             } else {
                 idToDb.remove(dbId);
             }
@@ -1451,6 +1461,10 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Resets the name list in meta cache.
+     * Usually used after creating database in catalog, so that user can see newly created db immediately.
+     */
     public void resetMetaCacheNames() {
         if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
             metaCache.resetNames();

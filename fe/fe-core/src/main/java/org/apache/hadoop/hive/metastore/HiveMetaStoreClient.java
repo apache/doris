@@ -644,8 +644,9 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     TTransportException tte = null;
     MetaException lastException = null;
 
-    // print every item in conf
-    LOG.info("HiveMetaStoreClient open() called with conf: " + conf.toString());
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("HiveMetaStoreClient open() called with conf: " + conf.toString());
+    }
     boolean useSSL = MetastoreConf.getBoolVar(conf, ConfVars.USE_SSL);
     boolean useSasl = MetastoreConf.getBoolVar(conf, ConfVars.USE_THRIFT_SASL);
     boolean useFramedTransport = MetastoreConf.getBoolVar(conf, ConfVars.USE_THRIFT_FRAMED_TRANSPORT);

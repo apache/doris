@@ -123,7 +123,9 @@ public class IcebergMetadataCache {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
         try {
-            LOG.info("yy debug: load iceberg table {}", nameMapping, new Exception());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("load iceberg table {}", nameMapping, new Exception());
+            }
             return ((ExternalCatalog) catalog).getPreExecutionAuthenticator().execute(()
                     -> ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
         } catch (Exception e) {
@@ -165,7 +167,10 @@ public class IcebergMetadataCache {
                 .filter(entry -> entry.getKey().nameMapping.getCtlId() == catalogId)
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
-                    LOG.info("yy debug invalidate catalog cache {}", entry.getKey().nameMapping, new Exception());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.info("invalidate iceberg table cache {} when invalidating catalog cache",
+                                entry.getKey().nameMapping, new Exception());
+                    }
                     tableCache.invalidate(entry.getKey());
                 });
 
@@ -197,7 +202,10 @@ public class IcebergMetadataCache {
                 })
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
-                    LOG.info("yy debug invalidate table cache {}", entry.getKey().nameMapping, new Exception());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.info("invalidate iceberg table cache {}",
+                                entry.getKey().nameMapping, new Exception());
+                    }
                     tableCache.invalidate(entry.getKey());
                 });
 
@@ -230,7 +238,10 @@ public class IcebergMetadataCache {
                 })
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
-                    LOG.info("yy debug invalidate db cache {}", entry.getKey().nameMapping, new Exception());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.info("invalidate iceberg table cache {} when invalidating db cache",
+                                entry.getKey().nameMapping, new Exception());
+                    }
                     tableCache.invalidate(entry.getKey());
                 });
 

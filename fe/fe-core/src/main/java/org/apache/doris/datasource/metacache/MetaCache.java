@@ -98,8 +98,10 @@ public class MetaCache<T> {
                 if (val != null && val.isPresent()) {
                     return val;
                 }
-                LOG.info("yy debug metacache {} getMetaObj, name: {}, id: {}, iid:{}",
-                        this.name, name, id, System.identityHashCode(this), new Exception());
+                if (LOG.isDebugEnabled()) {
+                    LOG.info("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
+                            this.name, name, id, new Exception());
+                }
                 metaObjCache.invalidate(name);
                 val = metaObjCache.get(name);
                 idToName.put(id, name);
@@ -110,8 +112,6 @@ public class MetaCache<T> {
 
     public Optional<T> tryGetMetaObj(String name) {
         Optional<T> val = metaObjCache.getIfPresent(name);
-        LOG.info("yy debug metacache {} tryGetMetaObj, name: {}, iid: {}, exist: {}",
-                this.name, name, System.identityHashCode(this), (val == null || !val.isPresent()), new Exception());
         if (val == null || !val.isPresent()) {
             return Optional.empty();
         }
@@ -145,16 +145,19 @@ public class MetaCache<T> {
                 return v;
             }
         });
-        LOG.info("yy debug metacache {} invalidate, name: {}, localName: {}, id: {}, iid: {}", name, localName, id,
-                System.identityHashCode(this), new Exception());
+        if (LOG.isDebugEnabled()) {
+            LOG.info("invalidate obj in metacache {}, obj name: {}, id: {}",
+                    name, localName, id, new Exception());
+        }
         metaObjCache.invalidate(localName);
         idToName.remove(id);
     }
 
     public void invalidateAll() {
         namesCache.invalidateAll();
-        LOG.info("yy debug metacache {} invalidateAll. iid: {}", name, new Exception(),
-                System.identityHashCode(this));
+        if (LOG.isDebugEnabled()) {
+            LOG.info("invalidate all in metacache {}", name, new Exception());
+        }
         metaObjCache.invalidateAll();
         idToName.clear();
     }
@@ -170,6 +173,10 @@ public class MetaCache<T> {
         metaObjCache.put(name, Optional.of(db));
     }
 
+    /**
+     * Reset the names cache.
+     * Should only be used after creating new database/table
+     */
     public void resetNames() {
         namesCache.invalidateAll();
     }
