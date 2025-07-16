@@ -49,7 +49,7 @@ class DataTypeDateTimeV2;
 } // namespace doris::vectorized
 
 namespace doris {
-
+#include "common/compile_check_avoid_begin.h"
 enum TimeUnit {
     MICROSECOND,
     MILLISECOND,
@@ -1650,7 +1650,7 @@ struct DateTraits<uint64_t> {
     using T = DateV2Value<DateTimeV2ValueType>;
     using DateType = vectorized::DataTypeDateTimeV2;
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris
 
 template <>
