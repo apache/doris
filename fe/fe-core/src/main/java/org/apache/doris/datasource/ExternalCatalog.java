@@ -796,7 +796,7 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getAccessManager().removeAccessController(name);
     }
 
-    public void replayInitCatalog(InitCatalogLog log) {
+    public synchronized void replayInitCatalog(InitCatalogLog log) {
         // If the remote name is missing during upgrade, or
         // the refresh db's remote name is empty,
         // all databases in the Map will be reinitialized.

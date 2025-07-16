@@ -15,11 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_use_meta_cache_false", "p0,external,hive,external_docker,external_docker_hive") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable Hive test.")
+        return;
+    }
+
+    def allFrontends = sql """show frontends;"""
+    logger.info("allFrontends: " + allFrontends)
+    def frontendCounts = allFrontends.size()
+    def isMaster = true
+
+    for (def i = 0; i < frontendCounts; i++) {
+        def currentFrontend = allFrontends[i]
+        def isCurrent = currentFrontend[18]
+        if (isCurrent.equals("Yes")) {
+            isMaster = (currentFrontend[8].equals("true"))
+            break
+        }
+    }
+
+    logger.info("connect to master:: " + isMaster)
+    if (!isMaster) {
+        // use_meta_cache = false with connection to non master
+        // will cause the result unstable, so skip it
         return;
     }
 
@@ -42,11 +63,11 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 );"""
                 
                 // create from Doris, the cache will be filled immediately
-                String database= "test_use_meta_cache_db"
-                String table = "test_use_meta_cache_tbl"
-                String database_hive = "test_use_meta_cache_db_hive"
-                String table_hive = "test_use_meta_cache_tbl_hive"
-                String partitioned_table_hive = "test_use_meta_cache_partitioned_tbl_hive"
+                String database= "test_use_meta_cache_db_${use_meta_cache}"
+                String table = "test_use_meta_cache_tbl_${use_meta_cache}"
+                String database_hive = "test_use_meta_cache_db_hive_${use_meta_cache}"
+                String table_hive = "test_use_meta_cache_tbl_hive_${use_meta_cache}"
+                String partitioned_table_hive = "test_use_meta_cache_partitioned_tbl_hive_${use_meta_cache}"
 
                 sql "switch ${catalog}"
                 sql "drop database if exists ${database} force"
@@ -76,6 +97,7 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 } else {
                     // if not use meta cache, can not use
                     sql "refresh catalog ${catalog}"
+                    sql "show databases"
                     sql "use ${database_hive}"
                 }
 
@@ -89,13 +111,14 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 if (use_meta_cache) {
                     // but can select
                     sql "select * from ${table_hive}"
-                    // still not see
+                    // after select, the names cache is refresh, so can see
                     order_qt_sql06 "show tables"
                     sql "refresh database ${database_hive}"
                 } else {
                     // if not use meta cache, can not select
                     sql "refresh database ${database_hive}"
                     sql "select * from ${table_hive}"
+                    // after select, the names cache is refresh, so can see
                     order_qt_sql06 "show tables"
                 }
                 // can see
@@ -145,7 +168,6 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 // can not see
                 order_qt_sql13 "show databases like '%${database_hive}%'";
             }
-            test_use_meta_cache(true)
             test_use_meta_cache(false)
         } finally {
         }
