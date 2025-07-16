@@ -886,6 +886,9 @@ public class VariableMgr {
         String[] options() default {};
 
         String convertBoolToLongMethod() default "";
+        // If the variable affects the outcome, set it to true.
+        // If this value is true, it will ignore needForward and enforce forwarding.
+        boolean affectResult() default false;
     }
 
     private static class VarContext {
