@@ -191,7 +191,6 @@ public:
             have_nulls = true;
             return 0;
         } else {
-            // PrimitiveTypeTraits<PrimitiveType::TYPE_ARRAY>::CppType a;
             field_types.insert(T);
             type_indexes.insert(T);
             return 0;
