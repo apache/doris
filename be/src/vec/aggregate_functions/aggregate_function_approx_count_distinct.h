@@ -28,10 +28,10 @@
 #include "util/slice.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/columns/column_decimal.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris {
