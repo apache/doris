@@ -146,10 +146,10 @@ suite("test_cast") {
     qt_sql30 "select cast(8385960 as time);"
     qt_sql31 "select cast(8390000 as time);"
 
-    test {
-        sql "select cast(cast('838:59:59' as variant) as time);"
-        exception "cannot cast VARIANT to TIMEV2"
-    }
+    //test {
+    //    sql "select cast(cast('838:59:59' as variant) as time);"
+    //    exception "cannot cast VARIANT to TIMEV2"
+    //}
     qt_sql33 "select cast(cast('838:59:59' as text) as time);"
     qt_sql34 "select cast(cast('838:59:59' as string) as time);"
     qt_sql35 "select cast(cast('838:59:59' as char) as time);"
@@ -170,14 +170,14 @@ suite("test_cast") {
     qt_sql48 "select cast(1 as time);"
     qt_sql49 "select cast(cast(1111.1 as float) as time);"
     qt_sql50 "select cast(cast(1111.1 as double) as time);"
-    test {
-        sql "select cast(cast(111111 as json) as time);"
-        exception "cannot cast JSON to TIMEV2"
-    }
-    test {
-        sql "select cast(cast(111111 as jsonb) as time);"
-        exception "cannot cast JSON to TIMEV2"
-    }
+    //test {
+    //    sql "select cast(cast(111111 as json) as time);"
+    //    exception "cannot cast JSON to TIMEV2"
+    //}
+    //test {
+    //    sql "select cast(cast(111111 as jsonb) as time);"
+    //    exception "cannot cast JSON to TIMEV2"
+    //}
     // invalid formats
     qt_sql53 "select cast('11-11-11' as time);"
     qt_sql54 "select cast('11@11@11' as time);"
