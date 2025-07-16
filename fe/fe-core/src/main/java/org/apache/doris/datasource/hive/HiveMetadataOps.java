@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -342,7 +343,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             // Invalidate cache.
             Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
             if (db.isPresent()) {
-                db.get().unregisterTable(tblName);
+                Optional tbl = db.get().getTableForReplay(tblName);
+                if (tbl.isPresent()) {
+                    Env.getCurrentEnv().getRefreshManager()
+                            .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), 0);
+                }
             }
         } catch (Exception e) {
             LOG.warn("exception when calling afterTruncateTable for db: {}, table: {}, error: {}",
