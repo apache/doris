@@ -1024,9 +1024,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
                     // don't sleep if it's urgent
                     if (!urgent) {
-                        long start = Config.mow_get_ms_lock_retry_backoff_start_ms;
-                        long end = Config.mow_get_ms_lock_retry_backoff_end_ms;
-                        long randomMillis = start + (long) (Math.random() * (end - start));
+                        long base = Config.mow_get_ms_lock_retry_backoff_base;
+                        long interval = Config.mow_get_ms_lock_retry_backoff_interval;
+                        if (Config.enable_mow_load_force_take_ms_lock
+                                && interval > Config.mow_load_force_take_ms_lock_threshold_ms) {
+                            interval = Config.mow_load_force_take_ms_lock_threshold_ms;
+                        }
+                        long randomMillis = base + (long) (Math.random() * interval);
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("randomMillis:{}", randomMillis);
                         }
