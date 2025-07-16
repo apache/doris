@@ -312,13 +312,6 @@ public:
     virtual int64_t get_kv_bytes() const = 0;
 
     /**
-     * Get the remaining size of the range, some kinds of iterators may not support this function.
-     *
-     * @return size
-     */
-    virtual int remaining() const = 0;
-
-    /**
      * Resets to initial state, some kinds of iterators may not support this function.
      */
     virtual void reset() = 0;
@@ -483,11 +476,6 @@ public:
             total_bytes += kvs_[i].key_length + kvs_[i].value_length;
         }
         return total_bytes;
-    }
-
-    int remaining() const override {
-        if (idx_ < 0 || idx_ >= kvs_size_) return 0;
-        return kvs_size_ - idx_;
     }
 
     void reset() override { idx_ = 0; }
