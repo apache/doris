@@ -203,7 +203,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         tableFormatFileDesc.setIcebergParams(fileDesc);
-        rangeDesc.setDataLakePartitionValues(icebergSplit.getPartitionValues());
+        rangeDesc.setDataLakePartitionValues(icebergSplit.getIcebergPartitionValues());
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -343,6 +343,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 String partitionString = IcebergUtils.toPartitionString(field.type(), value);
                 partitionValues.put(field.name(), partitionString);
             }
+            split.setIcebergPartitionValues(partitionValues);
             // Counts the number of partitions read
             partitionPathSet.add(partitionData.toString());
         }
