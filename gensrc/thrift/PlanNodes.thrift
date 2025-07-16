@@ -464,8 +464,6 @@ struct TFileScanRangeParams {
     25: optional i64 current_schema_id;
     // All schema information used in the current query process
     26: optional list<ExternalTableSchema.TSchema> history_schema_info
-    // partition values for data lake table format like iceberg/hudi/paimon/lakesoul
-    27: optional map<string, string> data_lake_partition_values;
 }
 
 struct TFileRangeDesc {
@@ -495,6 +493,8 @@ struct TFileRangeDesc {
     12: optional string fs_name
     13: optional TFileFormatType format_type;
     14: optional i64 self_split_weight
+    // partition values for data lake table format like iceberg/hudi/paimon/lakesoul
+    15: optional map<string, string> data_lake_partition_values;
 }
 
 struct TSplitSource {
