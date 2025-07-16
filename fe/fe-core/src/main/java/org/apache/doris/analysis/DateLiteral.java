@@ -704,11 +704,9 @@ public class DateLiteral extends LiteralExpr {
                 return new String(dateTimeChars, 0, 19);
             }
             long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
-            if (scaledMicroseconds != 0) {
-                dateTimeChars[19] = '.';
-                fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
-                return new String(dateTimeChars, 0, 20 + scale);
-            }
+            dateTimeChars[19] = '.';
+            fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+            return new String(dateTimeChars, 0, 20 + scale);
         }
 
         return new String(dateTimeChars, 0, 19);
