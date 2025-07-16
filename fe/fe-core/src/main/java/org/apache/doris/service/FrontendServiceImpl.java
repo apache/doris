@@ -2741,6 +2741,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     replicaInfo.setBePort(backend.getBePort());
                     replicaInfo.setHttpPort(backend.getHttpPort());
                     replicaInfo.setBrpcPort(backend.getBrpcPort());
+                    replicaInfo.setIsAlive(backend.isAlive());
+                    replicaInfo.setBackendId(backend.getId());
                     replicaInfo.setReplicaId(replica.getId());
                     replicaInfos.add(replicaInfo);
                 }
@@ -3144,7 +3146,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         //instantiate RestoreCommand
         LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDbName(), label.getLabelName());
         List<TableRefInfo> tableRefInfos = new ArrayList<>();
-        for (TableRef tableRef : restoreTableRefClause.getTableRefList()) {
+        List<TableRef> tableRefList = restoreTableRefClause == null
+                ? new ArrayList<>() : restoreTableRefClause.getTableRefList();
+        for (TableRef tableRef : tableRefList) {
             TableName tableName = tableRef.getName();
             String[] aliases = tableRef.getAliases();
             PartitionNames partitionNames = tableRef.getPartitionNames();
@@ -3206,7 +3210,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(fullUserName, "%"));
             ctx.setThreadLocalInfo();
             restoreCommand.validate(ctx);
-            ctx.getEnv().getBackupHandler().process(restoreCommand);
+            Env.getCurrentEnv().getBackupHandler().process(restoreCommand);
         } catch (UserException e) {
             LOG.warn("failed to restore: {}, command: {}", e.getMessage(), restoreCommand, e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);

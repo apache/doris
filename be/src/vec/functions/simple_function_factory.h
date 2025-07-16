@@ -116,7 +116,7 @@ void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
 
-#ifdef BE_TEST
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
 void register_function_throw_exception(SimpleFunctionFactory& factory);
 #endif
 
@@ -324,7 +324,7 @@ public:
             register_function_compress(instance);
             register_function_dict_get(instance);
             register_function_dict_get_many(instance);
-#ifdef BE_TEST
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
             register_function_throw_exception(instance);
 #endif
         });

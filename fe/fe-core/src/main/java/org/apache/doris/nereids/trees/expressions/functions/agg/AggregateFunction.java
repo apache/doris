@@ -66,6 +66,10 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         return withDistinctAndChildren(distinct, children);
     }
 
+    public boolean forceSkipRegulator(AggregatePhase aggregatePhase) {
+        return false;
+    }
+
     public abstract AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children);
 
     /** getIntermediateTypes */

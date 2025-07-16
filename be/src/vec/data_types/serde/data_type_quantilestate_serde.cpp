@@ -22,12 +22,12 @@
 namespace doris::vectorized {
 
 void DataTypeQuantileStateSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                         Arena* mem_pool, int32_t col_id,
+                                                         Arena& arena, int32_t col_id,
                                                          int64_t row_num) const {
     const auto& col = reinterpret_cast<const ColumnQuantileState&>(column);
     auto& val = const_cast<QuantileState&>(col.get_element(row_num));
     size_t actual_size = val.get_serialized_size();
-    auto* ptr = mem_pool->alloc(actual_size);
+    auto* ptr = arena.alloc(actual_size);
     val.serialize((uint8_t*)ptr);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     result.writeStartBinary();

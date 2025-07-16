@@ -103,7 +103,7 @@ public:
     // NOTE: stale rowsets will be lost after BE restarts, so there may be some stale delete bitmaps
     // which will not be cleared.
     // version = 2 : https://github.com/apache/doris/pull/49822
-    int do_delete_bitmap_storage_optimize_check(int version = 1);
+    int do_delete_bitmap_storage_optimize_check(int version = 2);
 
     int do_mow_job_key_check();
 
@@ -130,8 +130,6 @@ private:
             const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
     int get_pending_delete_bitmap_keys(int64_t tablet_id,
                                        std::unordered_set<std::string>& pending_delete_bitmaps);
-
-    int check_delete_bitmap_storage_optimize(int64_t tablet_id);
     int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, int64_t& abnormal_rowsets_num);
 
     std::atomic_bool stopped_ {false};

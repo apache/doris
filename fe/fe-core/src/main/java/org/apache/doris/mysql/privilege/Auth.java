@@ -23,7 +23,6 @@ import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.PasswordOptions;
-import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetLdapPassVar;
@@ -1038,10 +1037,6 @@ public class Auth implements Writable {
         if (LOG.isDebugEnabled()) {
             LOG.debug("finish replaying ldap admin password.");
         }
-    }
-
-    public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
-        ldapManager.refresh(refreshLdapStmt.getIsAll(), refreshLdapStmt.getUser());
     }
 
     public void refreshLdap(RefreshLdapCommand command) {
