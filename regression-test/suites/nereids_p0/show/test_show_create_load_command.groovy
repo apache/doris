@@ -16,26 +16,16 @@
 // under the License.
 
 suite("test_show_create_load_command", "nereids_p0") {
-    def dbName = "test_show_create_load_db"
+    def dbName = "regression_test_nereids_p0_show"
     def tableName = "test_show_create_load_table"
     def label = "test_load_label"
 
-    // File path where the test data will be stored
-    def dataFilePath = """${context.dataPath}/test_show_create_load_data"""
+    // No need for dataFilePath or file writing; use inputText for dynamic content
 
     try {
         sql """CREATE DATABASE IF NOT EXISTS ${dbName}"""
 
         sql """DROP TABLE IF EXISTS ${dbName}.${tableName}"""
-
-        // Create a data file dynamically
-        def dataContent = """1,Alice
-2,Bob
-3,Charlie
-"""
-        new File(dataFilePath).withWriter('UTF-8') { writer ->
-            writer.write(dataContent)
-        }
 
         sql """
             CREATE TABLE IF NOT EXISTS ${dbName}.${tableName} (
@@ -46,32 +36,44 @@ suite("test_show_create_load_command", "nereids_p0") {
             PROPERTIES ("replication_num" = "1");
         """
 
-        // Use Stream Load via curl to create the load job with label (assume FE HTTP port 8030, adjust if needed)
-        def curlCommand = """curl --location-trusted -u root: -T ${dataFilePath} -H "label:${dbName}.${label}" -H "columns:id,name" -H "column_separator:," http://127.0.0.1:8030/api/${dbName}/${tableName}/_stream_load"""
-        def process = curlCommand.execute()
-        def code = process.waitFor()
-        def output = process.text
+        // Define the data content as a string (matches your original dynamic creation)
+        def dataContent = """1,Alice
+2,Bob
+3,Charlie
+"""
 
-        // Check if Stream Load succeeded (parse JSON output)
-        def json = new groovy.json.JsonSlurper().parseText(output)
-        if (json.Status != "Success") {
-            throw new Exception("Stream Load failed: ${output}")
+        // Perform Stream Load using the framework's streamLoad action
+        streamLoad {
+            db dbName
+            table tableName
+
+            set 'label', "${label}"
+
+            set 'columns', 'id,name'
+            set 'column_separator', ','
+
+            inputText dataContent
+
+            time 10000
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+            }
         }
 
-        // Wait briefly for the job to complete
-        sleep(5000)
-
-        // Test the SHOW CREATE LOAD command
-        checkNereidsExecute("""SHOW CREATE LOAD FOR ${label}""")
-        qt_cmd("""SHOW CREATE LOAD FOR ${label}""")
+        // Stream Load is synchronous, so no sleep needed; the job is complete and visible immediately
+        // Test the SHOW CREATE LOAD command with qualified db.label
+        checkNereidsExecute("""SHOW CREATE LOAD FOR ${dbName}.${label}""")
+        qt_cmd("""SHOW CREATE LOAD FOR ${dbName}.${label}""")
     } finally {
         sql """DROP TABLE IF EXISTS ${dbName}.${tableName}"""
         sql """DROP DATABASE IF EXISTS ${dbName}"""
-
-        // Delete the data file
-        def dataFile = new File(dataFilePath)
-        if (dataFile.exists()) {
-            dataFile.delete()
-        }
     }
 }
