@@ -25,6 +25,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
@@ -43,7 +44,6 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -56,7 +56,6 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
-import org.apache.paimon.types.DataField;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -136,6 +135,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
 
+    // The schema information involved in the current query process (including historical schema).
+    protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
+
     public PaimonScanNode(PlanNodeId id,
             TupleDescriptor desc,
             boolean needCheckColumnPriv,
@@ -148,8 +150,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         super.doInitialize();
         source = new PaimonSource(desc);
         serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
-        Preconditions.checkNotNull(source);
-        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
+        // Todo: Get the current schema id of the table, instead of using -1.
+        ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
     }
 
     @VisibleForTesting
@@ -176,16 +178,13 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
-    private Map<Integer, String> getSchemaInfo(Long schemaId) {
-        PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
-        TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
-                .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
-        Map<Integer, String> columnIdToName = new HashMap<>(tableSchema.fields().size());
-        for (DataField dataField : tableSchema.fields()) {
-            columnIdToName.put(dataField.id(), dataField.name().toLowerCase());
+    private void putHistorySchemaInfo(Long schemaId) {
+        if (currentQuerySchema.putIfAbsent(schemaId, Boolean.TRUE) == null) {
+            PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
+            TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+                    .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
+            params.addToHistorySchemaInfo(PaimonUtil.getSchemaInfo(tableSchema));
         }
-
-        return columnIdToName;
     }
 
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
@@ -209,8 +208,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }
+
+            putHistorySchemaInfo(paimonSplit.getSchemaId());
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
-            params.history_schema_info.computeIfAbsent(paimonSplit.getSchemaId(), this::getSchemaInfo);
         }
         fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));

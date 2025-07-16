@@ -47,6 +47,12 @@ class RepeatedField;
 
 namespace doris {
 
+#ifdef BE_TEST
+#define MOCK_REMOVE(str)
+#else
+#define MOCK_REMOVE(str) str
+#endif
+
 class ObjectPool;
 class PTupleDescriptor;
 class PSlotDescriptor;
@@ -105,7 +111,7 @@ private:
     const TupleId _parent;
     const int _col_pos;
     bool _is_nullable;
-    const std::string _col_name;
+    MOCK_REMOVE(const) std::string _col_name;
     const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;
