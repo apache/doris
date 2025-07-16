@@ -3457,7 +3457,7 @@ public class Config extends ConfigBase {
     public static long mow_load_force_take_ms_lock_threshold_ms = 500;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static long mow_get_ms_lock_retry_backoff_start_ms = 50;
+    public static long mow_get_ms_lock_retry_backoff_start_ms = 20;
 
     @ConfField(mutable = true, masterOnly = true)
     public static long mow_get_ms_lock_retry_backoff_end_ms = 100;
