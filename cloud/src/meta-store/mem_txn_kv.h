@@ -57,7 +57,7 @@ public:
 
     TxnErrorCode get_kv(const std::string& key, std::string* val, int64_t version);
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
-                        bool* more, std::map<std::string, std::string>* kv_list);
+                        int limit, bool* more, std::map<std::string, std::string>* kv_list);
 
     int64_t get_bytes_ {};
     int64_t put_bytes_ {};
