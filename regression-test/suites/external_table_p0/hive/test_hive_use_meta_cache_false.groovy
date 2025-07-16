@@ -151,6 +151,8 @@ suite("test_hive_use_meta_cache_false", "p0,external,hive,external_docker,extern
                 // can see because partition file listing is not cached
                 order_qt_sql09 "show partitions from ${partitioned_table_hive}"
 
+                // before drop table, we can see the tables
+                order_qt_sql091 "show tables"
                 // drop tables
                 hive_docker "drop table ${database_hive}.${partitioned_table_hive}"
                 hive_docker "drop table ${database_hive}.${table_hive}"

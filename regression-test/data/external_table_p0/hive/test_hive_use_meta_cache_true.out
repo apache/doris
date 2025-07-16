@@ -36,7 +36,13 @@ test_use_meta_cache_tbl_hive_true
 p1=part1
 p1=part2
 
+-- !sql091 --
+test_use_meta_cache_partitioned_tbl_hive_true
+test_use_meta_cache_tbl_hive_true
+
 -- !sql10 --
+test_use_meta_cache_partitioned_tbl_hive_true
+test_use_meta_cache_tbl_hive_true
 
 -- !sql11 --
 
@@ -82,7 +88,13 @@ test_use_meta_cache_tbl_hive_true
 p1=part1
 p1=part2
 
+-- !sql091 --
+test_use_meta_cache_partitioned_tbl_hive_true
+test_use_meta_cache_tbl_hive_true
+
 -- !sql10 --
+test_use_meta_cache_partitioned_tbl_hive_true
+test_use_meta_cache_tbl_hive_true
 
 -- !sql11 --
 
