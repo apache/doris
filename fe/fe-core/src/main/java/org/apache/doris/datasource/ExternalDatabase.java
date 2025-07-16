@@ -53,6 +53,7 @@ import com.google.gson.internal.LinkedTreeMap;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.List;
@@ -406,9 +407,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             try {
                 List<String> tblNames = Lists.newArrayList(getTableNamesWithLock());
                 if (!tblNames.contains(localTableName)) {
-                    tblNames = listTableNames().stream()
-                            .map(Pair::value)
-                            .collect(Collectors.toList());
+                    resetMetaCacheNames();
+                    tblNames = Lists.newArrayList(getTableNamesWithLock());
                     if (!tblNames.contains(localTableName)) {
                         LOG.warn("Table {} does not exist in the remote system. Skipping initialization.",
                                 localTableName);
@@ -486,15 +486,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
      */
     public Optional<T> getTableForReplay(String tblName) {
         Preconditions.checkState(extCatalog.getUseMetaCache().isPresent(), extCatalog.getName() + "." + name);
+        String finalName = getLocalTableName(tblName, true);
+        if (finalName == null) {
+            LOG.warn("yy debug getTableForReplay: table name is null, db: {}, iid: {}, init: {}",
+                    this.name, System.identityHashCode(this), isInitialized());
+            return Optional.empty();
+        }
         if (extCatalog.getUseMetaCache().get()) {
             LOG.info("yy debug getTableForReplay {} from metacache, db: {}, iid: {}, init: {}",
-                    tblName, this.name, System.identityHashCode(this), isInitialized());
+                    finalName, this.name, System.identityHashCode(this), isInitialized());
             if (!isInitialized()) {
                 return Optional.empty();
             }
-            return metaCache.tryGetMetaObj(tblName);
-        } else if (tableNameToId.containsKey(tblName)) {
-            return Optional.ofNullable(idToTbl.get(tableNameToId.get(tblName)));
+            return metaCache.tryGetMetaObj(finalName);
+        } else if (tableNameToId.containsKey(finalName)) {
+            return Optional.ofNullable(idToTbl.get(tableNameToId.get(finalName)));
         } else {
             return Optional.empty();
         }
@@ -635,6 +641,25 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public T getTableNullable(String tableName) {
         makeSureInitialized();
+        String finalName = getLocalTableName(tableName, false);
+        if (finalName == null) {
+            return null;
+        }
+        if (extCatalog.getUseMetaCache().get()) {
+            // must use full qualified name to generate id.
+            // otherwise, if 2 databases have the same table name, the id will be the same.
+            return metaCache.getMetaObj(finalName,
+                    Util.genIdByName(extCatalog.getName(), name, finalName)).orElse(null);
+        } else {
+            if (!tableNameToId.containsKey(finalName)) {
+                return null;
+            }
+            return idToTbl.get(tableNameToId.get(finalName));
+        }
+    }
+
+    @Nullable
+    private String getLocalTableName(String tableName, boolean isReplay) {
         String finalName = tableName;
         if (this.isStoredTableNamesLowerCase()) {
             finalName = tableName.toLowerCase();
@@ -642,13 +667,20 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (this.isTableNamesCaseInsensitive()) {
             finalName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (finalName == null) {
+                if (isReplay) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("failed to get final table name from: {}.{}.{}, is replay = true",
+                                getCatalog().getName(), getFullName(), tableName);
+                    }
+                    return null;
+                }
                 // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
                 // to prevent lowerCaseToTableName from being empty in some cases
                 listTableNames();
                 finalName = lowerCaseToTableName.get(tableName.toLowerCase());
                 if (finalName == null) {
                     if (LOG.isDebugEnabled()) {
-                        LOG.info("failed to get final table name from: {}.{}.{}",
+                        LOG.debug("failed to get final table name from: {}.{}.{}",
                                 getCatalog().getName(), getFullName(), tableName);
                     }
                     return null;
@@ -663,17 +695,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             LOG.debug("get table {} from database: {}.{}, final name is: {}, catalog id: {}",
                     tableName, getCatalog().getName(), getFullName(), finalName, getCatalog().getId());
         }
-        if (extCatalog.getUseMetaCache().get()) {
-            // must use full qualified name to generate id.
-            // otherwise, if 2 databases have the same table name, the id will be the same.
-            return metaCache.getMetaObj(finalName,
-                    Util.genIdByName(extCatalog.getName(), name, finalName)).orElse(null);
-        } else {
-            if (!tableNameToId.containsKey(finalName)) {
-                return null;
-            }
-            return idToTbl.get(tableNameToId.get(finalName));
-        }
+        return finalName;
     }
 
     @Override
