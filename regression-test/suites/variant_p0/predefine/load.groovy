@@ -26,9 +26,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
         CREATE TABLE `test_predefine` (
             `id` bigint NOT NULL,
             `type` varchar(30) NULL,
-            `v1` variant<'a.b.c':int,'ss':string,'dcm':decimal(38, 9),'dt':datetime,'ip':ipv4,'a.b.d':double,
-            properties("variant_max_subcolumns_count" = "${count}")
-            > NULL,
+            `v1` variant<'a.b.c':int,'ss':string,'dcm':decimal(38, 9),'dt':datetime,'ip':ipv4,'a.b.d':double> NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 3
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
@@ -60,7 +58,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
         CREATE TABLE `test_predefine1` (
             `id` bigint NOT NULL,
-            `v1` variant<properties("variant_max_subcolumns_count" = "0")> NULL,
+            `v1` variant NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");
@@ -220,7 +218,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql "DROP TABLE IF EXISTS test_predefine3"
     sql """CREATE TABLE `test_predefine3` (
             `id` bigint NOT NULL,
-            `v` variant<'nested.a':string, properties("variant_max_subcolumns_count" = "${count}")> NULL)
+            `v` variant<'nested.a':string> NULL)
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "false", "disable_auto_compaction" = "true");"""
 
@@ -256,10 +254,8 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
     CREATE TABLE `region_insert` (
       `k` bigint NULL,
-      `var` variant<'c_acctbal':text,'c_address':text,'c_comment':text,'c_custkey':text,'c_mktsegment':text,'c_name':text,'c_nationkey':text,'c_phone':text,'p_brand':float,'p_comment':text,'p_container':text,'p_mfgr':text,'p_name':text,'p_partkey':text,'p_retailprice':text,'p_size':text,'p_type':text,'r_comment':text,'r_name':text,'r_regionkey':text,'ps_availqty':text,'ps_comment':text,'ps_none':text,'ps_partkey':text,'ps_suppkey':text,'ps_supplycost':text,'key_46':text,'key_47':text,'key_48':text,'o_clerk':text,'o_comment':text,'o_custkey':text,'o_orderdate':text,'o_orderkey':text,'o_orderpriority':text,'o_orderstatus':text,'o_shippriority':text,'o_totalprice':text,'key_80':array<boolean>
-      , properties("variant_max_subcolumns_count" = "${count}")
-      > NULL,
-      `OfvZr` variant<properties("variant_max_subcolumns_count" = "${count}")> NULL
+      `var` variant<'c_acctbal':text,'c_address':text,'c_comment':text,'c_custkey':text,'c_mktsegment':text,'c_name':text,'c_nationkey':text,'c_phone':text,'p_brand':float,'p_comment':text,'p_container':text,'p_mfgr':text,'p_name':text,'p_partkey':text,'p_retailprice':text,'p_size':text,'p_type':text,'r_comment':text,'r_name':text,'r_regionkey':text,'ps_availqty':text,'ps_comment':text,'ps_none':text,'ps_partkey':text,'ps_suppkey':text,'ps_supplycost':text,'key_46':text,'key_47':text,'key_48':text,'o_clerk':text,'o_comment':text,'o_custkey':text,'o_orderdate':text,'o_orderkey':text,'o_orderpriority':text,'o_orderstatus':text,'o_shippriority':text,'o_totalprice':text,'key_80':array<boolean>> NULL,
+      `OfvZr` variant NULL
     ) ENGINE=OLAP
     DUPLICATE KEY(`k`)
     DISTRIBUTED BY HASH(`k`) BUCKETS 5
@@ -287,7 +283,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
         CREATE TABLE `test_bf_with_bool` (
       `k` bigint NULL,
-      `var` variant<'c_bool':boolean, properties("variant_max_subcolumns_count" = "${count}")>
+      `var` variant<'c_bool':boolean>
     ) ENGINE=OLAP
     DUPLICATE KEY(`k`)
     DISTRIBUTED BY HASH(`k`) BUCKETS 5
@@ -305,7 +301,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
         CREATE TABLE `test_array_with_nulls` (
       `k` bigint NULL,
-      `var` variant<match_name 'array_decimal':array<decimalv3(27,9)>, properties("variant_max_subcolumns_count" = "${count}")>
+      `var` variant<match_name 'array_decimal':array<decimalv3(27,9)>>
     ) ENGINE=OLAP
     DUPLICATE KEY(`k`)
     DISTRIBUTED BY HASH(`k`) BUCKETS 1
@@ -329,7 +325,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
         CREATE TABLE `test_variant_type` (
       `k` bigint NULL,
-      `var` variant<match_name 'dcm' : decimal, 'db' : double, 'dt' : datetime, 'a.b.c' : array<int>, properties("variant_max_subcolumns_count" = "${count}")>
+      `var` variant<match_name 'dcm' : decimal, 'db' : double, 'dt' : datetime, 'a.b.c' : array<int>>
     ) ENGINE=OLAP
     DUPLICATE KEY(`k`)
     DISTRIBUTED BY HASH(`k`) BUCKETS 1
@@ -345,7 +341,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
         CREATE TABLE `test_variant_type_not_null` (
       `k` bigint NULL,
-      `var` variant<match_name 'dcm' : decimal, 'db' : double, 'dt' : datetime, 'a.b.c' : array<int>, properties("variant_max_subcolumns_count" = "${count}")> not null
+      `var` variant<match_name 'dcm' : decimal, 'db' : double, 'dt' : datetime, 'a.b.c' : array<int>> not null
     ) ENGINE=OLAP
     DUPLICATE KEY(`k`)
     DISTRIBUTED BY HASH(`k`) BUCKETS 1

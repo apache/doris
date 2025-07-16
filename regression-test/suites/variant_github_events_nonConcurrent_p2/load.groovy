@@ -95,6 +95,11 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     // 2022
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-16.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-10.json'}""")
+
+    sql """ ALTER TABLE github_events ADD INDEX idx_var2 (`v`) USING INVERTED """
+    wait_for_latest_op_on_table_finish("github_events", timeout)
+
+    // 2022
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
 

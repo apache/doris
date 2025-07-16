@@ -1714,7 +1714,6 @@ primitiveColType
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
-    | type=VARIANT
     | type=ALL
     ;
 
@@ -1730,6 +1729,7 @@ variantTypeDefinitions
     : VARIANT LT variantSubColTypeList COMMA properties=propertyClause GT  #variantWithFieldsAndProps
     | VARIANT LT variantSubColTypeList GT                                  #variantWithOnlyFields
     | VARIANT LT properties=propertyClause GT                              #variantWithOnlyProps
+    | VARIANT                                                              #variant
     ;
 
 variantSubColTypeList

@@ -18,13 +18,14 @@
 suite("variant_sub_path_pruning", "variant_type"){
 
     sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    sql """ set global_variant_max_subcolumns_count = 0 """
 
     sql "DROP TABLE IF EXISTS pruning_test"
 
     sql """
         CREATE TABLE `pruning_test` (
           `id` INT NULL,
-          `dt` VARIANT<properties("variant_max_subcolumns_count" = "0")> NULL
+          `dt` VARIANT NULL
         ) 
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id)
