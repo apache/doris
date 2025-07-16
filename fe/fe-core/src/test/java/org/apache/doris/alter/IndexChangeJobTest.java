@@ -662,7 +662,9 @@ public class IndexChangeJobTest {
         fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
-        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = new Database(CatalogTestUtil.testDbId1, CatalogTestUtil.testDb1);
+        masterEnv.unprotectCreateDb(db);
+        CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "ngram_bf_index";
         IndexDef indexDef = new IndexDef(indexName, false,
@@ -748,7 +750,9 @@ public class IndexChangeJobTest {
         fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
-        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = new Database(CatalogTestUtil.testDbId1, CatalogTestUtil.testDb1);
+        masterEnv.unprotectCreateDb(db);
+        CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "ngram_bf_index";
         IndexDef indexDef = new IndexDef(indexName, false,
