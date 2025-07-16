@@ -17,6 +17,23 @@
 
 
 suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
+
+
+    def timeout = 60000
+    def wait_for_latest_op_on_table_finish = { tableName, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(3000) // wait change table state to normal
+                logger.info(tableName + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
     def table_name = "variant_add_multi_var_mulit_indexes"
     int count = new Random().nextInt(10) + 3
     sql "set global_variant_max_subcolumns_count = ${count}"
@@ -46,12 +63,16 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
     sql """insert into  ${table_name} values (2, '{"a" : 12345,"b" : 2}', '{"a" : 56789,"b" : 3}', '{"a" : 12345,"b" : 2}')"""
 
     sql """alter table ${table_name} add index idx_v2(v2) using inverted"""
+    wait_for_latest_op_on_table_finish(table_name, timeout)
 
     sql """alter table  ${table_name} add index idx_v3(v3) using inverted"""
+    wait_for_latest_op_on_table_finish(table_name, timeout)
 
     sql """alter table  ${table_name} add index idx_v4(v2) using inverted properties("parser" = "unicode")"""
+    wait_for_latest_op_on_table_finish(table_name, timeout)
 
     sql """alter table  ${table_name} add index idx_v5(v3) using inverted properties("parser" = "unicode", "support_phrase" = "true")"""
+    wait_for_latest_op_on_table_finish(table_name, timeout)
 
     sql """insert into  ${table_name} values (3, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}', '{"a" : 56789,"b" : 2}')"""
 
