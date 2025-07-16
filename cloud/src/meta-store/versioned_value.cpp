@@ -86,20 +86,20 @@ std::tuple<std::string_view, Versionstamp> VersionedRangeGetIterator::parse_key(
     return {key, version};
 }
 
-bool versioned_put(Transaction* txn, std::string_view key, std::string_view value) {
+void versioned_put(Transaction* txn, std::string_view key, std::string_view value) {
     std::string key_with_versionstamp(key);
     uint32_t offset = encode_versionstamp(Versionstamp::min(), &key_with_versionstamp);
     encode_versionstamp_end(&key_with_versionstamp);
-    txn->atomic_set_ver_key(key_with_versionstamp, offset, value);
-    return true;
+    bool ok = txn->atomic_set_ver_key(key_with_versionstamp, offset, value);
+    DCHECK(ok) << "Atomic set versioned key failed, key: " << hex(key)
+               << ", value size: " << value.size();
 }
 
-bool versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value) {
+void versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value) {
     std::string key_with_versionstamp(key);
     encode_versionstamp(v, &key_with_versionstamp);
     encode_versionstamp_end(&key_with_versionstamp);
     txn->put(key_with_versionstamp, value);
-    return true;
 }
 
 TxnErrorCode versioned_get(Transaction* txn, std::string_view key, Versionstamp snapshot_version,

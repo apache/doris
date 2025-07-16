@@ -129,12 +129,12 @@ void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v);
 void versioned_remove(Transaction* txn, std::string_view key_with_versionstamp);
 
 // Put a versioned value into the transaction with a specific versionstamp.
-bool versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value);
+void versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value);
 
 // Put a versioned value, the versionstamp will be generated automatically.
 //
 // The generated versionstamp will be the largest versionstamp in the underlying storage.
-bool versioned_put(Transaction* txn, std::string_view key, std::string_view value);
+void versioned_put(Transaction* txn, std::string_view key, std::string_view value);
 
 // Get a versioned value from the transaction by key and versionstamp.
 //
