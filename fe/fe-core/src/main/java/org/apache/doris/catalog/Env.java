@@ -4274,9 +4274,10 @@ public class Env {
         } else if (table.getType() == TableType.PAIMON_EXTERNAL_TABLE) {
             addTableComment(table, sb);
             PaimonExternalTable paimonExternalTable = (PaimonExternalTable) table;
-            sb.append("\nLOCATION '").append(paimonExternalTable.location()).append("'");
+            Map<String, String> properties = paimonExternalTable.getTableProperties();
+            sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
             sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = paimonExternalTable.properties().entrySet().iterator();
+            Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
             while (iterator.hasNext()) {
                 Entry<String, String> prop = iterator.next();
                 sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
@@ -4284,6 +4285,7 @@ public class Env {
                     sb.append(",");
                 }
             }
+            sb.append("\n)");
         }
 
         createTableStmt.add(sb + ";");

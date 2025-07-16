@@ -291,11 +291,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return paimonTable.comment().isPresent() ? paimonTable.comment().get() : "";
     }
 
-    public String location() {
-        return CoreOptions.path(paimonTable.options()).getName();
-    }
-
-    public Map<String, String> properties() {
+    public Map<String, String> getTableProperties() {
 
         if (paimonTable instanceof DataTable) {
             DataTable dataTable = (DataTable) paimonTable;
