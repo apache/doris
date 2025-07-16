@@ -138,7 +138,7 @@ public:
         env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place, row_num_start,
                               row_num_end, places_address, place_offset, input_map);
         RETURN_ERROR_IF_EXC(env);
-        env->DeleteLocalRef(input_map);
+        env->DeleteGlobalRef(input_map);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
