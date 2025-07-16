@@ -1752,7 +1752,7 @@ public class PropertyAnalyzer {
      */
     private static Map<String, String> rewriteReplicaAllocationProperties(
             String ctl, String db, Map<String, String> properties, int tableReplicaCountOverrideForTest) {
-         LOG.info("rewriteReplicaAllocationProperties={}", tableReplicaCountOverrideForTest);
+        LOG.info("rewriteReplicaAllocationProperties={}", tableReplicaCountOverrideForTest);
         if (tableReplicaCountOverrideForTest <= 0) {
             return rewriteReplicaAllocationPropertiesByDatabase(ctl, db, properties);
         }
