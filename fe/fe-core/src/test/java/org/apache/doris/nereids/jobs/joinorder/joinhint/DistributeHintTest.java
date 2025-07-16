@@ -29,6 +29,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -91,7 +92,7 @@ public class DistributeHintTest extends TPCHTestBase {
         }
         Collections.shuffle(leadingParameters);
         System.out.println("LeadingHint: " + leadingParameters.toString());
-        hints.add(new SelectHintLeading("Leading", leadingParameters));
+        hints.add(new SelectHintLeading("Leading", leadingParameters, ImmutableMap.of()));
         return new LogicalSelectHint<>(hints.build(), childPlan);
     }
 
