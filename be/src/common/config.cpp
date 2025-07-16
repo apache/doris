@@ -664,6 +664,8 @@ DEFINE_mInt64(write_buffer_size, "209715200");
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
+// If partial update is performed, the mem table will flush when the row count reaches the limit to prevent excessive memory usage.
+DEFINE_mInt32(memtable_flush_row_count_limit, "1000000");
 
 // maximum sleep time to wait for memory when writing or flushing memtable.
 DEFINE_mInt32(memtable_wait_for_memory_sleep_time_s, "300");

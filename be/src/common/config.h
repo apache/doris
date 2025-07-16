@@ -702,6 +702,8 @@ DECLARE_mInt64(write_buffer_size);
 DECLARE_mInt64(write_buffer_size_for_agg);
 // max parallel flush task per memtable writer
 DECLARE_mInt32(memtable_flush_running_count_limit);
+// if partial update is performed, the mem table will flush when the row count reaches the limit to prevent excessive memory usage.
+DECLARE_mInt32(memtable_flush_row_count_limit);
 
 // maximum sleep time to wait for memory when writing or flushing memtable.
 DECLARE_mInt32(memtable_wait_for_memory_sleep_time_s);

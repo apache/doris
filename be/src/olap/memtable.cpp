@@ -603,12 +603,14 @@ void MemTable::shrink_memtable_by_agg() {
 bool MemTable::need_flush() const {
     DBUG_EXECUTE_IF("MemTable.need_flush", { return true; });
     auto max_size = config::write_buffer_size;
+    bool need_flush = false;
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > 1048576 ? max_size : 1048576;
+        need_flush = _enable_unique_key_mow && _input_mutable_block.rows() > config::memtable_flush_row_count_limit;
     }
-    return memory_usage() >= max_size;
+    return memory_usage() >= max_size || need_flush;
 }
 
 bool MemTable::need_agg() const {
