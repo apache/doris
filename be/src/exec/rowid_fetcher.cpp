@@ -79,6 +79,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 Status RowIDFetcher::init() {
     DorisNodesInfo nodes_info;
     nodes_info.setNodes(_fetch_option.t_fetch_opt.nodes_info);
@@ -247,7 +249,7 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
             *vectorized::remove_nullable(column_row_ids).get()));
     std::vector<PMultiGetResponse> resps(_stubs.size());
     std::vector<brpc::Controller> cntls(_stubs.size());
-    bthread::CountdownEvent counter(_stubs.size());
+    bthread::CountdownEvent counter(cast_set<int>(_stubs.size()));
     for (size_t i = 0; i < _stubs.size(); ++i) {
         cntls[i].set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
         auto callback = brpc::NewCallback(fetch_callback, &counter);
@@ -268,13 +270,14 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     for (size_t i = 0; i < rows_locs.size(); ++i) {
         RowsetId rowset_id;
         rowset_id.init(rows_locs[i].rowset_id());
-        GlobalRowLoacation grl(rows_locs[i].tablet_id(), rowset_id, rows_locs[i].segment_id(),
-                               rows_locs[i].ordinal_id());
+        GlobalRowLoacation grl(rows_locs[i].tablet_id(), rowset_id,
+                               cast_set<uint32_t>(rows_locs[i].segment_id()),
+                               cast_set<uint32_t>(rows_locs[i].ordinal_id()));
         positions[grl] = i;
     };
     // TODO remove this warning code
     if (positions.size() < rows_locs.size()) {
-        LOG(WARNING) << "contains duplicated row entry";
+        LOG(WARNING) << "cwntains duplicated row entry";
     }
     vectorized::IColumn::Permutation permutation;
     permutation.reserve(column_row_ids->size());
@@ -360,7 +363,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
     std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
     // read row by row
-    for (size_t i = 0; i < request.row_locs_size(); ++i) {
+    for (int i = 0; i < request.row_locs_size(); ++i) {
         const auto& row_loc = request.row_locs(i);
         MonotonicStopWatch watch;
         watch.start();
@@ -411,11 +414,12 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         }
         segment_v2::SegmentSharedPtr segment = *it;
         GlobalRowLoacation row_location(row_loc.tablet_id(), rowset->rowset_id(),
-                                        row_loc.segment_id(), row_loc.ordinal_id());
+                                        cast_set<uint32_t>(row_loc.segment_id()),
+                                        cast_set<uint32_t>(row_loc.ordinal_id()));
         // fetch by row store, more effcient way
         if (request.fetch_row_store()) {
             CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
-            RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
+            RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_loc.ordinal_id()));
             std::string* value = response->add_binary_row_data();
             RETURN_IF_ERROR(scope_timer_run(
                     [&]() { return tablet->lookup_row_data({}, loc, rowset, stats, *value); },
@@ -625,7 +629,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         }
     }
 
-    for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
+    for (int j = 0; j < request_block_desc.row_id_size(); ++j) {
         auto file_id = request_block_desc.file_id(j);
         auto file_mapping = id_file_map->get_file_mapping(file_id);
         if (!file_mapping) {
@@ -738,7 +742,7 @@ Status RowIdStorageReader::read_batch_external_row(
         return value;
     };
 
-    for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
+    for (int j = 0; j < request_block_desc.row_id_size(); ++j) {
         auto file_id = request_block_desc.file_id(j);
         auto file_mapping = id_file_map->get_file_mapping(file_id);
         if (!file_mapping) {
@@ -1016,7 +1020,7 @@ Status RowIdStorageReader::read_doris_format_row(
     // if row_store_read_struct not empty, means the line we should read from row_store
     if (!row_store_read_struct.default_values.empty()) {
         CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
-        RowLocation loc(rowset_id, segment->id(), row_id);
+        RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
         row_store_read_struct.row_store_buffer.clear();
         RETURN_IF_ERROR(scope_timer_run(
                 [&]() {
@@ -1042,12 +1046,15 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_map[iterator_key].segment = segment;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x], row_id,
-                                                            column, stats, iterator_item.iterator));
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x],
+                                                            cast_set<uint32_t>(row_id), column,
+                                                            stats, iterator_item.iterator));
         }
     }
 
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
