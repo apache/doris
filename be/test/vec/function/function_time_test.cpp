@@ -1895,7 +1895,7 @@ TEST(VTimestampFunctionsTest, next_day_test) {
 
 TEST(VTimestampFunctionsTest, from_iso8601_date) {
     std::string func_name = "from_iso8601_date";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    InputTypeSet input_types = {TypeIndex::String};
 
     DataSet data_set = {
             {{std::string("2020-01-01")}, std::string("2020-01-01")},
