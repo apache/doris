@@ -66,8 +66,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
     {
         TypeDescriptor src_type(TYPE_DATETIMEV2);
         auto dst_type = std::make_shared<DataTypeInt64>();
-        auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
-                                                                       converter::COMMON);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type);
 
         ASSERT_TRUE(converter->support());
 
@@ -89,8 +88,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
         TypeDescriptor src_type(TYPE_DATETIMEV2);
         auto dst_type = std::make_shared<DataTypeInt32>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
-        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
-                                                                       converter::COMMON);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type);
 
         ASSERT_TRUE(converter->support());
 
@@ -118,8 +116,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
     {
         TypeDescriptor src_type(TYPE_DATETIMEV2);
         auto dst_type = std::make_shared<DataTypeInt32>();
-        auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
-                                                                       converter::COMMON);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type);
 
         ASSERT_TRUE(converter->support());
 
@@ -136,8 +133,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
         TypeDescriptor src_type(TYPE_DATETIMEV2);
         auto dst_type = std::make_shared<DataTypeInt64>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
-        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
-                                                                       converter::COMMON);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type);
 
         ASSERT_TRUE(converter->support());
 
