@@ -17,13 +17,9 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AnalyzeDBStmt;
-import org.apache.doris.analysis.AnalyzeStmt;
-import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LoadStmt;
@@ -31,7 +27,6 @@ import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetStmt;
@@ -86,7 +81,6 @@ import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -155,8 +149,6 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
-import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.ResultRow;
@@ -192,7 +184,6 @@ import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -462,13 +453,6 @@ public class StmtExecutor {
                     || logicalPlan instanceof DeleteFromCommand;
         }
         return false;
-    }
-
-    public boolean isAnalyzeStmt() {
-        if (parsedStmt == null) {
-            return false;
-        }
-        return parsedStmt instanceof AnalyzeStmt;
     }
 
     /**
@@ -962,11 +946,6 @@ public class StmtExecutor {
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
 
-        // set isQuery first otherwise this state will be lost if some error occurs
-        if (parsedStmt instanceof QueryStmt) {
-            context.getState().setIsQuery(true);
-        }
-
         try {
             // parsedStmt maybe null here, we parse it. Or the predicate will not work.
             parseByLegacy();
@@ -1017,9 +996,7 @@ public class StmtExecutor {
             parsedStmt.checkPriv();
             // sql/sqlHash block
             checkBlockRules();
-            if (parsedStmt instanceof QueryStmt) {
-                handleQueryWithRetry(queryId);
-            } else if (parsedStmt instanceof SetStmt) {
+            if (parsedStmt instanceof SetStmt) {
                 handleSetStmt();
             } else if (parsedStmt instanceof UnsetVariableStmt) {
                 handleUnsetVariableStmt();
@@ -1044,8 +1021,6 @@ public class StmtExecutor {
                 handleLockTablesStmt();
             } else if (parsedStmt instanceof UnsupportedStmt) {
                 handleUnsupportedStmt();
-            } else if (parsedStmt instanceof AnalyzeStmt) {
-                handleAnalyzeStmt();
             } else {
                 context.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, "Do not support this query.");
             }
@@ -1090,9 +1065,8 @@ public class StmtExecutor {
     }
 
     private boolean isQuery() {
-        return parsedStmt instanceof QueryStmt
-                || (parsedStmt instanceof LogicalPlanAdapter
-                && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command));
+        return parsedStmt instanceof LogicalPlanAdapter
+                && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command);
     }
 
     public boolean isProfileSafeStmt() {
@@ -1235,79 +1209,16 @@ public class StmtExecutor {
                         "enable_unified_load=true, should be insert stmt");
             }
         }
-        if (parsedStmt instanceof QueryStmt) {
-            Map<Long, TableIf> tableMap = Maps.newTreeMap();
-            QueryStmt queryStmt;
-            Set<String> parentViewNameSet = Sets.newHashSet();
-            if (parsedStmt instanceof QueryStmt) {
-                queryStmt = (QueryStmt) parsedStmt;
-                queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
-            }
-            // table id in tableList is in ascending order because that table map is a sorted map
-            List<TableIf> tables = Lists.newArrayList(tableMap.values());
-            tables.sort((Comparator.comparing(TableIf::getId)));
-            int analyzeTimes = 2;
-            if (Config.isCloudMode()) {
-                // be core and be restarted, need retry more times
-                analyzeTimes = Math.max(Config.max_query_retry_time / 2, 2);
-            }
-            for (int i = 1; i <= analyzeTimes; i++) {
-                MetaLockUtils.readLockTables(tables);
-                try {
-                    analyzeAndGenerateQueryPlan(tQueryOptions);
-                    break;
-                } catch (MVSelectFailedException e) {
-                    /*
-                     * If there is MVSelectFailedException after the first planner,
-                     * there will be error mv rewritten in query.
-                     * So, the query should be reanalyzed without mv rewritten and planner again.
-                     * Attention: Only error rewritten tuple is forbidden to mv rewrite in the second time.
-                     */
-                    if (i == analyzeTimes) {
-                        throw e;
-                    } else {
-                        resetAnalyzerAndStmt();
-                    }
-                } catch (UserException e) {
-                    // cloud mode retry, when retry need check this user has cloud cluster auth.
-                    // if user doesn't have cloud cluster auth, don't retry, just return.
-                    if (Config.isCloudMode()
-                            && (e.getMessage().contains(SystemInfoService.NOT_USING_VALID_CLUSTER_MSG)
-                            || e.getMessage().contains("backend -1"))
-                            && hasCloudClusterPriv()) {
-                        LOG.debug("cloud mode analyzeAndGenerateQueryPlan retry times {}", i);
-                        // sleep random millis [500, 1000] ms
-                        int randomMillis = 500 + (int) (Math.random() * (1000 - 500));
-                        try {
-                            if (i > analyzeTimes / 2) {
-                                randomMillis = 1000 + (int) (Math.random() * (1000 - 500));
-                            }
-                            Thread.sleep(randomMillis);
-                        } catch (InterruptedException ie) {
-                            LOG.info("stmt executor sleep wait InterruptedException: ", ie);
-                        }
-                        if (i < analyzeTimes) {
-                            continue;
-                        }
-                    }
-                    throw e;
-                } catch (Exception e) {
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                    throw new AnalysisException("Unexpected exception: " + e.getMessage());
-                } finally {
-                    MetaLockUtils.readUnlockTables(tables);
-                }
-            }
-        } else {
-            try {
-                parsedStmt.analyze(analyzer);
-            } catch (UserException e) {
-                throw e;
-            } catch (Exception e) {
-                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                throw new AnalysisException("Unexpected exception: " + e.getMessage());
-            }
+
+        try {
+            parsedStmt.analyze(analyzer);
+        } catch (UserException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+            throw new AnalysisException("Unexpected exception: " + e.getMessage());
         }
+
     }
 
     private void parseByLegacy() throws AnalysisException, DdlException {
@@ -1346,80 +1257,6 @@ public class StmtExecutor {
         redirectStatus = parsedStmt.getRedirectStatus();
     }
 
-    private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
-        if (parsedStmt instanceof QueryStmt) {
-            QueryStmt queryStmt = null;
-            if (parsedStmt instanceof QueryStmt) {
-                queryStmt = (QueryStmt) parsedStmt;
-            }
-            if (queryStmt.getOrderByElements() != null && queryStmt.getOrderByElements().isEmpty()) {
-                queryStmt.removeOrderByElements();
-            }
-        }
-        parsedStmt.analyze(analyzer);
-        if (parsedStmt instanceof QueryStmt) {
-            ExprRewriter rewriter = analyzer.getExprRewriter();
-            rewriter.reset();
-            if (context.getSessionVariable().isEnableFoldConstantByBe()
-                    && !context.getSessionVariable().isDebugSkipFoldConstant()) {
-                // fold constant expr
-                parsedStmt.foldConstant(rewriter, tQueryOptions);
-            }
-            if (context.getSessionVariable().isEnableRewriteElementAtToSlot()) {
-                parsedStmt.rewriteElementAtToSlot(rewriter, tQueryOptions);
-            }
-            // Apply expr and subquery rewrites.
-            ExplainOptions explainOptions = parsedStmt.getExplainOptions();
-            boolean reAnalyze = false;
-
-            parsedStmt.rewriteExprs(rewriter);
-            reAnalyze = rewriter.changed();
-            if (reAnalyze) {
-                // The rewrites should have no user-visible effect. Remember the original result
-                // types and column labels to restore them after the rewritten stmt has been
-                // reset() and re-analyzed.
-                List<Type> origResultTypes = Lists.newArrayList();
-                for (Expr e : parsedStmt.getResultExprs()) {
-                    origResultTypes.add(e.getType());
-                }
-                List<String> origColLabels =
-                        Lists.newArrayList(parsedStmt.getColLabels());
-                // Re-analyze the stmt with a new analyzer.
-                analyzer = new Analyzer(context.getEnv(), context);
-                // query re-analyze
-                parsedStmt.reset();
-
-                analyzer.setReAnalyze(true);
-                parsedStmt.analyze(analyzer);
-
-                // Restore the original result types and column labels.
-                parsedStmt.castResultExprs(origResultTypes);
-                parsedStmt.setColLabels(origColLabels);
-                if (LOG.isTraceEnabled()) {
-                    LOG.trace("rewrittenStmt: " + parsedStmt.toSql());
-                }
-                if (explainOptions != null) {
-                    parsedStmt.setIsExplain(explainOptions);
-                }
-            }
-        }
-        profile.getSummaryProfile().setQueryPlanFinishTime();
-    }
-
-    private void resetAnalyzerAndStmt() {
-        analyzer = new Analyzer(context.getEnv(), context);
-
-        parsedStmt.reset();
-
-        // DORIS-7361
-        // Need to reset selectList before second-round analyze,
-        // because exprs in selectList could be rewritten by mvExprRewriter
-        // in first-round analyze, which could cause analyze failure.
-        if (parsedStmt instanceof QueryStmt) {
-            ((QueryStmt) parsedStmt).resetSelectList();
-        }
-    }
-
     // Because this is called by other thread
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
         if (masterOpExecutor != null) {
@@ -1441,9 +1278,6 @@ public class StmtExecutor {
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
-        }
-        if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
-            Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
         }
         if (insertOverwriteTableCommand.isPresent() && needWaitCancelComplete) {
             // Wait for the command to run or cancel completion
@@ -1662,7 +1496,7 @@ public class StmtExecutor {
         // add to CacheAnalyzer.commonCacheCondition
         if (channel != null && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())
                 && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
-            if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
+            if (queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
@@ -1916,10 +1750,6 @@ public class StmtExecutor {
         }
         // do nothing
         context.getState().setOk();
-    }
-
-    private void handleAnalyzeStmt() throws DdlException, AnalysisException {
-        context.env.getAnalysisManager().createAnalyze((AnalyzeStmt) parsedStmt, isProxy);
     }
 
     // Process switch catalog
@@ -2320,9 +2150,7 @@ public class StmtExecutor {
     private void handleDdlStmt() {
         try {
             DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
-            if (!(parsedStmt instanceof AnalyzeStmt)) {
-                context.getState().setOk();
-            }
+            context.getState().setOk();
             // copy into used
             if (context.getState().getResultSet() != null) {
                 if (isProxy) {

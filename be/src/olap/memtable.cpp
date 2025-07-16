@@ -67,7 +67,6 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    _arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     _num_columns = _tablet_schema->num_columns();
     if (partial_update_info != nullptr) {
@@ -169,9 +168,7 @@ MemTable::~MemTable() {
             }
         }
 
-        // Arena has to be destroyed after agg state, because some agg state's memory may be
-        // allocated in arena.
-        _arena.reset();
+        _arena.clear(true);
         _vec_row_comparator.reset();
         _row_in_blocks.reset();
         _agg_functions.clear();
@@ -270,7 +267,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
             auto* col_ptr = mutable_block.mutable_columns()[cid].get();
             _agg_functions[cid]->add(dst_row->agg_places(cid),
                                      const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                     src_row->_row_pos, _arena.get());
+                                     src_row->_row_pos, _arena);
         }
     } else {
         DCHECK(_skip_bitmap_col_idx != -1);
@@ -287,7 +284,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
             auto* col_ptr = mutable_block.mutable_columns()[cid].get();
             _agg_functions[cid]->add(dst_row->agg_places(cid),
                                      const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                     src_row->_row_pos, _arena.get());
+                                     src_row->_row_pos, _arena);
         }
     }
 }
@@ -445,7 +442,7 @@ void MemTable::_finalize_one_row(RowInBlock* row,
                 auto* agg_place = row->agg_places(i);
                 auto* col_ptr = _output_mutable_block.get_column_by_position(i).get();
                 function->add(agg_place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                              row_pos, _arena.get());
+                              row_pos, _arena);
             }
         }
     } else {
@@ -476,14 +473,14 @@ void MemTable::_aggregate() {
     //only init agg if needed
 
     auto init_for_agg = [&](RowInBlock* row) {
-        row->init_agg_places(_arena->aligned_alloc(_total_size_of_aggregate_states, 16),
+        row->init_agg_places(_arena.aligned_alloc(_total_size_of_aggregate_states, 16),
                              _offsets_of_aggregate_states.data());
         for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; cid++) {
             auto* col_ptr = mutable_block.mutable_columns()[cid].get();
             auto* data = prev_row->agg_places(cid);
             _agg_functions[cid]->create(data);
             _agg_functions[cid]->add(data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                     prev_row->_row_pos, _arena.get());
+                                     prev_row->_row_pos, _arena);
         }
     };
 

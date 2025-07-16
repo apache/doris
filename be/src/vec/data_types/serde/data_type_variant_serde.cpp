@@ -92,7 +92,7 @@ Status DataTypeVariantSerDe::serialize_column_to_json(const IColumn& column, int
 }
 
 void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                   Arena* mem_pool, int32_t col_id,
+                                                   Arena& mem_pool, int32_t col_id,
                                                    int64_t row_num) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
     if (!variant.is_finalized()) {

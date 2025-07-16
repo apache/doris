@@ -89,6 +89,8 @@ public:
 
     Status submit_task(const TAgentTaskRequest& task) override;
 
+    Status submit_high_prior_and_cancel_low(const TAgentTaskRequest& task);
+
 private:
     void normal_loop();
 

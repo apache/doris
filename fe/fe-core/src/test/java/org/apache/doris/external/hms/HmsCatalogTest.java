@@ -18,7 +18,6 @@
 package org.apache.doris.external.hms;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -83,12 +82,11 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         // create inner db and tbl for test
         mgr.getInternalCatalog().createDb("test", false, Maps.newHashMap());
 
-        CreateTableStmt createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt("create table test.tbl1(\n"
+        createTable("create table test.tbl1(\n"
                 + "k1 int comment 'test column k1', "
                 + "k2 int comment 'test column k2')  comment 'test table1' "
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
-        mgr.getInternalCatalog().createTable(createTableStmt);
     }
 
     private void createDbAndTableForHmsCatalog(HMSExternalCatalog hmsCatalog) {

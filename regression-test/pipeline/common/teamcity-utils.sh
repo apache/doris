@@ -28,7 +28,7 @@ targetBranch_to_pipelines=(
     ['master']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent'
     ['branch-3.1']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent'
     ['branch-3.0']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent'
-    ['branch-2.1']='feut beut compile p0 p1 external arm performance'
+    ['branch-2.1']='feut beut compile p0 p1 external arm'
     ['branch-2.0']='feut beut compile p0 p1 external arm performance'
 )
 

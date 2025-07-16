@@ -128,19 +128,18 @@ IndexStorageFormatV1::create_output_stream(int64_t index_id, const std::string& 
     auto idx_path = cfs_path.parent_path();
     std::string idx_name = cfs_path.filename();
 
-    auto* out_dir =
-            DorisFSDirectoryFactory::getDirectory(_index_file_writer->_fs, idx_path.c_str());
-    out_dir->set_file_writer_opts(_index_file_writer->_opts);
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
+    std::unique_ptr<DorisFSDirectory, DirectoryDeleter> out_dir_ptr(
+            DorisFSDirectoryFactory::getDirectory(_index_file_writer->_fs, idx_path.c_str()));
+    out_dir_ptr->set_file_writer_opts(_index_file_writer->_opts);
 
-    auto* out = out_dir->createOutput(idx_name.c_str());
-    DBUG_EXECUTE_IF("IndexFileWriter::write_v1_out_dir_createOutput_nullptr", { out = nullptr; });
-    if (out == nullptr) {
+    std::unique_ptr<lucene::store::IndexOutput> output(out_dir_ptr->createOutput(idx_name.c_str()));
+    DBUG_EXECUTE_IF("IndexFileWriter::write_v1_out_dir_createOutput_nullptr",
+                    { output = nullptr; });
+    if (output == nullptr) {
         LOG(WARNING) << "IndexFileWriter::create_output_stream_v1 error: CompoundDirectory "
                         "output is nullptr.";
         _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
     }
-    std::unique_ptr<lucene::store::IndexOutput> output(out);
 
     return {std::move(out_dir_ptr), std::move(output)};
 }

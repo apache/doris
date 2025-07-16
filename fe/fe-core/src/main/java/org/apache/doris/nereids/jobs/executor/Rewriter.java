@@ -52,11 +52,13 @@ import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
+import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
+import org.apache.doris.nereids.rules.rewrite.DistinctWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
@@ -139,6 +141,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
@@ -154,16 +157,14 @@ import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
-import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithAggregate;
-import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -291,6 +292,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("Window analysis",
                         topDown(
                                 new ExtractAndNormalizeWindowExpression(),
+                                new DistinctWindowExpression(),
                                 new CheckAndStandardizeWindowFunctionAndFrame(),
                                 new SimplifyWindowExpression()
                         )
@@ -406,7 +408,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new AdjustAggregateNullableForEmptySet()
                         )
                 ),
-
                 topic("Eager aggregation",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalAggregate.class, LogicalJoin.class
@@ -426,6 +427,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new EliminateJoinByFK()),
                     topDown(new EliminateJoinByUnique())
                 ),
+                topic("join skew salting rewrite",
+                        topDown(new SaltJoin())),
                 topic("eliminate Aggregate according to fd items",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
@@ -466,24 +469,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 // TODO: these rules should be implementation rules, and generate alternative physical plans.
                 topic("Table/Physical optimization",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalCatalogRelation.class),
                         topDown(
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
                                 new PruneFileScanPartition(),
-                                new PushDownFilterIntoSchemaScan()
-                        )
-                ),
-                topic("MV optimization",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalOlapScan.class),
-                        topDown(
-                                new SelectMaterializedIndexWithAggregate(),
-                                new SelectMaterializedIndexWithoutAggregate(),
-                                new EliminateFilter(),
-                                new PushDownFilterThroughProject(),
-                                new MergeProjectable(),
+                                new PushDownFilterIntoSchemaScan(),
                                 new PruneOlapScanTablet()
                         ),
-                        custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS)
                 ),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
@@ -522,8 +515,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new CollectCteConsumerOutput()
                         )
                 ),
-                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new)
-            )
+                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new))
         )
     );
 
@@ -531,6 +523,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 // after variant sub path pruning, we need do column pruning again
+                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                 custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                 bottomUp(ImmutableList.of(
                         new PushDownFilterThroughProject(),
@@ -640,6 +633,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                         () -> new RewriteCteChildren(beforePushDownJobs, runCboRules)
                                 )
                         )));
+                rewriteJobs.addAll(jobs(topic("convert outer join to anti",
+                        custom(RuleType.CONVERT_OUTER_JOIN_TO_ANTI, ConvertOuterJoinToAntiJoin::new))));
                 if (needOrExpansion) {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));

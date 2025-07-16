@@ -162,12 +162,12 @@ void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritab
     size_t bytesize = value.getSizeInBytes();
     memory_buffer.resize(bytesize);
     value.write_to(const_cast<char*>(memory_buffer.data()));
-    write_string_binary(memory_buffer, buf);
+    buf.write_binary(memory_buffer);
 }
 
 void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& buf) {
     StringRef ref;
-    read_string_binary(ref, buf);
+    buf.read_binary(ref);
     value.deserialize(ref.data);
 }
 

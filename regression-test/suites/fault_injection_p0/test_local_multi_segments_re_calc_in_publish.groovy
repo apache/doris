@@ -155,7 +155,7 @@ suite("test_local_multi_segments_re_calc_in_publish", "docker") {
 
             Thread.sleep(1000)
             do_streamload_2pc_commit(txnId)
-            dockerAwaitUntil(30) {
+            awaitUntil(30) {
                 def result = sql_return_maparray "show transaction from ${dbName} where id = ${txnId}"
                 result[0].TransactionStatus as String == "VISIBLE"
             }

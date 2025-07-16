@@ -40,7 +40,7 @@ suite("test_query_json_replace", "query") {
     sql "insert into ${tableName} values(2,'2022-01-01 11:45:14',null);"
     sql "insert into ${tableName} values(3,null,9);"
     sql "insert into ${tableName} values(4,null,null);"
-    qt_sql1 "select json_replace('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', time, '\$.a1[1]', k, '\$.a2[3]', k) from ${tableName} order by id;"
+    qt_sql1 "select json_replace('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', cast(time as string), '\$.a1[1]', k, '\$.a2[3]', k) from ${tableName} order by id;"
     sql "DROP TABLE ${tableName};"
 
     sql "DROP TABLE IF EXISTS test_query_json_replace_nullable"
@@ -62,7 +62,7 @@ suite("test_query_json_replace", "query") {
     sql "insert into test_query_json_replace_nullable values(1,'2022-01-01 11:45:14',9);"
     sql "insert into test_query_json_replace_nullable values(2,'2022-01-01 11:45:14',null);"
     sql "insert into test_query_json_replace_nullable values(3,null,9);"
-    qt_sql2 "select json_replace('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', time, '\$.a1[1]', k, '\$.a2[3]', k) from test_query_json_replace_nullable order by id;"
+    qt_sql2 "select json_replace('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', cast(time as string), '\$.a1[1]', k, '\$.a2[3]', k) from test_query_json_replace_nullable order by id;"
 
     sql "DROP TABLE test_query_json_replace_nullable;"
 
@@ -73,17 +73,17 @@ suite("test_query_json_replace", "query") {
     qt_sql_array """ SELECT json_replace('{"arr": [1,2]}', '\$.arr', array(1,2)); """
     qt_sql_array """ SELECT json_replace('{"arr": [1,2]}', '\$.arr', array(1.1,2.2)); """
     qt_sql_array """ SELECT json_replace('{"arr": [1,2]}', '\$.arr', array(1.1,2)); """
-    qt_sql_array """ SELECT json_replace('{"arr": [1,2]}', '\$.arr', array(cast(1 as decimal), cast(1.2 as decimal))); """
+    qt_sql_array """ SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_replace('{"arr": [1,2]}', '\$.arr', array(cast(1 as decimal), cast(1.2 as decimal))); """
     // map
-    qt_sql_map """ SELECT json_replace('{"map": {"x": "y"}}', '\$.map', map('a', 'b', 'c', 'd')); """
-    qt_sql_map """ SELECT json_replace('{"map": {"x": "y"}}', '\$.map', map('a', 1, 'c', 2)); """
-    qt_sql_map """ SELECT json_replace('{"map": {"x": "y"}}', '\$.map', map('a', 1.1, 'c', 2.2)); """
-    qt_sql_map """ SELECT json_replace('{"map": {"x": "y"}}', '\$.map', map('a', 1.1, 'c', 2)); """
-    qt_sql_map """ SELECT json_replace('{"map": {"x": "y"}}', '\$.map', map('a', cast(1 as decimal), 'c', cast(1.2 as decimal))); """
+    qt_sql_map """ SELECT json_replace('{"map": {"x": "y"}}', '\$.map', cast(map('a', 'b', 'c', 'd') as json)); """
+    qt_sql_map """ SELECT json_replace('{"map": {"x": "y"}}', '\$.map', cast(map('a', 1, 'c', 2) as json)); """
+    qt_sql_map """ SELECT json_replace('{"map": {"x": "y"}}', '\$.map', cast(map('a', 1.1, 'c', 2.2) as json)); """
+    qt_sql_map """ SELECT json_replace('{"map": {"x": "y"}}', '\$.map', cast(map('a', 1.1, 'c', 2) as json)); """
+    qt_sql_map """ SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_replace('{"map": {"x": "y"}}', '\$.map', cast(map('a', cast(1 as decimal), 'c', cast(1.2 as decimal)) as json)); """
     // struct
     qt_sql_struct """ SELECT json_replace('{"struct": {"name": "x", "age": 0}}', '\$.struct', named_struct('name', 'a', 'age', 1)); """
     qt_sql_struct """ SELECT json_replace('{"struct": {"name": "x", "age": 0}}', '\$.struct', named_struct('name', 'a', 'age', 1.1)); """
-    qt_sql_struct """ SELECT json_replace('{"struct": {"name": "x", "age": 0}}', '\$.struct', named_struct('name', 'a', 'age', cast(1 as decimal))); """
+    qt_sql_struct """SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_replace('{"struct": {"name": "x", "age": 0}}', '\$.struct', named_struct('name', 'a', 'age', cast(1 as decimal))); """
     // json
     qt_sql_json """ SELECT json_replace('{"json": {"x": "y"}}', '\$.json', cast('{\"a\":\"b\"}' as JSON)); """
     qt_sql_json """ SELECT json_replace('{"json": {"x": "y"}}', '\$.json', cast('{\"a\":1}' as JSON)); """
@@ -116,7 +116,7 @@ suite("test_query_json_replace", "query") {
     sql """insert into ${tableName} values(5, array(1,2,3,3), map(1,2,3,4), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
     qt_sql3 """select json_replace('{"data": {"array": [1], "map": {"x":"y"}, "struct": {"name":"x","age":0}, "json": {"x":"y"}}}', 
                               '\$.data.array', k1, 
-                              '\$.data.map', k2, 
+                              '\$.data.map', cast(k2 as json), 
                               '\$.data.struct', k3, 
                               '\$.data.json', k4) from ${tableName} order by k0;"""
     sql "DROP TABLE ${tableName};"

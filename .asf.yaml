@@ -50,6 +50,7 @@ github:
           - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - cloud_p0 (Doris Cloud Regression)
           - vault_p0 (Doris Cloud Regression)

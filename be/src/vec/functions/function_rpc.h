@@ -64,6 +64,21 @@ private:
     TFunction _fn;
 };
 
+class RPCPreparedFunction : public IPreparedFunction {
+public:
+    ~RPCPreparedFunction() override = default;
+
+    /// Get the main function name.
+    String get_name() const override { return "RPCPreparedFunction: "; }
+
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count, bool dry_run) const override {
+        auto* fn = reinterpret_cast<RPCFnImpl*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        return fn->vec_call(context, block, arguments, result, input_rows_count);
+    }
+};
+
 class FunctionRPC : public IFunctionBase {
 public:
     FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
@@ -89,13 +104,10 @@ public:
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
                                 const ColumnNumbers& arguments, uint32_t result) const override {
-        return nullptr;
+        return std::make_shared<RPCPreparedFunction>();
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
-
-    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count, bool dry_run = false) const override;
 
     bool is_use_default_implementation_for_constants() const override { return true; }
 

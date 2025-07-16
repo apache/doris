@@ -51,8 +51,6 @@ suite("test_create_mv_and_mtmt") {
                  dt;
 
     """)
-    // Hit sync mv when setting enable_sync_mv_cost_based_rewrite as false
-    sql "set enable_sync_mv_cost_based_rewrite=false;"
     explain {
         sql("""
                     SELECT dt,advertiser,

@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
@@ -60,17 +61,17 @@ import com.google.common.base.Preconditions;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * stats derive for rbo
  */
 public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveContext> implements CustomRewriter {
+
     /**
      * context
      */
     public static class DeriveContext {
-        public Map<CTEId, Statistics> cteIdToStats = new HashMap<>();
+        StatsCalculator calculator = new StatsCalculator(null);
     }
 
     @Override
@@ -91,7 +92,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalProject(LogicalProject<? extends Plan> project, DeriveContext context) {
         Statistics childStats = project.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeProject(project, childStats);
+        Statistics stats = context.calculator.computeProject(project, childStats);
         project.setStatistics(stats);
         return stats;
     }
@@ -105,7 +106,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
 
     @Override
     public Statistics visitLogicalEmptyRelation(LogicalEmptyRelation emptyRelation, DeriveContext context) {
-        Statistics stats = StatsCalculator.INSTANCE.computeEmptyRelation(emptyRelation);
+        Statistics stats = context.calculator.computeEmptyRelation(emptyRelation);
         emptyRelation.setStatistics(stats);
         return stats;
     }
@@ -113,14 +114,14 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalLimit(LogicalLimit<? extends Plan> limit, DeriveContext context) {
         Statistics childStats = limit.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeLimit(limit, childStats);
+        Statistics stats = context.calculator.computeLimit(limit, childStats);
         limit.setStatistics(stats);
         return stats;
     }
 
     @Override
     public Statistics visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, DeriveContext context) {
-        Statistics stats = StatsCalculator.INSTANCE.computeOneRowRelation(oneRowRelation.getProjects());
+        Statistics stats = context.calculator.computeOneRowRelation(oneRowRelation.getProjects());
         oneRowRelation.setStatistics(stats);
         return stats;
     }
@@ -128,7 +129,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, DeriveContext context) {
         Statistics childStats = aggregate.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeAggregate(aggregate, childStats);
+        Statistics stats = context.calculator.computeAggregate(aggregate, childStats);
         aggregate.setStatistics(stats);
         return stats;
     }
@@ -136,7 +137,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, DeriveContext context) {
         Statistics childStats = repeat.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeRepeat(repeat, childStats);
+        Statistics stats = context.calculator.computeRepeat(repeat, childStats);
         repeat.setStatistics(stats);
         return stats;
     }
@@ -144,14 +145,14 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalFilter(LogicalFilter<? extends Plan> filter, DeriveContext context) {
         Statistics childStats = filter.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeFilter(filter, childStats);
+        Statistics stats = context.calculator.computeFilter(filter, childStats);
         filter.setStatistics(stats);
         return stats;
     }
 
     @Override
     public Statistics visitLogicalOlapScan(LogicalOlapScan olapScan, DeriveContext context) {
-        Statistics stats = StatsCalculator.INSTANCE.computeOlapScan(olapScan);
+        Statistics stats = context.calculator.computeOlapScan(olapScan);
         olapScan.setStatistics(stats);
         return stats;
     }
@@ -159,14 +160,14 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan olapScan,
             DeriveContext context) {
-        Statistics stats = StatsCalculator.INSTANCE.computeOlapScan(olapScan);
+        Statistics stats = context.calculator.computeOlapScan(olapScan);
         olapScan.setStatistics(stats);
         return stats;
     }
 
     @Override
     public Statistics visitLogicalCatalogRelation(LogicalCatalogRelation relation, DeriveContext context) {
-        Statistics stats = StatsCalculator.INSTANCE.computeCatalogRelation(relation);
+        Statistics stats = context.calculator.computeCatalogRelation(relation);
         relation.setStatistics(stats);
         return stats;
     }
@@ -188,7 +189,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalTopN(LogicalTopN<? extends Plan> topN, DeriveContext context) {
         Statistics childStats = topN.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeTopN(topN, childStats);
+        Statistics stats = context.calculator.computeTopN(topN, childStats);
         topN.setStatistics(stats);
         return stats;
     }
@@ -197,7 +198,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     public Statistics visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN,
             DeriveContext context) {
         Statistics childStats = topN.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeTopN(topN, childStats);
+        Statistics stats = context.calculator.computeTopN(topN, childStats);
         topN.setStatistics(stats);
         return stats;
     }
@@ -206,7 +207,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     public Statistics visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN,
             DeriveContext context) {
         Statistics childStats = partitionTopN.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computePartitionTopN(partitionTopN, childStats);
+        Statistics stats = context.calculator.computePartitionTopN(partitionTopN, childStats);
         partitionTopN.setStatistics(stats);
         return stats;
     }
@@ -215,7 +216,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     public Statistics visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, DeriveContext context) {
         Statistics leftStats = join.left().accept(this, context);
         Statistics rightStats = join.right().accept(this, context);
-        Statistics joinStats = StatsCalculator.INSTANCE.computeJoin(join, leftStats,
+        Statistics joinStats = context.calculator.computeJoin(join, leftStats,
                 rightStats);
         joinStats = new StatisticsBuilder(joinStats).setWidthInJoinCluster(
                 leftStats.getWidthInJoinCluster() + rightStats.getWidthInJoinCluster()).build();
@@ -227,7 +228,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     public Statistics visitLogicalAssertNumRows(
             LogicalAssertNumRows<? extends Plan> assertNumRows, DeriveContext context) {
         Statistics childStats = assertNumRows.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeAssertNumRows(assertNumRows.getAssertNumRowsElement(),
+        Statistics stats = context.calculator.computeAssertNumRows(assertNumRows.getAssertNumRowsElement(),
                 childStats);
         assertNumRows.setStatistics(stats);
         return stats;
@@ -241,7 +242,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
             Statistics childStats = child.accept(this, context);
             childrenStats.add(childStats);
         }
-        Statistics stats = StatsCalculator.INSTANCE.computeUnion(union, childrenStats);
+        Statistics stats = context.calculator.computeUnion(union, childrenStats);
         union.setStatistics(stats);
         return stats;
     }
@@ -256,7 +257,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
                 leftStats = childStats;
             }
         }
-        Statistics stats = StatsCalculator.INSTANCE.computeExcept(except, leftStats);
+        Statistics stats = context.calculator.computeExcept(except, leftStats);
         except.setStatistics(leftStats);
         return stats;
     }
@@ -270,7 +271,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
             childrenStats.add(childStats);
         }
 
-        Statistics stats = StatsCalculator.INSTANCE.computeIntersect(intersect, childrenStats);
+        Statistics stats = context.calculator.computeIntersect(intersect, childrenStats);
         intersect.setStatistics(stats);
         return stats;
     }
@@ -278,7 +279,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, DeriveContext context) {
         Statistics childStats = generate.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeGenerate(generate, childStats);
+        Statistics stats = context.calculator.computeGenerate(generate, childStats);
         generate.setStatistics(stats);
         return stats;
     }
@@ -286,7 +287,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalWindow(LogicalWindow<? extends Plan> window, DeriveContext context) {
         Statistics childStats = window.child().accept(this, context);
-        Statistics stats = StatsCalculator.INSTANCE.computeWindow(window, childStats);
+        Statistics stats = context.calculator.computeWindow(window, childStats);
         window.setStatistics(stats);
         return stats;
     }
@@ -298,14 +299,14 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
         builder.setWidthInJoinCluster(1);
         Statistics stats = builder.build();
         cteProducer.setStatistics(stats);
-        context.cteIdToStats.put(cteProducer.getCteId(), stats);
+        ConnectContext.get().getStatementContext().setProducerStats(cteProducer.getCteId(), stats);
         return stats;
     }
 
     @Override
     public Statistics visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, DeriveContext context) {
         CTEId cteId = cteConsumer.getCteId();
-        Statistics prodStats = context.cteIdToStats.get(cteId);
+        Statistics prodStats = ConnectContext.get().getStatementContext().getProducerStatsByCteId(cteId);
         Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
         Statistics consumerStats = new Statistics(prodStats.getRowCount(), 1, new HashMap<>());
         for (Slot slot : cteConsumer.getOutput()) {

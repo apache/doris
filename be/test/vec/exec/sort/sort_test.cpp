@@ -181,8 +181,8 @@ TEST_F(SortTest, test_sorter) {
     std::unique_ptr<MockRowDescriptor> row_desc;
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
 
-    std::vector<bool> is_asc_order {true};
-    std::vector<bool> nulls_first {false};
+    std::vector<bool> is_asc_order {true, true};
+    std::vector<bool> nulls_first {false, false};
 
     std::unique_ptr<vectorized::Sorter> sorter;
     DataTypes data_types {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()};

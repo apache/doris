@@ -49,7 +49,7 @@ class DataTypeDateTimeV2;
 } // namespace doris::vectorized
 
 namespace doris {
-
+#include "common/compile_check_avoid_begin.h"
 enum TimeUnit {
     MICROSECOND,
     MILLISECOND,
@@ -1213,13 +1213,18 @@ public:
             }
             date_v2_value_.year_ = val;
         } else if constexpr (unit == TimeUnit::MONTH) {
-            if (val > MAX_MONTH) [[unlikely]] {
+            DCHECK(date_v2_value_.year_ <= MAX_YEAR);
+            if (val > MAX_MONTH || val == 0) [[unlikely]] {
                 return false;
             }
             date_v2_value_.month_ = val;
         } else if constexpr (unit == TimeUnit::DAY) {
+            DCHECK(date_v2_value_.year_ <= MAX_YEAR);
             DCHECK(date_v2_value_.month_ <= MAX_MONTH);
             DCHECK(date_v2_value_.month_ != 0);
+            if (val == 0) [[unlikely]] {
+                return false;
+            }
             if (val > S_DAYS_IN_MONTH[date_v2_value_.month_] &&
                 !(is_leap(date_v2_value_.year_) && date_v2_value_.month_ == 2 && val == 29)) {
                 return false;
@@ -1645,7 +1650,7 @@ struct DateTraits<uint64_t> {
     using T = DateV2Value<DateTimeV2ValueType>;
     using DateType = vectorized::DataTypeDateTimeV2;
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris
 
 template <>

@@ -124,7 +124,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
             }
             int max_try_time = 3000
             while (max_try_time--){
-                result = getJobState("date")
+                def result = getJobState("date")
                 if (result == "FINISHED" || result == "CANCELLED") {
                     sleep(3000)
                     break

@@ -77,7 +77,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         def toDropUniqueId
         // add new follower
         cluster.addFrontend(1, true)
-        dockerAwaitUntil(5) {
+        awaitUntil(5) {
             def ret = sql """SHOW FRONTENDS"""
             log.info("show frontends: {}", ret)
             ret.size() == 4
@@ -119,7 +119,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         drop_node(toDropUniqueId, toDropIP, 0,
                     toDropPort, toDropType, feClusterName, feClusterId, ms)
 
-        dockerAwaitUntil(50) {
+        awaitUntil(50) {
             def ret = sql """SHOW FRONTENDS"""
             log.info("show frontends: {}", ret)
             ret.size() == 3
@@ -155,7 +155,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         drop_node(toDropUniqueId, toDropIP, 0,
                     toDropPort, toDropType, feClusterName, feClusterId, ms)
 
-        dockerAwaitUntil(50) {
+        awaitUntil(50) {
             def ret = sql """SHOW FRONTENDS"""
             log.info("show frontends: {}", ret)
             ret.size() == 3

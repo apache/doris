@@ -200,18 +200,17 @@ public:
         _CLLDELETE(input);
     }
 
-    EntriesType* create_test_entries(const std::vector<std::string>& file_names,
-                                     const std::vector<int64_t>& offsets,
-                                     const std::vector<int64_t>& lengths) {
-        auto* entries = _CLNEW EntriesType(true, true);
+    EntriesType create_test_entries(const std::vector<std::string>& file_names,
+                                    const std::vector<int64_t>& offsets,
+                                    const std::vector<int64_t>& lengths) {
+        EntriesType entries;
 
         for (size_t i = 0; i < file_names.size(); ++i) {
-            auto* entry = _CLNEW ReaderFileEntry();
-            char* aid = strdup(file_names[i].c_str());
+            std::unique_ptr<ReaderFileEntry> entry = std::make_unique<ReaderFileEntry>();
             entry->file_name = file_names[i];
             entry->offset = offsets[i];
             entry->length = lengths[i];
-            entries->put(aid, entry);
+            entries.emplace(file_names[i], std::move(entry));
         }
 
         return entries;
@@ -288,21 +287,20 @@ TEST_F(DorisCompoundReaderTest, CloneCompoundReader) {
     CL_NS(store)::IndexInput* index_input =
             create_mock_index_input(index_path, file_names, lengths);
 
-    EntriesType* entries = create_test_entries(file_names, offsets, lengths);
+    EntriesType entries = create_test_entries(file_names, offsets, lengths);
 
     DorisCompoundReader original_reader(index_input, entries);
 
     CL_NS(store)::IndexInput* cloned_input = original_reader.getDorisIndexInput()->clone();
 
-    auto* cloned_entries = _CLNEW EntriesType(true, true);
-    for (const auto& it : *entries) {
-        auto* origin_entry = it.second;
-        auto* entry = _CLNEW ReaderFileEntry();
-        char* aid = strdup(it.first);
+    EntriesType cloned_entries;
+    for (const auto& it : entries) {
+        auto* origin_entry = it.second.get();
+        std::unique_ptr<ReaderFileEntry> entry = std::make_unique<ReaderFileEntry>();
         entry->file_name = origin_entry->file_name;
         entry->offset = origin_entry->offset;
         entry->length = origin_entry->length;
-        cloned_entries->put(aid, entry);
+        cloned_entries.emplace(it.first, std::move(entry));
     }
 
     DorisCompoundReader cloned_reader(cloned_input, cloned_entries);
@@ -317,8 +315,6 @@ TEST_F(DorisCompoundReaderTest, CloneCompoundReader) {
 
     original_reader.close();
     cloned_reader.close();
-    _CLDELETE(entries);
-    _CLDELETE(cloned_entries);
 }
 
 TEST_F(DorisCompoundReaderTest, ErrorHandling) {
@@ -455,29 +451,29 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
 TEST_F(DorisCompoundReaderTest, FileCopyCorrectness) {
     std::string index_path = kTestDir + "/test_file_copy.idx";
 
-    char* file_name = strdup("test_copy.dat");
+    std::string file_name = "test_copy.dat";
     std::vector<std::string> file_names = {file_name};
     std::vector<int64_t> lengths = {256};
 
-    auto* entries = _CLNEW EntriesType(true, true);
-    auto* entry = _CLNEW ReaderFileEntry();
+    EntriesType entries;
+    std::unique_ptr<ReaderFileEntry> entry = std::make_unique<ReaderFileEntry>();
     entry->file_name = file_name;
     entry->offset = -1;
     entry->length = lengths[0];
-    entries->put(file_name, entry);
+    entries.emplace(file_name, std::move(entry));
 
     CL_NS(store)::IndexInput* index_input =
             create_mock_index_input(index_path, file_names, lengths);
 
     class TestCompoundReader : public DorisCompoundReader {
     public:
-        TestCompoundReader(CL_NS(store)::IndexInput* stream, EntriesType* entries)
+        TestCompoundReader(CL_NS(store)::IndexInput* stream, const EntriesType& entries)
                 : DorisCompoundReader(stream, entries) {}
 
         using DorisCompoundReader::_copyFile;
 
         bool testFileCopy(const char* file, int32_t file_length) {
-            _ram_dir = new lucene::store::RAMDirectory();
+            _ram_dir = std::make_unique<lucene::store::RAMDirectory>();
             const int32_t buffer_size = 64;
             uint8_t buffer[4096];
 
@@ -493,21 +489,20 @@ TEST_F(DorisCompoundReaderTest, FileCopyCorrectness) {
     private:
         void processFileEntries(uint8_t* buffer, int32_t buffer_size) {
             int32_t count = _stream->readVInt();
-            ReaderFileEntry* entry = nullptr;
-            TCHAR tid[4096];
             for (int32_t i = 0; i < count; i++) {
-                entry = _CLNEW ReaderFileEntry();
-                _stream->readString(tid, 4096);
-                char* aid = STRDUP_TtoA(tid);
-                entry->file_name = aid;
+                std::unique_ptr<ReaderFileEntry> entry = std::make_unique<ReaderFileEntry>();
+                std::wstring tid;
+                int32_t string_length = _stream->readVInt();
+                tid.resize(string_length);
+                // Read the string characters directly
+                _stream->readChars(tid.data(), 0, string_length);
+                entry->file_name = std::string(tid.begin(), tid.end());
                 entry->offset = _stream->readLong();
                 entry->length = _stream->readLong();
                 if (entry->offset < 0) {
                     _copyFile(entry->file_name.c_str(), static_cast<int32_t>(entry->length), buffer,
                               buffer_size);
                 }
-                free(aid);
-                _CLDELETE(entry);
             }
         }
 
@@ -584,10 +579,9 @@ TEST_F(DorisCompoundReaderTest, FileCopyCorrectness) {
 
     TestCompoundReader test_reader(index_input, entries);
 
-    EXPECT_TRUE(test_reader.testFileCopy(file_name, static_cast<int32_t>(lengths[0])));
+    EXPECT_TRUE(test_reader.testFileCopy(file_name.c_str(), static_cast<int32_t>(lengths[0])));
 
     test_reader.close();
-    _CLDELETE(entries);
 }
 
 TEST_F(DorisCompoundReaderTest, CSIndexInputClone) {

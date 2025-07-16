@@ -45,6 +45,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 
 Hint log:
 Used: leading(store_sales date_dim store item ) leading(v1 v1_lag v1_lead )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

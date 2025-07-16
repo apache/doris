@@ -241,13 +241,13 @@ Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column,
 }
 
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                 Arena* mem_pool, int32_t col_id,
+                                                 Arena& arena, int32_t col_id,
                                                  int64_t row_num) const {
     // JsonbKeyValue::keyid_type is uint16_t and col_id is int32_t, need a cast
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
-    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    StringRef value = column.serialize_value_into_arena(row_num, arena, begin);
     result.writeStartBinary();
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();
@@ -255,7 +255,7 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 
 Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& mem_pool, int64_t row_num) const {
+                                                  Arena& arena, int64_t row_num) const {
     auto res = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = res.first;
     row_num = res.second;
@@ -271,7 +271,7 @@ Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjs
     for (size_t i = offset; i < next_offset; ++i) {
         rapidjson::Value val;
         RETURN_IF_ERROR(
-                nested_serde->write_one_cell_to_json(nested_column, val, allocator, mem_pool, i));
+                nested_serde->write_one_cell_to_json(nested_column, val, allocator, arena, i));
         result.PushBack(val, allocator);
     }
     return Status::OK();

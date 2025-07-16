@@ -54,7 +54,7 @@ public:
                                        const std::wstring& field_name,
                                        const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termPositions(t, io_ctx);
+        auto* term_pos = reader->termPositions(t, false, io_ctx);
         _CLDECDELETE(t);
         return std::make_shared<TermPositionsIterator>(
                 TermPositionsPtr(term_pos, CLuceneDeleter {}));

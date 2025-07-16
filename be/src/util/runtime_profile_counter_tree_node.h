@@ -50,8 +50,14 @@ public:
     void to_thrift(std::vector<TCounter>& tcounter,
                    std::map<std::string, std::set<std::string>>& child_counter_map) const;
 
+    void to_proto(
+            google::protobuf::RepeatedPtrField<PProfileCounter>* proto_counters,
+            google::protobuf::Map<std::string, PProfileChildCounterSet>* child_counter_map) const;
+
     // Conver this node to a TCounter object.
     TCounter to_thrift() const;
+
+    PProfileCounter to_proto() const;
 
 private:
     std::string name;

@@ -76,14 +76,13 @@ void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbVal
 }
 
 void DataTypeIPv6SerDe::write_one_cell_to_jsonb(const IColumn& column,
-                                                JsonbWriterT<JsonbOutStream>& result,
-                                                Arena* mem_pool, int col_id,
-                                                int64_t row_num) const {
+                                                JsonbWriterT<JsonbOutStream>& result, Arena& arena,
+                                                int col_id, int64_t row_num) const {
     // we make ipv6 as BinaryValue in jsonb
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
-    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    StringRef value = column.serialize_value_into_arena(row_num, arena, begin);
     result.writeStartBinary();
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();

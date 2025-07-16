@@ -39,3 +39,8 @@ c
 -- !max3_orc --
 c
 
+-- !test_sql --
+DataFile	5
+EqualityDeleteFile	4
+PositionDeleteFile	1
+

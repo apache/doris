@@ -18,6 +18,7 @@
 #include "blob_message.h"
 
 #include <butil/iobuf.h>
+#include <butil/iobuf_inl.h>
 #include <google/protobuf/message.h>
 
 #include "common/logging.h"
