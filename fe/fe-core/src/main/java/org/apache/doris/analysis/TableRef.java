@@ -22,31 +22,24 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hudi.HudiUtils;
-import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 import java.util.StringJoiner;
 import java.util.regex.Matcher;
 
@@ -585,164 +578,6 @@ public class TableRef implements ParseNode {
             }
         } else {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
-        }
-    }
-
-    /**
-     * Analyze the join clause.
-     * The join clause can only be analyzed after the left table has been analyzed
-     * and the TupleDescriptor (desc) of this table has been created.
-     */
-    public void analyzeJoin(Analyzer analyzer) throws AnalysisException {
-        Preconditions.checkState(leftTblRef == null || leftTblRef.isAnalyzed);
-        Preconditions.checkState(desc != null);
-        analyzeJoinHints();
-
-        // Populate the lists of all table ref and materialized tuple ids.
-        allTableRefIds.clear();
-        allMaterializedTupleIds.clear();
-        if (leftTblRef != null) {
-            allTableRefIds.addAll(leftTblRef.getAllTableRefIds());
-            allMaterializedTupleIds.addAll(leftTblRef.getAllMaterializedTupleIds());
-        }
-        allTableRefIds.add(getId());
-        allMaterializedTupleIds.addAll(getMaterializedTupleIds());
-
-        if (usingColNames != null) {
-            // Turn USING clause into equivalent ON clause.
-            Preconditions.checkState(onClause == null);
-            for (String colName : usingColNames) {
-                // check whether colName exists both for our table and the one
-                // to the left of us
-                if (leftTblRef.getDesc().getTable().getColumn(colName) == null) {
-                    throw new AnalysisException("Unknown column " + colName + " for alias " + leftTblRef.getAlias()
-                            + " (in" + " \"" + this.toSql() + "\")");
-                }
-                if (desc.getTable().getColumn(colName) == null) {
-                    throw new AnalysisException("Unknown column " + colName + " for alias " + getAlias() + " (in \""
-                            + this.toSql() + "\")");
-                }
-
-                // create predicate "<left>.colName = <right>.colName"
-                BinaryPredicate eqPred = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                        new SlotRef(leftTblRef.getAliasAsName(), colName),
-                        new SlotRef(getAliasAsName(), colName));
-                if (onClause == null) {
-                    onClause = eqPred;
-                } else {
-                    onClause = new CompoundPredicate(CompoundPredicate.Operator.AND, onClause, eqPred);
-                }
-            }
-        }
-
-        //
-        if (leftTblRef != null) {
-            for (TupleId tupleId : leftTblRef.getAllTableRefIds()) {
-                Pair<TupleId, TupleId> tids = Pair.of(tupleId, getId());
-                analyzer.registerAnyTwoTalesJoinOperator(tids, joinOp);
-            }
-        }
-
-        // at this point, both 'this' and leftTblRef have been analyzed and registered;
-        // register the tuple ids of the TableRefs on the nullable side of an outer join
-        if (joinOp == JoinOperator.LEFT_OUTER_JOIN
-                || joinOp == JoinOperator.FULL_OUTER_JOIN) {
-            analyzer.registerOuterJoinedTids(getId().asList(), this);
-            analyzer.registerOuterJoinedRightSideTids(getId().asList());
-        }
-        if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
-                || joinOp == JoinOperator.FULL_OUTER_JOIN) {
-            analyzer.registerOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
-            analyzer.registerOuterJoinedLeftSideTids(leftTblRef.getAllTableRefIds());
-        }
-        // register the tuple ids of a full outer join
-        if (joinOp == JoinOperator.FULL_OUTER_JOIN) {
-            analyzer.registerFullOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
-            analyzer.registerFullOuterJoinedTids(getId().asList(), this);
-        }
-
-        // register the tuple id of the rhs of a left semi join
-        TupleId semiJoinedTupleId = null;
-        if (joinOp == JoinOperator.LEFT_SEMI_JOIN
-                || joinOp == JoinOperator.LEFT_ANTI_JOIN
-                || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
-            analyzer.registerSemiJoinedTid(getId(), this);
-            semiJoinedTupleId = getId();
-        }
-        // register the tuple id of the lhs of a right semi join
-        if (joinOp == JoinOperator.RIGHT_SEMI_JOIN
-                || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
-            analyzer.registerSemiJoinedTid(leftTblRef.getId(), this);
-            semiJoinedTupleId = leftTblRef.getId();
-        }
-
-        //  right anti join use shuffle , basecase broadcast join can't support right anti
-        if (joinOp == JoinOperator.RIGHT_ANTI_JOIN || joinOp == JoinOperator.RIGHT_SEMI_JOIN) {
-            isPartitionJoin = true;
-            isBroadcastJoin = false;
-        }
-
-        // cross join can't be used with ON clause
-        if (onClause != null && joinOp == JoinOperator.CROSS_JOIN) {
-            throw new AnalysisException("Cross join can't be used with ON clause");
-        }
-
-        if (onClause != null) {
-            analyzer.setVisibleSemiJoinedTuple(semiJoinedTupleId);
-            onClause.analyze(analyzer);
-            analyzer.setVisibleSemiJoinedTuple(null);
-            if (!onClause.getType().isBoolean()) {
-                onClause = onClause.castTo(Type.BOOLEAN);
-            }
-            onClause.checkReturnsBool("ON clause", true);
-            if (onClause.contains(Expr.isAggregatePredicate())) {
-                throw new AnalysisException(
-                        "aggregate function not allowed in ON clause: " + toSql());
-            }
-            if (onClause.contains(AnalyticExpr.class)) {
-                throw new AnalysisException(
-                        "analytic expression not allowed in ON clause: " + toSql());
-            }
-            Set<TupleId> onClauseTupleIds = Sets.newHashSet();
-            List<Expr> conjuncts = onClause.getConjuncts();
-            // Outer join clause conjuncts are registered for this particular table ref
-            // (ie, can only be evaluated by the plan node that implements this join).
-            // The exception are conjuncts that only pertain to the nullable side
-            // of the outer join; those can be evaluated directly when materializing tuples
-            // without violating outer join semantics.
-            analyzer.registerOnClauseConjuncts(conjuncts, this);
-            for (Expr e : conjuncts) {
-                List<TupleId> tupleIds = Lists.newArrayList();
-                e.getIds(tupleIds, null);
-                onClauseTupleIds.addAll(tupleIds);
-            }
-        } else if (!isRelative() && !isCorrelated()
-                && (getJoinOp().isOuterJoin() || getJoinOp().isSemiJoin())) {
-            throw new AnalysisException(
-                    joinOp.toString() + " requires an ON or USING clause.");
-        } else {
-            // Indicate that this table ref has an empty ON-clause.
-            analyzer.registerOnClauseConjuncts(Collections.<Expr>emptyList(), this);
-        }
-
-        if (lateralViewRefs != null) {
-            for (LateralViewRef lateralViewRef : lateralViewRefs) {
-                allTableRefIds.add(lateralViewRef.getId());
-            }
-        }
-    }
-
-    public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
-            throws AnalysisException {
-        Preconditions.checkState(isAnalyzed);
-        if (onClause != null) {
-            Expr expr = onClause.clone();
-            onClause = rewriter.rewrite(onClause, analyzer, ClauseType.fromJoinType(joinOp));
-            if (joinOp.isOuterJoin() || joinOp.isSemiAntiJoin()) {
-                if (onClause instanceof BoolLiteral && !((BoolLiteral) onClause).getValue()) {
-                    onClause = expr;
-                }
-            }
         }
     }
 

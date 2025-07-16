@@ -48,7 +48,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 enum class ScaleMode {
     Positive, // round to a number with N decimal places after the decimal point
     Negative, // round to an integer with N zero characters
@@ -86,32 +86,29 @@ struct IntegerRoundingComputation {
 
     /// Integer overflow is Ok.
     static ALWAYS_INLINE T compute_impl(T x, T scale, T target_scale) {
-        switch (rounding_mode) {
-        case RoundingMode::Trunc: {
+        if constexpr (rounding_mode == RoundingMode::Trunc) {
             return target_scale > 1 ? x / scale * target_scale : x / scale;
         }
-        case RoundingMode::Floor: {
+        if constexpr (rounding_mode == RoundingMode::Floor) {
             if (x < 0) {
                 x -= scale - 1;
             }
             return target_scale > 1 ? x / scale * target_scale : x / scale;
         }
-        case RoundingMode::Ceil: {
+        if constexpr (rounding_mode == RoundingMode::Ceil) {
             if (x >= 0) {
                 x += scale - 1;
             }
             return target_scale > 1 ? x / scale * target_scale : x / scale;
         }
-        case RoundingMode::Round: {
+        if constexpr (rounding_mode == RoundingMode::Round) {
             if (x < 0) {
                 x -= scale;
             }
-            switch (tie_breaking_mode) {
-            case TieBreakingMode::Auto: {
+            if constexpr (tie_breaking_mode == TieBreakingMode::Auto) {
                 x = (x + scale / 2) / scale;
-                break;
             }
-            case TieBreakingMode::Bankers: {
+            if constexpr (tie_breaking_mode == TieBreakingMode::Bankers) {
                 T quotient = (x + scale / 2) / scale;
                 if (quotient * scale == x + scale / 2) {
                     // round half to even
@@ -120,28 +117,16 @@ struct IntegerRoundingComputation {
                     // round the others as usual
                     x = quotient;
                 }
-                break;
-            }
             }
             return target_scale > 1 ? x * target_scale : x;
         }
-        }
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "IntegerRoundingComputation __builtin_unreachable ", rounding_mode);
-        __builtin_unreachable();
     }
 
     static ALWAYS_INLINE T compute(T x, T scale, T target_scale) {
-        switch (scale_mode) {
-        case ScaleMode::Zero:
-        case ScaleMode::Positive:
-            return x;
-        case ScaleMode::Negative:
+        if constexpr (scale_mode == ScaleMode::Negative) {
             return compute_impl(x, scale, target_scale);
         }
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "IntegerRoundingComputation __builtin_unreachable ", scale_mode);
-        __builtin_unreachable();
+        return x;
     }
 
     static ALWAYS_INLINE void compute(const T* __restrict in, U scale, T* __restrict out,
@@ -509,11 +494,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Dispatcher apply_vec_const __builtin_unreachable {}",
-                                   type_to_string(T));
-            __builtin_unreachable();
-            return nullptr;
+            static_assert(false);
         }
     }
 
@@ -591,11 +572,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Dispatcher apply_vec_vec __builtin_unreachable {}",
-                                   type_to_string(T));
-            __builtin_unreachable();
-            return nullptr;
+            static_assert(false);
         }
     }
 
@@ -678,11 +655,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Dispatcher apply_const_vec __builtin_unreachable {}",
-                                   type_to_string(T));
-            __builtin_unreachable();
-            return nullptr;
+            static_assert(false);
         }
     }
 };
@@ -730,8 +703,6 @@ public:
         *scale = scale_arg;
         return Status::OK();
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
@@ -868,23 +839,23 @@ struct DoubleRoundOneImpl {
     }
 };
 
-template <typename Name>
+template <typename Name, PrimitiveType Type>
 struct DecimalRoundTwoImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal32>(9, 0),
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
                 std::make_shared<vectorized::DataTypeInt32>()};
     }
 };
 
-template <typename Name>
+template <typename Name, PrimitiveType Type>
 struct DecimalRoundOneImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal32>(9, 0)};
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

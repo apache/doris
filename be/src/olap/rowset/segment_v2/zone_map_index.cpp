@@ -43,11 +43,11 @@ namespace segment_v2 {
 
 template <PrimitiveType Type>
 TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(Field* field) : _field(field) {
-    _page_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
-    _page_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
+    _page_zone_map.min_value = _field->allocate_zone_map_value(_arena);
+    _page_zone_map.max_value = _field->allocate_zone_map_value(_arena);
     _reset_zone_map(&_page_zone_map);
-    _segment_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
-    _segment_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
+    _segment_zone_map.min_value = _field->allocate_zone_map_value(_arena);
+    _segment_zone_map.max_value = _field->allocate_zone_map_value(_arena);
     _reset_zone_map(&_segment_zone_map);
 }
 

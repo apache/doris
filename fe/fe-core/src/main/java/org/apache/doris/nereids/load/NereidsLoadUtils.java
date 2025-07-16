@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -82,8 +83,25 @@ public class NereidsLoadUtils {
         List<Expression> expressions = new ArrayList<>();
         parsedPlan.accept(new DefaultPlanVisitor<Void, List<Expression>>() {
             @Override
+            public Void visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, List<Expression> exprs) {
+                processProject(oneRowRelation.getProjects(), exprs);
+                return null;
+            }
+
+            @Override
+            public Void visitUnboundOneRowRelation(UnboundOneRowRelation oneRowRelation, List<Expression> exprs) {
+                processProject(oneRowRelation.getProjects(), exprs);
+                return null;
+            }
+
+            @Override
             public Void visitLogicalProject(LogicalProject<? extends Plan> logicalProject, List<Expression> exprs) {
-                for (NamedExpression expr : logicalProject.getProjects()) {
+                processProject(logicalProject.getProjects(), exprs);
+                return null;
+            }
+
+            private void processProject(List<NamedExpression> namedExpressions, List<Expression> exprs) {
+                for (NamedExpression expr : namedExpressions) {
                     if (expr instanceof UnboundAlias) {
                         exprs.add(expr.child(0));
                     } else if (expr instanceof UnboundSlot) {
@@ -96,7 +114,6 @@ public class NereidsLoadUtils {
                         break;
                     }
                 }
-                return super.visitLogicalProject(logicalProject, exprs);
             }
         }, expressions);
         if (expressions.isEmpty()) {
@@ -182,10 +199,35 @@ public class NereidsLoadUtils {
         try {
             ctx.getSessionVariable().setDebugSkipFoldConstant(true);
             Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                    ImmutableList.of(Rewriter.bottomUp(new BindExpression(),
+                    ImmutableList.of(Rewriter.bottomUp(
+                            new BindExpression(),
                             new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
-                            new BindSink(), new AddPostFilter(context.fileGroup.getWhereExpr()), new MergeProjects(),
-                            new ExpressionNormalization())))
+                            new BindSink(false),
+                            new AddPostFilter(
+                                    context.fileGroup.getWhereExpr()
+                            ),
+                            // NOTE: the LogicalOneRowRelation usually not contains slots,
+                            //       but NereidsLoadPlanInfoCollector need to parse the slot list.
+                            //       load only need merge continued LogicalProject, but not want to
+                            //       merge LogicalOneRowRelation by MergeProjectable,
+                            //       for example, select cast(id as int), name
+                            //       will generate:
+                            //
+                            //       LogicalProject(projects=[cast(Alias(id#0 as int), name#1)])
+                            //                          |
+                            //              LogicalOneRowRelation(id#0, name#1)
+                            //
+                            //      then NereidsLoadPlanInfoCollector can generate collect slots by the
+                            //      bottom LogicalOneRowRelation, and provide to upper LogicalProject.
+                            //
+                            //      but if we use MergeProjectable, it will be
+                            //          LogicalOneRowRelation(projects=[Alias(cast(id#0 as int)), name#1)])
+                            //
+                            //      the NereidsLoadPlanInfoCollector will not generate slot by id#0,
+                            //      so we must use MergeProjects here
+                            new MergeProjects(),
+                            new ExpressionNormalization())
+                    ))
                     .execute();
         } catch (Exception exception) {
             throw new UserException(exception.getMessage());

@@ -78,8 +78,8 @@ bool CloudTablet::exceed_version_limit(int32_t limit) {
     return _approximate_num_rowsets.load(std::memory_order_relaxed) > limit;
 }
 
-const std::string& CloudTablet::tablet_path() const {
-    return get_rowset_with_max_version()->tablet_path();
+std::string CloudTablet::tablet_path() const {
+    return "";
 }
 
 Status CloudTablet::capture_consistent_rowsets_unlocked(
@@ -286,7 +286,11 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             .expiration_time = expiration_time,
                                             .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                     },
-                            .download_done {},
+                            .download_done {[](Status st) {
+                                if (!st) {
+                                    LOG_WARNING("add rowset warm up error ").error(st);
+                                }
+                            }},
                     });
 
                     auto download_idx_file = [&](const io::Path& idx_path) {
@@ -299,7 +303,11 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                                 .expiration_time = expiration_time,
                                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                         },
-                                .download_done {},
+                                .download_done {[](Status st) {
+                                    if (!st) {
+                                        LOG_WARNING("add rowset warm up error ").error(st);
+                                    }
+                                }},
                         };
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
                     };

@@ -30,61 +30,6 @@
 namespace doris::vectorized {
 using namespace ut_type;
 
-TEST(FunctionJsonTEST, GetJsonDoubleTest) {
-    std::string func_name = "get_json_double";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
-    DataSet data_set = {
-            {{VARCHAR("{\"k1\":1.3, \"k2\":2}"), VARCHAR("$.k1")}, DOUBLE(1.3)},
-            {{VARCHAR("{\"k1\":\"v1\", \"my.key\":[1.1, 2.2, 3.3]}"), VARCHAR("$.\"my.key\"[1]")},
-             DOUBLE(2.2)},
-            {{VARCHAR("{\"k1.key\":{\"k2\":[1.1, 2.2]}}"), VARCHAR("$.\"k1.key\".k2[0]")},
-             DOUBLE(1.1)}};
-
-    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
-}
-
-TEST(FunctionJsonTEST, GetJsonIntTest) {
-    std::string func_name = "get_json_int";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
-    DataSet data_set = {
-            {{VARCHAR("{\"k1\":1, \"k2\":2}"), VARCHAR("$.k1")}, INT(1)},
-            {{VARCHAR("{\"k1\":\"v1\", \"my.key\":[1, 2, 3]}"), VARCHAR("$.\"my.key\"[1]")},
-             INT(2)},
-            {{VARCHAR("{\"k1.key\":{\"k2\":[1, 2]}}"), VARCHAR("$.\"k1.key\".k2[0]")}, INT(1)}};
-
-    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
-}
-
-TEST(FunctionJsonTEST, GetJsonBigIntTest) {
-    std::string func_name = "get_json_bigint";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
-    DataSet data_set = {
-            {{VARCHAR("{\"k1\":1, \"k2\":2}"), VARCHAR("$.k1")}, Int64(1)},
-            {{VARCHAR("{\"k1\":1678708107000, \"k2\":2}"), VARCHAR("$.k1")}, Int64(1678708107000)},
-            {{VARCHAR("{\"k1\":\"v1\", \"my.key\":[1, 2, 3]}"), VARCHAR("$.\"my.key\"[1]")},
-             Int64(2)},
-            {{VARCHAR("{\"k1.key\":{\"k2\":[1, 2]}}"), VARCHAR("$.\"k1.key\".k2[0]")}, Int64(1)}};
-
-    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
-}
-
-TEST(FunctionJsonTEST, GetJsonStringTest) {
-    std::string func_name = "get_json_string";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
-    DataSet data_set = {
-            {{VARCHAR("{\"k1\":\"v1\", \"k2\":\"v2\"}"), VARCHAR("$.k1")}, VARCHAR("v1")},
-            {{VARCHAR("{\"k1\":\"v1\", \"my.key\":[\"e1\", \"e2\", \"e3\"]}"),
-              VARCHAR("$.\"my.key\"[1]")},
-             VARCHAR("e2")},
-            {{VARCHAR("{\"k1.key\":{\"k2\":[\"v1\", \"v2\"]}}"), VARCHAR("$.\"k1.key\".k2[0]")},
-             VARCHAR("v1")},
-            {{VARCHAR("[{\"k1\":\"v1\"}, {\"k2\":\"v2\"}, {\"k1\":\"v3\"}, {\"k1\":\"v4\"}]"),
-              VARCHAR("$.k1")},
-             VARCHAR("[\"v1\",\"v3\",\"v4\"]")}};
-
-    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
-}
-
 TEST(FunctionJsonTEST, JsonExtractTest) {
     std::string json_extract_name = "json_extract";
     std::string json_extract_no_quotes_name = "json_extract_no_quotes";
@@ -93,7 +38,7 @@ TEST(FunctionJsonTEST, JsonExtractTest) {
     // json_extract root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
-            {{STRING("null"), STRING("$")}, Null()},
+            {{STRING("null"), STRING("$")}, STRING("null")},
             {{STRING("true"), STRING("$")}, STRING("true")},
             {{STRING("false"), STRING("$")}, STRING("false")},
             {{STRING("100"), STRING("$")}, STRING("100")},                                 //int8
@@ -127,7 +72,7 @@ TEST(FunctionJsonTEST, JsonExtractTest) {
 
     data_set = {
             {{Null(), STRING("$")}, Null()},
-            {{STRING("null"), STRING("$")}, Null()},
+            {{STRING("null"), STRING("$")}, STRING("null")},
             {{STRING("true"), STRING("$")}, STRING("true")},
             {{STRING("false"), STRING("$")}, STRING("false")},
             {{STRING("100"), STRING("$")}, STRING("100")},                                 //int8

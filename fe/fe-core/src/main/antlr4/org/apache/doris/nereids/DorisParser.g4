@@ -74,10 +74,7 @@ statementBase
 
 unsupportedStatement
     : unsupportedStatsStatement
-    | unsupportedAlterStatement
-    | unsupportedAdminStatement
     | unsupportedLoadStatement
-    | unsupportedOtherStatement
     ;
 
 materializedViewStatement
@@ -97,7 +94,7 @@ materializedViewStatement
         | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
-        (ON tableName=multipartIdentifier)?                                                     #dropMTMV
+        (ON tableName=multipartIdentifier)?                                                     #dropMV
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                 #pauseMTMV
     | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                #resumeMTMV
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
@@ -283,6 +280,8 @@ supportedAlterStatement
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
+    | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
+            (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
@@ -345,6 +344,7 @@ supportedShowStatement
     | SHOW GLOBAL FULL? FUNCTIONS (LIKE STRING_LITERAL)?                            #showGlobalFunctions
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
+    | SHOW CREATE USER userIdentify                                                 #showCreateUser
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
@@ -438,6 +438,9 @@ supportedShowStatement
 supportedLoadStatement
     : SYNC                                                                          #sync
     | createRoutineLoad                                                             #createRoutineLoadAlias
+    | LOAD mysqlDataDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?                                                              #mysqlLoad
     | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
     | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
@@ -462,18 +465,15 @@ supportedOtherStatement
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
+    | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
+        ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
+        properties=propertyClause?                                                  #restore
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
-    ;
-
-unsupportedOtherStatement
-    : RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
-        ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
-        properties=propertyClause?                                                  #restore
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
     ;
 
@@ -495,10 +495,7 @@ createRoutineLoad
     ;
 
 unsupportedLoadStatement
-    : LOAD mysqlDataDesc
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?                                                              #mysqlLoad
-    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
+    : SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     ;
 
 loadProperty
@@ -590,6 +587,8 @@ supportedAdminStatement
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
     | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
+    | ADMIN SET TABLE name=multipartIdentifier
+        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 supportedRecoverStatement
@@ -598,11 +597,6 @@ supportedRecoverStatement
         id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
     | RECOVER PARTITION name=identifier id=INTEGER_VALUE? (AS alias=identifier)?
         FROM tableName=multipartIdentifier                                          #recoverPartition
-    ;
-
-unsupportedAdminStatement
-    : ADMIN SET TABLE name=multipartIdentifier
-        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 baseTableRef
@@ -643,13 +637,6 @@ privilege
 
 privilegeList
     : privilege (COMMA privilege)*
-    ;
-
-unsupportedAlterStatement
-    : ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
-            (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
-    | ALTER STORAGE POLICY name=identifierOrText
-        properties=propertyClause                                                   #alterStoragePlicy
     ;
 
 alterSystemClause
@@ -724,6 +711,8 @@ alterTableClause
         INTERVAL INTEGER_VALUE unit=identifier? properties=propertyClause?          #alterMultiPartitionClause
     | createOrReplaceTagClause                                                      #createOrReplaceTagClauses
     | createOrReplaceBranchClause                                                   #createOrReplaceBranchClauses
+    | dropBranchClause                                                              #dropBranchClauses
+    | dropTagClause                                                                 #dropTagClauses
     ;
 
 createOrReplaceTagClause
@@ -762,6 +751,14 @@ timeValueWithUnit
     : timeValue=INTEGER_VALUE  timeUnit=(DAYS | HOURS | MINUTES)
     ;
 
+dropBranchClause
+    : DROP BRANCH (IF EXISTS)? name=identifier
+    ;
+
+dropTagClause
+    : DROP TAG (IF EXISTS)? name=identifier
+    ;
+
 columnPosition
     : FIRST
     | AFTER position=identifier
@@ -782,6 +779,8 @@ supportedStatsStatement
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showQueuedAnalyzeJobs
     | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
         columnList=identifierList                                               #showColumnHistogramStats
+    | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
+        columnList=identifierList? partitionSpec?                               #showColumnStats
     | ANALYZE DATABASE name=multipartIdentifier
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
@@ -804,9 +803,7 @@ supportedStatsStatement
     ;
 
 unsupportedStatsStatement
-    : SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
-        columnList=identifierList? partitionSpec?                               #showColumnStats
-    | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
+    : SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
 analyzeProperties
@@ -1234,13 +1231,25 @@ joinRelation
 
 // Just like `opt_plan_hints` in legacy CUP parser.
 distributeType
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketDistributeType
-    | HINT_START identifier HINT_END                                  #commentDistributeType
+    : LEFT_BRACKET identifier skewHint? RIGHT_BRACKET
+    | HINT_START identifier skewHint? HINT_END
+    ;
+
+skewHint
+    :  LEFT_BRACKET identifier LEFT_PAREN qualifiedName constantList RIGHT_PAREN RIGHT_BRACKET
+    ;
+
+constantList
+    : LEFT_PAREN values+=constant (COMMA values+=constant)* RIGHT_PAREN
     ;
 
 relationHint
     : LEFT_BRACKET identifier (COMMA identifier)* RIGHT_BRACKET       #bracketRelationHint
     | HINT_START identifier (COMMA identifier)* HINT_END              #commentRelationHint
+    ;
+
+expressionWithOrder
+    :  expression ordering = (ASC | DESC)?
     ;
 
 aggClause
@@ -1251,7 +1260,7 @@ groupingElement
     : ROLLUP LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | CUBE LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | GROUPING SETS LEFT_PAREN groupingSet (COMMA groupingSet)* RIGHT_PAREN
-    | expression (COMMA expression)* (WITH ROLLUP)?
+    | expressionWithOrder (COMMA expressionWithOrder)* (WITH ROLLUP)?
     ;
 
 groupingSet
@@ -1274,7 +1283,7 @@ hintStatement
     ;
 
 hintAssignment
-    : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
+    : key=identifierOrText skew=skewHint? (EQ (constantValue=constant | identifierValue=identifier))?
     | constant
     ;
 
@@ -1310,7 +1319,7 @@ limitClause
     ;
 
 partitionClause
-    : PARTITION BY expression (COMMA expression)*
+    : PARTITION BY (LEFT_BRACKET identifier RIGHT_BRACKET)? expression (COMMA expression)*
     ;
 
 joinType
@@ -1435,7 +1444,7 @@ stepPartitionDef
     ;
 
 inPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN partitionValueLists+=partitionValueList
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier ((VALUES IN)? ((LEFT_PAREN partitionValueLists+=partitionValueList
         (COMMA partitionValueLists+=partitionValueList)* RIGHT_PAREN) | constants=partitionValueList))?
     ;
 
@@ -1515,7 +1524,8 @@ rowConstructorItem
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
-    | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
+    | NOT? kind=(REGEXP | RLIKE) pattern=valueExpression
+    | NOT? kind=LIKE pattern=valueExpression (ESCAPE escape=valueExpression)?
     | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP | MATCH_PHRASE_EDGE) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
@@ -1586,6 +1596,7 @@ functionCallExpression
     : functionIdentifier
               LEFT_PAREN (
                   (DISTINCT|ALL)?
+                  (LEFT_BRACKET identifier RIGHT_BRACKET)?
                   arguments+=expression (COMMA arguments+=expression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
@@ -1903,6 +1914,7 @@ nonReserved
     | ENGINE
     | ENGINES
     | ERRORS
+    | ESCAPE
     | EVENTS
     | EVERY
     | EXCLUDE

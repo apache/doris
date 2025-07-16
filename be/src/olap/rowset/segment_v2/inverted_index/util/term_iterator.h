@@ -75,15 +75,15 @@ public:
 
     bool read_range(DocRange* docRange) const { return term_docs_->readRange(docRange); }
 
-    static TermIterPtr create(const io::IOContext* io_ctx, IndexReader* reader,
+    static TermIterPtr create(const io::IOContext* io_ctx, lucene::index::IndexReader* reader,
                               const std::wstring& field_name, const std::string& term) {
         return create(io_ctx, reader, field_name, StringUtil::string_to_wstring(term));
     }
 
-    static TermIterPtr create(const io::IOContext* io_ctx, IndexReader* reader,
+    static TermIterPtr create(const io::IOContext* io_ctx, lucene::index::IndexReader* reader,
                               const std::wstring& field_name, const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termDocs(t, io_ctx);
+        auto* term_pos = reader->termDocs(t, false, io_ctx);
         _CLDECDELETE(t);
         return std::make_shared<TermIterator>(TermDocsPtr(term_pos, CLuceneDeleter {}));
     }

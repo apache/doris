@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.HdfsStorageVault;
 import org.apache.doris.catalog.StorageVault;
@@ -31,6 +30,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
 
@@ -60,9 +60,9 @@ public class HdfsStorageVaultTest {
     }
 
     StorageVault createHdfsVault(String name, Map<String, String> properties) throws Exception {
-        CreateStorageVaultStmt stmt = new CreateStorageVaultStmt(false, name, properties);
-        stmt.setStorageVaultType(StorageVault.StorageVaultType.HDFS);
-        StorageVault vault = StorageVault.fromStmt(stmt);
+        CreateStorageVaultCommand command = new CreateStorageVaultCommand(false, name, properties);
+        command.setStorageVaultType(StorageVault.StorageVaultType.HDFS);
+        StorageVault vault = StorageVault.fromCommand(command);
         return vault;
     }
 

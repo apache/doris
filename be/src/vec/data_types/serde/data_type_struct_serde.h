@@ -114,6 +114,8 @@ public:
               elem_serdes_ptrs(_elem_serdes_ptrs),
               elem_names(names) {}
 
+    std::string get_name() const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 
@@ -141,7 +143,7 @@ public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
@@ -164,6 +166,9 @@ public:
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
 
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);
         for (auto& serde : elem_serdes_ptrs) {
@@ -171,11 +176,9 @@ public:
         }
     }
 
-    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return elem_serdes_ptrs; }
+    DataTypeSerDeSPtrs get_nested_serdes() const override { return elem_serdes_ptrs; }
 
 private:
-    std::optional<size_t> try_get_position_by_name(const String& name) const;
-
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
                                   std::vector<MysqlRowBuffer<is_binary_format>>& result,

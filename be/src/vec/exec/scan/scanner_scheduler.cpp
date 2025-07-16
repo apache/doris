@@ -61,18 +61,10 @@ void ScannerScheduler::stop() {
 
     _is_closed = true;
 
-    _limited_scan_thread_pool->shutdown();
-    _limited_scan_thread_pool->wait();
-
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
-    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
-                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                            .build(&_limited_scan_thread_pool));
     _is_init = true;
     return Status::OK();
 }
@@ -88,15 +80,16 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                   << " maybe finished";
         return Status::OK();
     }
+    std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
+    if (scanner_delegate == nullptr) {
+        return Status::OK();
+    }
 
-    if (ctx->thread_token != nullptr) {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return Status::OK();
-        }
-
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
+    scanner_delegate->_scanner->start_wait_worker_timer();
+    TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
+    auto sumbit_task = [&]() {
+        SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
+        auto work_func = [scanner_ref = scan_task, ctx]() {
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                 return Status::OK();
@@ -106,53 +99,22 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                 scanner_ref->set_status(status);
                 ctx->push_back_scan_task(scanner_ref);
             }
-        });
-        if (!s.ok()) {
-            scan_task->set_status(s);
-            return s;
-        }
-    } else {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return Status::OK();
-        }
-
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
-        auto sumbit_task = [&]() {
-            SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
-            auto work_func = [scanner_ref = scan_task, ctx]() {
-                auto status = [&] {
-                    RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                    return Status::OK();
-                }();
-
-                if (!status.ok()) {
-                    scanner_ref->set_status(status);
-                    ctx->push_back_scan_task(scanner_ref);
-                }
-            };
-            SimplifiedScanTask simple_scan_task = {work_func, ctx};
-            return scan_sched->submit_scan_task(simple_scan_task);
         };
+        SimplifiedScanTask simple_scan_task = {work_func, ctx};
+        return scan_sched->submit_scan_task(simple_scan_task);
+    };
 
-        Status submit_status = sumbit_task();
-        if (!submit_status.ok()) {
-            // User will see TooManyTasks error. It looks like a more reasonable error.
-            Status scan_task_status = Status::TooManyTasks(
-                    "Failed to submit scanner to scanner pool reason:" +
-                    std::string(submit_status.msg()) + "|type:" + std::to_string(type));
-            scan_task->set_status(scan_task_status);
-            return scan_task_status;
-        }
+    Status submit_status = sumbit_task();
+    if (!submit_status.ok()) {
+        // User will see TooManyTasks error. It looks like a more reasonable error.
+        Status scan_task_status = Status::TooManyTasks(
+                "Failed to submit scanner to scanner pool reason:" +
+                std::string(submit_status.msg()) + "|type:" + std::to_string(type));
+        scan_task->set_status(scan_task_status);
+        return scan_task_status;
     }
 
     return Status::OK();
-}
-
-std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
-        ThreadPool::ExecutionMode mode, int max_concurrency) {
-    return _limited_scan_thread_pool->new_token(mode, max_concurrency);
 }
 
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
@@ -364,6 +326,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scan_task->set_status(status);
         eos = true;
     }
+    // WorkloadGroup Policy will check cputime realtime, so that should update the counter
+    // as soon as possible, could not update it on close.
+    scanner->update_scan_cpu_timer();
+    scanner->update_realtime_counters();
 
     if (eos) {
         scanner->mark_to_need_to_close();

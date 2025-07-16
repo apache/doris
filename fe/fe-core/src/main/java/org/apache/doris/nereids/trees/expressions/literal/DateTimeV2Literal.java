@@ -233,6 +233,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return plusMicroSeconds(microSeconds * 1000L);
     }
 
+    public long getScale() {
+        return ((DateTimeV2Type) dataType).getScale();
+    }
+
     /**
      * roundCeiling
      */

@@ -46,8 +46,8 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -89,14 +89,14 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
                                              const VerticalSegmentWriterOptions& opts,
-                                             InvertedIndexFileWriter* inverted_file_writer)
+                                             IndexFileWriter* index_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _inverted_index_file_writer(inverted_file_writer),
+          _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(
                   vertical_segment_writer_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
@@ -222,8 +222,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
-        DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        DCHECK(_index_file_writer != nullptr);
+        opts.index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
     }
 
@@ -253,6 +253,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     if (storage_page_size >= 4096 && storage_page_size <= 10485760) {
         opts.data_page_size = storage_page_size;
     }
+    opts.dict_page_size = _tablet_schema->storage_dict_page_size();
     DBUG_EXECUTE_IF("VerticalSegmentWriter._create_column_writer.storage_page_size", {
         auto table_id = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
                 "VerticalSegmentWriter._create_column_writer.storage_page_size", "table_id",

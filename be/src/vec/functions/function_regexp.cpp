@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -42,6 +43,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -49,6 +51,114 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+struct RegexpCountImpl {
+    static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
+                             size_t input_rows_count, ColumnInt32::Container& result_data) {
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        for (int i = 0; i < input_rows_count; ++i) {
+            result_data[i] = _execute_inner_loop(context, str_col, pattern_col, i);
+        }
+    }
+    static int _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
+                                   const ColumnString* pattern_col, const size_t index_now) {
+        re2::RE2* re = reinterpret_cast<re2::RE2*>(
+                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        std::unique_ptr<re2::RE2> scoped_re;
+        if (re == nullptr) {
+            std::string error_str;
+            DCHECK(pattern_col);
+            const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, false));
+            bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
+                                                     scoped_re);
+            if (!st) {
+                context->add_warning(error_str.c_str());
+                throw Exception(Status::InvalidArgument(error_str));
+                return 0;
+            }
+            re = scoped_re.get();
+        }
+
+        const auto& str = str_col->get_data_at(index_now);
+        int count = 0;
+        size_t pos = 0;
+        while (pos < str.size) {
+            auto str_pos = str.data + pos;
+            auto str_size = str.size - pos;
+            re2::StringPiece str_sp_current = re2::StringPiece(str_pos, str_size);
+            re2::StringPiece match;
+
+            bool success = re->Match(str_sp_current, 0, str_size, re2::RE2::UNANCHORED, &match, 1);
+            if (!success) {
+                break;
+            }
+            if (match.empty()) {
+                pos += 1;
+                continue;
+            }
+            count++;
+            size_t match_start = match.data() - str_sp_current.data();
+            pos += match_start + match.size();
+        }
+
+        return count;
+    }
+};
+
+class FunctionRegexpCount : public IFunction {
+public:
+    static constexpr auto name = "regexp_count";
+
+    static FunctionPtr create() { return std::make_shared<FunctionRegexpCount>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt32>();
+    }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            if (context->is_col_constant(1)) {
+                DCHECK(!context->get_function_state(scope));
+                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto& pattern = pattern_col->get_data_at(0);
+                if (pattern.size == 0) {
+                    return Status::OK();
+                }
+
+                std::string error_str;
+                std::unique_ptr<re2::RE2> scoped_re;
+                bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(),
+                                                         StringRef(), scoped_re);
+                if (!st) {
+                    context->set_error(error_str.c_str());
+                    return Status::InvalidArgument(error_str);
+                }
+                std::shared_ptr<re2::RE2> re(scoped_re.release());
+                context->set_function_state(scope, re);
+            }
+        }
+        return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto result_data_column = ColumnInt32::create(input_rows_count);
+        auto& result_data = result_data_column->get_data();
+
+        ColumnPtr argument_columns[2];
+
+        argument_columns[0] = block.get_by_position(arguments[0]).column;
+        argument_columns[1] = block.get_by_position(arguments[1]).column;
+        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data);
+
+        block.get_by_position(result).column = std::move(result_data_column);
+        return Status::OK();
+    }
+};
 
 struct ThreeParamTypes {
     static DataTypes get_variadic_argument_types() {
@@ -101,7 +211,8 @@ public:
                 std::string error_str;
                 std::unique_ptr<re2::RE2> scoped_re;
                 StringRef options_value;
-                if (context->get_num_args() == 4) {
+                if constexpr (std::is_same_v<FourParamTypes, ParamTypes>) {
+                    DCHECK_EQ(context->get_num_args(), 4);
                     DCHECK(context->is_col_constant(3));
                     const auto options_col = context->get_constant_col(3)->column_ptr;
                     options_value = options_col->get_data_at(0);
@@ -605,6 +716,7 @@ void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<true>>>();
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<false>>>();
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractAllImpl>>();
+    factory.register_function<FunctionRegexpCount>();
 }
 
 } // namespace doris::vectorized

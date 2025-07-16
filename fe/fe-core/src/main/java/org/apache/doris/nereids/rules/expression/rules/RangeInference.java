@@ -62,7 +62,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
      * get expression's value desc.
      */
     public ValueDesc getValue(Expression expr, ExpressionRewriteContext context) {
-        return expr.accept(new RangeInference(), context);
+        return expr.accept(this, context);
     }
 
     @Override

@@ -41,9 +41,9 @@ public:
                      std::shared_ptr<pipeline::Dependency> fin_dep);
 
     // connect to jdbc server
-    Status open(RuntimeState* state, RuntimeProfile* profile) override {
+    Status open(RuntimeState* state, RuntimeProfile* operator_profile) override {
         RETURN_IF_ERROR(JdbcConnector::open(state, false));
-        return init_to_write(profile);
+        return init_to_write(operator_profile);
     }
 
     Status write(RuntimeState* state, vectorized::Block& block) override;

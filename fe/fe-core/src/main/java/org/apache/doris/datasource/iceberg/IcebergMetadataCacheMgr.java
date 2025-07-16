@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.datasource.ExternalTable;
+
 import java.util.concurrent.ExecutorService;
 
 public class IcebergMetadataCacheMgr {
@@ -39,8 +41,8 @@ public class IcebergMetadataCacheMgr {
         icebergMetadataCache.invalidateCatalogCache(catalogId);
     }
 
-    public void invalidateTableCache(long catalogId, String dbName, String tblName) {
-        icebergMetadataCache.invalidateTableCache(catalogId, dbName, tblName);
+    public void invalidateTableCache(ExternalTable dorisTable) {
+        icebergMetadataCache.invalidateTableCache(dorisTable);
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {

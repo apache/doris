@@ -56,7 +56,11 @@ inline void escape_string(const char* src, size_t* len, char escape_char) {
         if (escape_next_char) {
             ++src;
         } else {
-            *dest_ptr++ = *src++;
+            if (dest_ptr != src) {
+                *dest_ptr = *src;
+            }
+            dest_ptr++;
+            src++;
         }
     }
 
@@ -94,6 +98,8 @@ class DataTypeStringSerDeBase : public DataTypeSerDe {
 
 public:
     DataTypeStringSerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+
+    std::string get_name() const override { return "String"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -170,7 +176,10 @@ public:
 
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;

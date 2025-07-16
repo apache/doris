@@ -42,7 +42,7 @@
 #include "vec/common/int_exp.h"
 
 namespace doris {
-
+#include "common/compile_check_avoid_begin.h"
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
@@ -373,35 +373,6 @@ void VecDateTimeValue::set_max_time(bool neg) {
     _minute = TIME_MAX_MINUTE;
     _second = TIME_MAX_SECOND;
     _neg = neg;
-}
-
-bool VecDateTimeValue::from_time_int64(int64_t value) {
-    _type = TIME_TIME;
-    if (value > TIME_MAX_VALUE) {
-        // 0001-01-01 00:00:00 to convert to a datetime
-        if (value > 10000000000L) {
-            if (from_date_int64(value)) {
-                return true;
-            }
-        }
-        set_max_time(false);
-        return false;
-    } else if (value < -1 * TIME_MAX_VALUE) {
-        set_max_time(true);
-        return false;
-    }
-    if (value < 0) {
-        _neg = 1;
-        value = -value;
-    }
-    _hour = value / 10000;
-    value %= 10000;
-    _minute = value / 100;
-    if (_minute > TIME_MAX_MINUTE) {
-        return false;
-    }
-    _second = value % 100;
-    return _second <= TIME_MAX_SECOND;
 }
 
 char* VecDateTimeValue::append_date_buffer(char* to) const {
@@ -3067,47 +3038,34 @@ bool DateV2Value<T>::datetime_trunc() {
         if (!is_valid_date()) [[unlikely]] {
             return false;
         }
-        switch (unit) {
-        case SECOND: {
+        if constexpr (unit == SECOND) {
             date_v2_value_.microsecond_ = 0;
-            break;
-        }
-        case MINUTE: {
+        } else if constexpr (unit == MINUTE) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
-            break;
-        }
-        case HOUR: {
+        } else if constexpr (unit == HOUR) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
-            break;
-        }
-        case DAY: {
+        } else if constexpr (unit == DAY) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
-            break;
-        }
-        case WEEK: {
+        } else if constexpr (unit == WEEK) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
             TimeInterval interval(DAY, weekday(), true);
             date_add_interval<DAY>(interval);
-            break;
-        }
-        case MONTH: {
+        } else if constexpr (unit == MONTH) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
             date_v2_value_.day_ = 1;
-            break;
-        }
-        case QUARTER: {
+        } else if constexpr (unit == QUARTER) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
@@ -3122,40 +3080,26 @@ bool DateV2Value<T>::datetime_trunc() {
             } else {
                 date_v2_value_.month_ = 10;
             }
-            break;
-        }
-        case YEAR: {
+        } else if constexpr (unit == YEAR) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
             date_v2_value_.day_ = 1;
             date_v2_value_.month_ = 1;
-            break;
-        }
-        default:
+        } else {
             return false;
         }
     } else { // is_datev2
         if (!is_valid_date()) [[unlikely]] {
             return false;
         }
-        switch (unit) {
-        case SECOND:
-        case MINUTE:
-        case HOUR:
-        case DAY:
-            break;
-        case WEEK: {
+        if constexpr (unit == WEEK) {
             TimeInterval interval(DAY, weekday(), true);
             date_add_interval<DAY>(interval);
-            break;
-        }
-        case MONTH: {
+        } else if constexpr (unit == MONTH) {
             date_v2_value_.day_ = 1;
-            break;
-        }
-        case QUARTER: {
+        } else if constexpr (unit == QUARTER) {
             date_v2_value_.day_ = 1;
             if (date_v2_value_.month_ <= 3) {
                 date_v2_value_.month_ = 1;
@@ -3166,15 +3110,9 @@ bool DateV2Value<T>::datetime_trunc() {
             } else {
                 date_v2_value_.month_ = 10;
             }
-            break;
-        }
-        case YEAR: {
+        } else if constexpr (unit == YEAR) {
             date_v2_value_.day_ = 1;
             date_v2_value_.month_ = 1;
-            break;
-        }
-        default:
-            return false;
         }
     }
     return true;
@@ -4050,5 +3988,5 @@ template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MONTH>(
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

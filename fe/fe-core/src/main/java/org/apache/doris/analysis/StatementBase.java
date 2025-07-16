@@ -20,12 +20,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -159,78 +156,12 @@ public abstract class StatementBase implements ParseNode {
     }
 
     /**
-     * Sets the column labels of this statement, if applicable. No-op of the statement does
-     * not produce an output result set.
-     */
-    public void setColLabels(List<String> colLabels) {
-        List<String> oldLabels = getColLabels();
-        if (oldLabels == colLabels) {
-            return;
-        }
-        oldLabels.clear();
-        oldLabels.addAll(colLabels);
-    }
-
-    /**
      * Returns the unresolved result expressions of this statement, if applicable, or an
      * empty list if not applicable (not all statements produce an output result set).
      * Subclasses must override this as necessary.
      */
     public List<Expr> getResultExprs() {
         return Collections.<Expr>emptyList();
-    }
-
-    /**
-     * Casts the result expressions and derived members (e.g., destination column types for
-     * CTAS) to the given types. No-op if this statement does not have result expressions.
-     * Throws when casting fails. Subclasses may override this as necessary.
-     */
-    public void castResultExprs(List<Type> types) throws AnalysisException {
-        List<Expr> resultExprs = getResultExprs();
-        Preconditions.checkNotNull(resultExprs);
-        Preconditions.checkState(resultExprs.size() == types.size());
-        for (int i = 0; i < types.size(); ++i) {
-            //The specific type of the date type is determined by the
-            //actual type of the return value, not by the function return value type in FE Function
-            //such as the result of str_to_date may be either DATE or DATETIME
-            if (resultExprs.get(i).getType().isDateType() && types.get(i).isDateType()) {
-                continue;
-            }
-            if (!resultExprs.get(i).getType().equals(types.get(i))) {
-                resultExprs.set(i, resultExprs.get(i).castTo(types.get(i)));
-            }
-        }
-    }
-
-    /**
-     * Uses the given 'rewriter' to transform all Exprs in this statement according
-     * to the rules specified in the 'rewriter'. Replaces the original Exprs with the
-     * transformed ones in-place. Subclasses that have Exprs to be rewritten must
-     * override this method. Valid to call after analyze().
-     */
-    public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
-        throw new IllegalStateException(
-                "rewriteExprs() not implemented for this stmt: " + getClass().getSimpleName());
-    }
-
-    /**
-     * fold constant exprs in statement
-     * @throws AnalysisException
-     * @param rewriter
-     */
-    public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
-        throw new IllegalStateException(
-                "foldConstant() not implemented for this stmt: " + getClass().getSimpleName());
-    }
-
-    /**
-     * rewrite element_at to slot in statement
-     * @throws AnalysisException
-     * @param rewriter
-     */
-    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
-        throw new IllegalStateException(
-                "rewriteElementAtToSlot() not implemented for this stmt: " + getClass().getSimpleName());
     }
 
     public void setOrigStmt(OriginStatement origStmt) {

@@ -188,6 +188,28 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        UnboundRelation that = (UnboundRelation) o;
+        return isTempPart == that.isTempPart && Objects.equals(nameParts, that.nameParts)
+                && Objects.equals(partNames, that.partNames) && Objects.equals(tabletIds,
+                that.tabletIds) && Objects.equals(hints, that.hints) && Objects.equals(tableSample,
+                that.tableSample) && Objects.equals(indexName, that.indexName) && Objects.equals(
+                scanParams, that.scanParams) && Objects.equals(indexInSqlString, that.indexInSqlString)
+                && Objects.equals(tableSnapshot, that.tableSnapshot);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode());
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundRelation(this, context);
     }

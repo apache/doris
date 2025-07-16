@@ -118,6 +118,9 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         filter = visitChildren(this, filter, context);
         Set<Expression> filterPredicates = pullUpPredicates(filter);
         filterPredicates.removeAll(pullUpAllPredicates(filter.child()));
+        if (filterPredicates.isEmpty()) {
+            return filter.child();
+        }
         return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
     }
 

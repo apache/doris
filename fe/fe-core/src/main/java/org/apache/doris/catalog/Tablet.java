@@ -303,11 +303,12 @@ public class Tablet extends MetaObject {
     // for query
     public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
             boolean allowMissingVersion) {
-        List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
-        List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
-        List<Replica> deadPathReplica = Lists.newArrayList();
-        List<Replica> mayMissingVersionReplica = Lists.newArrayList();
-        List<Replica> notCatchupReplica = Lists.newArrayList();
+        int replicaNum = replicas.size();
+        List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicaNum);
+        List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicaNum);
+        List<Replica> deadPathReplica = Lists.newArrayListWithCapacity(replicaNum);
+        List<Replica> mayMissingVersionReplica = Lists.newArrayListWithCapacity(replicaNum);
+        List<Replica> notCatchupReplica = Lists.newArrayListWithCapacity(replicaNum);
 
         for (Replica replica : replicas) {
             if (replica.isBad()) {
@@ -354,17 +355,25 @@ public class Tablet extends MetaObject {
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
-            long minVersionCount = allQueryableReplica.stream().mapToLong(Replica::getVisibleVersionCount)
-                    .filter(count -> count != -1).min().orElse(Long.MAX_VALUE);
+            long minVersionCount = Long.MAX_VALUE;
+            for (Replica replica : allQueryableReplica) {
+                long visibleVersionCount = replica.getVisibleVersionCount();
+                if (visibleVersionCount != 0 && visibleVersionCount < minVersionCount) {
+                    minVersionCount = visibleVersionCount;
+                }
+            }
             long maxVersionCount = Config.min_version_count_indicate_replica_compaction_too_slow;
             if (minVersionCount != Long.MAX_VALUE) {
                 maxVersionCount = Math.max(maxVersionCount, minVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT);
             }
 
-            final long finalMaxVersionCount = maxVersionCount;
-            return allQueryableReplica.stream()
-                    .filter(replica -> replica.getVisibleVersionCount() < finalMaxVersionCount)
-                    .collect(Collectors.toList());
+            List<Replica> lowerVersionReplicas = Lists.newArrayListWithCapacity(allQueryableReplica.size());
+            for (Replica replica : allQueryableReplica) {
+                if (replica.getVisibleVersionCount() < maxVersionCount) {
+                    lowerVersionReplicas.add(replica);
+                }
+            }
+            return lowerVersionReplicas;
         }
         return allQueryableReplica;
     }
@@ -479,8 +488,11 @@ public class Tablet extends MetaObject {
         return id == tablet.id;
     }
 
-    public long getDataSize(boolean singleReplica) {
+    // ATTN: Replica::getDataSize may zero in cloud and non-cloud
+    // due to dataSize not write to image
+    public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
         LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .filter(r -> !filterSizeZero || r.getDataSize() > 0)
                 .mapToLong(Replica::getDataSize);
         return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
     }

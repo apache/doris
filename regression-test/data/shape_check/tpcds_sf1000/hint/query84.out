@@ -31,6 +31,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(store_returns { customer_demographics { customer customer_address { household_demographics income_band } } } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

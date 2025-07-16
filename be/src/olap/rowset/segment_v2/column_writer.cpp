@@ -424,6 +424,7 @@ Status ScalarColumnWriter::init() {
     // create page builder
     PageBuilderOptions opts;
     opts.data_page_size = _opts.data_page_size;
+    opts.dict_page_size = _opts.dict_page_size;
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
         return Status::NotSupported("Failed to create page builder for type {} and encoding {}",
@@ -481,7 +482,7 @@ Status ScalarColumnWriter::init() {
             });
 
             RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.inverted_index_file_writer,
+                                                              _opts.index_file_writer,
                                                               _opts.inverted_index));
         } while (false);
     }
@@ -896,7 +897,7 @@ Status ArrayColumnWriter::init() {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
             RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.inverted_index_file_writer,
+                                                              _opts.index_file_writer,
                                                               _opts.inverted_index));
         }
     }
