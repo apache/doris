@@ -352,6 +352,8 @@ public abstract class ExternalCatalog
 
     private void buildMetaCache() {
         if (metaCache == null) {
+            LOG.info("yy debug buildMetaCache. catalog: {}, iid: {}", this.name, System.identityHashCode(this),
+                    new Exception());
             metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
@@ -886,6 +888,8 @@ public abstract class ExternalCatalog
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(String dbName) {
         Preconditions.checkState(useMetaCache.isPresent(), name);
         if (useMetaCache.get()) {
+            LOG.info("yy debug getDbForReplay {} from metacache, db: {}, iid: {}, init: {}",
+                    dbName, this.name, System.identityHashCode(this), isInitialized());
             if (!isInitialized()) {
                 return Optional.empty();
             }
@@ -1160,7 +1164,21 @@ public abstract class ExternalCatalog
     }
 
     public void unregisterDatabase(String dbName) {
-        throw new NotImplementedException("unregisterDatabase not implemented");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("drop database [{}]", dbName);
+        }
+        if (useMetaCache.get()) {
+            if (isInitialized()) {
+                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
+            }
+        } else {
+            Long dbId = dbNameToId.remove(dbName);
+            if (dbId == null) {
+                LOG.warn("drop database [{}] failed", dbName);
+            }
+            idToDb.remove(dbId);
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1429,6 +1447,12 @@ public abstract class ExternalCatalog
             LOG.warn("Failed to drop tag for table {}.{} in catalog {}",
                     externalTable.getDbName(), externalTable.getName(), getName(), e);
             throw e;
+        }
+    }
+
+    public void resetMetaCacheNames() {
+        if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
+            metaCache.resetNames();
         }
     }
 }

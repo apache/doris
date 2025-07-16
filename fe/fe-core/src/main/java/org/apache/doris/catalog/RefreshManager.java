@@ -116,9 +116,6 @@ public class RefreshManager {
 
     private void refreshDbInternal(ExternalDatabase db, boolean invalidCache) {
         db.setUnInitialized();
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(db.getCatalog().getId(), db.getFullName());
-        }
         LOG.info("refresh database {} in catalog {} with invalidCache {}", db.getFullName(),
                 db.getCatalog().getName(), invalidCache);
     }
