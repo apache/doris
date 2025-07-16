@@ -191,6 +191,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusComman
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
@@ -4955,6 +4956,13 @@ public class Env {
 
     public void alterTable(AlterTableCommand command) throws UserException {
         this.alter.processAlterTable(command);
+    }
+
+    /**
+     * used for handling AlterViewComand
+     */
+    public void alterView(AlterViewCommand command) throws UserException {
+        this.alter.processAlterView(command, ConnectContext.get());
     }
 
     /**
