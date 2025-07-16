@@ -85,7 +85,7 @@ public class BrokerUtil {
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
-        try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc)) {
+        try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties())) {
             Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());

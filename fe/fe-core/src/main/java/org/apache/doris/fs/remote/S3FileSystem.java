@@ -20,18 +20,16 @@ package org.apache.doris.fs.remote;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
-import com.google.common.annotations.VisibleForTesting;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.services.s3.S3Client;
 
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -39,12 +37,9 @@ import java.util.Set;
 public class S3FileSystem extends ObjFileSystem {
 
     private static final Logger LOG = LogManager.getLogger(S3FileSystem.class);
-    private HadoopAuthenticator authenticator = null;
     private final AbstractS3CompatibleProperties s3Properties;
 
-
     public S3FileSystem(AbstractS3CompatibleProperties s3Properties) {
-
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3,
                 new S3ObjStorage(s3Properties));
         this.s3Properties = s3Properties;
@@ -60,16 +55,23 @@ public class S3FileSystem extends ObjFileSystem {
         this.properties.putAll(s3Properties.getOrigProps());
     }
 
-
     @Override
-    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
-        throw new UserException("S3 does not support native file system");
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
+        return objStorage.listFiles(remotePath, recursive, result);
     }
 
+    // broker file pattern glob is too complex, so we use hadoop directly
     @Override
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
         return objStorage.globList(remotePath, result, fileNameOnly);
+    }
+
+    @Override
+    public Status listDirectories(String remotePath, Set<String> result) {
+        S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
+        return objStorage.listDirectories(remotePath, result);
     }
 
     @Override
@@ -96,8 +98,14 @@ public class S3FileSystem extends ObjFileSystem {
         return false;
     }
 
-    @VisibleForTesting
-    public HadoopAuthenticator getAuthenticator() {
-        return authenticator;
+    @Override
+    public void close() throws IOException {
+        if (closed.compareAndSet(false, true)) {
+            try {
+                objStorage.close();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 }
