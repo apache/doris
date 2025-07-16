@@ -201,6 +201,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                             throw new AnalysisException("unknown feature : " + alterFeature);
                         }
                         addColumnOp.setTableName(tbl);
+                        addColumnOp.setEnableFeatureOp(true);
                         addColumnOp.validate(ctx);
                         alterTableOps.add(addColumnOp);
                     }
@@ -222,6 +223,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                         addColumnOp = new AddColumnOp(skipBItmapCol, new ColumnPosition(lastCol), null, null);
                     }
                     addColumnOp.setTableName(tbl);
+                    addColumnOp.setEnableFeatureOp(true);
                     addColumnOp.validate(ctx);
                     alterTableOps.add(addColumnOp);
                 }

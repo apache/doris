@@ -53,6 +53,8 @@ public class AddColumnOp extends AlterTableOp {
     private Map<String, String> properties;
     // set in analyze
     private Column column;
+    // if enableFeatureOp is true, can add hidden column
+    private boolean enableFeatureOp = false;
 
     public AddColumnOp(ColumnDefinition columnDef, ColumnPosition colPos, String rollupName,
             Map<String, String> properties) {
@@ -73,6 +75,10 @@ public class AddColumnOp extends AlterTableOp {
 
     public String getRollupName() {
         return rollupName;
+    }
+
+    public void setEnableFeatureOp(boolean enableFeatureOp) {
+        this.enableFeatureOp = enableFeatureOp;
     }
 
     @Override
@@ -125,12 +131,17 @@ public class AddColumnOp extends AlterTableOp {
     /**
      * validateColumnDef
      */
-    public static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos,
+    public void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos,
             String rollupName)
             throws UserException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
+        if (columnDef.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX) && !enableFeatureOp) {
+            throw new AnalysisException("Incorrect column name " + columnDef.getName()
+                + ", column name can't start with '__DORIS_'");
+        }
+
         boolean isOlap = false;
         OlapTable olapTable = null;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
