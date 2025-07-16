@@ -4487,10 +4487,16 @@ public class SessionVariable implements Serializable, Writable {
     public static boolean getEnableDecimal256() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
-            return false;
+            return VariableMgr.getDefaultSessionVariable().enableDecimal256;
         }
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        return connectContext.getState().isNereids() && sessionVariable.isEnableDecimal256();
+        if (!sessionVariable.isEnableDecimal256()) {
+            return false;
+        }
+        if (connectContext.getState().isQuery()) {
+            return connectContext.getState().isNereids();
+        }
+        return true;
     }
 
     public boolean isEnableDecimal256() {
