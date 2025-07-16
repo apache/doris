@@ -202,6 +202,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         tableFormatFileDesc.setIcebergParams(fileDesc);
+        rangeDesc.setDataLakePartitionValues(icebergSplit.getPartitionValues());
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
