@@ -740,7 +740,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private List<NamedExpression> adjustProjectionAggNullable(List<NamedExpression> expressions) {
         boolean hasAggregation = expressions.stream()
-                .anyMatch(e -> e.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
+                .anyMatch(expr -> expr.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
         if (!hasAggregation) {
             return expressions;
         }
