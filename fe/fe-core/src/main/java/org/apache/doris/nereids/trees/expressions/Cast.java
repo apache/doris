@@ -115,6 +115,8 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 return true;
             } else if (childDataType.isDateTimeV2Type() && targetType.isDateTimeV2Type()) {
                 return true;
+            } else if (childDataType.isTimeType() && targetType.isTimeType()) {
+                return true;
             }
             return false;
         } else if (childDataType.isJsonType() || targetType.isJsonType()) {
