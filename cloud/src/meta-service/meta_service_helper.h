@@ -117,7 +117,7 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
     } else if constexpr (std::is_same_v<Request, GetTabletStatsRequest>) {
         VLOG_DEBUG << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                    << " original_client_ip=" << req->request_ip()
-                   << " tablet size: " << req->tablet_idx().size();
+                   << " num_tablets: " << req->tablet_idx().size();
     } else if constexpr (std::is_same_v<Request, GetVersionRequest> ||
                          std::is_same_v<Request, GetRowsetRequest> ||
                          std::is_same_v<Request, GetTabletRequest>) {
@@ -160,7 +160,7 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
                 << " original_client_ip=" << req->request_ip()
                 << " request=" << req->ShortDebugString()
                 << " status=" << res->status().ShortDebugString()
-                << " tablet size: " << res->tablet_stats().size();
+                << " num_tablets: " << res->tablet_stats().size();
     } else if constexpr (std::is_same_v<Response, GetVersionResponse> ||
                          std::is_same_v<Response, GetTabletResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
