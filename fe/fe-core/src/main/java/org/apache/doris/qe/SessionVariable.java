@@ -1352,7 +1352,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
 
-    @VariableMgr.VarAttr(name = TABLE_REPLICA_COUNT_OVERRIDE, flag = VariableMgr.GLOBAL, needForward = true, 
+    @VariableMgr.VarAttr(name = TABLE_REPLICA_COUNT_OVERRIDE, flag = VariableMgr.GLOBAL, needForward = true,
             description = {"The variable tableReplicaCountOverrideis used to enable test programs "
                     + "to run successfully in both single-BE (Backend) and multi-BE environments."
                     + "\nIt ensures that:"

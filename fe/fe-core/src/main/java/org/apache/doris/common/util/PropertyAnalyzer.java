@@ -1746,7 +1746,7 @@ public class PropertyAnalyzer {
     }
 
     /**
-     * tableReplicaCountOverrideForTest: force override table's replica count. 
+     * tableReplicaCountOverrideForTest: force override table's replica count.
      *  0: not override.
      *  1~n: override replica numbers to tableReplicaCountOverrideForTest
      */

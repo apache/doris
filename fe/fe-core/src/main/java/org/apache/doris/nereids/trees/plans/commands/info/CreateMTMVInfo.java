@@ -222,7 +222,8 @@ public class CreateMTMVInfo {
     }
 
     private void analyzeProperties(int tableReplicaCountOverride) {
-        properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(mvName.getCtl(), mvName.getDb(), properties, tableReplicaCountOverride);
+        properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(mvName.getCtl(), mvName.getDb(),
+                properties, tableReplicaCountOverride);
         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             throw new AnalysisException("Not support dynamic partition properties on async materialized view");
         }

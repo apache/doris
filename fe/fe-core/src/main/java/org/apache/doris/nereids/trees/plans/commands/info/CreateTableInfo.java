@@ -370,7 +370,8 @@ public class CreateTableInfo {
 
         if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
             boolean enableDuplicateWithoutKeysByDefault = false;
-            properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties, ctx.getSessionVariable().getTableReplicaCountOverride());
+            properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties,
+                    ctx.getSessionVariable().getTableReplicaCountOverride());
             try {
                 if (properties != null) {
                     enableDuplicateWithoutKeysByDefault =
