@@ -183,13 +183,15 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 }
                 initialized = true;
                 LOG.info(
-                        "yy debug makeSureInitialized after db name {}, id {}, iid{}, isInitializing: {}, initialized: {}",
+                        "yy debug makeSureInitialized after db name {}, id {}, iid{}, isInitializing: {},"
+                                + " initialized: {}",
                         this.name, this.id, System.identityHashCode(this), isInitializing, initialized,
                         new Exception());
             }
         } catch (Exception e) {
             LOG.info(
-                    "yy debug makeSureInitialized exception db name {}, id {}, iid{}, isInitializing: {}, initialized: {}",
+                    "yy debug makeSureInitialized exception db name {}, id {}, iid{}, isInitializing: {}, "
+                            + "initialized: {}",
                     this.name, this.id, System.identityHashCode(this), isInitializing, initialized, e);
         } finally {
             isInitializing = false;
