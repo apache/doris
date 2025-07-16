@@ -158,4 +158,19 @@ static inline TxnErrorCode versioned_get(Transaction* txn, std::string_view key,
     return versioned_get(txn, key, Versionstamp::max(), value_version, value, snapshot);
 }
 
+// Encode a versioned key with the given versionstamp.
+//
+// The key is the original key, and the versionstamp is appended to the key.
+// The resulting key will be in the format: "key + versionstamp + VERSIONSTAMP_END_TAG".
+std::string encode_versioned_key(std::string_view key, Versionstamp v);
+
+// Decode a versioned key to extract the versionstamp.
+//
+// The key should be in the format: "key + versionstamp + VERSIONSTAMP_END_TAG".
+// If the key is valid, it returns true and sets `v` to the extracted versionstamp.
+// If the key is invalid or does not contain a versionstamp, it returns false.
+//
+// The key is modified to remove the versionstamp and end tag.
+bool decode_versioned_key(std::string_view* key, Versionstamp* v);
+
 } // namespace doris::cloud

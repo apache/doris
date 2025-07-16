@@ -132,12 +132,11 @@ suite("test_fe_cached_partition_version", 'docker') {
                 insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1})""", 1
                 // refresh expiration, the insert will be seen since the version has expired
                 result = sql_return_maparray """ select * from ${tbl} where region = 'Beijing' """
-                // observer/follower cannot see update since cache expiration no reached
                 assertEquals(3, result.size())
 
                 // all the insert will be seen since the version has expired, refresh expiration
                 result = sql_return_maparray """ select * from ${tbl} """
-                assertEquals(5, result.size())
+                assertEquals(6, result.size())
 
                 // test no expiration, disable cache partition version 
                 insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1})""", 1

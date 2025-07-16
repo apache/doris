@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -333,14 +332,6 @@ public class CloudEnv extends Env {
         if (!command.isDryRun()) {
             ((CloudInternalCatalog) getInternalCatalog()).createStage(command.toStageProto(), command.isIfNotExists());
         }
-    }
-
-    public void dropStage(DropStageStmt stmt) throws DdlException {
-        if (Config.isNotCloudMode()) {
-            throw new DdlException("stage is only supported in cloud mode");
-        }
-        ((CloudInternalCatalog) getInternalCatalog()).dropStage(Cloud.StagePB.StageType.EXTERNAL,
-                null, null, stmt.getStageName(), null, stmt.isIfExists());
     }
 
     public void dropStage(DropStageCommand command) throws DdlException {

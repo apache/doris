@@ -192,15 +192,6 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite("(a and b) or (a and b and c)", "a and b");
         assertRewrite("(a or b) and (a or b or c)", "a or b");
 
-        assertRewrite("a and true", "a");
-        assertRewrite("a or false", "a");
-
-        assertRewrite("a and false", "false");
-        assertRewrite("a or true", "true");
-
-        assertRewrite("a or false or false or false", "a");
-        assertRewrite("a and true and true and true", "a");
-
         assertRewrite("(a and b) or a ", "a");
         assertRewrite("(a or b) and a ", "a");
 

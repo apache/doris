@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
@@ -46,7 +45,6 @@ import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateIndexPolicyStmt;
 import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -62,7 +60,6 @@ import org.apache.doris.analysis.DropIndexPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
-import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
@@ -82,7 +79,6 @@ import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
@@ -93,7 +89,6 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
-import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -178,8 +173,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropUserStmt) {
             DropUserStmt stmt = (DropUserStmt) ddlStmt;
             env.getAuth().dropUser(stmt);
-        } else if (ddlStmt instanceof CreateRoleStmt) {
-            env.getAuth().createRole((CreateRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoleStmt) {
             env.getAuth().alterRole((AlterRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRoleStmt) {
@@ -206,8 +199,6 @@ public class DdlExecutor {
             env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
-        } else if (ddlStmt instanceof AdminSetConfigStmt) {
-            env.setConfig((AdminSetConfigStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {
             env.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else if (ddlStmt instanceof InstallPluginStmt) {
@@ -264,8 +255,6 @@ public class DdlExecutor {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
                     false);
-        } else if (ddlStmt instanceof DropStageStmt) {
-            ((CloudEnv) env).dropStage((DropStageStmt) ddlStmt);
         } else if (ddlStmt instanceof CopyStmt) {
             executeCopyStmt(env, (CopyStmt) ddlStmt);
         } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
@@ -365,13 +354,6 @@ public class DdlExecutor {
         // check stmt has been supported in cloud mode
         if (Config.isNotCloudMode()) {
             return;
-        }
-
-        if (ddlStmt instanceof AdminSetConfigStmt) {
-            if (!ConnectContext.get().getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
-                LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
-                throw new DdlException("Unsupported operation");
-            }
         }
 
         if (ddlStmt instanceof BackupStmt

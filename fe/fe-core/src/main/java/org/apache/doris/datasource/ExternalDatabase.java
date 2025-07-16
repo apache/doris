@@ -636,8 +636,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             finalName = tableName.toLowerCase();
         }
         if (LOG.isDebugEnabled()) {
-            LOG.info("get table {} from database: {}.{}, final name is: {}",
-                    tableName, getCatalog().getName(), getFullName(), finalName);
+            LOG.debug("get table {} from database: {}.{}, final name is: {}, catalog id: {}",
+                    tableName, getCatalog().getName(), getFullName(), finalName, getCatalog().getId());
         }
         if (extCatalog.getUseMetaCache().get()) {
             // must use full qualified name to generate id.

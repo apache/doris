@@ -184,4 +184,22 @@ void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v) {
     txn->remove(key_with_versionstamp);
 }
 
+std::string encode_versioned_key(std::string_view key, Versionstamp v) {
+    std::string key_with_versionstamp(key);
+    encode_versionstamp(v, &key_with_versionstamp);
+    encode_versionstamp_end(&key_with_versionstamp);
+    return key_with_versionstamp;
+}
+
+bool decode_versioned_key(std::string_view* key, Versionstamp* v) {
+    std::string_view modified_key(*key);
+    if (decode_tailing_versionstamp_end(&modified_key) ||
+        decode_tailing_versionstamp(&modified_key, v)) {
+        return false;
+    }
+
+    *key = modified_key;
+    return true;
+}
+
 } // namespace doris::cloud
