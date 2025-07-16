@@ -4389,7 +4389,7 @@ public class SessionVariable implements Serializable, Writable {
             Field[] fields = SessionVariable.class.getDeclaredFields();
             for (Field f : fields) {
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !varAttr.needForward() || !varAttr.affectQueryResult()) {
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResult())) {
                     continue;
                 }
                 map.put(varAttr.name(), String.valueOf(f.get(this)));
@@ -4409,7 +4409,7 @@ public class SessionVariable implements Serializable, Writable {
             for (Field f : fields) {
                 f.setAccessible(true);
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !varAttr.needForward() || !varAttr.affectQueryResult()) {
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResult())) {
                     continue;
                 }
                 String val = variables.get(varAttr.name());
