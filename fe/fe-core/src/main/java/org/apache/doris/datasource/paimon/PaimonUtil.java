@@ -51,8 +51,6 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.CoreOptions.StartupMode;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
-import org.apache.paimon.fs.FileIO;
-import org.apache.paimon.fs.Path;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
@@ -72,7 +70,6 @@ import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
-import org.apache.paimon.utils.TagManager;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -590,12 +587,7 @@ public class PaimonUtil {
         }
 
         final FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
-        final FileIO fileIO = fileStoreTable.fileIO();
-        final Path location = fileStoreTable.location();
-        final String branch = CoreOptions.branch(fileStoreTable.schema().options());
-
-        TagManager tagManager = new TagManager(fileIO, location, branch);
-        return tagManager.tagExists(tagName);
+        return fileStoreTable.tagManager().tagExists(tagName);
     }
 
     /**
