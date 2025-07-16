@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "common/compiler_util.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -251,7 +252,7 @@ struct MethodSerialized : public MethodBase<TData> {
             }
 
             for (const auto& column : key_columns) {
-                column->serialize_vec(input_keys.data(), num_rows, max_one_row_byte_size);
+                column->serialize_vec(input_keys.data(), num_rows);
             }
         }
         Base::keys = input_keys.data();

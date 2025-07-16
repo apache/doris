@@ -123,6 +123,7 @@ suite('test_temp_table', 'p0') {
     assertFalse(hasTempTable)
 
     // will create a normal olap table, not temporary table, even if source table is temporary
+    sql "drop table if exists t_test_table3_0"
     sql "create table t_test_table3_0 like t_test_temp_table3"
     show_tables = sql "show tables"
     def hasTable = false

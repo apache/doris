@@ -65,11 +65,11 @@
 #include "vec/common/string_ref.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct StringOP {
     static void push_empty_string(size_t index, ColumnString::Chars& chars,
                                   ColumnString::Offsets& offsets) {
-        offsets[index] = chars.size();
+        offsets[index] = (ColumnString::Offset)chars.size();
     }
 
     static void push_null_string(size_t index, ColumnString::Chars& chars,
@@ -83,7 +83,7 @@ struct StringOP {
         ColumnString::check_chars_length(chars.size() + string_value.size(), offsets.size());
 
         chars.insert(string_value.data(), string_value.data() + string_value.size());
-        offsets[index] = chars.size();
+        offsets[index] = (ColumnString::Offset)chars.size();
     }
 
     static void push_value_string_reserved_and_allow_overflow(const std::string_view& string_value,
@@ -92,7 +92,7 @@ struct StringOP {
                                                               ColumnString::Offsets& offsets) {
         chars.insert_assume_reserved_and_allow_overflow(string_value.data(),
                                                         string_value.data() + string_value.size());
-        offsets[index] = chars.size();
+        offsets[index] = (ColumnString::Offset)chars.size();
     }
 
     static void fast_repeat(uint8_t* dst, const uint8_t* src, size_t src_size,
@@ -109,7 +109,7 @@ struct StringOP {
         memcpy(dst_curr, src, src_size);
         dst_curr += src_size;
         for (; repeat_times > 0; k += 1, is_odd = repeat_times & 1, repeat_times >>= 1) {
-            int32_t len = src_size * (1 << k);
+            int64_t len = src_size * (1 << k);
             memcpy(dst_curr, dst_begin, len);
             dst_curr += len;
             if (is_odd) {
@@ -212,7 +212,7 @@ private:
                 }
             }
 
-            int fixed_pos = start_value;
+            int64_t fixed_pos = start_value;
             if (fixed_pos < -(int)index.size()) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
@@ -278,5 +278,7 @@ private:
         }
     }
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

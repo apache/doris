@@ -87,7 +87,7 @@ struct RetentionState {
 
         u_serialized_events >>= 1;
         for (int64_t i = MAX_EVENTS - 1; i >= 0; i--) {
-            events[i] = (uint8)(1 & u_serialized_events);
+            events[i] = (uint8_t)(1 & u_serialized_events);
             u_serialized_events >>= 1;
         }
     }
@@ -124,7 +124,7 @@ public:
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
     void add(AggregateDataPtr __restrict place, const IColumn** columns, const ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         for (int i = 0; i < get_argument_types().size(); i++) {
             auto event = assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(columns[i])
                                  ->get_data()[row_num];
@@ -135,7 +135,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -144,7 +144,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

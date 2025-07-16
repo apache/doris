@@ -173,13 +173,11 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
         char* pos = arena.alloc_continue(_item_size, begin);
-        memcpy(pos, &_data[n * _item_size], _item_size);
-        return {pos, _item_size};
+        return {pos, serialize_impl(pos, n)};
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        insert_data(pos, _item_size);
-        return pos + _item_size;
+        return pos + deserialize_impl(pos);
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
@@ -217,7 +215,7 @@ public:
         return pos;
     }
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         if (limit == 0) {
             limit = size();
         } else {
@@ -309,6 +307,17 @@ public:
             memcpy(dst, strings[i].data, strings[i].size);
         }
     }
+
+    size_t deserialize_impl(const char* pos) override {
+        insert_data(pos, _item_size);
+        return _item_size;
+    }
+    size_t serialize_impl(char* pos, const size_t row) const override {
+        memcpy(pos, &_data[row * _item_size], _item_size);
+        return _item_size;
+    }
+
+    size_t serialize_size_at(size_t row) const override { return sizeof(_item_size); }
 
 protected:
     size_t _item_size;

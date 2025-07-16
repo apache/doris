@@ -50,6 +50,30 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------filter((test_pull_up_agg_t1.a <= 20) and (test_pull_up_agg_t1.c < 200))
 --------------PhysicalOlapScan[test_pull_up_agg_t1]
---------filter((t2.a <= 20) and (t2.c < 200))
-----------PhysicalOlapScan[test_pull_up_agg_t2]
+--------PhysicalOlapScan[test_pull_up_agg_t2]
+
+-- !pull_up_from_agg_to_filter_with_same_cond_shape --
+PhysicalResultSink
+--PhysicalQuickSort[MERGE_SORT]
+----PhysicalQuickSort[LOCAL_SORT]
+------filter((col1 > 1))
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((test_pull_up_agg_t1.a > 1))
+--------------PhysicalOlapScan[test_pull_up_agg_t1]
+
+-- !pull_up_from_agg_to_filter_with_same_cond --
+3
+
+-- !pull_up_from_agg_to_filter_with_same_cond_shape --
+PhysicalResultSink
+--PhysicalQuickSort[MERGE_SORT]
+----PhysicalQuickSort[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------filter((test_pull_up_agg_t1.a > 1))
+------------PhysicalOlapScan[test_pull_up_agg_t1]
+
+-- !pull_up_from_agg_to_filter_with_same_cond --
+3
 

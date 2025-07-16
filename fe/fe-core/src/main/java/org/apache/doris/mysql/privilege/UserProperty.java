@@ -22,18 +22,11 @@ import org.apache.doris.analysis.SetUserPropertyVar;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.load.DppConfig;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Joiner;
@@ -44,9 +37,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -61,7 +51,7 @@ import java.util.regex.Pattern;
  * This usually means that the cluster administrator force user restrictions.
  * Users cannot modify these SessionVeriables with the same name.
  */
-public class UserProperty implements Writable {
+public class UserProperty {
     private static final Logger LOG = LogManager.getLogger(UserProperty.class);
     // advanced properties
     public static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
@@ -98,14 +88,6 @@ public class UserProperty implements Writable {
 
     @SerializedName(value = "dcc", alternate = {"defaultCloudCluster"})
     private String defaultCloudCluster = null;
-
-    /*
-     *  We keep white list here to save Baidu domain name (BNS) or DNS as white list.
-     *  Each frontend will periodically resolve the domain name to ip, and update the privilege table.
-     *  We never persist the resolved IPs.
-     */
-    @Deprecated
-    private WhiteList whiteList = new WhiteList();
 
     public static final Set<Tag> INVALID_RESOURCE_TAGS;
 
@@ -179,11 +161,6 @@ public class UserProperty implements Writable {
 
     public String getWorkloadGroup() {
         return commonProperties.getWorkloadGroup();
-    }
-
-    @Deprecated
-    public WhiteList getWhiteList() {
-        return whiteList;
     }
 
     public Set<Tag> getCopiedResourceTags() {
@@ -482,66 +459,5 @@ public class UserProperty implements Writable {
         Collections.sort(result, Comparator.comparing(o -> o.get(0)));
 
         return result;
-    }
-
-    public static UserProperty read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_130) {
-            UserProperty userProperty = new UserProperty();
-            userProperty.readFields(in);
-            return userProperty;
-        }
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, UserProperty.class);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        qualifiedUser = Text.readString(in);
-        // should be removed after version 3.0
-        qualifiedUser = ClusterNamespace.getNameFromFullName(qualifiedUser);
-
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_100) {
-            long maxConn = in.readLong();
-            this.commonProperties.setMaxConn(maxConn);
-        }
-
-        // call UserResource.readIn(out) to make sure that FE can rollback.
-        UserResource.readIn(in);
-
-        // load cluster
-        if (in.readBoolean()) {
-            Text.readString(in);
-        }
-
-        // this part is deprecated, only read and discard
-        int clusterNum = in.readInt();
-        for (int i = 0; i < clusterNum; ++i) {
-            Text.readString(in); // cluster name
-            DppConfig dppConfig = new DppConfig();
-            dppConfig.readFields(in);
-        }
-
-        if (Config.isCloudMode()) {
-            if (in.readBoolean()) {
-                defaultCloudCluster = Text.readString(in);
-            }
-        }
-
-        // whiteList
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
-            whiteList.readFields(in);
-        } else {
-            whiteList = new WhiteList();
-        }
-
-        // common properties
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_100) {
-            this.commonProperties = CommonUserProperties.read(in);
-        }
     }
 }

@@ -112,6 +112,7 @@
 #include "runtime_filter/runtime_filter_mgr.h"
 #include "service/backend_options.h"
 #include "util/container_util.hpp"
+#include "util/countdown_latch.h"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
 #include "vec/common/sort/heap_sorter.h"
@@ -526,27 +527,28 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
          target_size > _runtime_state->query_options().parallel_prepare_threshold)) {
         // If instances parallelism is big enough ( > parallel_prepare_threshold), we will prepare all tasks by multi-threads
         std::vector<Status> prepare_status(target_size);
-        std::mutex m;
-        std::condition_variable cv;
-        int prepare_done = 0;
+        int submitted_tasks = 0;
+        Status submit_status;
+        CountDownLatch latch((int)target_size);
         for (int i = 0; i < target_size; i++) {
-            RETURN_IF_ERROR(thread_pool->submit_func([&, i]() {
+            submit_status = thread_pool->submit_func([&, i]() {
                 SCOPED_ATTACH_TASK(_query_ctx.get());
                 prepare_status[i] = pre_and_submit(i, this);
-                std::unique_lock<std::mutex> lock(m);
-                prepare_done++;
-                if (prepare_done == target_size) {
-                    cv.notify_one();
-                }
-            }));
+                latch.count_down();
+            });
+            if (LIKELY(submit_status.ok())) {
+                submitted_tasks++;
+            } else {
+                break;
+            }
         }
-        std::unique_lock<std::mutex> lock(m);
-        if (prepare_done != target_size) {
-            cv.wait(lock);
-            for (int i = 0; i < target_size; i++) {
-                if (!prepare_status[i].ok()) {
-                    return prepare_status[i];
-                }
+        latch.arrive_and_wait(target_size - submitted_tasks);
+        if (UNLIKELY(!submit_status.ok())) {
+            return submit_status;
+        }
+        for (int i = 0; i < submitted_tasks; i++) {
+            if (!prepare_status[i].ok()) {
+                return prepare_status[i];
             }
         }
     } else {
@@ -1108,6 +1110,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
         DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
         auto sink_id = next_sink_operator_id();
+        const int multi_cast_node_id = sink_id;
         auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
         // one sink has multiple sources.
         std::vector<int> sources;
@@ -1116,7 +1119,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             sources.push_back(source_id);
         }
 
-        _sink.reset(new MultiCastDataStreamSinkOperatorX(sink_id, sources, pool,
+        _sink.reset(new MultiCastDataStreamSinkOperatorX(sink_id, multi_cast_node_id, sources, pool,
                                                          thrift_sink.multi_cast_stream_sink));
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
@@ -1136,7 +1139,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             OperatorPtr source_op;
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op.reset(new MultiCastDataStreamerSourceOperatorX(
-                    i, pool, thrift_sink.multi_cast_stream_sink.sinks[i], row_desc, source_id));
+                    multi_cast_node_id, i, pool, thrift_sink.multi_cast_stream_sink.sinks[i],
+                    row_desc, /*operator_id=*/source_id));
             RETURN_IF_ERROR(new_pipeline->add_operator(
                     source_op, params.__isset.parallel_instances ? params.parallel_instances : 0));
             // 2. create and set sink operator of data stream sender for new pipeline

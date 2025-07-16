@@ -17,15 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EncryptKey;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
 
-import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 public class EncryptKeyRef extends Expr {
@@ -50,40 +47,16 @@ public class EncryptKeyRef extends Expr {
         this.type = Type.VARCHAR;
     }
 
-    public EncryptKey getEncryptKey() {
-        return encryptKey;
-    }
-
-    private void analyzeEncryptKey(Analyzer analyzer) throws AnalysisException {
-        String dbName = encryptKeyName.getDb();
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-        }
-        if ("".equals(dbName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        } else {
-            Database database = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
-
-            EncryptKey encryptKey = database.getEncryptKey(encryptKeyName.getKeyName());
-            if (encryptKey != null) {
-                this.encryptKey = encryptKey;
-            } else {
-                throw new AnalysisException("Can not found encryptKey: " + encryptKeyName.toString());
-            }
-        }
-
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // analyze encryptKey name
-        encryptKeyName.analyze(analyzer);
-        // analyze encryptKey
-        analyzeEncryptKey(analyzer);
-    }
-
     @Override
     protected String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(encryptKeyName.toSql());
+        return sb.toString();
+    }
+
+    @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         StringBuilder sb = new StringBuilder();
         sb.append(encryptKeyName.toSql());
         return sb.toString();

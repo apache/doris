@@ -50,6 +50,8 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public static final String PROP_ENCLOSE = "enclose";
     public static final String PROP_ESCAPE = "escape";
 
+    public static final String PROP_ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
+
     private String headerType = "";
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
@@ -57,6 +59,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     private int skipLines;
     private byte enclose;
     private byte escape;
+    private boolean enableTextValidateUTF8 = true;
 
     public CsvFileFormatProperties(String formatName) {
         super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
@@ -118,6 +121,18 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                     PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
             compressionType = Util.getFileCompressType(compressTypeStr);
 
+            // get ENABLE_TEXT_VALIDATE_UTF8 from properties map first,
+            // if not exist, try getting from session variable,
+            // if connection context is null, use "true" as default value.
+            String validateUtf8 = getOrDefault(formatProperties, PROP_ENABLE_TEXT_VALIDATE_UTF8, "",
+                    isRemoveOriginProperty);
+            if (Strings.isNullOrEmpty(validateUtf8)) {
+                enableTextValidateUTF8 = ConnectContext.get() == null ? true
+                        : ConnectContext.get().getSessionVariable().enableTextValidateUtf8;
+            } else {
+                enableTextValidateUTF8 = Boolean.parseBoolean(validateUtf8);
+            }
+
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -142,8 +157,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         fileAttributes.setHeaderType(headerType);
         fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
         fileAttributes.setSkipLines(skipLines);
-        fileAttributes.setEnableTextValidateUtf8(
-                ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
+        fileAttributes.setEnableTextValidateUtf8(enableTextValidateUTF8);
         return fileAttributes;
     }
 

@@ -209,7 +209,7 @@ public:
 
     bool keep_null_key() { return _keep_null_key; }
 
-    void pre_build_idxs(DorisVector<uint32>& buckets) const {
+    void pre_build_idxs(DorisVector<uint32_t>& buckets) const {
         for (unsigned int& bucket : buckets) {
             bucket = first[bucket];
         }
@@ -470,7 +470,6 @@ private:
 
     // use in iter hash map
     mutable uint32_t iter_idx = 1;
-    vectorized::Arena* pool;
     bool _has_null_key = false;
     bool _keep_null_key = false;
     bool _empty_build_side = true;

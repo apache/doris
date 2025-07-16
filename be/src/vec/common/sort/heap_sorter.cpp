@@ -55,7 +55,7 @@ Status HeapSorter::prepare_for_read() {
     while (_queue.is_valid()) {
         auto [current, current_rows] = _queue.current();
         if (current_rows) {
-            current->impl->reverse();
+            current->impl->reverse(_reverse_buffer);
             _state->get_queue().push(MergeSortCursor(current->impl));
         }
         _queue.remove_top();

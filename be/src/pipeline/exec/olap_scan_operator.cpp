@@ -50,7 +50,7 @@ Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
     // Rows read from storage.
     // Include the rows read from doris page cache.
-    _scan_rows = ADD_COUNTER(_runtime_profile, "ScanRows", TUnit::UNIT);
+    _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
@@ -58,7 +58,7 @@ Status OlapScanLocalState::_init_profile() {
     // 2. init timer and counters
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
-    _process_conjunct_timer = ADD_TIMER(_runtime_profile, "ProcessConjunctTime");
+    _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
@@ -178,6 +178,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
     _inverted_index_searcher_search_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
+    _inverted_index_searcher_search_init_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchInitTime");
+    _inverted_index_searcher_search_exec_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchExecTime");
     _inverted_index_searcher_cache_hit_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
     _inverted_index_searcher_cache_miss_counter =
@@ -188,8 +192,8 @@ Status OlapScanLocalState::_init_profile() {
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
-    _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
-    _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
+    _tablet_counter = ADD_COUNTER(custom_profile(), "TabletNum", TUnit::UNIT);
+    _key_range_counter = ADD_COUNTER(custom_profile(), "KeyRangesNum", TUnit::UNIT);
     _tablet_reader_init_timer = ADD_TIMER(_scanner_profile, "TabletReaderInitTimer");
     _tablet_reader_capture_rs_readers_timer =
             ADD_TIMER(_scanner_profile, "TabletReaderCaptureRsReadersTimer");
@@ -224,8 +228,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
     _segment_iterator_init_bitmap_index_iterators_timer =
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitBitmapIndexIteratorsTimer");
-    _segment_iterator_init_inverted_index_iterators_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitInvertedIndexIteratorsTimer");
+    _segment_iterator_init_index_iterators_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitIndexIteratorsTimer");
 
     _segment_create_column_readers_timer =
             ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
@@ -333,7 +337,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
                 message += conjunct->root()->debug_string();
             }
         }
-        _runtime_profile->add_info_string("RemainedDownPredicates", message);
+        custom_profile()->add_info_string("RemainedDownPredicates", message);
     }
     auto& p = _parent->cast<OlapScanOperatorX>();
 
@@ -736,15 +740,15 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                        range);
         }
     } else {
-        _runtime_profile->add_info_string("PushDownAggregate",
+        custom_profile()->add_info_string("PushDownAggregate",
                                           push_down_agg_to_string(p._push_down_agg_type));
     }
 
     if (state()->enable_profile()) {
-        _runtime_profile->add_info_string("PushDownPredicates",
+        custom_profile()->add_info_string("PushDownPredicates",
                                           olap_filters_to_string(_olap_filters));
-        _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
-        _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
+        custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
+        custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }
     VLOG_CRITICAL << _scan_keys.debug_string();
 

@@ -291,7 +291,8 @@ private:
         }
         DataTypePtr indices_type(std::make_shared<MapIndiceDataType>());
         ColumnWithTypeAndName indices(matched_indices, indices_type, "indices");
-        ColumnWithTypeAndName data(val_arr, std::make_shared<DataTypeArray>(val_type), "value");
+        ColumnWithTypeAndName data(std::move(val_arr), std::make_shared<DataTypeArray>(val_type),
+                                   "value");
         ColumnsWithTypeAndName args = {data, indices};
         return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
     }

@@ -30,7 +30,7 @@ AggregateFunctionPtr create_aggregate_function_multi_top_sum_impl(
         const DataTypes& argument_types, const bool result_is_nullable,
         const std::vector<std::string>& column_names) {
     if (N == argument_types.size() - 3) {
-        return creator_with_type_base<true, false, false, N>::template create<
+        return creator_with_integer_type_with_index<N>::template create<
                 AggregateFunctionApproxTopSumSimple>(argument_types, result_is_nullable,
                                                      column_names);
     } else {
@@ -43,8 +43,8 @@ template <>
 AggregateFunctionPtr create_aggregate_function_multi_top_sum_impl<0>(
         const DataTypes& argument_types, const bool result_is_nullable,
         const std::vector<std::string>& column_names) {
-    return creator_with_type_base<true, false, false, 0>::template create<
-            AggregateFunctionApproxTopSumSimple>(argument_types, result_is_nullable, column_names);
+    return creator_with_integer_type::create<AggregateFunctionApproxTopSumSimple>(
+            argument_types, result_is_nullable, column_names);
 }
 
 AggregateFunctionPtr create_aggregate_function_approx_top_sum(const std::string& name,

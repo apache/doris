@@ -281,30 +281,24 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalUnion(PhysicalUnion union, PlanContext context) {
+        List<PhysicalProperties> requestAny = Lists.newArrayListWithCapacity(context.arity());
+        for (int i = context.arity(); i > 0; --i) {
+            requestAny.add(PhysicalProperties.ANY);
+        }
+        addRequestPropertyToChildren(requestAny);
+
         // TODO: we do not generate gather union until we could do better cost computation on set operation
-        List<PhysicalProperties> requiredPropertyList =
-                Lists.newArrayListWithCapacity(context.arity());
         if (union.getConstantExprsList().isEmpty()) {
             // translate requestPropertyFromParent to other children's request.
             DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
             if (distributionRequestFromParent instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
-                requiredPropertyList = createHashRequestAccordingToParent(union, distributionSpecHash, context);
-            } else {
-                for (int i = context.arity(); i > 0; --i) {
-                    requiredPropertyList.add(PhysicalProperties.ANY);
-                }
-            }
-
-        } else {
-            // current be could not run const expr on appropriate node,
-            // so if we have constant exprs on union, the output of union always any
-            // then any other request on children is useless.
-            for (int i = context.arity(); i > 0; --i) {
-                requiredPropertyList.add(PhysicalProperties.ANY);
+                List<PhysicalProperties> requestHash
+                        = createHashRequestAccordingToParent(union, distributionSpecHash, context);
+                addRequestPropertyToChildren(requestHash);
             }
         }
-        addRequestPropertyToChildren(requiredPropertyList);
+
         return null;
     }
 
@@ -405,14 +399,16 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             );
         }
 
+        boolean isSkew = window.isSkew();
         if (windowFrameGroup.getPartitionKeys().isEmpty() && windowFrameGroup.getOrderKeys().isEmpty()) {
             addRequestPropertyToChildren(PhysicalProperties.GATHER);
         } else if (windowFrameGroup.getPartitionKeys().isEmpty() && !windowFrameGroup.getOrderKeys().isEmpty()) {
             addRequestPropertyToChildren(PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
         } else if (!windowFrameGroup.getPartitionKeys().isEmpty()) {
-            addRequestPropertyToChildren(PhysicalProperties.createHash(
-                    windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE)
-                    .withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
+            addRequestPropertyToChildren(
+                    PhysicalProperties.createHash(windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE)
+                    .withOrderSpec(isSkew ? new MustLocalSortOrderSpec(keysNeedToBeSorted)
+                            : new OrderSpec(keysNeedToBeSorted)));
         }
         return null;
     }
@@ -451,11 +447,19 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     private void addShuffleJoinRequestProperty(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin) {
         Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = hashJoin.getHashConjunctsExprIds();
         // shuffle join
-        addRequestPropertyToChildren(
-                PhysicalProperties.createHash(
-                        new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.REQUIRE)),
-                PhysicalProperties.createHash(
-                        new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.REQUIRE)));
+        if (hashJoin.getDistributeHint().getSkewInfo() != null) {
+            addRequestPropertyToChildren(
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.REQUIRE_EQUAL)),
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.REQUIRE_EQUAL)));
+        } else {
+            addRequestPropertyToChildren(
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.REQUIRE)),
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.REQUIRE)));
+        }
     }
 
     /**

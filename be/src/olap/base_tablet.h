@@ -86,7 +86,7 @@ public:
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() { return _tablet_meta; }
 
-    int32 max_version_config();
+    int32_t max_version_config();
 
     // FIXME(plat1ko): It is not appropriate to expose this lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
@@ -103,7 +103,7 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
-    virtual const std::string& tablet_path() const = 0;
+    virtual std::string tablet_path() const = 0;
 
     virtual bool exceed_version_limit(int32_t limit) = 0;
 

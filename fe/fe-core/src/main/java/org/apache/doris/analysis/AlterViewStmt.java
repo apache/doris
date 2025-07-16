@@ -18,17 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.View;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 
@@ -39,15 +29,11 @@ public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
     private final String comment;
 
     public AlterViewStmt(TableName tbl, String comment) {
-        this(tbl, null, null, comment);
+        this(tbl, null, comment);
     }
 
-    public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt) {
-        this(tbl, cols, queryStmt, null);
-    }
-
-    public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt, String comment) {
-        super(tbl, cols, queryStmt);
+    public AlterViewStmt(TableName tbl, List<ColWithComment> cols, String comment) {
+        super(tbl, cols);
         this.comment = comment;
     }
 
@@ -61,37 +47,6 @@ public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        if (tableName == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
-        }
-        tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-
-        DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb());
-        TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
-        if (!(table instanceof View)) {
-            throw new AnalysisException(
-                    String.format("ALTER VIEW not allowed on a table:%s.%s", getDbName(), getTable()));
-        }
-
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
-                        PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
-                    PrivPredicate.ALTER.getPrivs().toString(), tableName.getTbl());
-        }
-
-        if (cols != null) {
-            cloneStmt = viewDefStmt.clone();
-        }
-
-        viewDefStmt.setNeedToSql(true);
-        Analyzer viewAnalyzer = new Analyzer(analyzer);
-        viewDefStmt.analyze(viewAnalyzer);
-        checkQueryAuth();
-        createColumnAndViewDefs(analyzer);
     }
 
     public void setInlineViewDef(String querySql) {
@@ -104,22 +59,7 @@ public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
 
     @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("ALTER VIEW ");
-        sb.append(tableName.toSql()).append("\n");
-        if (cols != null) {
-            sb.append("(\n");
-            for (int i = 0; i < cols.size(); i++) {
-                if (i != 0) {
-                    sb.append(",\n");
-                }
-                sb.append("  ").append(cols.get(i).getColName());
-            }
-            sb.append("\n)");
-        }
-        sb.append("\n");
-        sb.append("AS ").append(viewDefStmt.toSql()).append("\n");
-        return sb.toString();
+        return "";
     }
 
     @Override

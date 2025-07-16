@@ -33,7 +33,7 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
-#include "serde/data_type_object_serde.h"
+#include "serde/data_type_variant_serde.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"

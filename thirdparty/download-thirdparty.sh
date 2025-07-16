@@ -437,7 +437,7 @@ fi
 
 # patch simdjson, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
 if [[ " ${TP_ARCHIVES[*]} " =~ " SIMDJSON " ]]; then
-    if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
+    if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.11.6" ]]; then
         cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/simdjson-3.0.1.patch"
@@ -617,6 +617,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
         cd -
     fi
     echo "Finished patching ${RE2_SOURCE}"
+fi
+
+# patch azure
+if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
+    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/azure-sdk-for-cpp-azure-core_1.16.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${GRPC_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

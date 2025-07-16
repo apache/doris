@@ -59,15 +59,13 @@ int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) c
 template <PrimitiveType T>
 StringRef ColumnDecimal<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                        char const*& begin) const {
-    auto pos = arena.alloc_continue(sizeof(value_type), begin);
-    memcpy(pos, &data[n], sizeof(value_type));
-    return StringRef(pos, sizeof(value_type));
+    auto* pos = arena.alloc_continue(sizeof(value_type), begin);
+    return {pos, serialize_impl(pos, n)};
 }
 
 template <PrimitiveType T>
 const char* ColumnDecimal<T>::deserialize_and_insert_from_arena(const char* pos) {
-    data.push_back(unaligned_load<value_type>(pos));
-    return pos + sizeof(value_type);
+    return pos + deserialize_impl(pos);
 }
 
 template <PrimitiveType T>
@@ -76,59 +74,31 @@ size_t ColumnDecimal<T>::get_max_row_byte_size() const {
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::serialize_vec(StringRef* keys, size_t num_rows,
-                                     size_t max_row_byte_size) const {
+void ColumnDecimal<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy_fixed<value_type>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
-        keys[i].size += sizeof(value_type);
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                                   const UInt8* null_map) const {
-    DCHECK(null_map != nullptr);
-    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
-            // serialize null first
-            memcpy(dest, null_map + i, sizeof(UInt8));
-            if (null_map[i] == 0) {
-                memcpy_fixed<value_type>(dest + 1, (char*)&data[i]);
-            }
-
-            keys[i].size += sizeof(UInt8) + (1 - null_map[i]) * sizeof(value_type);
-        }
-    } else {
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
-            memset(dest, 0, 1);
-            memcpy_fixed<value_type>(dest + 1, (char*)&data[i]);
-            keys[i].size += sizeof(value_type) + sizeof(UInt8);
-        }
-    }
+size_t ColumnDecimal<T>::serialize_impl(char* pos, const size_t row) const {
+    memcpy_fixed<value_type>(pos, (char*)&data[row]);
+    return sizeof(value_type);
 }
 
 template <PrimitiveType T>
 void ColumnDecimal<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i < num_rows; ++i) {
-        keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
-        keys[i].size -= sizeof(value_type);
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
     }
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                                     const uint8_t* null_map) {
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 0) {
-            keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
-            keys[i].size -= sizeof(value_type);
-        } else {
-            insert_default();
-        }
-    }
+size_t ColumnDecimal<T>::deserialize_impl(const char* pos) {
+    data.push_back(unaligned_load<value_type>(pos));
+    return sizeof(value_type);
 }
 
 template <PrimitiveType T>
@@ -249,7 +219,7 @@ void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
 }
 
 template <PrimitiveType T>
-ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = limit ? std::min(data.size(), limit) : data.size();
     if (perm.size() < size) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -301,8 +271,8 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
         DecimalV2Value* target = (DecimalV2Value*)(data.data() + old_size);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
-            int64_t int_value = unaligned_load<int64_t>(cur_ptr);
-            int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
+            auto int_value = unaligned_load<int64_t>(cur_ptr);
+            auto frac_value = unaligned_load<int32_t>(cur_ptr + sizeof(int64_t));
             target[i].from_olap_decimal(int_value, frac_value);
         }
     } else {
@@ -467,8 +437,8 @@ void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags
 template <PrimitiveType T>
 void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                         int nan_direction_hint, int direction,
-                                        std::vector<uint8>& cmp_res,
-                                        uint8* __restrict filter) const {
+                                        std::vector<uint8_t>& cmp_res,
+                                        uint8_t* __restrict filter) const {
     auto sz = this->size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnDecimal<T>&>(rhs).get_data()[rhs_row_id];

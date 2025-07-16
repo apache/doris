@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatisticRange;
@@ -73,19 +74,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
     public static final double DEFAULT_ISNULL_SELECTIVITY = 0.005;
-    private Set<Slot> aggSlots;
-
-    private boolean isOnBaseTable = false;
 
     public FilterEstimation() {
-    }
-
-    public FilterEstimation(Set<Slot> aggSlots) {
-        this.aggSlots = aggSlots;
-    }
-
-    public FilterEstimation(boolean isOnBaseTable) {
-        this.isOnBaseTable = isOnBaseTable;
     }
 
     /**
@@ -100,7 +90,24 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             for (Expression expr : inputStats.columnStatistics().keySet()) {
                 deltaStats.putColumnStatistics(expr, ColumnStatistic.UNKNOWN);
             }
-            outputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
+            Statistics deltaOutputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
+            StatisticsBuilder builder = new StatisticsBuilder(inputStats).setDeltaRowCount(0)
+                    .setRowCount(deltaOutputStats.getRowCount());
+            if (expression instanceof And) {
+                List<Expression> conjuncts = ExpressionUtils.extractConjunction(expression);
+                for (Expression conjunct : conjuncts) {
+                    if (conjunct instanceof ComparisonPredicate) {
+                        Statistics partial = conjunct.accept(this, new EstimationContext(inputStats));
+                        if (partial.getRowCount() == 0) {
+                            for (Slot slot : conjunct.getInputSlots()) {
+                                builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
+                            }
+                        }
+                    }
+
+                }
+            }
+            outputStats = builder.build();
         }
         outputStats.normalizeColumnStatistics();
         return outputStats;
@@ -116,7 +123,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         List<Expression> children = and.children();
         Statistics inputStats = context.statistics;
         Statistics outputStats = inputStats;
-        Preconditions.checkArgument(children.size() > 1, "and expression abnormal: " + and);
+        if (children.size() <= 1) {
+            throw new IllegalArgumentException("and expression abnormal: " + and);
+        }
         for (Expression child : children) {
             outputStats = child.accept(this, new EstimationContext(inputStats));
             outputStats.normalizeColumnStatistics(inputStats.getRowCount(), false);
@@ -554,6 +563,20 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return statisticsBuilder.build();
     }
 
+    private boolean doubleNearlyEqual(double a, double b) {
+        return Math.abs(a - b) < 0.01;
+    }
+
+    private boolean isOnBase(Expression child, EstimationContext context) {
+        ColumnStatistic colStats = context.statistics.findColumnStatistics(child);
+        if (colStats != null && !colStats.isUnKnown() && colStats.getOriginal() != null) {
+            ColumnStatistic original = colStats.getOriginal();
+            return doubleNearlyEqual(original.count, colStats.count)
+                    && doubleNearlyEqual(colStats.ndv, original.ndv);
+        }
+        return false;
+    }
+
     @Override
     public Statistics visitIsNull(IsNull isNull, EstimationContext context) {
         ColumnStatistic childColStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
@@ -562,7 +585,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return new StatisticsBuilder(context.statistics).setRowCount(row).build();
         }
         double outputRowCount = Math.min(childColStats.numNulls, context.statistics.getRowCount());
-        if (!isOnBaseTable) {
+        if (!isOnBase(isNull.child(), context)) {
             // for is null on base table, use the numNulls, otherwise
             // nulls will be generated such as outer join and then we do a protection
             Expression child = isNull.child();

@@ -40,7 +40,33 @@ suite("test_routine_load_progress","docker") {
             props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
             props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
             props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+            // add timeout config
+            props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")  
+            props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+
+            // check conenction
+            def verifyKafkaConnection = { prod ->
+                try {
+                    logger.info("=====try to connect Kafka========")
+                    def partitions = prod.partitionsFor("__connection_verification_topic")
+                    return partitions != null
+                } catch (Exception e) {
+                    throw new Exception("Kafka connect fail: ${e.message}".toString())
+                }
+            }
+            // Create kafka producer
             def producer = new KafkaProducer<>(props)
+            try {
+                logger.info("Kafka connecting: ${kafka_broker}")
+                if (!verifyKafkaConnection(producer)) {
+                    throw new Exception("can't get any kafka info")
+                }
+            } catch (Exception e) {
+                logger.error("FATAL: " + e.getMessage())
+                producer.close()
+                throw e  
+            }
+            logger.info("Kafka connect success")
             for (String kafkaCsvTopic in kafkaCsvTpoics) {
                 def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
                 def lines = txt.readLines()

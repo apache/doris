@@ -106,6 +106,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STORAGE_PAGE_SIZE = "storage_page_size";
     public static final long STORAGE_PAGE_SIZE_DEFAULT_VALUE = 65536L;
 
+    public static final String PROPERTIES_STORAGE_DICT_PAGE_SIZE = "storage_dict_page_size";
+    public static final long STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE = 262144L;
+
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
@@ -1113,6 +1116,24 @@ public class PropertyAnalyzer {
         return storagePageSize;
     }
 
+    public static long analyzeStorageDictPageSize(Map<String, String> properties) throws AnalysisException {
+        long storageDictPageSize = STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_DICT_PAGE_SIZE)) {
+            String storageDictPageSizeStr = properties.get(PROPERTIES_STORAGE_DICT_PAGE_SIZE);
+            try {
+                storageDictPageSize = Long.parseLong(storageDictPageSizeStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid storage dict page size: " + storageDictPageSizeStr);
+            }
+            if (storageDictPageSize < 0 || storageDictPageSize > 104857600) {
+                throw new AnalysisException("Storage dict page size must be between 0 and 100MB.");
+            }
+            storageDictPageSize = alignTo4K(storageDictPageSize);
+            properties.remove(PROPERTIES_STORAGE_DICT_PAGE_SIZE);
+        }
+        return storageDictPageSize;
+    }
+
     // analyzeStorageFormat will parse the storage format from properties
     // sql: alter table tablet_name set ("storage_format" = "v2")
     // Use this sql to convert all tablets(base and rollup index) to a new format segment
@@ -1242,7 +1263,7 @@ public class PropertyAnalyzer {
             } else {
                 // continue to check default vault
                 Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
-                if (info == null) {
+                if (info == null || Strings.isNullOrEmpty(info.first) || Strings.isNullOrEmpty(info.second)) {
                     throw new AnalysisException("No default storage vault."
                             + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
                             + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");

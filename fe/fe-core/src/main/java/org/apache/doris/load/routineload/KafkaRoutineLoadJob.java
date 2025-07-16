@@ -32,7 +32,6 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -47,6 +46,8 @@ import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
@@ -70,8 +71,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -500,6 +499,34 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties);
     }
 
+    public static KafkaRoutineLoadJob fromCreateInfo(CreateRoutineLoadInfo info, ConnectContext ctx)
+            throws UserException {
+        // check db and table
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getDBName());
+
+        long id = Env.getCurrentEnv().getNextId();
+        KafkaDataSourceProperties kafkaProperties = (KafkaDataSourceProperties) info.getDataSourceProperties();
+        KafkaRoutineLoadJob kafkaRoutineLoadJob;
+        if (kafkaProperties.isMultiTable()) {
+            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, info.getName(),
+                db.getId(),
+                kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), ctx.getCurrentUserIdentity(), true);
+        } else {
+            OlapTable olapTable = db.getOlapTableOrDdlException(info.getTableName());
+            checkMeta(olapTable, info.getRoutineLoadDesc());
+            long tableId = olapTable.getId();
+            // init kafka routine load job
+            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, info.getName(),
+                db.getId(), tableId,
+                kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), ctx.getCurrentUserIdentity());
+        }
+        kafkaRoutineLoadJob.setOptional(info);
+        kafkaRoutineLoadJob.checkCustomProperties();
+        kafkaRoutineLoadJob.checkCustomPartition();
+
+        return kafkaRoutineLoadJob;
+    }
+
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDBName());
@@ -608,6 +635,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return partitionOffsets;
     }
 
+    protected void setOptional(CreateRoutineLoadInfo info) throws UserException {
+        super.setOptional(info);
+        KafkaDataSourceProperties kafkaDataSourceProperties
+                = (KafkaDataSourceProperties) info.getDataSourceProperties();
+        if (CollectionUtils.isNotEmpty(kafkaDataSourceProperties.getKafkaPartitionOffsets())) {
+            setCustomKafkaPartitions(kafkaDataSourceProperties);
+        }
+        if (MapUtils.isNotEmpty(kafkaDataSourceProperties.getCustomKafkaProperties())) {
+            setCustomKafkaProperties(kafkaDataSourceProperties.getCustomKafkaProperties());
+        }
+        // set group id if not specified
+        this.customProperties.putIfAbsent(PROP_GROUP_ID, name + "_" + UUID.randomUUID());
+    }
+
     @Override
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
         super.setOptional(stmt);
@@ -682,23 +723,28 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return ret;
     }
 
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        brokerList = Text.readString(in);
-        topic = Text.readString(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            customKafkaPartitions.add(in.readInt());
+    @Override
+    public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
+        Map<String, String> jobProperties = command.getAnalyzedJobProperties();
+        KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
+        if (null != dataSourceProperties) {
+            // if the partition offset is set by timestamp, convert it to real offset
+            convertOffset(dataSourceProperties);
         }
 
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            String propertyKey = Text.readString(in);
-            String propertyValue = Text.readString(in);
-            if (propertyKey.startsWith("property.")) {
-                this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+        writeLock();
+        try {
+            if (getState() != JobState.PAUSED) {
+                throw new DdlException("Only supports modification of PAUSED jobs");
             }
+
+            modifyPropertiesInternal(jobProperties, dataSourceProperties);
+
+            AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
+                    jobProperties, dataSourceProperties);
+            Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
+        } finally {
+            writeUnlock();
         }
     }
 
@@ -718,7 +764,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 tmpCtx.setCloudCluster(this.getCloudCluster());
             }
             tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
             tmpCtx.getSessionVariable().setWorkloadGroup(wgName);
             List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroup(tmpCtx);
@@ -980,14 +1025,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilter().toSql()).get(0)
                 : null;
         Expression whereExpr = getWhereExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSqlWithoutTbl()).get(0)
                 : null;
         NereidsLoadTaskInfo.NereidsImportColumnDescs importColumnDescs = null;
         if (columnDescs != null) {
             importColumnDescs = new NereidsLoadTaskInfo.NereidsImportColumnDescs();
             for (ImportColumnDesc desc : columnDescs.descs) {
                 Expression expression = desc.getExpr() != null
-                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSql()).get(0)
+                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSqlWithoutTbl()).get(0)
                         : null;
                 importColumnDescs.descs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }

@@ -43,13 +43,10 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
-#include "olap/olap_common.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
-#include "util/defer_op.h"
-#include "util/jsonb_parser_simd.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -81,12 +78,6 @@ namespace doris::vectorized {
 namespace {
 
 DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable) {
-    if (type == ColumnVariant::MOST_COMMON_TYPE_ID) {
-        // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
-        // So we ignored num_dimensions.
-        return is_nullable ? make_nullable(std::make_shared<ColumnVariant::MostCommonType>())
-                           : std::make_shared<ColumnVariant::MostCommonType>();
-    }
     DataTypePtr result = type == PrimitiveType::INVALID_TYPE
                                  ? is_nullable ? make_nullable(std::make_shared<DataTypeNothing>())
                                                : std::dynamic_pointer_cast<IDataType>(
@@ -861,11 +852,7 @@ void ColumnVariant::try_insert(const Field& field) {
     }
     const auto& object = field.get<const VariantMap&>();
     size_t old_size = size();
-    for (const auto& [key_str, value] : object) {
-        PathInData key;
-        if (!key_str.empty()) {
-            key = PathInData(key_str);
-        }
+    for (const auto& [key, value] : object) {
         if (!has_subcolumn(key)) {
             bool succ = add_sub_column(key, old_size);
             if (!succ) {
@@ -904,10 +891,25 @@ void ColumnVariant::Subcolumn::get(size_t n, Field& res) const {
         return;
     }
     if (is_finalized()) {
-        if (least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
-            // JsonbFiled is special case
-            res = Field::create_field<TYPE_JSONB>(JsonbField());
+        // TODO(hangyu) : we should use data type to get the field value
+        // here is a special case for Array<JsonbField>
+        if (least_common_type.get_type_id() == PrimitiveType::TYPE_ARRAY &&
+            least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
+            // Array of JsonbField is special case
+            get_finalized_column().get(n, res);
+            // here we will get a Array<String> Field or NULL, if it is Array<String>, we need to convert it to Array<JsonbField>
+            convert_array_string_to_array_jsonb(res);
+            return;
         }
+
+        // here is a special case for JsonbField
+        if (least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
+            res = Field::create_field<TYPE_JSONB>(JsonbField());
+            get_finalized_column().get(n, res);
+            return;
+        }
+
+        // common type to get the field value
         get_finalized_column().get(n, res);
         return;
     }
@@ -958,7 +960,7 @@ void ColumnVariant::get(size_t n, Field& res) const {
         entry->data.get(n, field);
         // Notice: we treat null as empty field, since we do not distinguish null and empty for Variant type.
         if (field.get_type() != PrimitiveType::TYPE_NULL) {
-            object.try_emplace(entry->path.get_path(), field);
+            object.try_emplace(entry->path, field);
         }
     }
     if (object.empty()) {
@@ -1064,7 +1066,7 @@ ColumnPtr ColumnVariant::replicate(const Offsets& offsets) const {
             [&](const auto& subcolumn) { return subcolumn.replicate(offsets); });
 }
 
-ColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {
     if (num_rows == 0 || subcolumns.empty()) {
         if (limit == 0) {
             limit = num_rows;
@@ -1606,7 +1608,7 @@ void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& arg_subcolumn
                                        nested_object_nullable->get_null_map_column_ptr()),
                 offset);
         auto nullable_subnested_column = ColumnNullable::create(
-                subnested_column, nested_column_nullable->get_null_map_column_ptr());
+                std::move(subnested_column), nested_column_nullable->get_null_map_column_ptr());
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
         Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
@@ -2032,6 +2034,25 @@ bool ColumnVariant::try_insert_default_from_nested(const Subcolumns::NodePtr& en
             FieldVisitorReplaceScalars(default_scalar, leaf_num_dimensions), last_field);
     entry->data.insert(std::move(default_field));
     return true;
+}
+
+void ColumnVariant::Subcolumn::convert_array_string_to_array_jsonb(Field& array_field) {
+    if (array_field.is_null()) {
+        return;
+    }
+    if (array_field.get_type() != PrimitiveType::TYPE_ARRAY) {
+        return;
+    }
+    Field converted_res = Field::create_field<TYPE_ARRAY>(Array());
+    for (auto& item : array_field.get<Array&>()) {
+        Field jsonb_item;
+        DCHECK(item.get_type() == PrimitiveType::TYPE_STRING);
+        auto& string_item = item.get<String&>();
+        jsonb_item = Field::create_field<TYPE_JSONB>(
+                JsonbField(string_item.c_str(), string_item.size()));
+        converted_res.get<Array&>().emplace_back(std::move(jsonb_item));
+    }
+    array_field = std::move(converted_res);
 }
 
 } // namespace doris::vectorized

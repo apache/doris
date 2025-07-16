@@ -399,7 +399,7 @@ suite('test_ms_api', 'p0, docker') {
         def internal_bucket_user = [[user_id:"1-userid", ak:"test-ak1-updated", sk:"test-sk1-updated"]]
         def update_ak_sk_api_body = [instance_id:"${instance_id}", internal_bucket_user:internal_bucket_user]
         jsonOutput = new JsonOutput()
-        upDateAKSKBody = jsonOutput.toJson(update_ak_sk_api_body)
+        def upDateAKSKBody = jsonOutput.toJson(update_ak_sk_api_body)
 
 
         update_ak_sk_api.call(msHttpPort, upDateAKSKBody) {

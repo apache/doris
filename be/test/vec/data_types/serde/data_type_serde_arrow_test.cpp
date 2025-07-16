@@ -130,7 +130,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                             mutable_nullable_vector->insert_default();
                         } else {
                             mutable_nullable_vector->insert(
-                                    Field::create_field<TYPE_INT>(int32(i)));
+                                    Field::create_field<TYPE_INT>(int32_t(i)));
                         }
                     }
                     auto data_type = vectorized::make_nullable(

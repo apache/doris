@@ -57,6 +57,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class RollupProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(RollupProcDir.class);
@@ -175,21 +177,31 @@ public class RollupProcDir implements ProcDirInterface {
             jobInfos = rollupJobInfos;
         } else {
             jobInfos = Lists.newArrayList();
-            for (List<Comparable> infoStr : rollupJobInfos) {
-                if (infoStr.size() != TITLE_NAMES.size()) {
-                    LOG.warn("RollupJobInfos.size() " + rollupJobInfos.size()
-                            + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
-                    continue;
-                }
-                boolean isNeed = true;
-                for (int i = 0; i < infoStr.size(); i++) {
-                    isNeed = filterResultExpression(TITLE_NAMES.get(i), infoStr.get(i), filter);
-                    if (!isNeed) {
-                        break;
+
+            // if filter's keys do not contain any title, we should do nothing
+            Set<String> lowercaseKeys = filter.keySet().stream()
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toSet());
+            boolean containsAnyTitle = TITLE_NAMES.stream()
+                    .map(String::toLowerCase)
+                    .anyMatch(lowercaseKeys::contains);
+            if (containsAnyTitle) {
+                for (List<Comparable> infoStr : rollupJobInfos) {
+                    if (infoStr.size() != TITLE_NAMES.size()) {
+                        LOG.warn("RollupJobInfos.size() " + rollupJobInfos.size()
+                                + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
+                        continue;
                     }
-                }
-                if (isNeed) {
-                    jobInfos.add(infoStr);
+                    boolean isNeed = true;
+                    for (int i = 0; i < infoStr.size(); i++) {
+                        isNeed = filterResultExpression(TITLE_NAMES.get(i), infoStr.get(i), filter);
+                        if (!isNeed) {
+                            break;
+                        }
+                    }
+                    if (isNeed) {
+                        jobInfos.add(infoStr);
+                    }
                 }
             }
         }

@@ -18,6 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -80,6 +82,11 @@ public class TimeV2Literal extends LiteralExpr {
 
     @Override
     protected String toSqlImpl() {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
         return "\"" + getStringValue() + "\"";
     }
 

@@ -70,6 +70,10 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                 return creator_without_type::create<
                         AggregateFunctionUniq<TYPE_STRING, Data<TYPE_STRING>>>(argument_types,
                                                                                result_is_nullable);
+            case TYPE_ARRAY:
+                return creator_without_type::create<
+                        AggregateFunctionUniq<TYPE_ARRAY, Data<TYPE_ARRAY>>>(argument_types,
+                                                                             result_is_nullable);
             default:
                 break;
             }

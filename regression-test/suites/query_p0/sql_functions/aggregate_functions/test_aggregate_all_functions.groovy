@@ -381,6 +381,7 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
     sql "INSERT INTO ${tableName_15} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
     qt_select29 "select id,stddev(level) from ${tableName_15} group by id order by id"
+    qt_select29 "select id,std(level) from ${tableName_15} group by id order by id"
     qt_select30 "select id,stddev_pop(level) from ${tableName_15} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_15}"

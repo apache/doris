@@ -18,6 +18,7 @@
 #include <arrow/array/builder_base.h>
 #include <gtest/gtest.h>
 
+#include "util/jsonb_writer.h"
 #include "util/slice.h"
 #include "vec/columns/column_complex.h"
 #include "vec/data_types/serde/data_type_quantilestate_serde.h"
@@ -63,15 +64,16 @@ TEST(QuantileStateSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    quantile_state_serde->write_one_cell_to_jsonb(*column_quantile_state, jsonb_writer, &pool, 0,
-                                                  0);
+    quantile_state_serde->write_one_cell_to_jsonb(*column_quantile_state, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         quantile_state_serde->read_one_cell_from_jsonb(*column_quantile_state, it->value());

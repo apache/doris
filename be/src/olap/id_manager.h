@@ -166,7 +166,7 @@ public:
         return it->second;
     }
 
-    uint32 get_file_mapping_id(const std::shared_ptr<FileMapping>& mapping) {
+    uint32_t get_file_mapping_id(const std::shared_ptr<FileMapping>& mapping) {
         DCHECK(mapping.get() != nullptr);
         auto value = mapping->file_mapping_info_to_string();
 
@@ -197,12 +197,13 @@ public:
 
     int64_t get_delayed_expired_timestamp() { return delayed_expired_timestamp; }
 
-    void set_external_scan_params(QueryContext* query_ctx) {
+    void set_external_scan_params(QueryContext* query_ctx, int max_file_scanners) {
         std::call_once(once_flag_for_external, [&] {
             DCHECK(query_ctx != nullptr);
             _query_global = query_ctx->get_query_globals();
             _query_options = query_ctx->get_query_options();
             _file_scan_range_params_map = query_ctx->file_scan_range_params_map;
+            _max_file_scanners = max_file_scanners;
         });
     }
 
@@ -213,6 +214,8 @@ public:
     const std::map<int, TFileScanRangeParams>& get_external_scan_params() const {
         return _file_scan_range_params_map;
     }
+
+    int get_max_file_scanners() const { return _max_file_scanners; }
 
 private:
     std::shared_mutex _mtx;
@@ -225,6 +228,7 @@ private:
     TQueryOptions _query_options;
     std::map<int, TFileScanRangeParams> _file_scan_range_params_map;
     std::once_flag once_flag_for_external;
+    int _max_file_scanners = 10;
 
     // use in Doris Format to keep temp rowsets, preventing them from being deleted by compaction
     std::unordered_map<std::pair<int64_t, RowsetId>, RowsetSharedPtr> _temp_rowset_maps;

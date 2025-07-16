@@ -92,11 +92,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         this.s3Properties = properties;
         isUsePathStyle = Boolean.parseBoolean(properties.getUsePathStyle());
         forceParsingByStandardUri = Boolean.parseBoolean(s3Properties.getForceParsingByStandardUrl());
-
     }
 
     @Override
-    public S3Client getClient() throws UserException {
+    public S3Client getClient() {
         if (client == null) {
             String endpointStr = s3Properties.getEndpoint();
             if (!endpointStr.contains("://")) {
@@ -542,11 +541,24 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
             String listPrefix = S3Util.getLongestPrefix(globPath); // similar to Azure
             if (LOG.isDebugEnabled()) {
-                LOG.debug("globList listPrefix: {}", listPrefix);
+                LOG.debug("globList listPrefix: '{}' (from globPath: '{}')", listPrefix, globPath);
             }
+
+            // For Directory Buckets, ensure proper prefix handling using standardized approach
+            String finalPrefix = listPrefix;
+
+            if (uri.useS3DirectoryBucket()) {
+                String adjustedPrefix = S3URI.getDirectoryPrefixForGlob(listPrefix);
+                if (LOG.isDebugEnabled() && !adjustedPrefix.equals(listPrefix)) {
+                    LOG.debug("Directory bucket detected, adjusting prefix from '{}' to '{}'",
+                            listPrefix, adjustedPrefix);
+                }
+                finalPrefix = adjustedPrefix;
+            }
+
             ListObjectsV2Request request = ListObjectsV2Request.builder()
                     .bucket(bucket)
-                    .prefix(listPrefix)
+                    .prefix(finalPrefix)
                     .build();
 
             boolean isTruncated = false;

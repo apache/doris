@@ -89,7 +89,7 @@ public:
         } else {
             // new value, copy value and insert new key->bitmap pair
             CppType new_value;
-            _type_info->deep_copy(&new_value, &value, &_arena);
+            _type_info->deep_copy(&new_value, &value, _arena);
             _mem_index.insert({new_value, roaring::Roaring::bitmapOf(1, _rid)});
             it = _mem_index.find(new_value);
         }

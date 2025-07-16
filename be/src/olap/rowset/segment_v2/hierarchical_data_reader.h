@@ -45,6 +45,14 @@
 
 namespace doris::segment_v2 {
 
+struct PathWithColumnAndType {
+    vectorized::PathInData path;
+    vectorized::ColumnPtr column;
+    vectorized::DataTypePtr type;
+};
+
+using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
+
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataReader : public ColumnIterator {
 public:
@@ -159,7 +167,7 @@ private:
         // Iterate nested subcolumns and flatten them, the entry contains the nested subcolumns of the same nested parent
         // first we pick the first subcolumn as base array and using it's offset info. Then we flatten all nested subcolumns
         // into a new object column and wrap it with array column using the first element offsets.The wrapped array column
-        // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
+        // will type the type of ColumnVariant::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnVariant)>>.
         for (auto& entry : nested_subcolumns) {
             MutableColumnPtr nested_object = ColumnVariant::create(true, false);
             const auto* base_array = check_and_get_column<ColumnArray>(

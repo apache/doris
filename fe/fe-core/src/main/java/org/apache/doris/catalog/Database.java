@@ -24,7 +24,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -457,6 +456,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return result;
     }
 
+    @Override
     public void unregisterTable(String tableName) {
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
@@ -649,17 +649,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public static Database read(DataInput in) throws IOException {
         LOG.info("read db from journal {}", in);
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            Database db = new Database();
-            db.readFields(in);
-            return db;
-        } else if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_138) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
-        } else {
-            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
-            db.readTables(in);
-            return db;
-        }
+        Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+        db.readTables(in);
+        return db;
     }
 
     private void writeTables(DataOutput out) throws IOException {
@@ -686,16 +678,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             registerTable(tb);
         });
 
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
-            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
-                    String.valueOf(Config.max_running_txn_num_per_db));
-            transactionQuotaSize = Long.parseLong(txnQuotaStr);
-            binlogConfig = dbProperties.getBinlogConfig();
-        } else {
-            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
-                    ? Config.max_running_txn_num_per_db
-                    : Config.default_db_max_running_txn_num;
-        }
+        String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
+                String.valueOf(Config.max_running_txn_num_per_db));
+        transactionQuotaSize = Long.parseLong(txnQuotaStr);
+        binlogConfig = dbProperties.getBinlogConfig();
 
         for (ImmutableList<Function> functions : name2Function.values()) {
             for (Function function : functions) {
@@ -742,50 +728,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public void analyze() {
         for (Table table : nameToTable.values()) {
             table.analyze(getFullName());
-        }
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-        fullQualifiedName = Text.readString(in);
-        fullQualifiedName = ClusterNamespace.getNameFromFullName(fullQualifiedName);
-        // read groups
-        int numTables = in.readInt();
-        for (int i = 0; i < numTables; ++i) {
-            Table table = Table.read(in);
-            registerTable(table);
-        }
-
-        // read quota
-        dataQuotaBytes = in.readLong();
-        // cluster
-        Text.readString(in);
-        dbState = DbState.valueOf(Text.readString(in));
-        attachDbName = Text.readString(in);
-
-        FunctionUtil.readFields(in, this.getFullName(), name2Function);
-
-        // read encryptKeys
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
-            dbEncryptKey = DatabaseEncryptKey.read(in);
-        }
-
-        replicaQuotaSize = in.readLong();
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
-            dbProperties = DatabaseProperty.read(in);
-            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
-                    String.valueOf(Config.max_running_txn_num_per_db));
-            transactionQuotaSize = Long.parseLong(txnQuotaStr);
-            binlogConfig = dbProperties.getBinlogConfig();
-        } else {
-            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
-                    ? Config.max_running_txn_num_per_db
-                    : Config.default_db_max_running_txn_num;
         }
     }
 

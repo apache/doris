@@ -22,6 +22,7 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 public class SupportedSysTables {
+    // TODO: use kv map
     public static final List<SysTable> HIVE_SUPPORTED_SYS_TABLES;
     public static final List<SysTable> ICEBERG_SUPPORTED_SYS_TABLES;
     public static final List<SysTable> PAIMON_SUPPORTED_SYS_TABLES;
@@ -32,10 +33,11 @@ public class SupportedSysTables {
         HIVE_SUPPORTED_SYS_TABLES = Lists.newArrayList();
         HIVE_SUPPORTED_SYS_TABLES.add(PartitionsSysTable.INSTANCE);
         // iceberg
-        ICEBERG_SUPPORTED_SYS_TABLES = Lists.newArrayList();
-        ICEBERG_SUPPORTED_SYS_TABLES.add(IcebergSnapshotsSysTable.INSTANCE);
+        ICEBERG_SUPPORTED_SYS_TABLES = Lists.newArrayList(
+                IcebergSysTable.getSupportedIcebergSysTables());
         // paimon
-        PAIMON_SUPPORTED_SYS_TABLES = Lists.newArrayList();
+        PAIMON_SUPPORTED_SYS_TABLES = Lists.newArrayList(
+                PaimonSysTable.getSupportedPaimonSysTables());
         // hudi
         HUDI_SUPPORTED_SYS_TABLES = Lists.newArrayList();
     }

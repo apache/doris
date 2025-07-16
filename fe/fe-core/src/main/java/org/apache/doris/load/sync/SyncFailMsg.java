@@ -17,18 +17,10 @@
 
 package org.apache.doris.load.sync;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
 @Deprecated
-public class SyncFailMsg implements Writable {
+public class SyncFailMsg {
     public enum MsgType {
         USER_CANCEL,
         SUBMIT_FAIL,
@@ -41,14 +33,4 @@ public class SyncFailMsg implements Writable {
     private SyncFailMsg.MsgType msgType;
     @SerializedName(value = "msg")
     private String msg;
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this, SyncFailMsg.class));
-    }
-
-    public static SyncFailMsg read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, SyncFailMsg.class);
-    }
 }

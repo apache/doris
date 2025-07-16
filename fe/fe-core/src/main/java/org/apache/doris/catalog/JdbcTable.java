@@ -21,17 +21,14 @@ import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DeepCopy;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.thrift.TJdbcTable;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -39,7 +36,6 @@ import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
@@ -105,6 +101,9 @@ public class JdbcTable extends Table {
     private boolean connectionPoolKeepAlive;
 
     private ExternalFunctionRules functionRules;
+    // This is used for edit log
+    @SerializedName("frs")
+    private String functionRulesString;
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
@@ -254,39 +253,6 @@ public class JdbcTable extends Table {
         return tTableDescriptor;
     }
 
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        int size = in.readInt();
-        Map<String, String> serializeMap = Maps.newHashMap();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            serializeMap.put(key, value);
-        }
-        catalogId = serializeMap.get(CATALOG_ID) != null ? Long.parseLong(serializeMap.get(CATALOG_ID)) : -1;
-        externalTableName = serializeMap.get(TABLE);
-        resourceName = serializeMap.get(RESOURCE);
-        jdbcTypeName = serializeMap.get(TABLE_TYPE);
-        jdbcUrl = serializeMap.get(URL);
-        jdbcUser = serializeMap.get(USER);
-        jdbcPasswd = serializeMap.get(PASSWORD);
-        driverClass = serializeMap.get(DRIVER_CLASS);
-        driverUrl = serializeMap.get(DRIVER_URL);
-        checkSum = serializeMap.get(CHECK_SUM);
-        remoteDatabaseName = serializeMap.get(REMOTE_DATABASE);
-        remoteTableName = serializeMap.get(REMOTE_TABLE);
-        String realColumnNamesJson = serializeMap.get(REMOTE_COLUMNS);
-        if (realColumnNamesJson != null) {
-            remoteColumnNames = objectMapper.readValue(realColumnNamesJson, new TypeReference<Map<String, String>>() {
-            });
-        } else {
-            remoteColumnNames = Maps.newHashMap();
-        }
-    }
-
     public String getResourceName() {
         return resourceName;
     }
@@ -419,8 +385,9 @@ public class JdbcTable extends Table {
 
     private void checkAndSetExternalFunctionRules(Map<String, String> properties) throws DdlException {
         ExternalFunctionRules.check(properties.getOrDefault(JdbcResource.FUNCTION_RULES, ""));
-        this.functionRules = ExternalFunctionRules.create(jdbcTypeName,
-                properties.getOrDefault(JdbcResource.FUNCTION_RULES, ""));
+        String functionRulesString = properties.getOrDefault(JdbcResource.FUNCTION_RULES, "");
+        this.functionRules = ExternalFunctionRules.create(jdbcTypeName, functionRulesString);
+        this.functionRulesString = functionRulesString;
     }
 
     /**
@@ -529,4 +496,11 @@ public class JdbcTable extends Table {
     public ExternalFunctionRules getExternalFunctionRules() {
         return functionRules;
     }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        functionRules = ExternalFunctionRules.create(jdbcTypeName, Strings.nullToEmpty(functionRulesString));
+    }
 }
+

@@ -71,7 +71,6 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Function;
@@ -125,7 +124,6 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -245,7 +243,6 @@ import com.google.gson.ToNumberPolicy;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.internal.Streams;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
@@ -254,7 +251,6 @@ import org.apache.commons.lang3.reflect.TypeUtils;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
-import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -262,7 +258,6 @@ import java.io.OutputStreamWriter;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -615,12 +610,10 @@ public class GsonUtils {
             .enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
-            // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new PreProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
-            .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(resourceTypeAdapterFactory)
@@ -795,43 +788,6 @@ public class GsonUtils {
                 table.put(rowKey, columnKey, value);
             }
             return table;
-        }
-    }
-
-    private static class ExprAdapterFactory implements TypeAdapterFactory {
-
-        private static final String EXPR_PROP = "expr";
-
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            final Class<T> rawType = (Class<T>) type.getRawType();
-            final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
-
-            if (!Expr.class.isAssignableFrom(rawType)) {
-                // reduce the stack depth.
-                return null;
-            }
-
-            return new TypeAdapter<T>() {
-                public void write(JsonWriter out, T value) throws IOException {
-                    delegate.write(out, value);
-                }
-
-                public T read(JsonReader in) throws IOException {
-                    if (Expr.class.isAssignableFrom(rawType)
-                            && Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_133) {
-                        JsonElement json = Streams.parse(in);
-                        String base64Str = json.getAsJsonObject().get(EXPR_PROP).getAsString();
-                        try (DataInputStream dataInputStream = new DataInputStream(
-                                new ByteArrayInputStream(Base64.getDecoder().decode(base64Str)))) {
-                            return (T) Expr.readIn(dataInputStream);
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    } else {
-                        return delegate.read(in);
-                    }
-                }
-            };
         }
     }
 

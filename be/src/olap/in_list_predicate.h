@@ -66,8 +66,8 @@ public:
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     template <typename ConditionType, typename ConvertFunc>
     InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
-                        const ConvertFunc& convert, bool is_opposite = false,
-                        const TabletColumn* col = nullptr, vectorized::Arena* arena = nullptr)
+                        const ConvertFunc& convert, bool is_opposite, const TabletColumn* col,
+                        vectorized::Arena& arena)
             : ColumnPredicate(column_id, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
@@ -181,7 +181,7 @@ public:
     }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    InvertedIndexIterator* iterator, uint32_t num_rows,
+                    IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
             return Status::OK();
@@ -197,10 +197,14 @@ public:
             RETURN_IF_ERROR(
                     InvertedIndexQueryParamFactory::create_query_value<Type>(ptr, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                    column_name, query_param->get_value(), query_type, num_rows, index));
-            indices |= *index;
+            InvertedIndexParam param;
+            param.column_name = column_name;
+            param.query_value = query_param->get_value();
+            param.query_type = query_type;
+            param.num_rows = num_rows;
+            param.roaring = std::make_shared<roaring::Roaring>();
+            RETURN_IF_ERROR(iterator->read_from_index(&param));
+            indices |= *param.roaring;
             iter->next();
         }
 
@@ -572,9 +576,8 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc,
           size_t N = 0>
 ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
-                                           const ConvertFunc& convert, bool is_opposite = false,
-                                           const TabletColumn* col = nullptr,
-                                           vectorized::Arena* arena = nullptr) {
+                                           const ConvertFunc& convert, bool is_opposite,
+                                           const TabletColumn* col, vectorized::Arena& arena) {
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         using Set = std::conditional_t<
@@ -595,9 +598,8 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionTy
 
 template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc>
 ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
-                                          const ConvertFunc& convert, bool is_opposite = false,
-                                          const TabletColumn* col = nullptr,
-                                          vectorized::Arena* arena = nullptr) {
+                                          const ConvertFunc& convert, bool is_opposite,
+                                          const TabletColumn* col, vectorized::Arena& arena) {
     if (conditions.size() == 1) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 1>(
                 column_id, conditions, convert, is_opposite, col, arena);

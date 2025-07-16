@@ -724,8 +724,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
 
         case TYPE_INT: {
-            RETURN_IF_ERROR(insert_int_value<int32>(col, type, col_ptr, pure_doc_value,
-                                                    slot_desc->is_nullable()));
+            RETURN_IF_ERROR(insert_int_value<int32_t>(col, type, col_ptr, pure_doc_value,
+                                                      slot_desc->is_nullable()));
             break;
         }
 

@@ -20,6 +20,35 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 suite("test_bloom_filter_hit") {
+    // Helper method to extract and validate RowsBloomFilterFiltered value
+    def validateBloomFilterFiltered = { profileString ->
+        log.info("Profile content: ${profileString}")
+        // Pattern to match "RowsBloomFilterFiltered:" followed by a number (with optional units and parentheses)
+        Pattern pattern = Pattern.compile("RowsBloomFilterFiltered:\\s+(\\d+(?:\\.\\d+)?[KMG]?)(?:\\s+\\((\\d+)\\))?")
+        Matcher matcher = pattern.matcher(profileString)
+        if (matcher.find()) {
+            def value1 = matcher.group(1)  // First number (possibly with K/M/G suffix)
+            def value2 = matcher.group(2)  // Second number in parentheses (if exists)
+            // Parse the first value
+            def numValue = 0L
+            if (value1.endsWith("K")) {
+                numValue = (Double.parseDouble(value1.substring(0, value1.length() - 1)) * 1000).toLong()
+            } else if (value1.endsWith("M")) {
+                numValue = (Double.parseDouble(value1.substring(0, value1.length() - 1)) * 1000000).toLong()
+            } else if (value1.endsWith("G")) {
+                numValue = (Double.parseDouble(value1.substring(0, value1.length() - 1)) * 1000000000).toLong()
+            } else {
+                numValue = Long.parseLong(value1)
+            }
+            log.info("Extracted RowsBloomFilterFiltered value: ${numValue}")
+            assertTrue(numValue > 0)
+            return true
+        } else {
+            fail("Could not find RowsBloomFilterFiltered in profile output")
+            return false
+        }
+    }
+
     def be_num = sql "show backends;"
     if (be_num.size() > 1) {
         // not suitable for multiple be cluster.
@@ -72,37 +101,19 @@ suite("test_bloom_filter_hit") {
     sql """ SET enable_profile = true """
     sql """ set parallel_scan_min_rows_per_scanner = 2097152; """
 
-    sql """ select C_COMMENT from ${tableName} where C_COMMENT='OK' """
+    profile("sql_c_comment_ok") {
+        run {
+            sql "/* sql_c_comment_ok */ select C_COMMENT from ${tableName} where C_COMMENT='OK'"
+            sleep(1000)
+        }
 
-    def httpGet = { url ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + url).openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-    }
-
-    def profileUrl = '/rest/v1/query_profile/'
-    def profiles = httpGet(profileUrl)
-    log.debug("profiles:{}", profiles);
-    profiles = new JsonSlurper().parseText(profiles)
-    assertEquals(0, profiles.code)
-
-    def profileId = null;
-    for (def profile in profiles["data"]["rows"]) {
-        if (profile["Sql Statement"].contains("""select C_COMMENT from ${tableName} where C_COMMENT='OK'""")) {
-            profileId = profile["Profile ID"]
-            break;
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("RowsBloomFilterFiltered:  15.0K  (15000)"))
         }
     }
-    log.info("profileId:{}", profileId);
-    def profileDetail = httpGet("/rest/v1/query_profile/" + profileId)
-    assertTrue(profileDetail.contains("BloomFilterFiltered:&nbsp;&nbsp;15.0K&nbsp;&nbsp;(15000)"))
-    //———————— clean table and disable profile ————————
+
     sql """ SET enable_profile = false """
-    // sql """ DROP TABLE IF EXISTS ${tableName} """
 
     // test ipv for bloom filter
     sql """ DROP TABLE IF EXISTS test_ip_bf """
@@ -137,47 +148,26 @@ suite("test_bloom_filter_hit") {
 
     // bf filter
     sql """ SET parallel_pipeline_task_num=1 """
-    qt_sql """ select * from test_ip_bf where ip_v6='4a3e:dc26:1819:83e6:9ee5:7239:ff44:aee8' """
-    profiles = httpGet(profileUrl)
-    log.debug("profiles:{}", profiles);
-    profiles = new JsonSlurper().parseText(profiles)
-    assertEquals(0, profiles.code)
 
-    def profileIdIpv6 = null;
-    for (def profile in profiles["data"]["rows"]) {
-        if (profile["Sql Statement"].contains("""select * from test_ip_bf where ip_v6='4a3e:dc26:1819:83e6:9ee5:7239:ff44:aee8'""")) {
-            profileIdIpv6 = profile["Profile ID"]
-            break;
+    profile("sql_ip_v6_ok") {
+        run {
+            sql "/* sql_ip_v6_ok */ select * from test_ip_bf where ip_v6='4a3e:dc26:1819:83e6:9ee5:7239:ff44:aee8'"
+            sleep(1000)
+        }
+
+        check { profileString, exception ->
+            validateBloomFilterFiltered(profileString)
         }
     }
-    log.info("profileId:{}", profileIdIpv6);
-    profileDetail = httpGet("/rest/v1/query_profile/" + profileIdIpv6)
-    // log.info("filter ipv6 profile:{}", profileDetail)
-    String regex = "RowsBloomFilterFiltered:&nbsp;&nbsp;(\\d+)"
-    Pattern pattern = Pattern.compile(regex)
-    Matcher matcher = pattern.matcher(profileDetail)
 
-    while (matcher.find()) {
-        int number = Integer.parseInt(matcher.group(1))
-        log.info("filter ipv6 number:{}", number)
-        assertTrue(number > 0)
-    }
-
-    qt_sql """ select * from test_ip_bf where ip_v4='192.168.11.1' """
-    def profileIdIpv4 = null;
-    for (def profile in profiles["data"]["rows"]) {
-        if (profile["Sql Statement"].contains("""select * from test_ip_bf where ip_v4='192.168.11.1'""")) {
-            profileIdIpv4 = profile["Profile ID"]
-            break;
+    profile("sql_ip_v4_ok") {
+        run {
+            sql "/* sql_ip_v4_ok */ select * from test_ip_bf where ip_v4='192.168.11.1'"
+            sleep(1000)
         }
-    }
-    log.info("profileId:{}", profileIdIpv4);
-    profileDetail = httpGet("/rest/v1/query_profile/" + profileIdIpv4)
-    //log.info("filter ipv4 profile:{}", profileDetail)
-    Matcher matcherIpv4 = pattern.matcher(profileDetail)
-    while (matcherIpv4.find()) {
-        int number = Integer.parseInt(matcherIpv4.group(1))
-        log.info("filter ipv4 number:{}", number)
-        assertTrue(number > 0)
+
+        check { profileString, exception ->
+            validateBloomFilterFiltered(profileString)
+        }
     }
 }

@@ -19,8 +19,6 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.CancelBackupStmt;
-import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.RestoreStmt;
@@ -42,6 +40,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -63,11 +63,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
@@ -247,8 +243,9 @@ public class BackupHandlerTest {
         handler = new BackupHandler(env);
         StorageBackend storageBackend = new StorageBackend("broker", "bos://location",
                 StorageBackend.StorageType.BROKER, Maps.newHashMap());
-        CreateRepositoryStmt stmt = new CreateRepositoryStmt(false, "repo", storageBackend);
-        handler.createRepository(stmt);
+
+        CreateRepositoryCommand command = new CreateRepositoryCommand(false, "repo", storageBackend);
+        handler.createRepository(command);
 
         // process backup
         List<TableRef> tblRefs = Lists.newArrayList();
@@ -280,22 +277,8 @@ public class BackupHandlerTest {
         request.setTaskStatus(new TStatus(TStatusCode.OK));
         handler.handleFinishedSnapshotUploadTask(uploadTask, request);
 
-        // test file persist
-        File tmpFile = new File("./tmp" + System.currentTimeMillis());
-        try {
-            DataOutputStream out = new DataOutputStream(new FileOutputStream(tmpFile));
-            handler.write(out);
-            out.flush();
-            out.close();
-            DataInputStream in = new DataInputStream(new FileInputStream(tmpFile));
-            BackupHandler.read(in);
-            in.close();
-        } finally {
-            tmpFile.delete();
-        }
-
         // cancel backup
-        handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, false));
+        handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, false));
 
         // process restore
         List<TableRef> tblRefs2 = Lists.newArrayList();
@@ -335,22 +318,8 @@ public class BackupHandlerTest {
         request.setTaskStatus(new TStatus(TStatusCode.OK));
         handler.handleDirMoveTask(dirMoveTask, request);
 
-        // test file persist
-        tmpFile = new File("./tmp" + System.currentTimeMillis());
-        try {
-            DataOutputStream out = new DataOutputStream(new FileOutputStream(tmpFile));
-            handler.write(out);
-            out.flush();
-            out.close();
-            DataInputStream in = new DataInputStream(new FileInputStream(tmpFile));
-            BackupHandler.read(in);
-            in.close();
-        } finally {
-            tmpFile.delete();
-        }
-
         // cancel restore
-        handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, true));
+        handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, true));
 
         // drop repo
         handler.dropRepository(new DropRepositoryStmt("repo"));

@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.NameMapping;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.junit.jupiter.api.Assertions;
@@ -57,12 +59,12 @@ public class HiveMetaStoreCacheTest {
         Assertions.assertEquals(2, partitionCache.asMap().size());
         Assertions.assertEquals(2, partitionValuesCache.asMap().size());
 
-        hiveMetaStoreCache.invalidateTableCache(dbName, tbName2);
+        hiveMetaStoreCache.invalidateTableCache(NameMapping.createForTest(dbName, tbName2));
         Assertions.assertEquals(2, fileCache.asMap().size());
         Assertions.assertEquals(1, partitionCache.asMap().size());
         Assertions.assertEquals(1, partitionValuesCache.asMap().size());
 
-        hiveMetaStoreCache.invalidateTableCache(dbName, tbName);
+        hiveMetaStoreCache.invalidateTableCache(NameMapping.createForTest(dbName, tbName));
         Assertions.assertEquals(0, fileCache.asMap().size());
         Assertions.assertEquals(0, partitionCache.asMap().size());
         Assertions.assertEquals(0, partitionValuesCache.asMap().size());
@@ -73,19 +75,22 @@ public class HiveMetaStoreCacheTest {
             LoadingCache<HiveMetaStoreCache.PartitionCacheKey, HivePartition> partitionCache,
             LoadingCache<HiveMetaStoreCache.PartitionValueCacheKey, HiveMetaStoreCache.HivePartitionValues> partitionValuesCache,
             String dbName, String tbName) {
-        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(dbName, tbName, tbName, "", new ArrayList<>(), null);
-        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(dbName, tbName, tbName, "", null);
+        NameMapping nameMapping = NameMapping.createForTest(dbName, tbName);
+        long fileId = Util.genIdByName(dbName, tbName);
+        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(fileId, tbName, "", new ArrayList<>());
+        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(fileId, tbName, "");
         fileCache.put(fileCacheKey1, new HiveMetaStoreCache.FileCacheValue());
         fileCache.put(fileCacheKey2, new HiveMetaStoreCache.FileCacheValue());
 
         HiveMetaStoreCache.PartitionCacheKey partitionCacheKey = new HiveMetaStoreCache.PartitionCacheKey(
-                dbName,
-                tbName,
+                nameMapping,
                 new ArrayList<>()
         );
-        partitionCache.put(partitionCacheKey, new HivePartition(dbName, tbName, false, "", "", new ArrayList<>(), new HashMap<>()));
+        partitionCache.put(partitionCacheKey,
+                new HivePartition(nameMapping, false, "", "", new ArrayList<>(), new HashMap<>()));
 
-        HiveMetaStoreCache.PartitionValueCacheKey partitionValueCacheKey = new HiveMetaStoreCache.PartitionValueCacheKey(dbName, tbName, new ArrayList<>());
+        HiveMetaStoreCache.PartitionValueCacheKey partitionValueCacheKey
+                = new HiveMetaStoreCache.PartitionValueCacheKey(nameMapping, new ArrayList<>());
         partitionValuesCache.put(partitionValueCacheKey, new HiveMetaStoreCache.HivePartitionValues());
 
     }

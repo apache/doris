@@ -17,6 +17,7 @@
 
 #include "agent/task_worker_pool.h"
 
+#include <brpc/controller.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/DataSinks_types.h>
@@ -81,9 +82,11 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/jni-util.h"
@@ -435,6 +438,7 @@ bvar::Adder<uint64_t> RELEASE_SNAPSHOT_count("task", "RELEASE_SNAPSHOT");
 bvar::Adder<uint64_t> MOVE_count("task", "MOVE");
 bvar::Adder<uint64_t> COMPACTION_count("task", "COMPACTION");
 bvar::Adder<uint64_t> PUSH_STORAGE_POLICY_count("task", "PUSH_STORAGE_POLICY");
+bvar::Adder<uint64_t> PUSH_INDEX_POLICY_count("task", "PUSH_INDEX_POLICY");
 bvar::Adder<uint64_t> PUSH_COOLDOWN_CONF_count("task", "PUSH_COOLDOWN_CONF");
 bvar::Adder<uint64_t> CREATE_count("task", "CREATE_TABLE");
 bvar::Adder<uint64_t> DROP_count("task", "DROP_TABLE");
@@ -466,6 +470,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(MOVE)
     ADD_TASK_COUNT(COMPACTION)
     ADD_TASK_COUNT(PUSH_STORAGE_POLICY)
+    ADD_TASK_COUNT(PUSH_INDEX_POLICY)
     ADD_TASK_COUNT(PUSH_COOLDOWN_CONF)
     ADD_TASK_COUNT(CREATE)
     ADD_TASK_COUNT(DROP)
@@ -491,7 +496,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
         ALTER_count << n;
         // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
         doris::g_fragment_executing_count << 1;
-        int64 now = duration_cast<std::chrono::milliseconds>(
+        int64_t now = duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
         g_fragment_last_active_time.set_value(now);
@@ -509,6 +514,8 @@ bvar::Adder<uint64_t> report_disk_total("report", "disk_total");
 bvar::Adder<uint64_t> report_disk_failed("report", "disk_failed");
 bvar::Adder<uint64_t> report_tablet_total("report", "tablet_total");
 bvar::Adder<uint64_t> report_tablet_failed("report", "tablet_failed");
+bvar::Adder<uint64_t> report_index_policy_total("report", "index_policy_total");
+bvar::Adder<uint64_t> report_index_policy_failed("report", "index_policy_failed");
 
 } // namespace
 
@@ -602,6 +609,52 @@ Status PriorTaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
         }
         return Status::OK();
     });
+}
+
+Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskRequest& task) {
+    const TTaskType::type task_type = task.task_type;
+    int64_t signature = task.signature;
+    std::string type_str;
+    EnumToString(TTaskType, task_type, type_str);
+    auto req = std::make_unique<TAgentTaskRequest>(task);
+
+    DCHECK(req->__isset.priority && req->priority == TPriority::HIGH);
+    do {
+        std::lock_guard lock(s_task_signatures_mtx);
+        auto& set = s_task_signatures[task_type];
+        if (!set.contains(signature)) {
+            // If it doesn't exist, put it directly into the priority queue
+            add_task_count(*req, 1);
+            set.insert(signature);
+            std::lock_guard lock(_mtx);
+            _high_prior_queue.push_back(std::move(req));
+            _high_prior_condv.notify_one();
+            _normal_condv.notify_one();
+            break;
+        } else {
+            std::lock_guard lock(_mtx);
+            for (auto it = _normal_queue.begin(); it != _normal_queue.end();) {
+                // If it exists in the normal queue, cancel the task in the normal queue
+                if ((*it)->signature == signature) {
+                    _normal_queue.erase(it);                     // cancel the original task
+                    _high_prior_queue.push_back(std::move(req)); // add the new task to the queue
+                    _high_prior_condv.notify_one();
+                    _normal_condv.notify_one();
+                    break;
+                } else {
+                    ++it; // doesn't meet the condition, continue to the next one
+                }
+            }
+            // If it exists in the high priority queue, no operation is needed
+            LOG_INFO("task has already existed in high prior queue.").tag("signature", signature);
+        }
+    } while (false);
+
+    // Set the receiving time of task so that we can determine whether it is timed out later
+    (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
+
+    LOG_INFO("successfully submit task").tag("type", type_str).tag("signature", signature);
+    return Status::OK();
 }
 
 void PriorTaskWorkerPool::normal_loop() {
@@ -1529,6 +1582,12 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
     }
 }
 
+void push_index_policy_callback(const TAgentTaskRequest& req) {
+    const auto& request = req.push_index_policy_req;
+    doris::ExecEnv::GetInstance()->index_policy_mgr()->apply_policy_changes(
+            request.index_policys, request.dropped_index_policys);
+}
+
 void push_cooldown_conf_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& push_cooldown_conf_req = req.push_cooldown_conf;
     for (const auto& cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
@@ -1982,9 +2041,9 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
         finish_task(finish_task_request);
     }
     doris::g_fragment_executing_count << -1;
-    int64 now = duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
+    int64_t now = duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
     g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }
@@ -2008,9 +2067,9 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
         finish_task(finish_task_request);
     }
     doris::g_fragment_executing_count << -1;
-    int64 now = duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
+    int64_t now = duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
     g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }
@@ -2176,6 +2235,22 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
         static_cast<void>(
                 JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
         LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+    }
+}
+
+void report_index_policy_callback(const ClusterInfo* cluster_info) {
+    TReportRequest request;
+    auto& index_policy_list = request.index_policy;
+    const auto& policys = doris::ExecEnv::GetInstance()->index_policy_mgr()->get_index_policys();
+    for (const auto& policy : policys) {
+        index_policy_list.emplace_back(policy.second);
+    }
+    request.__isset.index_policy = true;
+    request.__set_backend(BackendOptions::get_local_backend());
+    bool succ = handle_report(request, cluster_info, "index_policy");
+    report_index_policy_total << 1;
+    if (!succ) [[unlikely]] {
+        report_index_policy_failed << 1;
     }
 }
 

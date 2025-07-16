@@ -32,6 +32,7 @@
 #include "olap/utils.h"
 #include "vec/columns/column.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exec/format/table/table_format_reader.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vparquet_column_reader.h"
 
@@ -62,10 +63,10 @@ class RowGroup;
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
-static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
 class RowGroupReader : public ProfileCollector {
 public:
+    std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr;
     static const std::vector<int64_t> NO_DELETE;
 
     struct RowGroupIndex {
@@ -76,6 +77,7 @@ public:
                 : row_group_id(id), first_row(first), last_row(last) {}
     };
 
+    // table name
     struct LazyReadContext {
         VExprContextSPtrs conjuncts;
         bool can_lazy_read = false;
@@ -215,8 +217,10 @@ private:
     Status _fill_row_id_columns(Block* block, size_t read_rows, bool is_current_row_ids);
 
     io::FileReaderSPtr _file_reader;
-    std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
-    const std::vector<std::string>& _read_columns;
+    std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>
+            _column_readers; // table_column_name
+    const std::vector<std::string>& _read_table_columns;
+
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
     int64_t _remaining_rows;

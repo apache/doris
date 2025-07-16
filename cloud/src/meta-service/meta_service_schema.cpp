@@ -32,10 +32,11 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
 namespace config {
@@ -56,7 +57,7 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                 return type;
             };
             ValueBuf buf;
-            auto err = cloud::get(txn, schema_key, &buf);
+            auto err = cloud::blob_get(txn, schema_key, &buf);
             if (err != TxnErrorCode::TXN_OK) {
                 LOG(WARNING) << "failed to get schema, err=" << err;
                 return false;
@@ -119,7 +120,7 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
     LOG_INFO("put schema kv").tag("key", hex(schema_key));
     uint8_t ver = config::meta_schema_value_version;
     if (ver > 0) {
-        cloud::put(txn, schema_key, schema, ver);
+        cloud::blob_put(txn, schema_key, schema, ver);
     } else {
         auto schema_value = schema.SerializeAsString();
         txn->put(schema_key, schema_value);
@@ -221,7 +222,7 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
     SchemaCloudDictionary dict;
     std::string dict_key = meta_schema_pb_dictionary_key({instance_id, rowset_meta->index_id()});
     ValueBuf dict_val;
-    auto err = cloud::get(txn, dict_key, &dict_val);
+    auto err = cloud::blob_get(txn, dict_key, &dict_val);
     LOG(INFO) << "Retrieved column pb dictionary, index_id=" << rowset_meta->index_id()
               << " key=" << hex(dict_key) << " error=" << err;
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
@@ -312,7 +313,7 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
             return;
         }
         // splitting large values (>90*1000) into multiple KVs
-        cloud::put(txn, dict_key, dict_val, 0);
+        cloud::blob_put(txn, dict_key, dict_val, 0);
         LOG(INFO) << "Dictionary saved, key=" << hex(dict_key)
                   << " txn_id=" << rowset_meta->txn_id() << " Dict size=" << dict.column_dict_size()
                   << ", index_id=" << rowset_meta->index_id()
@@ -331,7 +332,7 @@ void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string
     SchemaCloudDictionary dict;
     std::string column_dict_key = meta_schema_pb_dictionary_key({instance_id, index_id});
     ValueBuf dict_val;
-    auto err = cloud::get(txn, column_dict_key, &dict_val);
+    auto err = cloud::blob_get(txn, column_dict_key, &dict_val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
         ss << "internal error, failed to get dict, err=" << err;

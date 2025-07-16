@@ -16,7 +16,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 52)) and (y.s_store_id1 = x.s_store_id2)) otherCondition=() build RFs:RF5 s_store_id2->[s_store_id]
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(cast(d_week_seq2 as BIGINT) - 52)) and (y.s_store_id1 = x.s_store_id2)) otherCondition=() build RFs:RF5 s_store_id2->[s_store_id]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((d.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF4 d_week_seq->[d_week_seq]
 ------------------PhysicalProject

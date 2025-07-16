@@ -20,23 +20,25 @@ package org.apache.doris.nereids.pattern;
 import org.apache.doris.nereids.pattern.TypeMappings.TypeMapping;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ListMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
 
 /** ExpressionPatternMappings */
 public abstract class TypeMappings<K, T extends TypeMapping<K>> {
-    protected final ListMultimap<Class<? extends K>, T> singleMappings;
+    protected final Map<Class<? extends K>, List<T>> singleMappings;
     protected final List<T> multiMappings;
 
     /** ExpressionPatternMappings */
     public TypeMappings(List<T> typeMappings) {
-        this.singleMappings = ArrayListMultimap.create();
+        this.singleMappings = Maps.newHashMap();
         this.multiMappings = Lists.newArrayList();
 
         for (T mapping : typeMappings) {
@@ -75,8 +77,9 @@ public abstract class TypeMappings<K, T extends TypeMapping<K>> {
         }
     }
 
-    public @Nullable List<T> get(Class<? extends K> clazz) {
-        return singleMappings.get(clazz);
+    public @Nullable List<T> getSingleMapping(Class<? extends K> clazz) {
+        List<T> ts = singleMappings.get(clazz);
+        return ts == null ? ImmutableList.of() : ts;
     }
 
     private void addSimpleMapping(T typeMapping) {
@@ -108,7 +111,7 @@ public abstract class TypeMappings<K, T extends TypeMapping<K>> {
         for (Class<? extends K> existSingleType : existSingleMappingTypes) {
             Class<? extends K> type = multiMapping.getType();
             if (type.isAssignableFrom(existSingleType)) {
-                singleMappings.put(existSingleType, multiMapping);
+                putMultimap(existSingleType, multiMapping);
             }
         }
     }
@@ -117,11 +120,16 @@ public abstract class TypeMappings<K, T extends TypeMapping<K>> {
         if (!singleMappings.containsKey(clazz) && !multiMappings.isEmpty()) {
             for (T multiMapping : multiMappings) {
                 if (multiMapping.getType().isAssignableFrom(clazz)) {
-                    singleMappings.put(clazz, multiMapping);
+                    putMultimap(clazz, multiMapping);
                 }
             }
         }
-        singleMappings.put(clazz, singleMapping);
+        putMultimap(clazz, singleMapping);
+    }
+
+    private void putMultimap(Class<? extends K> clazz, T singleMapping) {
+        List<T> ts = singleMappings.computeIfAbsent(clazz, c -> new ArrayList<>());
+        ts.add(singleMapping);
     }
 
     protected abstract Set<Class<? extends K>> getChildrenClasses(Class<? extends K> clazz);

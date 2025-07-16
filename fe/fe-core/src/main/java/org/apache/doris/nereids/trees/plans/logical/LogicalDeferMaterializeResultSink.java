@@ -137,10 +137,11 @@ public class LogicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalDeferMaterializeResultSink[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalDeferMaterializeResultSink[" + id.asInt() + "]",
                 "logicalResultSink", logicalResultSink,
                 "olapTable", olapTable,
-                "selectedIndexId", selectedIndexId
+                "selectedIndexId", selectedIndexId,
+                "stats", statistics
         );
     }
 }

@@ -23,43 +23,44 @@ include "Types.thrift"
 include "Opcodes.thrift"
 include "Partitions.thrift"
 include "Descriptors.thrift"
+include "ExternalTableSchema.thrift"
 
 enum TPlanNodeType {
-  OLAP_SCAN_NODE,
-  MYSQL_SCAN_NODE,
-  CSV_SCAN_NODE, // deprecated
-  SCHEMA_SCAN_NODE,
-  HASH_JOIN_NODE,
-  MERGE_JOIN_NODE, // deprecated
-  AGGREGATION_NODE,
-  PRE_AGGREGATION_NODE,
-  SORT_NODE,
-  EXCHANGE_NODE,
-  MERGE_NODE,
-  SELECT_NODE,
-  CROSS_JOIN_NODE,
-  META_SCAN_NODE,
-  ANALYTIC_EVAL_NODE,
-  OLAP_REWRITE_NODE, // deprecated
-  KUDU_SCAN_NODE, // Deprecated
-  BROKER_SCAN_NODE,
-  EMPTY_SET_NODE, 
-  UNION_NODE,
-  ES_SCAN_NODE,
-  ES_HTTP_SCAN_NODE,
-  REPEAT_NODE,
-  ASSERT_NUM_ROWS_NODE,
-  INTERSECT_NODE,
-  EXCEPT_NODE,
-  ODBC_SCAN_NODE,
-  TABLE_FUNCTION_NODE,
-  DATA_GEN_SCAN_NODE,
-  FILE_SCAN_NODE,
-  JDBC_SCAN_NODE,
-  TEST_EXTERNAL_SCAN_NODE,
-  PARTITION_SORT_NODE,
-  GROUP_COMMIT_SCAN_NODE,
-  MATERIALIZATION_NODE
+  OLAP_SCAN_NODE = 0,
+  MYSQL_SCAN_NODE = 1,
+  CSV_SCAN_NODE = 2, // deprecated
+  SCHEMA_SCAN_NODE = 3,
+  HASH_JOIN_NODE = 4,
+  MERGE_JOIN_NODE = 5, // deprecated
+  AGGREGATION_NODE = 6,
+  PRE_AGGREGATION_NODE = 7,
+  SORT_NODE = 8,
+  EXCHANGE_NODE = 9,
+  MERGE_NODE = 10,
+  SELECT_NODE = 11,
+  CROSS_JOIN_NODE = 12,
+  META_SCAN_NODE = 13,
+  ANALYTIC_EVAL_NODE = 14,
+  OLAP_REWRITE_NODE = 15, // deprecated
+  KUDU_SCAN_NODE = 16, // Deprecated
+  BROKER_SCAN_NODE = 17,
+  EMPTY_SET_NODE = 18, 
+  UNION_NODE = 19,
+  ES_SCAN_NODE = 20,
+  ES_HTTP_SCAN_NODE = 21,
+  REPEAT_NODE = 22,
+  ASSERT_NUM_ROWS_NODE = 23,
+  INTERSECT_NODE = 24,
+  EXCEPT_NODE = 25,
+  ODBC_SCAN_NODE = 26,
+  TABLE_FUNCTION_NODE = 27,
+  DATA_GEN_SCAN_NODE = 28,
+  FILE_SCAN_NODE = 29,
+  JDBC_SCAN_NODE = 30,
+  TEST_EXTERNAL_SCAN_NODE = 31,
+  PARTITION_SORT_NODE = 32,
+  GROUP_COMMIT_SCAN_NODE = 33,
+  MATERIALIZATION_NODE = 34
 }
 
 struct TKeyRange {
@@ -91,23 +92,23 @@ struct TPaloScanRange {
 enum TFileFormatType {
     FORMAT_UNKNOWN = -1,
     FORMAT_CSV_PLAIN = 0,
-    FORMAT_CSV_GZ,
-    FORMAT_CSV_LZO,
-    FORMAT_CSV_BZ2,
-    FORMAT_CSV_LZ4FRAME,
-    FORMAT_CSV_LZOP,
-    FORMAT_PARQUET,
-    FORMAT_CSV_DEFLATE,
-    FORMAT_ORC,
-    FORMAT_JSON,
-    FORMAT_PROTO,
-    FORMAT_JNI,
-    FORMAT_AVRO,
-    FORMAT_CSV_LZ4BLOCK,
-    FORMAT_CSV_SNAPPYBLOCK,
-    FORMAT_WAL,
-    FORMAT_ARROW,
-    FORMAT_TEXT
+    FORMAT_CSV_GZ = 1,
+    FORMAT_CSV_LZO = 2,
+    FORMAT_CSV_BZ2 = 3,
+    FORMAT_CSV_LZ4FRAME = 4,
+    FORMAT_CSV_LZOP = 5,
+    FORMAT_PARQUET = 6,
+    FORMAT_CSV_DEFLATE = 7,
+    FORMAT_ORC = 8,
+    FORMAT_JSON = 9,
+    FORMAT_PROTO = 10,
+    FORMAT_JNI = 11,
+    FORMAT_AVRO = 12,
+    FORMAT_CSV_LZ4BLOCK = 13,
+    FORMAT_CSV_SNAPPYBLOCK = 14,
+    FORMAT_WAL = 15,
+    FORMAT_ARROW = 16,
+    FORMAT_TEXT = 17
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -116,18 +117,18 @@ enum TFileFormatType {
 // In order to ensure forward compatibility, if this type is set, the type shall prevail,
 // otherwise, the TFileFormatType shall prevail
 enum TFileCompressType {
-    UNKNOWN,
-    PLAIN,
-    GZ,
-    LZO,
-    BZ2,
-    LZ4FRAME,
-    DEFLATE,
-    LZOP,
-    LZ4BLOCK,
-    SNAPPYBLOCK,
-    ZLIB,
-    ZSTD
+    UNKNOWN = 0,
+    PLAIN = 1,
+    GZ = 2,
+    LZO = 3,
+    BZ2 = 4,
+    LZ4FRAME = 5,
+    DEFLATE = 6,
+    LZOP = 7,
+    LZ4BLOCK = 8,
+    SNAPPYBLOCK = 9,
+    ZLIB = 10,
+    ZSTD = 11
 }
 
 struct THdfsConf {
@@ -457,7 +458,12 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
-    25: optional map<i64, map<i32, string>> history_schema_info // paimon/hudi map<schema id, map<column unique id , column name>> : for schema change. (native reader)
+
+    // Every time a iceberg/hudi/paimon table makes a schema change, a new schema id is generated.
+    // This is used to represent the latest id.
+    25: optional i64 current_schema_id;
+    // All schema information used in the current query process
+    26: optional list<ExternalTableSchema.TSchema> history_schema_info 
 }
 
 struct TFileRangeDesc {
@@ -530,10 +536,21 @@ struct TDataGenScanRange {
 
 
 struct TIcebergMetadataParams {
-  1: optional Types.TIcebergQueryType iceberg_query_type
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
+  1: optional string serialized_task
+  2: optional map<string, string> hadoop_props
+}
+
+
+struct TPaimonMetadataParams {
+  1: optional string db_name
+  2: optional string tbl_name
+  3: optional string query_type
+  4: optional i64 ctl_id
+  5: optional i64 db_id
+  6: optional i64 tbl_id
+  7: optional string serialized_split
+  8: optional map<string, string> hadoop_props
+  9: optional map<string, string> paimon_props
 }
 
 struct THudiMetadataParams {
@@ -604,6 +621,7 @@ struct TMetaScanRange {
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
   12: optional THudiMetadataParams hudi_params
+  13: optional TPaimonMetadataParams paimon_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -810,32 +828,32 @@ struct TEqJoinCondition {
 }
 
 enum TJoinOp {
-  INNER_JOIN,
-  LEFT_OUTER_JOIN,
-  LEFT_SEMI_JOIN,
-  RIGHT_OUTER_JOIN,
-  FULL_OUTER_JOIN,
-  CROSS_JOIN,
-  MERGE_JOIN, // deprecated
+  INNER_JOIN = 0,
+  LEFT_OUTER_JOIN = 1,
+  LEFT_SEMI_JOIN = 2,
+  RIGHT_OUTER_JOIN = 3,
+  FULL_OUTER_JOIN = 4,
+  CROSS_JOIN = 5,
+  MERGE_JOIN = 6, // deprecated
 
-  RIGHT_SEMI_JOIN,
-  LEFT_ANTI_JOIN,
-  RIGHT_ANTI_JOIN,
+  RIGHT_SEMI_JOIN = 7,
+  LEFT_ANTI_JOIN = 8,
+  RIGHT_ANTI_JOIN = 9,
 
   // Similar to LEFT_ANTI_JOIN with special handling for NULLs for the join conjuncts
   // on the build side. Those NULLs are considered candidate matches, and therefore could
   // be rejected (ANTI-join), based on the other join conjuncts. This is in contrast
   // to LEFT_ANTI_JOIN where NULLs are not matches and therefore always returned.
-  NULL_AWARE_LEFT_ANTI_JOIN,
-  NULL_AWARE_LEFT_SEMI_JOIN
+  NULL_AWARE_LEFT_ANTI_JOIN = 10,
+  NULL_AWARE_LEFT_SEMI_JOIN = 11
 }
 
 enum TJoinDistributionType {
-  NONE,
-  BROADCAST,
-  PARTITIONED,
-  BUCKET_SHUFFLE,
-  COLOCATE,
+  NONE = 0,
+  BROADCAST = 1,
+  PARTITIONED = 2,
+  BUCKET_SHUFFLE = 3,
+  COLOCATE = 4,
 }
 
 struct THashJoinNode {
@@ -907,27 +925,27 @@ struct TMergeJoinNode {
 }
 
 enum TAggregationOp {
-  INVALID,
-  COUNT,
-  MAX,
-  DISTINCT_PC,
-  DISTINCT_PCSA,
-  MIN,
-  SUM,
-  GROUP_CONCAT,
-  HLL,
-  COUNT_DISTINCT,
-  SUM_DISTINCT,
-  LEAD,
-  FIRST_VALUE,
-  LAST_VALUE,
-  RANK,
-  DENSE_RANK,
-  ROW_NUMBER,
-  LAG,
-  HLL_C,
-  BITMAP_UNION,
-  NTILE,
+  INVALID = 0,
+  COUNT = 1,
+  MAX = 2,
+  DISTINCT_PC = 3,
+  DISTINCT_PCSA = 4,
+  MIN = 5,
+  SUM = 6,
+  GROUP_CONCAT = 7,
+  HLL = 8,
+  COUNT_DISTINCT = 9,
+  SUM_DISTINCT = 10,
+  LEAD = 11,
+  FIRST_VALUE = 12,
+  LAST_VALUE = 13,
+  RANK = 14,
+  DENSE_RANK = 15,
+  ROW_NUMBER = 16,
+  LAG = 17,
+  HLL_C = 18,
+  BITMAP_UNION = 19,
+  NTILE = 20,
 }
 
 //struct TAggregateFunctionCall {
@@ -1007,9 +1025,9 @@ struct TPreAggregationNode {
 }
 
 enum TSortAlgorithm {
-   HEAP_SORT,
-   TOPN_SORT,
-   FULL_SORT
+   HEAP_SORT = 0,
+   TOPN_SORT = 1,
+   FULL_SORT = 2
  }
 
 struct TSortNode {
@@ -1030,16 +1048,16 @@ struct TSortNode {
 }
 
 enum TopNAlgorithm {
-   RANK,
-   DENSE_RANK,
-   ROW_NUMBER
+   RANK = 0,
+   DENSE_RANK = 1,
+   ROW_NUMBER = 2
  }
 
 enum TPartTopNPhase {
-  UNKNOWN,
-  ONE_PHASE_GLOBAL,
-  TWO_PHASE_LOCAL,
-  TWO_PHASE_GLOBAL
+  UNKNOWN = 0,
+  ONE_PHASE_GLOBAL = 1,
+  TWO_PHASE_LOCAL = 2,
+  TWO_PHASE_GLOBAL = 3
 }
 
  struct TPartitionSortNode {
@@ -1052,21 +1070,21 @@ enum TPartTopNPhase {
  }
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset
-  RANGE,
+  RANGE = 0,
 
   // Specifies the window in physical units
-  ROWS
+  ROWS = 1
 }
 
 enum TAnalyticWindowBoundaryType {
   // The window starts/ends at the current row.
-  CURRENT_ROW,
+  CURRENT_ROW = 0,
 
   // The window starts/ends at an offset preceding current row.
-  PRECEDING,
+  PRECEDING = 1,
 
   // The window starts/ends at an offset following current row.
-  FOLLOWING
+  FOLLOWING = 2
 }
 
 struct TAnalyticWindowBoundary {
@@ -1235,12 +1253,12 @@ struct TBackendResourceProfile {
 }
 
 enum TAssertion {
-  EQ, // val1 == val2
-  NE, // val1 != val2
-  LT, // val1 < val2
-  LE, // val1 <= val2
-  GT, // val1 > val2
-  GE // val1 >= val2
+  EQ = 0, // val1 == val2
+  NE = 1, // val1 != val2
+  LT = 2, // val1 < val2
+  LE = 3, // val1 <= val2
+  GT = 4, // val1 > val2
+  GE = 5 // val1 >= val2
 }
 
 struct TAssertNumRowsNode {
@@ -1251,19 +1269,19 @@ struct TAssertNumRowsNode {
 }
 
 enum TRuntimeFilterType {
-  IN = 1
-  BLOOM = 2
-  MIN_MAX = 4
-  IN_OR_BLOOM = 8
+  IN = 1,
+  BLOOM = 2,
+  MIN_MAX = 4,
+  IN_OR_BLOOM = 8,
   BITMAP = 16
 }
 
 // generate min-max runtime filter for non-equal condition or equal condition. 
 enum TMinMaxRuntimeFilterType {
   // only min is valid, RF generated according to condition: n < col_A
-  MIN = 1
+  MIN = 1,
   // only max is valid, RF generated according to condition: m > col_A
-  MAX = 2
+  MAX = 2,
   // both min/max are valid, 
   // support hash join condition: col_A = col_B
   // support other join condition: n < col_A and col_A < m

@@ -17,19 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 
 @Deprecated
-public class ChannelDescription implements Writable {
+public class ChannelDescription {
     @SerializedName(value = "srcDatabase")
     private String srcDatabase;
     @SerializedName(value = "srcTableName")
@@ -43,15 +36,4 @@ public class ChannelDescription implements Writable {
     private List<String> colNames;
     @SerializedName(value = "channelId")
     private long channelId;
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static ChannelDescription read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ChannelDescription.class);
-    }
 }

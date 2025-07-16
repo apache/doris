@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Strings;
 import com.google.gson.reflect.TypeToken;
@@ -55,6 +56,11 @@ public class HttpUtils {
         return Env.getCurrentEnv().getFrontends(null)
                 .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), Config.http_port))
                 .collect(Collectors.toList());
+    }
+
+    static boolean isCurrentFe(String ip, int port) {
+        HostInfo hostInfo = Env.getCurrentEnv().getSelfNode();
+        return hostInfo.isSame(new HostInfo(ip, port));
     }
 
     static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {

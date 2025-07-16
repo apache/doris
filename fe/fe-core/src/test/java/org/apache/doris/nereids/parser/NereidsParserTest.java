@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -794,5 +795,48 @@ public class NereidsParserTest extends ParserTestBase {
         } catch (Exception ex) {
             Assertions.fail(ex);
         }
+    }
+
+    @Test
+    public void testExpressionWithOrder() {
+        NereidsParser nereidsParser = new NereidsParser();
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b ASC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b ASC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b ASC",
+                nereidsParser, LogicalSort.class);
+
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b",
+                nereidsParser, LogicalAggregate.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b WITH ROLLUP",
+                nereidsParser, LogicalRepeat.class);
     }
 }

@@ -23,8 +23,8 @@
 #include <shared_mutex>
 #include <string>
 
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
 
@@ -163,23 +163,30 @@ public:
     virtual std::pair<MetaServiceCode, std::string> refresh_instance(
             const std::string& instance_id);
 
+    /**
+     * Refreshes the cache of given instance from provided InstanceInfoPB. This process
+     * removes the instance in cache and then replaces it with provided instance state.
+     *
+     * @param instance_id instance to manipulate
+     * @param instance the instance info to refresh from
+     */
+    virtual void refresh_instance(const std::string& instance_id, const InstanceInfoPB& instance);
+
+    virtual bool is_version_read_enabled(std::string_view instance_id) const;
+
+    virtual bool is_version_write_enabled(std::string_view instance_id) const;
+
 private:
-    void add_cluster_to_index(const std::string& instance_id, const ClusterPB& cluster);
-
-    void remove_cluster_from_index(const std::string& instance_id, const ClusterPB& cluster);
-
-    void update_cluster_to_index(const std::string& instance_id, const ClusterPB& original,
-                                 const ClusterPB& now);
-
-    void remove_cluster_from_index_no_lock(const std::string& instance_id,
-                                           const ClusterPB& cluster);
-
     void add_cluster_to_index_no_lock(const std::string& instance_id, const ClusterPB& cluster);
 
-private:
-    std::shared_mutex mtx_;
+    MultiVersionStatus get_instance_multi_version_status(std::string_view instance_id) const;
+
+    mutable std::shared_mutex mtx_;
     // cloud_unique_id -> NodeInfo
     std::multimap<std::string, NodeInfo> node_info_;
+
+    // instance_id -> MultiVersionStatus
+    std::unordered_map<std::string, MultiVersionStatus> instance_multi_version_status_;
 
     std::shared_ptr<TxnKv> txn_kv_;
 };

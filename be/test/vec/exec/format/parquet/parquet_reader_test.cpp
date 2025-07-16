@@ -131,7 +131,6 @@ TEST_F(ParquetReaderTest, normal) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
-    std::vector<std::string> missing_column_names;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
     }
@@ -148,9 +147,8 @@ TEST_F(ParquetReaderTest, normal) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    static_cast<void>(p_reader->open());
-    static_cast<void>(p_reader->init_reader(column_names, missing_column_names, nullptr, {},
-                                            nullptr, nullptr, nullptr, nullptr, nullptr));
+    static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr,
+                                            nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -193,7 +191,6 @@ static ParquetReader* create_parquet_reader(TFileScanRangeParams& scan_params,
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     std::vector<std::string> column_names;
-    std::vector<std::string> missing_column_names;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
     }
@@ -209,8 +206,6 @@ static ParquetReader* create_parquet_reader(TFileScanRangeParams& scan_params,
 }
 
 TEST_F(ParquetReaderTest, use_column_name) {
-    bool use_column_name = true;
-
     std::vector<std::string> table_column_names = {"boolean_col", "tinyint_col", "smallint_col",
                                                    "int_col",     "bigint_col",  "float_col",
                                                    "double_col"};
@@ -227,103 +222,19 @@ TEST_F(ParquetReaderTest, use_column_name) {
     colname_to_value_range.emplace("smallint_col", ColumnValueRange<TYPE_SMALLINT>("smallint_col"));
     colname_to_value_range.emplace("int_col", ColumnValueRange<TYPE_INT>("int_col"));
 
-    static_cast<void>(p_reader->open());
-    static_cast<void>(p_reader->init_reader(table_column_names, {}, &colname_to_value_range, {},
-                                            nullptr, nullptr, nullptr, nullptr, nullptr, false,
-                                            use_column_name));
+    static_cast<void>(p_reader->init_reader(
+            table_column_names, &colname_to_value_range, {}, nullptr, nullptr, nullptr, nullptr,
+            nullptr, TableSchemaChangeHelper::ConstNode::get_instance(), false));
 
     std::vector<std::string> read_columns_ans = {"tinyint_col", "smallint_col", "int_col",
                                                  "bigint_col",  "boolean_col",  "float_col",
                                                  "double_col"};
-    EXPECT_EQ(p_reader->_read_columns, read_columns_ans);
+    EXPECT_EQ(p_reader->_read_file_columns, read_columns_ans);
 
     std::vector<std::string> miss_columns_ans = {};
     EXPECT_EQ(p_reader->_missing_cols, miss_columns_ans);
     std::vector<std::string> colname_to_value_range_names_ans = {"tinyint_col", "smallint_col",
                                                                  "int_col", "boolean_col"};
-    for (auto col : colname_to_value_range_names_ans) {
-        EXPECT_TRUE(p_reader->_colname_to_value_range->contains(col));
-    }
-    EXPECT_EQ(p_reader->_colname_to_value_range->size(), colname_to_value_range_names_ans.size());
-    delete p_reader;
-}
-
-TEST_F(ParquetReaderTest, use_column_name2) {
-    bool use_column_name = true;
-
-    std::vector<std::string> table_column_names = {"boolean_col", "tinyint_col", "smallint_col",
-                                                   "int_col",     "bigint_col",  "float_col",
-                                                   "test1",       "double_col",  "test2"};
-    std::vector<TPrimitiveType::type> table_column_types = {
-            TPrimitiveType::BOOLEAN, TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT,
-            TPrimitiveType::INT,     TPrimitiveType::BIGINT,  TPrimitiveType::FLOAT,
-            TPrimitiveType::FLOAT,   TPrimitiveType::DOUBLE,  TPrimitiveType::DOUBLE};
-    TFileScanRangeParams scan_params;
-
-    auto p_reader = create_parquet_reader(scan_params, table_column_names, table_column_types);
-    std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    colname_to_value_range.emplace("boolean_col", ColumnValueRange<TYPE_BOOLEAN>("boolean_col"));
-    colname_to_value_range.emplace("tinyint_col", ColumnValueRange<TYPE_TINYINT>("tinyint_col"));
-    colname_to_value_range.emplace("smallint_col", ColumnValueRange<TYPE_SMALLINT>("smallint_col"));
-    colname_to_value_range.emplace("int_col", ColumnValueRange<TYPE_INT>("int_col"));
-
-    static_cast<void>(p_reader->open());
-    static_cast<void>(p_reader->init_reader(table_column_names, {"boolean_col"},
-                                            &colname_to_value_range, {}, nullptr, nullptr, nullptr,
-                                            nullptr, nullptr, false, use_column_name));
-
-    std::vector<std::string> read_columns_ans = {"tinyint_col", "smallint_col", "int_col",
-                                                 "bigint_col",  "float_col",    "double_col"};
-    EXPECT_EQ(p_reader->_read_columns, read_columns_ans);
-
-    std::vector<std::string> miss_columns_ans = {"boolean_col", "test1", "test2"};
-    EXPECT_EQ(p_reader->_missing_cols, miss_columns_ans);
-    std::vector<std::string> colname_to_value_range_names_ans = {"tinyint_col", "smallint_col",
-                                                                 "int_col", "boolean_col"};
-    for (auto col : colname_to_value_range_names_ans) {
-        EXPECT_TRUE(p_reader->_colname_to_value_range->contains(col));
-    }
-    EXPECT_EQ(p_reader->_colname_to_value_range->size(), colname_to_value_range_names_ans.size());
-    delete p_reader;
-}
-
-TEST_F(ParquetReaderTest, use_column_idx) {
-    bool use_column_name = false;
-
-    std::vector<std::string> table_column_names = {"col0", "col1",   "col3",
-                                                   "col7", "col100", "col102"};
-    std::vector<TPrimitiveType::type> table_column_types = {
-            TPrimitiveType::BOOLEAN, TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT,
-            TPrimitiveType::INT,     TPrimitiveType::BIGINT,  TPrimitiveType::BIGINT};
-    TFileScanRangeParams scan_params;
-    scan_params.column_idxs.emplace_back(0);
-    scan_params.column_idxs.emplace_back(1);
-    scan_params.column_idxs.emplace_back(3);
-    scan_params.column_idxs.emplace_back(7);
-    scan_params.column_idxs.emplace_back(100);
-    scan_params.column_idxs.emplace_back(102);
-
-    auto p_reader = create_parquet_reader(scan_params, table_column_names, table_column_types);
-    std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    colname_to_value_range.emplace("col0", ColumnValueRange<TYPE_BOOLEAN>("col0"));
-    colname_to_value_range.emplace("col1", ColumnValueRange<TYPE_TINYINT>("col1"));
-    colname_to_value_range.emplace("col3", ColumnValueRange<TYPE_SMALLINT>("col3"));
-    colname_to_value_range.emplace("col102", ColumnValueRange<TYPE_SMALLINT>("col102"));
-
-    static_cast<void>(p_reader->open());
-    static_cast<void>(p_reader->init_reader(table_column_names, {}, &colname_to_value_range, {},
-                                            nullptr, nullptr, nullptr, nullptr, nullptr, false,
-                                            use_column_name));
-
-    std::vector<std::string> read_columns_ans = {"tinyint_col", "smallint_col", "bigint_col",
-                                                 "string_col"};
-    EXPECT_EQ(p_reader->_read_columns, read_columns_ans);
-
-    std::vector<std::string> miss_columns_ans = {"col100", "col102"};
-    EXPECT_EQ(p_reader->_missing_cols, miss_columns_ans);
-
-    std::vector<std::string> colname_to_value_range_names_ans = {"tinyint_col", "smallint_col",
-                                                                 "bigint_col"};
     for (auto col : colname_to_value_range_names_ans) {
         EXPECT_TRUE(p_reader->_colname_to_value_range->contains(col));
     }

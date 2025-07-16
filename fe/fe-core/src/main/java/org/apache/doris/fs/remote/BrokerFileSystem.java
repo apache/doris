@@ -26,7 +26,6 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.operations.BrokerFileOperations;
@@ -72,7 +71,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 public class BrokerFileSystem extends RemoteFileSystem {
     private static final Logger LOG = LogManager.getLogger(BrokerFileSystem.class);
@@ -80,13 +78,10 @@ public class BrokerFileSystem extends RemoteFileSystem {
     private final BrokerProperties brokerProperties;
 
     //todo The method parameter should use the interface type StorageProperties instead of a specific implementation.
-    public BrokerFileSystem(String name, Map<String, String> properties) {
-        super(name, StorageBackend.StorageType.BROKER);
-        properties.putAll(PropertyConverter.convertToHadoopFSProperties(properties));
-        this.properties = properties;
-        this.operations = new BrokerFileOperations(name, properties);
-        // support broker properties in future
-        this.brokerProperties = new BrokerProperties(properties);
+    public BrokerFileSystem(BrokerProperties brokerProperties) {
+        super(brokerProperties.getBrokerName(), StorageBackend.StorageType.BROKER);
+        this.brokerProperties = brokerProperties;
+        this.operations = new BrokerFileOperations(name, brokerProperties.getBrokerParams());
     }
 
     public Pair<TPaloBrokerService.Client, TNetworkAddress> getBroker() {

@@ -27,7 +27,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Strings;
@@ -37,8 +36,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -224,19 +221,9 @@ public class AliasFunction extends Function {
                 .append(" WITH PARAMETER(")
                 .append(getParamsSting(parameters))
                 .append(") AS ")
-                .append(originFunction.toSql())
+                .append(originFunction.toSqlWithoutTbl())
                 .append(";");
         return sb.toString();
-    }
-
-    @Override
-    public void readFields(DataInput input) throws IOException {
-        super.readFields(input);
-        int counter = input.readInt();
-        for (int i = 0; i < counter; i++) {
-            parameters.add(Text.readString(input));
-        }
-        originFunction = Expr.readIn(input);
     }
 
     @Override
@@ -244,7 +231,7 @@ public class AliasFunction extends Function {
         Map<String, String> properties = new HashMap<>();
         properties.put("parameter", getParamsSting(parameters));
         setSlotRefLabel(originFunction);
-        String functionStr = originFunction.toSql();
+        String functionStr = originFunction.toSqlWithoutTbl();
         functionStr = functionStr.replaceAll("'", "`");
         properties.put("origin_function", functionStr);
         return new Gson().toJson(properties);

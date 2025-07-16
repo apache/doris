@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.tvf.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
@@ -27,6 +26,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
 import org.apache.doris.thrift.TMetaScanNode;
+import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -42,7 +42,7 @@ import java.util.List;
 public class MetadataScanNode extends ExternalScanNode {
 
     private final MetadataTableValuedFunction tvf;
-
+    private boolean initedScanRangeLocations = false;
     private final List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
     public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf) {
@@ -54,7 +54,6 @@ public class MetadataScanNode extends ExternalScanNode {
     @Override
     public void init() throws UserException {
         super.init();
-        createScanRangeLocations();
     }
 
     @Override
@@ -69,34 +68,35 @@ public class MetadataScanNode extends ExternalScanNode {
     }
 
     @Override
-    protected void createScanRangeLocations() throws UserException {
-        TScanRange scanRange = new TScanRange();
-        scanRange.setMetaScanRange(tvf.getMetaScanRange());
-        // set location
-        TScanRangeLocation location = new TScanRangeLocation();
-        Backend backend = backendPolicy.getNextBe();
-        location.setBackendId(backend.getId());
-        location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+    protected void createScanRangeLocations() {
+        List<String> requiredFileds = desc.getSlots().stream()
+                .filter(slot -> slot.isMaterialized())
+                .map(slot -> slot.getColumn().getName())
+                .collect(java.util.stream.Collectors.toList());
+        for (TMetaScanRange metaScanRange : tvf.getMetaScanRanges(requiredFileds)) {
+            TScanRange scanRange = new TScanRange();
+            scanRange.setMetaScanRange(metaScanRange);
 
-        TScanRangeLocations locations = new TScanRangeLocations();
-        locations.addToLocations(location);
-        locations.setScanRange(scanRange);
+            TScanRangeLocation location = new TScanRangeLocation();
+            Backend backend = backendPolicy.getNextBe();
+            location.setBackendId(backend.getId());
+            location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
 
-        scanRangeLocations.add(locations);
+            TScanRangeLocations locations = new TScanRangeLocations();
+            locations.addToLocations(location);
+            locations.setScanRange(scanRange);
+
+            scanRangeLocations.add(locations);
+        }
     }
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
+        if (!initedScanRangeLocations) {
+            // delay createScanRangeLocations in getScanRangeLocations to keep desc has been
+            // projected
+            createScanRangeLocations();
+        }
         return scanRangeLocations;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        createScanRangeLocations();
-    }
-
-    @Override
-    public boolean needToCheckColumnPriv() {
-        return false;
     }
 }

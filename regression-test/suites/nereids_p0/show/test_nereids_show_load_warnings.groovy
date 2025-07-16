@@ -64,12 +64,20 @@ suite("test_nereids_show_load_warnings") {
         checkNereidsExecute("SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db where LOAD_JOB_ID = 123 limit 1")
         checkNereidsExecute("SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db where LOAD_JOB_ID = 123 and label = '${load_label}'")
         checkNereidsExecute("SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db where LOAD_JOB_ID = 123 and label = '${load_label}' limit 1")
+        checkNereidsExecute("SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db where JobId = 123")
+        checkNereidsExecute("SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db where JobId = 123 limit 1")
+        checkNereidsExecute("SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db where JobId = 123 and label = '${load_label}'")
+        checkNereidsExecute("SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db where JobId = 123 and label = '${load_label}' limit 1")
 
         def res1 = sql """SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db limit 1"""
         assertEquals("${load_label}", res1.get(0).get(1))
 
         def res2 = sql """SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db where label = '${load_label}'"""
         assertEquals("${load_label}", res2.get(0).get(1))
+
+        def jobid = res2.get(0).get(0)
+        def res3 = sql """SHOW LOAD WARNINGS FROM test_nereids_show_load_warnnings_db where JobId = ${jobid}"""
+        assertEquals(1, res3.size())
     }
     sql "DROP TABLE IF EXISTS test_nereids_show_load_warningns_tbl "
     sql "drop database if exists  test_nereids_show_load_warnnings_db"

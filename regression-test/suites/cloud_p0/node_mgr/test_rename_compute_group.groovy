@@ -47,7 +47,7 @@ suite('test_rename_compute_group', 'docker, p0') {
         }
     }
     def findToDropUniqueId = { clusterId, hostIP, metaServices ->
-            ret = get_instance(metaServices)
+            def ret = get_instance(metaServices)
             def toDropCluster = ret.clusters.find {
                 it.cluster_id.contains(clusterId)
             }

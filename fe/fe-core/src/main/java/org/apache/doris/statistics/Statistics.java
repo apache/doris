@@ -134,7 +134,10 @@ public class Statistics {
                     || isNumNullsDecreaseByProportion && columnStatistic.numNulls != 0)) {
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
                 double ndv = Math.min(columnStatistic.ndv, rowCount);
-                double numNulls = Math.min(columnStatistic.numNulls * factor, rowCount - ndv);
+                double numNulls = columnStatistic.numNulls;
+                if (numNulls > 0) {
+                    numNulls = Math.max(1, Math.min(columnStatistic.numNulls * factor, rowCount - ndv));
+                }
                 columnStatisticBuilder.setNumNulls(numNulls);
                 columnStatisticBuilder.setNdv(ndv);
                 columnStatistic = columnStatisticBuilder.build();
@@ -167,9 +170,14 @@ public class Statistics {
     }
 
     public boolean isInputSlotsUnknown(Set<Slot> inputs) {
-        return inputs.stream()
-                .allMatch(s -> expressionToColumnStats.containsKey(s)
-                        && expressionToColumnStats.get(s).isUnKnown);
+        boolean unknown = true;
+        for (Slot input : inputs) {
+            if (!(expressionToColumnStats.containsKey(input)
+                    && expressionToColumnStats.get(input).isUnKnown)) {
+                unknown = false;
+            }
+        }
+        return unknown;
     }
 
     public double computeTupleSize(List<Slot> slots) {

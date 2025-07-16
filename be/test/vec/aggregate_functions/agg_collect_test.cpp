@@ -105,7 +105,7 @@ public:
 
         const IColumn* column[1] = {input_col.get()};
         for (int i = 0; i < input_col->size(); i++) {
-            agg_function->add(place, column, i, &_agg_arena_pool);
+            agg_function->add(place, column, i, _agg_arena_pool);
         }
     }
 
@@ -133,7 +133,7 @@ public:
         agg_function->serialize(place, buf_writer);
         buf_writer.commit();
         VectorBufferReader buf_reader(buf.get_data_at(0));
-        agg_function->deserialize(place, buf_reader, &_agg_arena_pool);
+        agg_function->deserialize(place, buf_reader, _agg_arena_pool);
 
         std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
         AggregateDataPtr place2 = memory2.get();
@@ -141,7 +141,7 @@ public:
 
         agg_collect_add_elements<DataType>(agg_function, place2, input_nums, support_complex);
 
-        agg_function->merge(place, place2, &_agg_arena_pool);
+        agg_function->merge(place, place2, _agg_arena_pool);
         auto column_result =
                 ColumnArray::create(std::move(make_nullable(data_types[0]->create_column())));
         agg_function->insert_result_into(place, column_result->assume_mutable_ref());

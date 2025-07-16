@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.common.Pair;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -54,14 +53,6 @@ public abstract class MysqlCompatibleDatabase extends Database {
     @Override
     public void write(DataOutput out) throws IOException {
         throw new IOException("Not support");
-    }
-
-    /**
-     * MysqlCompatibleDatabase should not be read from bdb.
-     */
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        throw new IOException("Not support.");
     }
 
     /**

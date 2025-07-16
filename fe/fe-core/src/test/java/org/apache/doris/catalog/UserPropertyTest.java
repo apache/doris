@@ -18,8 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -35,11 +33,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.util.List;
 
 public class UserPropertyTest {
@@ -78,26 +71,6 @@ public class UserPropertyTest {
                 result = true;
             }
         };
-    }
-
-    @Test
-    public void testNormal() throws IOException, DdlException {
-        // mock catalog
-        fakeEnv = new FakeEnv();
-        FakeEnv.setMetaVersion(FeConstants.meta_version);
-
-        String qualifiedUser = "root";
-        UserProperty property = new UserProperty(qualifiedUser);
-        // To image
-        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
-        DataOutputStream outputStream = new DataOutputStream(byteStream);
-        property.write(outputStream);
-        outputStream.flush();
-
-        DataInputStream inputStream = new DataInputStream(new ByteArrayInputStream(byteStream.toByteArray()));
-        UserProperty newProperty = UserProperty.read(inputStream);
-        Assert.assertEquals(qualifiedUser, newProperty.getQualifiedUser());
-        Assert.assertEquals(property.getInitCatalog(), "internal");
     }
 
     @Test

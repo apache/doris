@@ -17,11 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 
 import com.google.common.collect.Maps;
@@ -29,14 +24,11 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class TableCommitInfo implements Writable {
+public class TableCommitInfo {
     private static final Logger LOG = LogManager.getLogger(TableCommitInfo.class);
 
     @SerializedName(value = "tableId")
@@ -55,37 +47,6 @@ public class TableCommitInfo implements Writable {
     public TableCommitInfo(long tableId) {
         this.tableId = tableId;
         idToPartitionCommitInfo = Maps.newHashMap();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static TableCommitInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_129) {
-            TableCommitInfo info = new TableCommitInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, TableCommitInfo.class);
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        tableId = in.readLong();
-        boolean hasPartitionInfo = in.readBoolean();
-        idToPartitionCommitInfo = Maps.newHashMap();
-        if (hasPartitionInfo) {
-            int elementNum = in.readInt();
-            for (int i = 0; i < elementNum; ++i) {
-                PartitionCommitInfo partitionCommitInfo = PartitionCommitInfo.read(in);
-                idToPartitionCommitInfo.put(partitionCommitInfo.getPartitionId(), partitionCommitInfo);
-            }
-        }
     }
 
     public long getTableId() {

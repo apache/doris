@@ -148,9 +148,9 @@ public class InsertTask extends AbstractTask {
     public static ConnectContext makeConnectContext(UserIdentity userIdentity, String currentDb) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.getState().reset();
+        ctx.getState().setInternal(true);
         ctx.setThreadLocalInfo();
         TUniqueId queryId = generateQueryId();
         ctx.setQueryId(queryId);

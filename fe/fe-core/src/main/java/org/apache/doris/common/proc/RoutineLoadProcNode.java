@@ -17,11 +17,11 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.nereids.trees.plans.commands.ShowRoutineLoadTaskCommand;
 
 /*
     SHOW RPOC "/routine_loads/{jobName}/{jobId}"
@@ -48,7 +48,7 @@ public class RoutineLoadProcNode implements ProcNodeInterface {
         }
 
         BaseProcResult result = new BaseProcResult();
-        result.setNames(ShowRoutineLoadTaskStmt.getTitleNames());
+        result.setNames(ShowRoutineLoadTaskCommand.getTitleNames());
         result.setRows(routineLoadJob.getTasksShowInfo());
         return result;
     }

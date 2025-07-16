@@ -109,8 +109,8 @@ public:
     Status abort_trans() override; // should be call after transaction abort
     Status finish_trans() override; // should be call after transaction commit
 
-    Status init_to_write(doris::RuntimeProfile* profile) override {
-        init_profile(profile);
+    Status init_to_write(doris::RuntimeProfile* operator_profile) override {
+        init_profile(operator_profile);
         return Status::OK();
     }
 
@@ -127,7 +127,7 @@ protected:
 private:
     Status _register_func_id(JNIEnv* env);
 
-    jobject _get_reader_params(Block* block, JNIEnv* env, size_t column_size);
+    Status _get_reader_params(Block* block, JNIEnv* env, size_t column_size, jobject* ans);
 
     Status _cast_string_to_special(Block* block, JNIEnv* env, size_t column_size);
     Status _cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block, int column_index,
@@ -136,7 +136,9 @@ private:
                                   int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
-    jobject _get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType);
+
+    Status _get_java_table_type(JNIEnv* env, TOdbcTableType::type table_type,
+                                jobject* java_enum_obj);
 
     std::string _get_real_url(const std::string& url);
     std::string _check_and_return_default_driver_url(const std::string& url);

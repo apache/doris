@@ -63,8 +63,9 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     }
 
     protected final void assertRewrite(String expression, String expected) {
-        Expression needRewriteExpression = PARSER.parseExpression(expression);
-        Expression expectedExpression = PARSER.parseExpression(expected);
+        Map<String, Slot> mem = Maps.newHashMap();
+        Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
+        Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
@@ -94,6 +95,7 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
         needRewriteExpression = typeCoercion(replaceUnboundSlot(needRewriteExpression, mem));
         Expression expectedExpression = PARSER.parseExpression(expected);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
+        expectedExpression = typeCoercion(replaceUnboundSlot(expectedExpression, mem));
         Assertions.assertEquals(expectedExpression.toSql(), rewrittenExpression.toSql());
     }
 

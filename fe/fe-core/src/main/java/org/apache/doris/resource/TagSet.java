@@ -18,9 +18,6 @@
 package org.apache.doris.resource;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
@@ -28,9 +25,6 @@ import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -41,7 +35,7 @@ import java.util.stream.Collectors;
  * TagSet is printed as { "type1" : "value1,value2", "type2" : "value1" }
  * TagSet is mutable and not thread safe
  */
-public class TagSet implements Writable {
+public class TagSet {
     public static final TagSet EMPTY_TAGSET = new TagSet();
 
     @SerializedName(value = "tags")
@@ -195,15 +189,5 @@ public class TagSet implements Writable {
         }
         TagSet tagSet = (TagSet) obj;
         return tags.equals(tagSet.tags);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static TagSet read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, TagSet.class);
     }
 }

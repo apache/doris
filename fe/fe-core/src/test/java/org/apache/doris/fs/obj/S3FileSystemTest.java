@@ -104,10 +104,12 @@ public class S3FileSystemTest {
                     return mockedClient;
                 }
             };
-            S3ObjStorage mockedStorage = new S3ObjStorage((AbstractS3CompatibleProperties) StorageProperties.createPrimary(properties));
+            AbstractS3CompatibleProperties s3CompatibleProperties =
+                    (AbstractS3CompatibleProperties) StorageProperties.createPrimary(properties);
+            S3ObjStorage mockedStorage = new S3ObjStorage(s3CompatibleProperties);
             Assertions.assertTrue(mockedStorage.getClient() instanceof MockedS3Client);
             // inject storage to file system.
-            fileSystem = (S3FileSystem) FileSystemFactory.get(properties);
+            fileSystem = (S3FileSystem) FileSystemFactory.get(s3CompatibleProperties);
             new MockUp<S3FileSystem>(S3FileSystem.class) {
                 @Mock
                 public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
@@ -126,7 +128,7 @@ public class S3FileSystemTest {
             };
         } else {
             // can also real file system to test.
-            fileSystem = (S3FileSystem) FileSystemFactory.get(properties);
+            fileSystem = (S3FileSystem) FileSystemFactory.get(StorageProperties.createPrimary(properties));
         }
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, testFile));
