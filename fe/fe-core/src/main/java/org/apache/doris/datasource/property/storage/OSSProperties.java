@@ -64,9 +64,14 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * - <a href="http://oss-cn-shenzhen-internal.aliyuncs.com">...</a> => region = cn-shenzhen
      * <p>
      * Group(1) captures the region name (e.g., cn-hangzhou).
+     *<p>
+     * Support S3 compatible endpoints:<a href="https://help.aliyun.com/zh/oss/developer-reference/
+     * use-amazon-s3-sdks-to-access-oss">...</a>
+     * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
+     * <p>
      */
     private static final Pattern ENDPOINT_PATTERN = Pattern
-            .compile("^(?:https?://)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
+            .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
