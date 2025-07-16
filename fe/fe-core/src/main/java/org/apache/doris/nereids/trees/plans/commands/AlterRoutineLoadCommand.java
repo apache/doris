@@ -29,12 +29,14 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -81,6 +83,8 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .build();
 
     private final LabelNameInfo labelNameInfo;
+    private final Map<String, LoadProperty> loadPropertyMap;
+    private RoutineLoadDesc routineLoadDesc;
     private final Map<String, String> jobProperties;
     private final Map<String, String> dataSourceMapProperties;
     private boolean isPartialUpdate;
@@ -94,6 +98,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
      * AlterRoutineLoadCommand
      */
     public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo,
+                                   Map<String, LoadProperty> loadPropertyMap,
                                    Map<String, String> jobProperties,
                                    Map<String, String> dataSourceMapProperties) {
         super(PlanType.ALTER_ROUTINE_LOAD_COMMAND);
@@ -101,10 +106,17 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         Objects.requireNonNull(jobProperties, "jobProperties is null");
         Objects.requireNonNull(dataSourceMapProperties, "dataSourceMapProperties is null");
         this.labelNameInfo = labelNameInfo;
+        this.loadPropertyMap = loadPropertyMap == null ? Maps.newHashMap() : loadPropertyMap;
         this.jobProperties = jobProperties;
         this.dataSourceMapProperties = dataSourceMapProperties;
         this.isPartialUpdate = this.jobProperties.getOrDefault(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "false")
             .equalsIgnoreCase("true");
+    }
+
+    public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo,
+                                   Map<String, String> jobProperties,
+                                   Map<String, String> dataSourceMapProperties) {
+        this(labelNameInfo, Maps.newHashMap(), jobProperties, dataSourceMapProperties);
     }
 
     public String getDbName() {
@@ -131,6 +143,10 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         return dataSourceProperties;
     }
 
+    public RoutineLoadDesc getRoutineLoadDesc() {
+        return routineLoadDesc;
+    }
+
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
@@ -145,10 +161,16 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         FeNameFormat.checkCommonName(NAME_TYPE, labelNameInfo.getLabel());
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
+        // check load properties
+        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                .getJob(getDbName(), getJobName());
+        this.routineLoadDesc = CreateRoutineLoadInfo.checkLoadProperties(ctx, loadPropertyMap,
+                job.getDbFullName(), job.getTableName(), job.isMultiTable(), job.getMergeType());
         // check data source properties
         checkDataSourceProperties();
         checkPartialUpdate();
-        if (analyzedJobProperties.isEmpty() && MapUtils.isEmpty(dataSourceMapProperties)) {
+        if (analyzedJobProperties.isEmpty() && MapUtils.isEmpty(dataSourceMapProperties)
+                && routineLoadDesc == null) {
             throw new AnalysisException("No properties are specified");
         }
     }
