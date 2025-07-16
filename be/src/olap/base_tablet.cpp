@@ -565,7 +565,7 @@ Status BaseTablet::calc_delete_bitmap(
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet, rowset, seg, specified_rowsets, end_version,
                                           delete_bitmap, rowset_writer, tablet_delete_bitmap,
-                                          std::move(callback)));
+                                          callback));
         } else {
             RETURN_IF_ERROR(tablet->calc_segment_delete_bitmap(
                     rowset, segment, specified_rowsets, delete_bitmap, end_version, rowset_writer,
