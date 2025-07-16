@@ -36,7 +36,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 Hint log:
-Used: leading(store_returns broadcast date_dim ) 
+Used: leading(store_returns broadcast date_dim )
 UnUsed:
 SyntaxError:
 

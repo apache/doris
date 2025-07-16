@@ -779,6 +779,8 @@ supportedStatsStatement
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showQueuedAnalyzeJobs
     | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
         columnList=identifierList                                               #showColumnHistogramStats
+    | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
+        columnList=identifierList? partitionSpec?                               #showColumnStats
     | ANALYZE DATABASE name=multipartIdentifier
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
@@ -801,9 +803,7 @@ supportedStatsStatement
     ;
 
 unsupportedStatsStatement
-    : SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
-        columnList=identifierList? partitionSpec?                               #showColumnStats
-    | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
+    : SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
 analyzeProperties
@@ -1231,8 +1231,16 @@ joinRelation
 
 // Just like `opt_plan_hints` in legacy CUP parser.
 distributeType
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketDistributeType
-    | HINT_START identifier HINT_END                                  #commentDistributeType
+    : LEFT_BRACKET identifier skewHint? RIGHT_BRACKET
+    | HINT_START identifier skewHint? HINT_END
+    ;
+
+skewHint
+    :  LEFT_BRACKET identifier LEFT_PAREN qualifiedName constantList RIGHT_PAREN RIGHT_BRACKET
+    ;
+
+constantList
+    : LEFT_PAREN values+=constant (COMMA values+=constant)* RIGHT_PAREN
     ;
 
 relationHint
@@ -1275,7 +1283,7 @@ hintStatement
     ;
 
 hintAssignment
-    : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
+    : key=identifierOrText skew=skewHint? (EQ (constantValue=constant | identifierValue=identifier))?
     | constant
     ;
 
@@ -1311,7 +1319,7 @@ limitClause
     ;
 
 partitionClause
-    : PARTITION BY expression (COMMA expression)*
+    : PARTITION BY (LEFT_BRACKET identifier RIGHT_BRACKET)? expression (COMMA expression)*
     ;
 
 joinType
@@ -1436,7 +1444,7 @@ stepPartitionDef
     ;
 
 inPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN partitionValueLists+=partitionValueList
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier ((VALUES IN)? ((LEFT_PAREN partitionValueLists+=partitionValueList
         (COMMA partitionValueLists+=partitionValueList)* RIGHT_PAREN) | constants=partitionValueList))?
     ;
 
@@ -1588,6 +1596,7 @@ functionCallExpression
     : functionIdentifier
               LEFT_PAREN (
                   (DISTINCT|ALL)?
+                  (LEFT_BRACKET identifier RIGHT_BRACKET)?
                   arguments+=expression (COMMA arguments+=expression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN

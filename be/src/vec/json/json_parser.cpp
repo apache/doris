@@ -27,12 +27,14 @@
 #include <algorithm>
 #include <string_view>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename ParserImpl>
 std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
@@ -90,6 +92,10 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
     ctx.values.reserve(ctx.values.size() + object.size());
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
+        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        }
         ctx.builder.append(key, false);
         traverse(value, ctx);
         ctx.builder.pop_back();
@@ -126,7 +132,11 @@ void JSONDataParser<ParserImpl>::traverseObjectAsJsonb(const JSONObject& object,
     writer.writeStartObject();
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
-        writer.writeKey(key.data(), key.size());
+        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        }
+        writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
         traverseAsJsonb(value, writer);
     }
     writer.writeEndObject();
@@ -173,7 +183,7 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     ParseContext element_ctx;
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     traverse(element, element_ctx);
-    auto& [_, paths, values, flatten_nested, has_nested] = element_ctx;
+    auto& [_, paths, values, flatten_nested, __] = element_ctx;
     size_t size = paths.size();
     size_t keys_to_update = ctx.arrays_by_path.size();
     for (size_t i = 0; i < size; ++i) {
@@ -305,6 +315,8 @@ StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& p
     }
     return {};
 }
+
+#include "common/compile_check_end.h"
 
 template class JSONDataParser<SimdJSONParser>;
 } // namespace doris::vectorized

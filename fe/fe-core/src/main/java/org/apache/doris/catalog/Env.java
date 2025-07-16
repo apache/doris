@@ -26,11 +26,7 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AlterDatabasePropertyStmt;
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
-import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -3445,16 +3441,8 @@ public class Env {
         getInternalCatalog().replayRecoverDatabase(info);
     }
 
-    public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
-        getInternalCatalog().alterDatabaseQuota(stmt.getDbName(), stmt.getQuotaType(), stmt.getQuota());
-    }
-
     public void replayAlterDatabaseQuota(String dbName, long quota, QuotaType quotaType) throws MetaNotFoundException {
         getInternalCatalog().replayAlterDatabaseQuota(dbName, quota, quotaType);
-    }
-
-    public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
-        getInternalCatalog().alterDatabaseProperty(stmt);
     }
 
     public void alterDatabaseProperty(String dbName, Map<String, String> properties) throws DdlException {
@@ -3464,10 +3452,6 @@ public class Env {
     public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
             throws MetaNotFoundException {
         getInternalCatalog().replayAlterDatabaseProperty(dbName, properties);
-    }
-
-    public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
-        getInternalCatalog().renameDatabase(stmt.getDbName(), stmt.getNewDbName());
     }
 
     public void replayRenameDatabase(String dbName, String newDbName) {
@@ -6183,35 +6167,6 @@ public class Env {
                 LOG.info("set config " + key + " to " + value);
             } catch (IllegalAccessException e) {
                 LOG.warn("set config " + key + " failed: " + e.getMessage());
-            }
-        }
-    }
-
-    public void setConfig(AdminSetConfigStmt stmt) throws Exception {
-        Map<String, String> configs = stmt.getConfigs();
-        Preconditions.checkState(configs.size() == 1);
-
-        for (Map.Entry<String, String> entry : configs.entrySet()) {
-            try {
-                setMutableConfigWithCallback(entry.getKey(), entry.getValue());
-            } catch (ConfigException e) {
-                throw new DdlException(e.getMessage());
-            }
-        }
-
-        if (stmt.isApplyToAll()) {
-            for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
-                if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
-                    continue;
-                }
-
-                TNetworkAddress feAddr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
-                FEOpExecutor executor = new FEOpExecutor(feAddr, stmt.getLocalSetStmt(), ConnectContext.get(), false);
-                executor.execute();
-                if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
-                    throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
-                            fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
-                }
             }
         }
     }

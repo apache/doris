@@ -750,6 +750,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PREFER_UDF_OVER_BUILTIN = "prefer_udf_over_builtin";
     public static final String ENABLE_ADD_INDEX_FOR_NEW_DATA = "enable_add_index_for_new_data";
 
+    public static final String SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR = "skew_rewrite_join_salt_explode_factor";
+
+    public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -1324,7 +1328,7 @@ public class SessionVariable implements Serializable, Writable {
     public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
-    private boolean enableParallelResultSink = false;
+    private boolean enableParallelResultSink = true;
 
     @VariableMgr.VarAttr(name = "sort_phase_num", fuzzy = true, needForward = true,
             description = {"如设置为1，则只生成1阶段sort，设置为2，则只生成2阶段sort，设置其它值，优化器根据代价选择sort类型",
@@ -2329,6 +2333,21 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
 
+    @VariableMgr.VarAttr(name = SKEW_REWRITE_AGG_BUCKET_NUM, needForward = true,
+            description = {"bucketNum参数控制count(distinct)倾斜优化的数据分布。决定不同值在worker间的分配方式，"
+                    + "值越大越能处理极端倾斜但增加shuffle开销，值越小网络开销越低但可能无法完全解决倾斜。",
+                    "The bucketNum parameter controls data distribution for skew optimization "
+                            + "in count(distinct) queries. Determines how distinct values "
+                            + "are distributed across workers to avoid data skew. "
+                            + "Larger values better handle extreme skew but increase shuffle overhead. "
+                            + "Smaller values reduce network traffic but may not fully resolve skew. "
+            }, checker = "checkSkewRewriteAggBucketNum")
+    public int skewRewriteAggBucketNum = 1024;
+
+    public void setSkewRewriteAggBucketNum(int num) {
+        this.skewRewriteAggBucketNum = num;
+    }
+
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
         if (ignoreRuntimeFilterIds.isEmpty()) {
@@ -2669,6 +2688,19 @@ public class SessionVariable implements Serializable, Writable {
             })
     public boolean preferUdfOverBuiltin = false;
 
+    @VariableMgr.VarAttr(name = SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR, description = {
+            "join 加盐优化的扩展因子, 对指定的倾斜值，join倾斜侧生成0到 ExplodeFactor - 1的随机值，"
+                    + "join扩展侧复制为 ExplodeFactor 个副本，使hash shuffle之后计算负载均匀分布。"
+                    + "可以配置为0-65535中的数字: 0代表根据集群中be的数量和cpu核数自适应，1-65535中的数量代表扩展倍数",
+            "ExplodeFactor: The expansion factor for join skew optimization. "
+                    + "For specified skewed values, it generates random values between 0 and ExplodeFactor-1 "
+                    + "on the skewed side, while replicating the expanded side into ExplodeFactor copies,"
+                    + "ensuring even load distribution after hash shuffling. "
+                    + "Configurable range: 0-65535 (0=auto-adapt based on BEs and CPU cores;"
+                    + "1-65535=manual expansion multiplier)"
+    }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
+    public int skewRewriteJoinSaltExplodeFactor = 0;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -2927,10 +2959,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getQueryTimeoutS() {
         return queryTimeoutS;
-    }
-
-    public int getAnalyzeTimeoutS() {
-        return analyzeTimeoutS;
     }
 
     public void setEnableTwoPhaseReadOpt(boolean enable) {
@@ -3876,6 +3904,10 @@ public class SessionVariable implements Serializable, Writable {
         this.disableNereidsRules = disableNereidsRules;
     }
 
+    public void setEnableParallelResultSink(boolean enableParallelResultSink) {
+        this.enableParallelResultSink = enableParallelResultSink;
+    }
+
     public void setDisableNereidsExpressionRules(String disableNereidsExpressionRules) {
         BitSet bitSet = new BitSet();
         for (String ruleName : disableNereidsExpressionRules.split(",")) {
@@ -4723,6 +4755,32 @@ public class SessionVariable implements Serializable, Writable {
         Long batchSizeValue = Long.valueOf(batchSize);
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
             throw new InvalidParameterException("batch_size should be between 1 and 65535)");
+        }
+    }
+
+    public void checkSkewRewriteAggBucketNum(String bucketNumStr) {
+        try {
+            long bucketNum = Long.parseLong(bucketNumStr);
+            if (bucketNum <= 0 || bucketNum >= 65536) {
+                throw new InvalidParameterException(
+                        SKEW_REWRITE_AGG_BUCKET_NUM + " should be between 1 and 65535");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    SKEW_REWRITE_AGG_BUCKET_NUM + " must be a valid number between 1 and 65535");
+        }
+    }
+
+    public void checkSkewRewriteJoinSaltExplodeFactor(String factorStr) {
+        try {
+            int factor = Integer.parseInt(factorStr);
+            if (factor < 0 || factor >= 65536) {
+                throw new InvalidParameterException(
+                        SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR + " should be between 0 and 65535");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR + " must be a valid number between 0 and 65535");
         }
     }
 

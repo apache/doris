@@ -2,6 +2,9 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20250715
+
+- Modified: azure-core 1.10.3 -> 1.16.0
 
 ## 20250617
 
