@@ -71,7 +71,7 @@ public:
         return INT_MAX;
     }
 
-    int64_t doc_freq() const { return term_docs_->docFreq(); }
+    int32_t doc_freq() const { return term_docs_->docFreq(); }
 
     bool read_range(DocRange* docRange) const { return term_docs_->readRange(docRange); }
 
