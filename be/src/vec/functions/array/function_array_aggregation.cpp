@@ -21,7 +21,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <memory>
 #include <type_traits>
 #include <utility>
 
@@ -214,7 +213,10 @@ struct ArrayAggregateImpl {
         using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
         const DataTypeArray* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
-        auto function = Function::create(data_type_array->get_nested_type(), {});
+        auto function = Function::create(data_type_array->get_nested_type(),
+                                         {.enable_decimal256 = enable_decimal256,
+                                          .column_names = {},
+                                          .is_window_function = false});
         if (function) {
             return function->get_return_type();
         } else {
@@ -275,7 +277,9 @@ struct ArrayAggregateImpl {
         res_column = make_nullable(res_column);
         static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
-        auto function = Function::create(type, {});
+        auto function = Function::create(type, {.enable_decimal256 = enable_decimal256,
+                                                .column_names = {},
+                                                .is_window_function = false});
         auto guard = AggregateFunctionGuard(function.get());
         Arena arena;
         auto nullable_column = make_nullable(data->get_ptr());

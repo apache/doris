@@ -31,7 +31,6 @@
 #include <utility>
 
 #include "common/cast_set.h"
-#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "util/binary_cast.hpp"
 #include "util/simd/bits.h"
@@ -40,7 +39,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/sort_block.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/var_int.h"
 #include "vec/runtime/vdatetime_value.h"
