@@ -50,19 +50,19 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     @Setter
     @ConnectorProperty(names = {"oss.hdfs.endpoint",
-            "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint"},
+            "dlf.endpoint", "dlf.catalog.endpoint", "oss.endpoint" },
             description = "The endpoint of OSS.")
     protected String endpoint = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key", "dlf.access_key", "dlf.catalog.accessKeyId"},
+    @ConnectorProperty(names = {"oss.hdfs.access_key", "dlf.access_key", "dlf.catalog.accessKeyId", "oss.access_key"},
             description = "The access key of OSS.")
     protected String accessKey = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.secret_key", "oss.secret_key", "dlf.secret_key", "dlf.catalog.secret_key"},
+    @ConnectorProperty(names = {"oss.hdfs.secret_key", "dlf.secret_key", "dlf.catalog.secret_key", "oss.secret_key"},
             description = "The secret key of OSS.")
     protected String secretKey = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.region", "oss.region", "dlf.region"},
+    @ConnectorProperty(names = {"oss.hdfs.region", "dlf.region", "oss.region"},
             required = false,
             description = "The region of OSS.")
     protected String region;
@@ -85,7 +85,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     protected String securityToken = "";
 
     private static final Set<String> OSS_ENDPOINT_KEY_NAME = ImmutableSet.of("oss.hdfs.endpoint",
-            "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint");
+            "dlf.endpoint", "dlf.catalog.endpoint", "call_center", "oss.endpoint");
 
     private Map<String, String> backendConfigProperties;
 
@@ -96,7 +96,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     private static final Set<String> supportSchema = ImmutableSet.of("oss", "hdfs");
 
     protected OSSHdfsProperties(Map<String, String> origProps) {
-        super(Type.OSS, origProps);
+        super(Type.OSS_HDFS, origProps);
     }
 
     private static final String OSS_HDFS_PREFIX_KEY = "oss.hdfs.";
