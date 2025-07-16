@@ -192,6 +192,13 @@ protected:
             _partition_col_descs;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
+    // store data lake partition column descriptors
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _data_lake_partition_col_descs;
+
+    // partition column names, used for initializing runtime filter partition prune context
+    std::set<std::string> _partition_col_names;
+
     // idx of skip_bitmap_col in _input_tuple_desc
     int32_t _skip_bitmap_col_idx {-1};
     int32_t _sequence_map_col_uid {-1};
@@ -241,12 +248,16 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
-    Status _generate_parititon_columns();
+    Status _generate_partition_columns();
+    Status _generate_data_lake_partition_columns();
     Status _generate_missing_columns();
     bool _check_partition_prune_expr(const VExprSPtr& expr);
     void _init_runtime_filter_partition_prune_ctxs();
     void _init_runtime_filter_partition_prune_block();
-    Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
+    Status _process_runtime_filters_partition_prune(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_col_descs,
+            bool& is_partition_pruned);
     Status _process_conjuncts_for_dict_filter();
     Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);

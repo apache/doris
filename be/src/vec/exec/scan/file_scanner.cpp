@@ -206,8 +206,7 @@ Status FileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjun
 bool FileScanner::_check_partition_prune_expr(const VExprSPtr& expr) {
     if (expr->is_slot_ref()) {
         auto* slot_ref = static_cast<VSlotRef*>(expr.get());
-        return _partition_slot_index_map.find(slot_ref->slot_id()) !=
-               _partition_slot_index_map.end();
+        return _partition_col_names.find(slot_ref->expr_name()) != _partition_col_names.end();
     }
     if (expr->is_literal()) {
         return true;
@@ -242,16 +241,19 @@ void FileScanner::_init_runtime_filter_partition_prune_block() {
     }
 }
 
-Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_all) {
+Status FileScanner::_process_runtime_filters_partition_prune(
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_col_descs,
+        bool& can_filter_all) {
     SCOPED_TIMER(_runtime_filter_partition_prune_timer);
-    if (_runtime_filter_partition_prune_ctxs.empty() || _partition_col_descs.empty()) {
+    if (_runtime_filter_partition_prune_ctxs.empty() || partition_col_descs.empty()) {
         return Status::OK();
     }
     size_t partition_value_column_size = 1;
 
     // 1. Get partition key values to string columns.
-    std::unordered_map<SlotId, MutableColumnPtr> parititon_slot_id_to_column;
-    for (auto const& partition_col_desc : _partition_col_descs) {
+    std::unordered_map<SlotId, MutableColumnPtr> partition_slot_id_to_column;
+    for (auto const& partition_col_desc : partition_col_descs) {
         const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
         auto test_serde = partition_slot_desc->get_data_type_ptr()->get_serde();
         auto partition_value_column = partition_slot_desc->get_data_type_ptr()->create_column();
@@ -260,7 +262,7 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
         uint64_t num_deserialized = 0;
         RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
                 *col_ptr, slice, partition_value_column_size, &num_deserialized, {}));
-        parititon_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
+        partition_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
 
     // 2. Fill _runtime_filter_partition_prune_block from the partition column, then execute conjuncts and filter block.
@@ -272,10 +274,10 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
             // should be ignored from reading
             continue;
         }
-        if (parititon_slot_id_to_column.find(slot_desc->id()) !=
-            parititon_slot_id_to_column.end()) {
+        if (partition_slot_id_to_column.find(slot_desc->id()) !=
+            partition_slot_id_to_column.end()) {
             auto data_type = slot_desc->get_data_type_ptr();
-            auto partition_value_column = std::move(parititon_slot_id_to_column[slot_desc->id()]);
+            auto partition_value_column = std::move(partition_slot_id_to_column[slot_desc->id()]);
             if (data_type->is_nullable()) {
                 _runtime_filter_partition_prune_block.insert(
                         index, ColumnWithTypeAndName(
@@ -913,26 +915,31 @@ Status FileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
 
-        if (!_partition_slot_descs.empty()) {
-            // we need get partition columns first for runtime filter partition pruning
-            RETURN_IF_ERROR(_generate_parititon_columns());
+        // try to get the partition columns from the range
+        RETURN_IF_ERROR(_generate_partition_columns());
+        RETURN_IF_ERROR(_generate_data_lake_partition_columns());
 
-            if (_state->query_options().enable_runtime_filter_partition_prune) {
-                // if enable_runtime_filter_partition_prune is true, we need to check whether this range can be filtered out
-                // by runtime filter partition prune
-                if (_push_down_conjuncts.size() < _conjuncts.size()) {
-                    // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
-                    _init_runtime_filter_partition_prune_ctxs();
-                }
+        const auto& partition_col_descs = !_partition_col_descs.empty()
+                                                  ? _partition_col_descs
+                                                  : _data_lake_partition_col_descs;
 
-                bool can_filter_all = false;
-                RETURN_IF_ERROR(_process_runtime_filters_partition_prune(can_filter_all));
-                if (can_filter_all) {
-                    // this range can be filtered out by runtime filter partition pruning
-                    // so we need to skip this range
-                    COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
-                    continue;
-                }
+        if (_state->query_options().enable_runtime_filter_partition_prune &&
+            !partition_col_descs.empty()) {
+            // if enable_runtime_filter_partition_prune is true, we need to check whether this range can be filtered out
+            // by runtime filter partition prune
+            if (_push_down_conjuncts.size() < _conjuncts.size()) {
+                // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
+                _init_runtime_filter_partition_prune_ctxs();
+            }
+
+            bool can_filter_all = false;
+            RETURN_IF_ERROR(
+                    _process_runtime_filters_partition_prune(partition_col_descs, can_filter_all));
+            if (can_filter_all) {
+                // this range can be filtered out by runtime filter partition pruning
+                // so we need to skip this range
+                COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
+                continue;
             }
         }
 
@@ -1393,7 +1400,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                                           const ExternalFileMappingInfo& external_info,
                                           int64_t* init_reader_ms, int64_t* get_block_ms) {
     _current_range = range;
-    RETURN_IF_ERROR(_generate_parititon_columns());
+    RETURN_IF_ERROR(_generate_partition_columns());
 
     TFileFormatType::type format_type = _get_current_format_type();
     Status init_status = Status::OK();
@@ -1455,7 +1462,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
     return Status::OK();
 }
 
-Status FileScanner::_generate_parititon_columns() {
+Status FileScanner::_generate_partition_columns() {
     _partition_col_descs.clear();
     const TFileRangeDesc& range = _current_range;
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
@@ -1475,6 +1482,22 @@ Status FileScanner::_generate_parititon_columns() {
                 _partition_col_descs.emplace(slot_desc->col_name(),
                                              std::make_tuple(data, slot_desc));
             }
+        }
+    }
+    return Status::OK();
+}
+
+Status FileScanner::_generate_data_lake_partition_columns() {
+    _data_lake_partition_col_descs.clear();
+    if (_current_range.__isset.data_lake_partition_values) {
+        const auto& partition_values = _current_range.data_lake_partition_values;
+        for (const auto& [key, value] : partition_values) {
+            if (_col_name_to_slot_id->find(key) == _col_name_to_slot_id->end()) {
+                return Status::InternalError("Unknown data lake partition column, col_name={}",
+                                             key);
+            }
+            const auto* slot_desc = _file_slot_descs[_col_name_to_slot_id->at(key)];
+            _data_lake_partition_col_descs.emplace(key, std::make_tuple(value, slot_desc));
         }
     }
     return Status::OK();
@@ -1523,7 +1546,14 @@ Status FileScanner::_init_expr_ctxes() {
         if (!key_map.empty()) {
             for (size_t i = 0; i < key_map.size(); i++) {
                 partition_name_to_key_index_map.emplace(key_map[i], i);
+                _partition_col_names.insert(key_map[i]);
             }
+        }
+    }
+
+    if (_current_range.__isset.data_lake_partition_values) {
+        for (const auto& partition_value : _current_range.data_lake_partition_values) {
+            _partition_col_names.insert(partition_value.first);
         }
     }
 
