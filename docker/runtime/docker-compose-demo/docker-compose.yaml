@@ -1,0 +1,237 @@
+version: "3"
+services:
+  fe:
+    image: apache/doris:fe-${TAG}
+    profiles:
+      - single
+      - cluster
+    hostname: fe
+    container_name: fe
+    env_file: .env
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - 8030:8030
+      - 9030:9030
+      - 9010:9010
+      - 8070:8070
+    environment:
+      - MASTER_FE=${MASTER_FE}
+      - CURRENT_FE=${MASTER_FE}
+      - DORIS_ENABLE_FQDN_MODE=true
+      - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
+      - DORIS_JAVA_OPTS_FOR_JDK_17="${FE_JAVA_OPT}"
+    volumes:
+      - ./volume/bin/fe/init_fe.sh:/usr/local/bin/init_fe.sh
+      - ./volume/doris-meta:/opt/apache-doris/fe/doris-meta
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      quickstart:
+  
+  fe2:
+    image: apache/doris:fe-${TAG}
+    profiles:
+      - cluster
+    hostname: fe2
+    container_name: fe2
+    env_file: .env
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - 8032:8030
+    environment:
+      - MASTER_FE=${MASTER_FE}
+      - CURRENT_FE=fe2:9010
+      - DORIS_ENABLE_FQDN_MODE=true
+      - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
+      - DORIS_JAVA_OPTS_FOR_JDK_17=${FE_JAVA_OPT}
+    volumes:
+      - ./volume/bin/fe/init_fe.sh:/usr/local/bin/init_fe.sh
+      - ./volume/doris-meta2:/opt/apache-doris/fe/doris-meta
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      fe:
+        condition: service_started
+    networks:
+      quickstart:
+
+  fe3:
+    image: apache/doris:fe-${TAG}
+    profiles:
+      - cluster
+    hostname: fe3
+    container_name: fe3
+    env_file: .env
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - 8033:8030
+    environment:
+      - MASTER_FE=${MASTER_FE}
+      - CURRENT_FE=fe3:9010
+      - DORIS_ENABLE_FQDN_MODE=true
+      - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
+      - DORIS_JAVA_OPTS_FOR_JDK_17=${FE_JAVA_OPT}
+    volumes:
+      - ./volume/bin/fe/init_fe.sh:/usr/local/bin/init_fe.sh
+      - ./volume/doris-meta3:/opt/apache-doris/fe/doris-meta
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      fe:
+        condition: service_started
+    networks:
+      quickstart:
+
+  be:
+    image: apache/doris:be-${TAG}
+    profiles:
+      - single
+      - cluster
+    hostname: be
+    container_name: be
+    env_file: .env
+    ports:
+      - 8040:8040
+      - 8060:8060
+      - 9050:9050
+      - 9060:9060
+    security_opt:
+      - seccomp:unconfined
+    environment:
+     - MASTER_FE=${MASTER_FE}
+     - CURRENT_BE=be:9050
+     - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
+     - DORIS_JAVA_OPTS_FOR_JDK_17=${BE_JAVA_OPT}
+    volumes:
+      - ./volume/bin/be/entry_point.sh:/usr/local/bin/entry_point.sh
+      - ./volume/bin/be/init_be.sh:/usr/local/bin/init_be.sh
+      - ./volume/storage:/opt/apache-doris/be/storage
+#    deploy:
+#      resources:
+#        limits:
+#         memory: 2G
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8040/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      fe:
+        condition: service_healthy
+    networks:
+      quickstart:
+
+  be2:
+    image: apache/doris:be-${TAG}
+    profiles:
+      - cluster
+    hostname: be2
+    container_name: be2
+    env_file: .env
+    ports:
+      - 8042:8042
+      - 8062:8052
+      - 9052:9052
+      - 9062:9062
+    security_opt:
+      - seccomp:unconfined
+    environment:
+     - MASTER_FE=${MASTER_FE}
+     - CURRENT_BE=be2:9052
+     - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
+     - DORIS_JAVA_OPTS_FOR_JDK_17=${BE_JAVA_OPT}
+     - DORIS_WEBSERVER_PORT=8042
+     - DORIS_BRPC_PORT=8062
+     - DORIS_HEARTBEAT_SERVICE_PORT=9052
+     - DORIS_BE_PORT=9062
+    volumes:
+      - ./volume/bin/be/entry_point.sh:/usr/local/bin/entry_point.sh
+      - ./volume/bin/be/init_be.sh:/usr/local/bin/init_be.sh
+      - ./volume/storage2:/opt/apache-doris/be/storage
+#    deploy:
+#      resources:
+#        limits:
+#         memory: 2G
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8042/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      fe:
+        condition: service_healthy
+    networks:
+      quickstart:
+
+  be3:
+    image: apache/doris:be-${TAG}
+    profiles:
+      - cluster
+    hostname: be3
+    container_name: be3
+    env_file: .env
+    ports:
+      - 8043:8043
+      - 8063:8053
+      - 9053:9053
+      - 9063:9063
+    security_opt:
+      - seccomp:unconfined
+    environment:
+     - MASTER_FE=${MASTER_FE}
+     - CURRENT_BE=be3:9053
+     - DORIS_PRIORITY_NETWORKS=${DORIS_SUBSET}
+     - DORIS_JAVA_OPTS_FOR_JDK_17=${BE_JAVA_OPT}
+     - DORIS_WEBSERVER_PORT=8043
+     - DORIS_BRPC_PORT=8063
+     - DORIS_HEARTBEAT_SERVICE_PORT=9053
+     - DORIS_BE_PORT=9063
+    volumes:
+      - ./volume/bin/be/entry_point.sh:/usr/local/bin/entry_point.sh
+      - ./volume/bin/be/init_be.sh:/usr/local/bin/init_be.sh
+      - ./volume/storage3:/opt/apache-doris/be/storage
+#    deploy:
+#      resources:
+#        limits:
+#         memory: 2G
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8043/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      fe:
+        condition: service_healthy
+    networks:
+      quickstart:
+
+networks:
+  quickstart:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${DORIS_SUBSET}
