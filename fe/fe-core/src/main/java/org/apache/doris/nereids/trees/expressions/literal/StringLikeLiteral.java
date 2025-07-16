@@ -304,7 +304,8 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (isDatetime) {
                 return dt;
             } else {
-                return new DateTimeV2Literal(dt.year, dt.month, dt.day, 0, 0, 0);
+                return new DateTimeV2Literal(Long.parseLong(year2ToYear4(year)), Long.parseLong(month),
+                        Long.parseLong(date), 0, 0, 0);
             }
         } else if (!strictCast) {
             Matcher unStrictMatcher = dateUnStrictPattern.matcher(value);
@@ -325,20 +326,25 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 if (isDatetime) {
                     return dt;
                 } else {
-                    return new DateTimeV2Literal(dt.year, dt.month, dt.day, 0, 0, 0);
+                    return new DateTimeV2Literal(Long.parseLong(year2ToYear4(year)), Long.parseLong(month),
+                            Long.parseLong(date), 0, 0, 0);
                 }
             }
         }
         throw new CastException(String.format("[%s] can't cast to %s.", value, targetType));
     }
 
-    protected DateTimeV2Literal getDateTimeLiteral(String year, String month, String date, String hour, String minute,
-            String second, String fraction, String tz, DataType targetType) {
-        String year4 = year;
+    protected String year2ToYear4(String year) {
         if (year.length() == 2) {
             int year2 = Integer.parseInt(year);
-            year4 = year2 >= 70 ? String.valueOf(year2 + 1900) : String.valueOf(2000 + year2);
+            return year2 >= 70 ? String.valueOf(year2 + 1900) : String.valueOf(2000 + year2);
         }
+        return year;
+    }
+
+    protected DateTimeV2Literal getDateTimeLiteral(String year, String month, String date, String hour, String minute,
+            String second, String fraction, String tz, DataType targetType) {
+        String year4 = year2ToYear4(year);
         tz = tz == null ? "" : tz;
         if ((tz.startsWith("+") || tz.startsWith("-")) && !tz.contains(":")) {
             if (tz.length() == 2) {
