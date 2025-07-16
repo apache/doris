@@ -356,7 +356,7 @@ TEST_F(TestForCoding, accuracy_test) {
     }
 }
 
-TEST_F(TestForCoding, accracy2_test) {
+TEST_F(TestForCoding, accuracy2_test) {
     ForEncoder<__int128_t> encoder(nullptr);
     ForDecoder<__int128_t> decoder(nullptr, 0);
 

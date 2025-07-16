@@ -453,11 +453,7 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
     for (int i = 0; i < full_batch_size; i += u_size) {
         s = 0;
 
-        if constexpr (u_size == 8) {
-            s = to_endian<std::endian::big>(*((int64_t*)(input + i)));
-        } else if constexpr (u_size == 16) {
-            s = to_endian<std::endian::big>(*((__int128_t*)(input + i)));
-        }
+        s = to_endian<std::endian::big>(*((U*)(input + i)));
 
         // Determine what the valid bits are based on u_size
         valid_bit = u_size << 3;
@@ -494,7 +490,7 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
         if (remainder) {
             // Process the last remaining remainder bit.
             // y = (s & ((static_cast<U>(1) << remainder) - 1)) extract the last remainder bits.
-            // ouput = y << (bit_width - reaminder) Use the high bit_width - remainder bit
+            // output = y << (bit_width - remainder) Use the high bit_width - remainder bit
             *output = static_cast<T>((s & ((static_cast<U>(1) << remainder) - 1))
                                      << (bit_width - remainder));
             // Already have remainder bits, next time need bit_width - remainder bits
