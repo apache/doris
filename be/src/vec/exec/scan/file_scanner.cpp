@@ -1492,11 +1492,11 @@ Status FileScanner::_generate_data_lake_partition_columns() {
     if (_current_range.__isset.data_lake_partition_values) {
         const auto& partition_values = _current_range.data_lake_partition_values;
         for (const auto& [key, value] : partition_values) {
-            if (_col_name_to_slot_id->find(key) == _col_name_to_slot_id->end()) {
+            if (_all_col_name_to_slot_desc.find(key) == _all_col_name_to_slot_desc.end()) {
                 return Status::InternalError("Unknown data lake partition column, col_name={}",
                                              key);
             }
-            const auto* slot_desc = _file_slot_descs[_col_name_to_slot_id->at(key)];
+            const auto* slot_desc = _all_col_name_to_slot_desc[key];
             _data_lake_partition_col_descs.emplace(key, std::make_tuple(value, slot_desc));
         }
     }
@@ -1583,6 +1583,7 @@ Status FileScanner::_init_expr_ctxes() {
                 _partition_slot_index_map.emplace(slot_id, kit->second);
             }
         }
+        _all_col_name_to_slot_desc.emplace(it->second->col_name(), it->second);
     }
 
     // set column name to default value expr map

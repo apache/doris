@@ -192,6 +192,8 @@ protected:
             _partition_col_descs;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
+    // store all slot descriptors, used for initializing runtime filter partition prune context
+    std::unordered_map<std::string, const SlotDescriptor*> _all_col_name_to_slot_desc;
     // store data lake partition column descriptors
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _data_lake_partition_col_descs;
