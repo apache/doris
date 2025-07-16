@@ -77,6 +77,10 @@ public:
 
     Status serialize_column_to_jsonb_vector(const IColumn& from_column,
                                             ColumnString& to_column) const override;
+
+    Status deserialize_column_from_jsonb(IColumn& column,
+                                         const JsonbValue* jsonb_value) const override;
+
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,

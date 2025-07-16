@@ -314,6 +314,12 @@ public:
     virtual Status serialize_column_to_jsonb_vector(const IColumn& from_column,
                                                     ColumnString& to_column) const;
 
+    virtual Status deserialize_column_from_jsonb(IColumn& column,
+                                                 const JsonbValue* jsonb_value) const {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb_vector",
+                                    get_name());
+    }
+
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                                       int64_t end) const = 0;

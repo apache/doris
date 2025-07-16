@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
 #include "vec/core/types.h"
@@ -326,6 +327,18 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& f
         to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
+                                                             const JsonbValue* jsonb_value) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    } else {
+        auto& data = assert_cast<ColumnType&>(column).get_data();
+        data.push_back(JsonbCast::cast_jsonb_to_doris_value<T>(jsonb_value));
+        return Status::OK();
+    }
 }
 
 template <PrimitiveType T>

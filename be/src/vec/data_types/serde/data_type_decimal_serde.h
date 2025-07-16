@@ -82,6 +82,10 @@ public:
 
     Status serialize_column_to_jsonb_vector(const IColumn& from_column,
                                             ColumnString& to_column) const override;
+
+    Status deserialize_column_from_jsonb(IColumn& column,
+                                         const JsonbValue* jsonb_value) const override;
+
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
