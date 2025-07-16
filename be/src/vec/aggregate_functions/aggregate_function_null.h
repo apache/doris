@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <array>
 
 #include "common/logging.h"
@@ -243,12 +245,15 @@ public:
              Arena& arena) const override {
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
-        if (column->is_null_at(row_num)) {
-            this->update_null_count(place, true);
-        } else {
+        if (!column->is_null_at(row_num)) {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add(this->nested_place(place), &nested_column, row_num, arena);
+        } else {
+            if constexpr (is_window_function) {
+                DCHECK_EQ(result_is_nullable, true);
+                this->update_null_count(place, true);
+            }
         }
     }
 
