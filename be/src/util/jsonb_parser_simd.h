@@ -74,6 +74,8 @@ struct JsonbParser {
     // According to https://github.com/simdjson/simdjson/pull/2139
     // For numbers larger than 64 bits, we can obtain the raw_json_token and parse it ourselves.
     // This allows handling numbers larger than 64 bits, such as int128.
+    // For example, try to parse a 18446744073709551616, this number is just 1 greater than the maximum value of uint64_t, and simdjson will return a NUMBER_ERROR
+    // If try to parse a 18446744073709551616231231, it is obviously a large integer, at this time simdjson will return a BIGINT_ERROR
     static bool parse_number_success(simdjson::error_code error_code) {
         return error_code == simdjson::error_code::SUCCESS ||
                error_code == simdjson::error_code::NUMBER_ERROR ||
@@ -307,6 +309,8 @@ private:
             auto val = StringParser::string_to_int<int128_t>(raw_string.data(), raw_string.size(),
                                                              &result);
             if (result != StringParser::PARSE_SUCCESS) {
+                // If the string exceeds the range of int128_t, it will attempt to convert it to double.
+                // This may result in loss of precision, but for JSON, exchanging data as plain text between different systems may inherently cause precision loss.
                 // try parse as double
                 double double_val = StringParser::string_to_float<double>(
                         raw_string.data(), raw_string.size(), &result);
