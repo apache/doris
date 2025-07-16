@@ -40,7 +40,6 @@ public class LogToLn implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(Log.class).then(LogToLn::rewrite)
-                        .toRule(ExpressionRuleType.LOG_TO_LN)
         );
     }
 
