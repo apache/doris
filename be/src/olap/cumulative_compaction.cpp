@@ -202,7 +202,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             Status st = _engine.submit_clone_task(tablet(), missing_versions.back().first);
             if (!st) {
                 LOG_WARNING("cumulative compaction failed to submit missing rowset clone task.")
-                        .tag("st", st.to_string())
+                        .tag("st", st.msg())
                         .tag("tablet_id", _tablet->tablet_id())
                         .tag("version", missing_versions.back().first)
                         .tag("replica_id", tablet()->replica_id())

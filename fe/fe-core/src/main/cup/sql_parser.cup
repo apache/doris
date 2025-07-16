@@ -1761,10 +1761,6 @@ create_stmt ::=
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
     :}
-    | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role opt_comment:comment
-    {:
-        RESULT = new CreateRoleStmt(ifNotExists, role, comment);
-    :}
     | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = new AlterRoleStmt(role, comment);
@@ -2582,59 +2578,6 @@ show_create_load_stmt ::=
     :}
     ;
 
-// analyze statment
-analyze_stmt ::=
-    // statistics
-    KW_ANALYZE KW_TABLE table_name:tbl opt_partition_names:partitions opt_col_list:cols
-      opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
-    {:
-        if (properties == null) {
-            properties = Maps.newHashMap();
-        }
-        for (Map<String, String> property : withAnalysisProperties) {
-            properties.putAll(property);
-        }
-        // Rule: If no type is specified, see if there is a specified column
-        if (!properties.containsKey("analysis.type")) {
-            properties.put("analysis.type", "FUNDAMENTALS");
-        }
-        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
-        RESULT = new AnalyzeTblStmt(tbl, partitions, cols, analyzeProperties);
-    :}
-    | KW_ANALYZE KW_DATABASE ident:ctlName DOT ident:dbName
-          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
-    {:
-        if (properties == null) {
-            properties = Maps.newHashMap();
-        }
-        for (Map<String, String> property : withAnalysisProperties) {
-            properties.putAll(property);
-        }
-        // Rule: If no type is specified, see if there is a specified column
-        if (!properties.containsKey("analysis.type")) {
-            properties.put("analysis.type", "FUNDAMENTALS");
-        }
-        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
-        RESULT = new AnalyzeDBStmt(ctlName, dbName, analyzeProperties);
-    :}
-    | KW_ANALYZE KW_DATABASE ident:dbName
-          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
-    {:
-        if (properties == null) {
-            properties = Maps.newHashMap();
-        }
-        for (Map<String, String> property : withAnalysisProperties) {
-            properties.putAll(property);
-        }
-        // Rule: If no type is specified, see if there is a specified column
-        if (!properties.containsKey("analysis.type")) {
-            properties.put("analysis.type", "FUNDAMENTALS");
-        }
-        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
-        RESULT = new AnalyzeDBStmt(null, dbName, analyzeProperties);
-    :}
-    ;
-
 tbl_pattern ::=
     ident_or_star:db
     {:
@@ -2762,11 +2705,6 @@ drop_stmt ::=
     | KW_DROP KW_INVERTED KW_INDEX KW_TOKEN_FILTER opt_if_exists:ifExists ident:policyName
     {:
         RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKEN_FILTER, policyName);
-    :}
-    /* statistics */
-    | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
-    {:
-        RESULT = new DropStageStmt(ifExists, stageName);
     :}
     ;
 

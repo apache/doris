@@ -195,16 +195,18 @@ void MemTableMemoryLimiter::_handle_memtable_flush(WorkloadGroupPtr wg) {
     timer.stop();
     int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
     g_memtable_memory_limit_latency_ms << time_ms;
-    LOG(INFO) << "waited " << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
-              << " for memtable memory limit"
-              << ", " << GlobalMemoryArbitrator::process_memory_used_details_str() << ", "
-              << GlobalMemoryArbitrator::sys_mem_available_details_str()
-              << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-              << ", memtable writers num: " << _writers.size()
-              << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
-              << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
-              << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage)
-              << ", wg: " << (wg ? wg->debug_string() : "null.");
+    if (time_ms > 0) {
+        LOG(INFO) << "waited " << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+                  << " for memtable memory limit"
+                  << ", " << GlobalMemoryArbitrator::process_memory_used_details_str() << ", "
+                  << GlobalMemoryArbitrator::sys_mem_available_details_str()
+                  << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+                  << ", memtable writers num: " << _writers.size()
+                  << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+                  << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
+                  << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage)
+                  << ", wg: " << (wg ? wg->debug_string() : "null.");
+    }
 }
 
 int64_t MemTableMemoryLimiter::flush_workload_group_memtables(uint64_t wg_id, int64_t need_flush) {
