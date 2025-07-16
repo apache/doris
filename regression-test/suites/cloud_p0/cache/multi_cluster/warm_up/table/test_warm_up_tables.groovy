@@ -25,7 +25,7 @@ suite("test_warm_up_tables") {
     }
     def getTablesFromShowCommand = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][9]
+         return jobStateResult[0][12]
     }
 
     List<String> ipList = new ArrayList<>();

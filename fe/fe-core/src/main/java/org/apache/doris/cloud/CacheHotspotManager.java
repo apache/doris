@@ -786,7 +786,7 @@ public class CacheHotspotManager extends MasterDaemon {
             }
             Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
             warmUpJob = new CloudWarmUpJob(jobId, null, stmt.getDstClusterName(),
-                    beToTabletIdBatches, JobType.TABLE);
+                    beToTabletIdBatches, JobType.TABLE, stmt.getTables(), stmt.isForce());
         } else {
             CloudWarmUpJob.Builder builder = new CloudWarmUpJob.Builder()
                     .setJobId(jobId)
