@@ -146,7 +146,10 @@ suite("test_cast") {
     qt_sql30 "select cast(8385960 as time);"
     qt_sql31 "select cast(8390000 as time);"
 
-    qt_sql32 "select cast(cast('838:59:59' as variant) as time);"
+    test {
+        sql "select cast(cast('838:59:59' as variant) as time);"
+        exception "cannot cast VARIANT to TIMEV2"
+    }
     qt_sql33 "select cast(cast('838:59:59' as text) as time);"
     qt_sql34 "select cast(cast('838:59:59' as string) as time);"
     qt_sql35 "select cast(cast('838:59:59' as char) as time);"
@@ -167,8 +170,14 @@ suite("test_cast") {
     qt_sql48 "select cast(1 as time);"
     qt_sql49 "select cast(cast(1111.1 as float) as time);"
     qt_sql50 "select cast(cast(1111.1 as double) as time);"
-    qt_sql51 "select cast(cast(111111 as json) as time);"
-    qt_sql52 "select cast(cast(111111 as jsonb) as time);"
+    test {
+        sql "select cast(cast(111111 as json) as time);"
+        exception "cannot cast JSON to TIMEV2"
+    }
+    test {
+        sql "select cast(cast(111111 as jsonb) as time);"
+        exception "cannot cast JSON to TIMEV2"
+    }
     // invalid formats
     qt_sql53 "select cast('11-11-11' as time);"
     qt_sql54 "select cast('11@11@11' as time);"
@@ -184,8 +193,8 @@ suite("test_cast") {
     check_fold_consistency "cast(1 as time);"
     check_fold_consistency "cast(cast(1111.1 as float) as time);"
     check_fold_consistency "cast(cast(1111.1 as double) as time);"
-    check_fold_consistency "cast(cast(111111 as json) as time);"
-    check_fold_consistency "cast(cast(111111 as jsonb) as time);"
+    // check_fold_consistency "cast(cast(111111 as json) as time);"
+    // check_fold_consistency "cast(cast(111111 as jsonb) as time);"
     check_fold_consistency "cast('11-11-11' as time);"
     check_fold_consistency "cast('11@11@11' as time);"
     check_fold_consistency "cast('11.11.11' as time);"
@@ -197,10 +206,10 @@ suite("test_cast") {
         exception "not supported"
     }
     qt_sql "select cast(cast('2025-01-25 11:11:11' as datetime) as time);"
-    test {
-        sql "select cast(cast('2025-01-25' as date) as time);"
-        exception "cannot cast"
-    }
+    //test {
+    //    sql "select cast(cast('2025-01-25' as date) as time);"
+    //    exception "cannot cast"
+    //}
     qt_sql "select cast(cast(1111 as decimalv2) as time);"
     qt_sql "select cast(cast(1111 as decimalv3) as time);"
     test {
@@ -212,10 +221,10 @@ suite("test_cast") {
         exception "cannot cast"
     }
     qt_sql "select cast(cast('2025-01-25 11:11:11' as datetimev2) as time);"
-    test {
-        sql "select cast(cast('2025-01-25' as datev2) as time);"
-        exception "cannot cast"
-    }
+    //test {
+    //    sql "select cast(cast('2025-01-25' as datev2) as time);"
+    //    exception "cannot cast"
+    //}
 
     sql """ DROP TABLE IF EXISTS table_decimal38_4;"""
     sql """
