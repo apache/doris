@@ -1175,8 +1175,9 @@ public abstract class ExternalCatalog
             Long dbId = dbNameToId.remove(dbName);
             if (dbId == null) {
                 LOG.warn("drop database [{}] failed", dbName);
+            } else {
+                idToDb.remove(dbId);
             }
-            idToDb.remove(dbId);
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
     }
@@ -1453,6 +1454,8 @@ public abstract class ExternalCatalog
     public void resetMetaCacheNames() {
         if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
             metaCache.resetNames();
+        } else {
+            resetToUninitialized(true);
         }
     }
 }

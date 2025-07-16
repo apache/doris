@@ -880,10 +880,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public void resetMetaCacheNames() {
-        if (extCatalog.getUseMetaCache().isPresent()) {
-            if (extCatalog.getUseMetaCache().get() && metaCache != null) {
-                metaCache.resetNames();
-            }
+        if (extCatalog.getUseMetaCache().isPresent() && extCatalog.getUseMetaCache().get() && metaCache != null) {
+            metaCache.resetNames();
+        } else {
+            setUnInitialized();
         }
     }
 }

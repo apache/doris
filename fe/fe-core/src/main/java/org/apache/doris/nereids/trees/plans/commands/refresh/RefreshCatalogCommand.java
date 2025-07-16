@@ -24,7 +24,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -32,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -82,18 +80,6 @@ public class RefreshCatalogCommand extends Command implements ForwardWithSync {
             ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
             LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
         }
-    }
-
-    /**
-     * refresh catalog
-     */
-    public void handleRefreshCatalog() throws AnalysisException {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
-        CatalogLog log = new CatalogLog();
-        log.setCatalogId(catalog.getId());
-        log.setInvalidCache(invalidCache);
-        refreshCatalogInternal(catalog);
-        Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_REFRESH_CATALOG, log);
     }
 
     @Override

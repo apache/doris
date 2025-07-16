@@ -28,7 +28,6 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -73,7 +72,7 @@ public class RefreshManager {
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
+            ((ExternalCatalog) catalog).resetToUninitialized(invalidCache);
             LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
         }
     }
@@ -283,12 +282,12 @@ public class RefreshManager {
                          * {@link org.apache.doris.analysis.RefreshCatalogStmt#analyze(Analyzer)} is ok,
                          * because the default value of invalidCache is true.
                          * */
-                        RefreshCatalogCommand refreshCatalogCommand = new RefreshCatalogCommand(catalogName, null);
                         try {
-                            refreshCatalogCommand.handleRefreshCatalog();
+                            Env.getCurrentEnv().getRefreshManager().handleRefreshCatalog(catalogName, true);
                         } catch (Exception e) {
                             LOG.warn("failed to refresh catalog {}", catalogName, e);
                         }
+
                         // reset
                         timeGroup[1] = original;
                         refreshMap.put(catalogId, timeGroup);
