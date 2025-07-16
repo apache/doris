@@ -126,8 +126,10 @@ private:
     AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state);
 
 #ifdef BE_TEST
-    AggFnEvaluator(bool is_merge, bool without_key)
-            : _is_merge(is_merge), _without_key(without_key) {};
+    AggFnEvaluator(bool is_merge, bool without_key, const bool is_window_function)
+            : _is_merge(is_merge),
+              _without_key(without_key),
+              _is_window_function(is_window_function) {};
 #endif
     Status _calc_argument_columns(Block* block);
 

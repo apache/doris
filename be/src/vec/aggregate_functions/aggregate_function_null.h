@@ -155,7 +155,7 @@ public:
     size_t size_of_data() const override { return prefix_size + nested_function->size_of_data(); }
 
     size_t align_of_data() const override {
-        if constexpr (is_window_function) {
+        if constexpr (is_window_function && result_is_nullable) {
             return std::max(nested_function->align_of_data(), alignof(int32_t));
         } else {
             return nested_function->align_of_data();
@@ -250,8 +250,7 @@ public:
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add(this->nested_place(place), &nested_column, row_num, arena);
         } else {
-            if constexpr (is_window_function) {
-                DCHECK_EQ(result_is_nullable, true);
+            if constexpr (is_window_function && result_is_nullable) {
                 this->update_null_count(place, true);
             }
         }
@@ -410,12 +409,14 @@ public:
             if (outcoming_pos >= partition_start && outcoming_pos < partition_end &&
                 null_map_data[outcoming_pos] == 1) {
                 is_previous_frame_start_null = true;
+                DCHECK_EQ(result_is_nullable, true);
                 this->update_null_count(place, false);
             }
             bool is_current_frame_end_null = false;
             if (incoming_pos >= partition_start && incoming_pos < partition_end &&
                 null_map_data[incoming_pos] == 1) {
                 is_current_frame_end_null = true;
+                DCHECK_EQ(result_is_nullable, true);
                 this->update_null_count(place, true);
             }
             const IColumn* columns_tmp[2] {nested_column, &(*column->get_null_map_column_ptr())};
@@ -424,6 +425,7 @@ public:
                     this->nested_place(place), columns_tmp, arena, is_previous_frame_start_null,
                     is_current_frame_end_null, true, use_null_result, could_use_previous_result);
             if (current_frame_end - current_frame_start != this->get_null_count(place)) {
+                DCHECK_EQ(result_is_nullable, true);
                 this->set_flag(place);
             }
         } else {

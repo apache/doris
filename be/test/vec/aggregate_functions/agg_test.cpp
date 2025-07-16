@@ -32,7 +32,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/field.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vectorized_agg_fn.h"
@@ -119,12 +118,8 @@ TEST(AggTest, window_function_test) {
                                      .is_window_function = is_window_function});
     auto size = agg_function->size_of_data();
     EXPECT_EQ(size, 6);
-    auto align_size = agg_function->align_of_data();
-    EXPECT_EQ(align_size, 4);
-
-    std::unique_ptr<char[]> memory(new char[size]);
-    AggregateDataPtr place = memory.get();
-    agg_function->create(place);
+    size = agg_function->align_of_data();
+    EXPECT_EQ(size, 4);
 
     is_window_function = false;
     auto agg_function2 = factory.get("group_bit_or", data_types, true, -1,
@@ -133,12 +128,8 @@ TEST(AggTest, window_function_test) {
                                       .is_window_function = is_window_function});
     auto size2 = agg_function2->size_of_data();
     EXPECT_EQ(size2, 2);
-    auto align_size2 = agg_function2->align_of_data();
-    EXPECT_EQ(align_size2, 1);
-
-    std::unique_ptr<char[]> memory2(new char[size2]);
-    AggregateDataPtr place2 = memory2.get();
-    agg_function2->create(place2);
+    size2 = agg_function2->align_of_data();
+    EXPECT_EQ(size2, 1);
 }
 
 TEST(AggTest, window_function_test2) {
@@ -190,7 +181,8 @@ TEST(AggTest, window_function_test2) {
             if (i + 1 < _agg_functions_size) {
                 size_t alignment_of_next_state = _agg_functions[i + 1]->align_of_data();
                 if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
-                    DCHECK(false) << "Logical error: align_of_data is not 2^N";
+                    DCHECK(false) << "Logical error: align_of_data is not 2^N "
+                                  << alignment_of_next_state;
                 }
                 /// Extend total_size to next alignment requirement
                 /// Add padding by rounding up 'total_size_of_aggregate_states' to be a multiplier of alignment_of_next_state.
