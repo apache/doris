@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "http/http_client.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/http_client_cache.h"
 
 namespace doris::io {
 typedef struct OpenFileInfo {
@@ -49,13 +48,10 @@ public:
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
     size_t size() const override { return _file_size; }
 
-    std::shared_ptr<HttpClient> getClient();
-    std::shared_ptr<HttpClient> createClient();
-    void storeClient(std::shared_ptr<HttpClient> client);
+    std::shared_ptr<HttpClient> get_client();
     Status read_range(size_t offset, size_t length, char* buffer);
 
 private:
-    HttpClientCache client_cache;
     std::unique_ptr<char[]> _read_buffer;
     static constexpr size_t READ_BUFFER_SIZE = 4096;
     size_t _buffer_start = 0;
