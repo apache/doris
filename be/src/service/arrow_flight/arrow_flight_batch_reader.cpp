@@ -52,7 +52,7 @@ arrow::Status ArrowFlightBatchReaderBase::_return_invalid_status(const std::stri
                         _packet_seq, _statement->result_addr.hostname, _statement->result_addr.port,
                         print_id(_statement->query_id));
     LOG(WARNING) << status_msg;
-    return arrow::Status::Invalid(status_msg);
+    return arrow::Status::Invalid("11111111test 1");
 }
 
 ArrowFlightBatchReaderBase::~ArrowFlightBatchReaderBase() {
@@ -148,7 +148,7 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchRemoteReader>> ArrowFlightBatchRem
                 statement->result_addr.hostname, statement->result_addr.port,
                 print_id(statement->query_id));
         LOG(WARNING) << msg;
-        return arrow::Status::Invalid(msg);
+        return arrow::Status::Invalid("11111111test 2");
     }
 
     std::shared_ptr<ArrowFlightBatchRemoteReader> result(
