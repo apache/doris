@@ -729,6 +729,46 @@ Status ThreadPool::set_max_threads(int max_threads) {
     return Status::OK();
 }
 
+int ThreadPool::clear() {
+    std::lock_guard<std::mutex> l(_lock);
+
+    int cleared_count = 0;
+
+    // Clear the main queue
+    _queue.clear();
+
+    // Clear all tasks from all tokens
+    for (auto* token : _tokens) {
+        cleared_count += token->_entries.size();
+
+        // Clear the token's task queue
+        token->_entries.clear();
+
+        // Reset token's task counters properly
+        token->_num_unsubmitted_tasks = 0;
+        // _num_submitted_tasks should only count actually running tasks after clear
+        token->_num_submitted_tasks = token->_active_threads;
+
+        // If the token was in RUNNING state but has no active threads and no entries,
+        // transition it back to IDLE
+        if (token->state() == ThreadPoolToken::State::RUNNING && token->_active_threads == 0 &&
+            token->_entries.empty()) {
+            token->transition(ThreadPoolToken::State::IDLE);
+        }
+    }
+
+    // Update the total queued tasks count
+    _total_queued_tasks = 0;
+
+    // Wake up any threads waiting for the pool to become idle
+    // since we've just cleared all queued tasks
+    if (_active_threads == 0) {
+        _idle_cond.notify_all();
+    }
+
+    return cleared_count;
+}
+
 std::ostream& operator<<(std::ostream& o, ThreadPoolToken::State s) {
     return o << ThreadPoolToken::state_to_string(s);
 }
