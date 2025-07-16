@@ -424,7 +424,7 @@ public:
 
     const T& operator[](ssize_t n) const {
         DCHECK_GE(n, (static_cast<ssize_t>(pad_left_) ? -1 : 0));
-        DCHECK_LT(n, static_cast<ssize_t>(this->size()));
+        DCHECK_LE(n, static_cast<ssize_t>(this->size()));
         return t_start()[n];
     }
 
