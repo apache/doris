@@ -1010,16 +1010,6 @@ public class VariableMgr {
         }
         if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_300) {
             // update to master
-            long sqlMode = defaultSessionVariable.sqlMode;
-            // remove mode_default flag
-            if ((sqlMode & SqlModeHelper.MODE_DEFAULT) != 0) {
-                sqlMode ^= SqlModeHelper.MODE_DEFAULT;
-            }
-            sqlMode |= SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
-            VariableMgr.refreshDefaultSessionVariables(updateInfo,
-                    SessionVariable.SQL_MODE,
-                    String.valueOf(sqlMode));
-
             // update from older version, use legacy behavior.
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     GlobalVariable.ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR,
