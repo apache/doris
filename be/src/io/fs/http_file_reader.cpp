@@ -51,7 +51,7 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         return Status::OK();
     }
 
-    auto client = getClient();
+    auto client = get_client();
     if (!client) {
         return Status::InternalError("Failed to create HttpClient");
     }
@@ -62,7 +62,6 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
 
     _file_size = content_length;
 
-    storeClient(std::move(client));
     _initialized = true;
     return Status::OK();
 }
@@ -75,7 +74,7 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     size_t to_read = result.size;
     size_t buffer_offset = 0;
-    auto client = getClient();
+    auto client = get_client();
     if (offset >= _buffer_start && offset < _buffer_end) {
         size_t buffer_idx = offset - _buffer_start;
         size_t available = _buffer_end - offset;
@@ -122,7 +121,6 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
             _buffer_start = offset;
             _buffer_end = offset + buffer.size();
 
-            // 把用户需要的部分复制过去
             size_t copy_len = std::min(to_read, buffer.size());
             memcpy(result.data + buffer_offset, _read_buffer.get(), copy_len);
             buffer_offset += copy_len;
@@ -140,25 +138,8 @@ Status HttpFileReader::close() {
     return Status::OK();
 }
 
-void HttpFileReader::storeClient(std::shared_ptr<HttpClient> client) {
-    client_cache.StoreClient(client);
-}
-
-std::shared_ptr<HttpClient> HttpFileReader::getClient() {
-    auto cached_client = client_cache.GetClient();
-    if (cached_client) {
-        return cached_client;
-    }
-    return createClient();
-}
-
-std::shared_ptr<HttpClient> HttpFileReader::createClient() {
-    auto client = std::make_shared<HttpClient>();
-    auto st = client->init(_url);
-    if (!st.ok()) {
-        return nullptr;
-    }
-    storeClient(client);
+std::shared_ptr<HttpClient> HttpFileReader::get_client() {
+    static std::shared_ptr<HttpClient> client = std::make_shared<HttpClient>();
     return client;
 }
 
@@ -168,7 +149,7 @@ Status HttpFileReader::read_at(size_t offset, void* buf, size_t nbytes, size_t* 
 }
 
 Status HttpFileReader::read_range(size_t offset, size_t length, char* buffer) {
-    auto client = getClient();
+    auto client = get_client();
     return client->read_range(_url, offset, length, buffer);
 }
 
