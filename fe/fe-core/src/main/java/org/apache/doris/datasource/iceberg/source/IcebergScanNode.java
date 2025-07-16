@@ -340,7 +340,8 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (int i = 0; i < fileds.size(); i++) {
                 NestedField field = fileds.get(i);
                 Object value = partitionData.get(i);
-                partitionValues.put(field.name().toLowerCase(), value == null ? null : value.toString());
+                String partitionString = IcebergUtils.toPartitionString(field.type(), value);
+                partitionValues.put(field.name(), partitionString);
             }
             // Counts the number of partitions read
             partitionPathSet.add(partitionData.toString());

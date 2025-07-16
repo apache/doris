@@ -602,6 +602,43 @@ public class IcebergUtils {
         }
     }
 
+    private static final String HIVE_NULL = "__HIVE_DEFAULT_PARTITION__";
+
+    /**
+     * Convert Iceberg partition value to string.
+     * @param type
+     * @param value
+     * @return
+     */
+    public static String toPartitionString(org.apache.iceberg.types.Type type, Object value) {
+        if (value == null) {
+            return HIVE_NULL;
+        }
+
+        switch (type.typeId()) {
+            case BOOLEAN:
+            case INTEGER:
+            case LONG:
+            case FLOAT:
+            case DOUBLE:
+            case STRING:
+            case UUID:
+            case DECIMAL:
+                return value.toString();
+            case FIXED:
+            case BINARY:
+                if (value instanceof byte[]) {
+                    return new String((byte[]) value, java.nio.charset.StandardCharsets.UTF_8);
+                }
+                return value.toString();
+            case DATE:
+                return value.toString();
+            default:
+                throw new UnsupportedOperationException(
+                        "Unsupported type for toPartitionString: " + type);
+        }
+    }
+
     public static Table getIcebergTable(ExternalTable dorisTable) {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
