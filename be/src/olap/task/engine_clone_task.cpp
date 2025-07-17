@@ -960,7 +960,7 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
 
     to_add.reserve(cloned_tablet_meta->all_rs_metas().size());
-    for (auto& rs_meta : cloned_tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : cloned_tablet_meta->all_rs_metas()) {
         RowsetSharedPtr rs;
         RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
         to_add.push_back(std::move(rs));
