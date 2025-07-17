@@ -20,21 +20,25 @@ package org.apache.doris.qe;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Used to generate new SessionVariables based on the persisted map,
+ * and automatically restore to the previous SessionVariables after use.
+ */
 public class AutoCloseSessionVariable implements AutoCloseable {
     public ConnectContext connectContext;
     public SessionVariable sessionVariable;
-    public boolean needChange;
+    public boolean changed;
 
     private SessionVariable previousVariable;
 
     public AutoCloseSessionVariable() {
-        this.needChange = false;
+        this.changed = false;
     }
 
     public AutoCloseSessionVariable(ConnectContext connectContext, Map<String, String> affectQueryResultVariables) {
         Objects.requireNonNull(connectContext, "require connectContext object");
         Objects.requireNonNull(affectQueryResultVariables, "require affectQueryResultVariables object");
-        this.needChange = true;
+        this.changed = true;
         this.connectContext = connectContext;
         this.previousVariable = connectContext.getSessionVariable();
         sessionVariable = new SessionVariable();
@@ -49,7 +53,7 @@ public class AutoCloseSessionVariable implements AutoCloseable {
 
     @Override
     public void close() {
-        if (needChange) {
+        if (changed) {
             connectContext.setSessionVariable(previousVariable);
         }
     }
