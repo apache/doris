@@ -55,7 +55,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -491,7 +491,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable) {
     _aggregation = agg;
     _type = filed_type;
-    _length = get_scalar_type_info(filed_type)->size();
+    _length = static_cast<int32_t>(get_scalar_type_info(filed_type)->size());
     _is_nullable = is_nullable;
 }
 
@@ -501,7 +501,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, boo
     _type = filed_type;
     _is_nullable = is_nullable;
     _unique_id = unique_id;
-    _length = length;
+    _length = static_cast<int32_t>(length);
 }
 
 TabletColumn::TabletColumn(const ColumnPB& column) {
@@ -1306,13 +1306,13 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
         auto* index_pb = tablet_schema_pb->add_index();
         index->to_schema_pb(index_pb);
     }
-    tablet_schema_pb->set_num_short_key_columns(_num_short_key_columns);
-    tablet_schema_pb->set_num_rows_per_row_block(_num_rows_per_row_block);
+    tablet_schema_pb->set_num_short_key_columns(static_cast<int32_t>(_num_short_key_columns));
+    tablet_schema_pb->set_num_rows_per_row_block(static_cast<int32_t>(_num_rows_per_row_block));
     tablet_schema_pb->set_compress_kind(_compress_kind);
     if (_has_bf_fpp) {
         tablet_schema_pb->set_bf_fpp(_bf_fpp);
     }
-    tablet_schema_pb->set_next_column_unique_id(_next_column_unique_id);
+    tablet_schema_pb->set_next_column_unique_id(static_cast<uint32_t>(_next_column_unique_id));
     tablet_schema_pb->set_is_in_memory(_is_in_memory);
     tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
     tablet_schema_pb->set_enable_single_replica_compaction(_enable_single_replica_compaction);
@@ -1321,7 +1321,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_schema_pb->set_sequence_col_idx(_sequence_col_idx);
     tablet_schema_pb->set_sort_type(_sort_type);
-    tablet_schema_pb->set_sort_col_num(_sort_col_num);
+    tablet_schema_pb->set_sort_col_num(static_cast<int32_t>(_sort_col_num));
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_row_store_page_size(_row_store_page_size);
@@ -1601,5 +1601,5 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris
