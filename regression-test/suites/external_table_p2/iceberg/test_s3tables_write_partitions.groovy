@@ -22,8 +22,8 @@ suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,ext
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        def source_tbl = "s3_columns_out_of_order_source_tbl_${format_compression}_master"
-        def target_tbl = "s3_columns_out_of_order_target_tbl_${format_compression}_master"
+        def source_tbl = "s3_columns_out_of_order_source_tbl_${format_compression}_branch30"
+        def target_tbl = "s3_columns_out_of_order_target_tbl_${format_compression}_branch30"
         sql """ drop table if exists ${source_tbl} """
         sql """
             CREATE TABLE ${source_tbl} (
