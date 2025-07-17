@@ -30,7 +30,6 @@ import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelExportStmt;
-import org.apache.doris.analysis.CancelJobTaskStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
@@ -159,13 +158,6 @@ public class DdlExecutor {
             } catch (Exception e) {
                 throw new DdlException(e.getMessage());
             }
-        } else if (ddlStmt instanceof CancelJobTaskStmt) {
-            CancelJobTaskStmt stmt = (CancelJobTaskStmt) ddlStmt;
-            try {
-                env.getJobManager().cancelTaskById(stmt.getJobName(), stmt.getTaskId());
-            } catch (Exception e) {
-                throw new DdlException(e.getMessage());
-            }
         } else if (ddlStmt instanceof DropUserStmt) {
             DropUserStmt stmt = (DropUserStmt) ddlStmt;
             env.getAuth().dropUser(stmt);
@@ -218,8 +210,7 @@ public class DdlExecutor {
                     refreshTableStmt.getTblName(), false);
         } else if (ddlStmt instanceof RefreshDbStmt) {
             RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
-            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName(),
-                    refreshDbStmt.isInvalidCache());
+            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName());
         } else if (ddlStmt instanceof AlterColocateGroupStmt) {
             env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
