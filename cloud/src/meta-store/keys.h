@@ -208,6 +208,9 @@ using MetaSchemaKeyInfo    = BasicKeyInfo<21, std::tuple<std::string,  int64_t, 
 //                                                      0:instance_id  1:tablet_id  2:rowest_id  3:version  4:seg_id
 using MetaDeleteBitmapInfo = BasicKeyInfo<22 , std::tuple<std::string, int64_t,     std::string, int64_t, int64_t>>;
 
+//                                                      0:instance_id  1:tablet_id  2:rowest_id
+using MetaDeleteBitmapInfoV2 = BasicKeyInfo<22 , std::tuple<std::string, int64_t,   std::string>>;
+
 // partition_id of -1 indicates all partitions
 //                                                      0:instance_id  1:table_id 2:partition_id
 using MetaDeleteBitmapUpdateLockInfo = BasicKeyInfo<23 , std::tuple<std::string, int64_t, int64_t>>;
@@ -349,6 +352,7 @@ void meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in, std::string* out);
 void meta_tablet_key(const MetaTabletKeyInfo& in, std::string* out);
 void meta_schema_key(const MetaSchemaKeyInfo& in, std::string* out);
 void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out);
+void meta_delete_bitmap_key_v2(const MetaDeleteBitmapInfoV2& in, std::string* out);
 void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in, std::string* out);
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out);
 void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out);
