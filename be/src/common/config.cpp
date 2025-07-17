@@ -1047,11 +1047,10 @@ DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
 // Global segcompaction thread pool size.
 DEFINE_mInt32(segcompaction_num_threads, "5");
 
+DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
+
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
-
-// enable prefetch tablets before opening
-DEFINE_mBool(enable_prefetch_tablet, "true");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
@@ -1521,6 +1520,11 @@ DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
 DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
 DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
+
+DEFINE_mBool(enable_quorum_success_write, "true");
+DEFINE_mDouble(quorum_success_max_wait_multiplier, "0.2");
+DEFINE_mInt64(quorum_success_min_wait_seconds, "10");
+DEFINE_mInt32(quorum_success_remaining_timeout_seconds, "30");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 

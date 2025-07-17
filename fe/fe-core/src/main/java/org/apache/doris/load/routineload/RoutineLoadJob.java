@@ -354,6 +354,74 @@ public abstract class RoutineLoadJob
         }
     }
 
+    protected void setOptional(CreateRoutineLoadInfo info) throws UserException {
+        setRoutineLoadDesc(info.getRoutineLoadDesc());
+        if (info.getDesiredConcurrentNum() != -1) {
+            this.desireTaskConcurrentNum = info.getDesiredConcurrentNum();
+        }
+        if (info.getMaxErrorNum() != -1) {
+            this.maxErrorNum = info.getMaxErrorNum();
+        }
+        if (info.getMaxFilterRatio() != -1) {
+            this.maxFilterRatio = info.getMaxFilterRatio();
+        }
+        if (info.getMaxBatchIntervalS() != -1) {
+            this.maxBatchIntervalS = info.getMaxBatchIntervalS();
+        }
+        if (info.getMaxBatchRows() != -1) {
+            this.maxBatchRows = info.getMaxBatchRows();
+        }
+        if (info.getMaxBatchSizeBytes() != -1) {
+            this.maxBatchSizeBytes = info.getMaxBatchSizeBytes();
+        }
+        if (info.getExecMemLimit() != -1) {
+            this.execMemLimit = info.getExecMemLimit();
+        }
+        if (info.getSendBatchParallelism() > 0) {
+            this.sendBatchParallelism = info.getSendBatchParallelism();
+        }
+        if (info.isLoadToSingleTablet()) {
+            this.loadToSingleTablet = info.isLoadToSingleTablet();
+        }
+        jobProperties.put(info.TIMEZONE, info.getTimezone());
+        jobProperties.put(info.STRICT_MODE, String.valueOf(info.isStrictMode()));
+        jobProperties.put(info.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
+        jobProperties.put(info.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
+        jobProperties.put(info.PARTIAL_COLUMNS, info.isPartialUpdate() ? "true" : "false");
+        if (info.isPartialUpdate()) {
+            this.isPartialUpdate = true;
+        }
+        jobProperties.put(info.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
+
+        FileFormatProperties fileFormatProperties = info.getFileFormatProperties();
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
+            jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
+                    new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+            jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
+                    new String(new byte[]{csvFileFormatProperties.getEscape()}));
+            this.enclose = csvFileFormatProperties.getEnclose();
+            this.escape = csvFileFormatProperties.getEscape();
+        } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
+            JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+            jobProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, jsonFileFormatProperties.getJsonPaths());
+            jobProperties.put(JsonFileFormatProperties.PROP_JSON_ROOT, jsonFileFormatProperties.getJsonRoot());
+            jobProperties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
+                    String.valueOf(jsonFileFormatProperties.isStripOuterArray()));
+            jobProperties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING,
+                    String.valueOf(jsonFileFormatProperties.isNumAsString()));
+            jobProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE,
+                    String.valueOf(jsonFileFormatProperties.isFuzzyParse()));
+        } else {
+            throw new UserException("Invalid format type.");
+        }
+
+        if (!StringUtils.isEmpty(info.getWorkloadGroupName())) {
+            jobProperties.put(WORKLOAD_GROUP, info.getWorkloadGroupName());
+        }
+    }
 
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
         setRoutineLoadDesc(stmt.getRoutineLoadDesc());

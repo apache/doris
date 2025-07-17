@@ -126,7 +126,6 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.UpdatePartitionStatsTarget;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.query.QueryStats;
-import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -3146,7 +3145,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         //instantiate RestoreCommand
         LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDbName(), label.getLabelName());
         List<TableRefInfo> tableRefInfos = new ArrayList<>();
-        for (TableRef tableRef : restoreTableRefClause.getTableRefList()) {
+        List<TableRef> tableRefList = restoreTableRefClause == null
+                ? new ArrayList<>() : restoreTableRefClause.getTableRefList();
+        for (TableRef tableRef : tableRefList) {
             TableName tableName = tableRef.getName();
             String[] aliases = tableRef.getAliases();
             PartitionNames partitionNames = tableRef.getPartitionNames();
@@ -3208,7 +3209,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(fullUserName, "%"));
             ctx.setThreadLocalInfo();
             restoreCommand.validate(ctx);
-            ctx.getEnv().getBackupHandler().process(restoreCommand);
+            Env.getCurrentEnv().getBackupHandler().process(restoreCommand);
         } catch (UserException e) {
             LOG.warn("failed to restore: {}, command: {}", e.getMessage(), restoreCommand, e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
@@ -3602,9 +3603,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
-            TableIf table = StatisticsUtil.findTable(target.catalogId, target.dbId, target.tableId);
-            analysisManager.submitAsyncDropStatsTask(table, target.catalogId, target.dbId,
-                    target.tableId, tableStats, partitionNames, false);
+            analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
+                    target.tableId, partitionNames, false);
         } else {
             analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
                     target.columns, tableStats, partitionNames);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
@@ -38,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
@@ -320,9 +320,11 @@ public class ResourceTagQueryTest {
         //alter db change `replication_allocation`
         String alterDbStmtStr
                 = "alter database test_prop set PROPERTIES('replication_allocation' = 'tag.location.default:2');";
-        AlterDatabasePropertyStmt alterDbStmt = (AlterDatabasePropertyStmt) UtFrameUtils
-                .parseAndAnalyzeStmt(alterDbStmtStr, connectContext);
-        Env.getCurrentEnv().alterDatabaseProperty(alterDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        AlterDatabasePropertiesCommand alterDatabasePropertiesCommand =
+                (AlterDatabasePropertiesCommand) nereidsParser.parseSingle(alterDbStmtStr);
+        Env.getCurrentEnv().alterDatabaseProperty(alterDatabasePropertiesCommand.getDbName(), alterDatabasePropertiesCommand.getProperties());
+
         ExceptionChecker.expectThrowsNoException(() -> createTable(createTableStr2));
         Database propDb = Env.getCurrentInternalCatalog().getDbNullable("test_prop");
         OlapTable tbl2 = (OlapTable) propDb.getTableNullable("tbl2");
@@ -360,9 +362,9 @@ public class ResourceTagQueryTest {
         Assert.assertTrue(explainString.contains("tablets=2/2"));
         //alter db change `replication_allocation` to null
         alterDbStmtStr = "alter database test_prop set PROPERTIES('replication_allocation' = '');";
-        alterDbStmt = (AlterDatabasePropertyStmt) UtFrameUtils
-                .parseAndAnalyzeStmt(alterDbStmtStr, connectContext);
-        Env.getCurrentEnv().alterDatabaseProperty(alterDbStmt);
+        alterDatabasePropertiesCommand =
+                (AlterDatabasePropertiesCommand) nereidsParser.parseSingle(alterDbStmtStr);
+        Env.getCurrentEnv().alterDatabaseProperty(alterDatabasePropertiesCommand.getDbName(), alterDatabasePropertiesCommand.getProperties());
         // create table with default tag
         String createTableStr4 = "create table test_prop.tbl4\n"
                 + "(k1 date, k2 int)\n"

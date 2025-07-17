@@ -22,7 +22,6 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
@@ -792,13 +791,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             db.writeUnlock();
         }
-    }
-
-    public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Map<String, String> properties = stmt.getProperties();
-
-        alterDatabaseProperty(dbName, properties);
     }
 
     public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
@@ -3353,7 +3345,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
         OlapTable copiedTbl;
 
-        boolean truncateEntireTable = partitionNames == null;
+        boolean truncateEntireTable = partitionNames == null || partitionNames.isStar();
 
         Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
@@ -3542,12 +3534,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
                     truncateEntireTable, recyclePartitionParamMap, forceDrop);
+            if (truncateEntireTable) {
+                Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
+            } else {
+                Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(
+                        updateRecords, db.getId(), olapTable.getId(), 0);
+            }
 
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                     newPartitions, truncateEntireTable,
-                            rawTruncateSql, oldPartitions, forceDrop);
+                            rawTruncateSql, oldPartitions, forceDrop, updateRecords);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
@@ -3559,7 +3557,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNames);
-        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords, db.getId(), olapTable.getId(), 0);
         LOG.info("finished to truncate table {}.{}, partitions: {}", dbName, tableName, partitionNames);
     }
 
