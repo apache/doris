@@ -4419,6 +4419,70 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public Map<String, String> getAffectQueryResultVariables() {
+        HashMap<String, String> map = new HashMap<String, String>();
+        try {
+            Field[] fields = SessionVariable.class.getDeclaredFields();
+            for (Field f : fields) {
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !varAttr.affectQueryResult()) {
+                    continue;
+                }
+                map.put(varAttr.name(), String.valueOf(f.get(this)));
+            }
+        } catch (IllegalAccessException e) {
+            LOG.error("failed to get affect query result variables", e);
+        }
+        return map;
+    }
+
+    public void setAffectQueryResultSessionVariables(Map<String, String> variables) {
+        try {
+            Field[] fields = SessionVariable.class.getDeclaredFields();
+            for (Field f : fields) {
+                f.setAccessible(true);
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !varAttr.affectQueryResult()) {
+                    continue;
+                }
+                String val = variables.get(varAttr.name());
+                if (val == null) {
+                    continue;
+                }
+
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set forward variable: {} = {}", varAttr.name(), val);
+                }
+
+                // set config field
+                switch (f.getType().getSimpleName()) {
+                    case "short":
+                        f.setShort(this, Short.parseShort(val));
+                        break;
+                    case "int":
+                        f.setInt(this, Integer.parseInt(val));
+                        break;
+                    case "long":
+                        f.setLong(this, Long.parseLong(val));
+                        break;
+                    case "double":
+                        f.setDouble(this, Double.parseDouble(val));
+                        break;
+                    case "boolean":
+                        f.setBoolean(this, Boolean.parseBoolean(val));
+                        break;
+                    case "String":
+                        f.set(this, val);
+                        break;
+                    default:
+                        throw new IllegalArgumentException("Unknown field type: " + f.getType().getSimpleName());
+                }
+            }
+        } catch (IllegalAccessException e) {
+            LOG.error("failed to set forward variables", e);
+        }
+    }
+
     /**
      * Get all variables which need to forward along with statement.
      **/

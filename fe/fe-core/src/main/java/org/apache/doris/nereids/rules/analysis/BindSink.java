@@ -87,6 +87,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
@@ -469,19 +470,24 @@ public class BindSink implements AnalysisRuleFactory {
         // the generated columns can use all ordinary columns,
         // if processed in upper for loop, will lead to not found slot error
         // It's the same reason for moving the processing of materialized columns down.
-        for (Column column : generatedColumns) {
-            GeneratedColumnInfo info = column.getGeneratedColumnInfo();
-            Expression parsedExpression = new NereidsParser().parseExpression(info.getExpr().toSqlWithoutTbl());
-            Expression boundExpression = new CustomExpressionAnalyzer(boundSink, ctx.cascadesContext, columnToReplaced)
-                    .analyze(parsedExpression);
-            if (boundExpression instanceof Alias) {
-                boundExpression = ((Alias) boundExpression).child();
+        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
+        try (AutoCloseSessionVariable autoClose = olapTable == null ? new AutoCloseSessionVariable()
+                : new AutoCloseSessionVariable(ctx.connectContext, olapTable.getSessionVariables())) {
+            for (Column column : generatedColumns) {
+                GeneratedColumnInfo info = column.getGeneratedColumnInfo();
+                Expression parsedExpression = new NereidsParser().parseExpression(info.getExpr().toSqlWithoutTbl());
+                Expression boundExpression = new CustomExpressionAnalyzer(boundSink, ctx.cascadesContext,
+                        columnToReplaced)
+                        .analyze(parsedExpression);
+                if (boundExpression instanceof Alias) {
+                    boundExpression = ((Alias) boundExpression).child();
+                }
+                boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
+                Alias output = new Alias(boundExpression, info.getExprSql());
+                columnToOutput.put(column.getName(), output);
+                columnToReplaced.put(column.getName(), output.toSlot());
+                replaceMap.put(output.toSlot(), output.child());
             }
-            boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
-            Alias output = new Alias(boundExpression, info.getExprSql());
-            columnToOutput.put(column.getName(), output);
-            columnToReplaced.put(column.getName(), output.toSlot());
-            replaceMap.put(output.toSlot(), output.child());
         }
         for (Column column : materializedViewColumn) {
             if (column.isMaterializedViewColumn()) {

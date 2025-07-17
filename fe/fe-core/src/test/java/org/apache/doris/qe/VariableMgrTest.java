@@ -42,6 +42,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.Map;
 import java.util.UUID;
 
 public class VariableMgrTest {
@@ -185,5 +186,32 @@ public class VariableMgrTest {
                 new StringLiteral(""));
         VariableMgr.setVar(var, setVar);
         Assert.assertEquals(new String[] {""}, var.getSqlConvertorFeatures());
+    }
+
+    @Test
+    public void testAutoCloseSessionVariable() throws Exception {
+        long originSqlMode = ctx.getSessionVariable().getSqlMode();
+        // 6
+        int defaultDecimalOverflowScale = new SessionVariable().decimalOverflowScale;
+
+        // The session at the time of executing the business
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setSqlMode(1000L);
+        Map<String, String> affectQueryResultVariables = sessionVariable.getAffectQueryResultVariables();
+        // Simulation decimal_overflow_scale is a newly added variable
+        affectQueryResultVariables.remove("decimal_overflow_scale");
+
+        // set global decimal_overflow_scale=7
+        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global decimal_overflow_scale=7", ctx);
+        SetExecutor executor = new SetExecutor(ctx, stmt);
+        executor.execute();
+
+        try (AutoCloseSessionVariable a = new AutoCloseSessionVariable(ctx, affectQueryResultVariables)) {
+            Assert.assertEquals(1000L, ctx.getSessionVariable().getSqlMode());
+            // should is default value, not global value
+            Assert.assertEquals(defaultDecimalOverflowScale, ctx.getSessionVariable().decimalOverflowScale);
+        }
+        // Should be restored to the current session
+        Assert.assertEquals(originSqlMode, ctx.getSessionVariable().getSqlMode());
     }
 }
