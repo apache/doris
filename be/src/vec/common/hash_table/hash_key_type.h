@@ -96,7 +96,7 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
     if (data_types.empty()) {
         return HashKeyType::without_key;
     }
-    if (data_types[0]->get_primitive_type() == TYPE_ARRAY) {
+    if (is_complex_type(data_types[0]->get_primitive_type())) {
         return HashKeyType::serialized;
     }
 
