@@ -20,7 +20,6 @@
 
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
 
-#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
@@ -102,10 +101,10 @@ AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
     }
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
     WhichDataType which(argument_type);
-    if (which.idx == TypeIndex::Array || which.idx == TypeIndex::MAP ||
-        which.idx == TypeIndex::STRUCT || which.idx == TypeIndex::AGG_STATE ||
-        which.idx == TypeIndex::OBJECT || which.idx == TypeIndex::HLL ||
-        which.idx == TypeIndex::QUANTILE_STATE) {
+    if (which.idx == TypeIndex::Array || which.idx == TypeIndex::Map ||
+        which.idx == TypeIndex::Struct || which.idx == TypeIndex::AggState ||
+        which.idx == TypeIndex::BitMap || which.idx == TypeIndex::HLL ||
+        which.idx == TypeIndex::QuantileState) {
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<SingleValueDataComplexType>>(argument_types,
                                                                            result_is_nullable);
