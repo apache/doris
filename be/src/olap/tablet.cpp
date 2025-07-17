@@ -293,7 +293,7 @@ Status Tablet::_init_once_action() {
                     _tablet_meta->compaction_policy());
 #endif
 
-    for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         Version version = rs_meta->version();
         RowsetSharedPtr rowset;
         res = create_rowset(rs_meta, &rowset);
@@ -307,7 +307,7 @@ Status Tablet::_init_once_action() {
     }
 
     // init stale rowset
-    for (const auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
+    for (const auto& [_, stale_rs_meta] : _tablet_meta->all_stale_rs_metas()) {
         Version version = stale_rs_meta->version();
         RowsetSharedPtr rowset;
         res = create_rowset(stale_rs_meta, &rowset);
@@ -1095,7 +1095,7 @@ uint32_t Tablet::calc_cold_data_compaction_score() const {
     int64_t max_delete_version = 0;
     {
         std::shared_lock rlock(_meta_lock);
-        for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+        for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
             if (!rs_meta->is_local()) {
                 cooldowned_rowsets.push_back(rs_meta);
                 if (rs_meta->has_delete_predicate() &&
@@ -1139,7 +1139,7 @@ uint32_t Tablet::_calc_base_compaction_score() const {
     const int64_t point = cumulative_layer_point();
     bool base_rowset_exist = false;
     bool has_delete = false;
-    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
         }
@@ -1173,8 +1173,8 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, V
                                                              bool* has_version_cross) const {
     std::vector<Version> existing_versions;
     *has_version_cross = false;
-    for (auto& rs : _tablet_meta->all_rs_metas()) {
-        existing_versions.emplace_back(rs->version());
+    for (const auto& [ver, _] : _tablet_meta->all_rs_metas()) {
+        existing_versions.emplace_back(ver);
     }
 
     // sort the existing versions in ascending order
@@ -1544,7 +1544,7 @@ bool Tablet::do_tablet_meta_checkpoint() {
     save_meta();
     // if save meta successfully, then should remove the rowset meta existing in tablet
     // meta from rowset meta store
-    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         // If we delete it from rowset manager's meta explicitly in previous checkpoint, just skip.
         if (rs_meta->is_remove_from_rowset_meta()) {
             continue;
@@ -1560,7 +1560,7 @@ bool Tablet::do_tablet_meta_checkpoint() {
     }
 
     // check _stale_rs_version_map to remove meta from rowset meta store
-    for (auto& rs_meta : _tablet_meta->all_stale_rs_metas()) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_stale_rs_metas()) {
         // If we delete it from rowset manager's meta explicitly in previous checkpoint, just skip.
         if (rs_meta->is_remove_from_rowset_meta()) {
             continue;
@@ -2247,7 +2247,7 @@ Status Tablet::write_cooldown_meta() {
     UniqueId cooldown_meta_id;
     {
         std::shared_lock meta_rlock(_meta_lock);
-        for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+        for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
             if (!rs_meta->is_local()) {
                 cooldowned_rs_metas.push_back(rs_meta);
             }
@@ -2543,7 +2543,7 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
 Status Tablet::remove_all_remote_rowsets() {
     DCHECK(tablet_state() == TABLET_SHUTDOWN);
     std::set<std::string> resource_ids;
-    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         if (!rs_meta->is_local()) {
             resource_ids.insert(rs_meta->resource_id());
         }
