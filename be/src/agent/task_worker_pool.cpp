@@ -100,6 +100,7 @@
 #include "util/trace.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -180,7 +181,7 @@ Status get_tablet_info(StorageEngine& engine, const TTabletId tablet_id,
 }
 
 void random_sleep(int second) {
-    Random rnd(UnixMillis());
+    Random rnd(cast_set<uint32_t>(UnixMillis()));
     sleep(rnd.Uniform(second) + 1);
 }
 
@@ -558,8 +559,8 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     for (int i = 0; i < normal_worker_count; ++i) {
-        auto st = Thread::create(
-                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        auto st =
+                Thread::create("Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
         CHECK(st.ok()) << name << ": " << st;
     }
 
@@ -626,13 +627,13 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskReq
             // If it doesn't exist, put it directly into the priority queue
             add_task_count(*req, 1);
             set.insert(signature);
-            std::lock_guard lock(_mtx);
+            std::lock_guard temp_lock(_mtx);
             _high_prior_queue.push_back(std::move(req));
             _high_prior_condv.notify_one();
             _normal_condv.notify_one();
             break;
         } else {
-            std::lock_guard lock(_mtx);
+            std::lock_guard temp_lock(_mtx);
             for (auto it = _normal_queue.begin(); it != _normal_queue.end();) {
                 // If it exists in the normal queue, cancel the task in the normal queue
                 if ((*it)->signature == signature) {
@@ -1613,7 +1614,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     MonotonicStopWatch watch;
     watch.start();
     SCOPED_CLEANUP({
-        auto elapsed_time = static_cast<int64_t>(watch.elapsed_time());
+        auto elapsed_time = static_cast<double>(watch.elapsed_time());
         if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
             std::stringstream ss;
@@ -1739,21 +1740,20 @@ void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& r
             count++;
         }
 
-        CloudTablet::recycle_cached_data(std::move(clean_rowsets));
+        CloudTablet::recycle_cached_data(clean_rowsets);
         break;
     }
 
     if (!found) {
         LOG(WARNING) << "tablet not found when dropping tablet_id=" << drop_tablet_req.tablet_id
-                     << ", cost " << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
+                     << ", cost " << static_cast<double>(watch.elapsed_time()) / 1e9 << "(s)";
         return;
     }
 
     engine.tablet_mgr().erase_tablet(drop_tablet_req.tablet_id);
     LOG(INFO) << "drop cloud tablet_id=" << drop_tablet_req.tablet_id
               << " and clean file cache first 10 rowsets {" << rowset_ids_stream.str() << "}, cost "
-              << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
-    return;
+              << static_cast<double>(watch.elapsed_time()) / 1e9 << "(s)";
 }
 
 void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
@@ -1964,7 +1964,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 }
             }
         }
-        uint32_t cost_second = time(nullptr) - req.recv_time;
+        int64_t cost_second = time(nullptr) - req.recv_time;
         g_publish_version_latency << cost_second;
         LOG_INFO("successfully publish version")
                 .tag("signature", req.signature)
@@ -2254,4 +2254,5 @@ void report_index_policy_callback(const ClusterInfo* cluster_info) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris
