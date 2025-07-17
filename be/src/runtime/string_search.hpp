@@ -18,14 +18,13 @@
 #pragma once
 
 #include <cstring>
-#include <functional>
-#include <vector>
 
-#include "common/logging.h"
+#include "common/cast_set.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/string_searcher.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class StringSearch {
 public:
@@ -43,20 +42,20 @@ public:
     //   Returns the offset into str if the pattern exists
     //   Returns -1 if the pattern is not found
     int search(const StringRef* str) const {
-        auto it = search(str->data, str->size);
+        const auto* it = search(str->data, str->size);
         if (it == str->data + str->size) {
             return -1;
         } else {
-            return it - str->data;
+            return cast_set<int>((it - str->data));
         }
     }
 
     int search(const StringRef& str) const {
-        auto it = search(str.data, str.size);
+        const auto* it = search(str.data, str.size);
         if (it == str.data + str.size) {
             return -1;
         } else {
-            return it - str.data;
+            return cast_set<int>(it - str.data);
         }
     }
 
@@ -77,5 +76,5 @@ private:
     const StringRef* _pattern;
     std::unique_ptr<ASCIICaseSensitiveStringSearcher> _str_searcher;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris
