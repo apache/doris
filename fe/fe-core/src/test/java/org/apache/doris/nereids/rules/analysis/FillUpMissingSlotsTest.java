@@ -95,7 +95,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         String sql = "SELECT a1 FROM t1 GROUP BY a1 HAVING a1 > 0";
         SlotReference a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
@@ -106,7 +106,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
         SlotReference value = new SlotReference(new ExprId(3), "value", TinyIntType.INSTANCE, true,
-                ImmutableList.of());
+                ImmutableList.of(), true);
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE))
                 .matches(
@@ -134,11 +134,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT sum(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         SlotReference a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
@@ -159,11 +159,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         String sql = "SELECT a1 FROM t1 GROUP BY a1 HAVING sum(a2) > 0";
         SlotReference a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         SlotReference a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
@@ -193,11 +193,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, sum(a2) as value FROM t1 GROUP BY a1 HAVING sum(a2) > 0";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias value = new Alias(new ExprId(3), new Sum(a2), "value");
         PlanChecker.from(connectContext).analyze(sql)
@@ -223,16 +223,16 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, sum(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias minPK = new Alias(new ExprId(4), new Min(pk), "min(pk)");
         PlanChecker.from(connectContext).analyze(sql)
@@ -290,15 +290,15 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         String sql = "SELECT a1, sum(a2) FROM t1, t2 WHERE t1.pk = t2.pk GROUP BY a1 HAVING a1 > sum(b1)";
         SlotReference a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         SlotReference a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         SlotReference b1 = new SlotReference(
                 new ExprId(4), "b1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t2")
+                ImmutableList.of("test_resolve_aggregate_functions", "t2"), true
         );
         Alias sumA2 = new Alias(new ExprId(6), new Sum(a2), "sum(a2)");
         Alias sumB1 = new Alias(new ExprId(7), new Sum(b1), "sum(b1)");
@@ -354,19 +354,19 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 + "HAVING t1.pk > 0 AND count(a1) + 1 > 0 AND sum(a1 + a2) + 1 > 0 AND v1 + 1 > 0 AND v1 > 0";
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         SlotReference pk1 = new SlotReference(
                 new ExprId(6), "(pk + 1)", IntegerType.INSTANCE, true,
-                ImmutableList.of()
+                ImmutableList.of(), true
         );
         SlotReference a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         SlotReference a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias pk11 = new Alias(new ExprId(7), new Add(new Cast(new Add(new Cast(pk, SmallIntType.INSTANCE), Literal.of((short) 1)), IntegerType.INSTANCE), Literal.of(1)), "((pk + 1) + 1)");
         Alias pk2 = new Alias(new ExprId(8), new Add(new Cast(pk, SmallIntType.INSTANCE), Literal.of((short) 2)), "(pk + 2)");
@@ -411,11 +411,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         String sql = "SELECT a1 FROM t1 GROUP BY a1 ORDER BY sum(a2)";
         SlotReference a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         SlotReference a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
@@ -443,11 +443,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, sum(a2) as value FROM t1 GROUP BY a1 ORDER BY sum(a2)";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias value = new Alias(new ExprId(3), new Sum(a2), "value");
         PlanChecker.from(connectContext).analyze(sql)
@@ -462,16 +462,16 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, sum(a2) FROM t1 GROUP BY a1 ORDER BY MIN(pk)";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias minPK = new Alias(new ExprId(4), new Min(pk), "min(pk)");
         PlanChecker.from(connectContext).analyze(sql)
@@ -525,12 +525,12 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT abs(a1) xx, sum(a2) FROM t1 GROUP BY xx ORDER BY MIN(xx)";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias xx = new Alias(new ExprId(3), new Abs(a1), "xx");
         a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         sumA2 = new Alias(new ExprId(4), new Sum(a2), "sum(a2)");
 
@@ -553,19 +553,19 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 + "ORDER BY t1.pk, count(a1) + 1, sum(a1 + a2) + 1, v1 + 1, v1";
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         SlotReference pk1 = new SlotReference(
                 new ExprId(6), "(pk + 1)", IntegerType.INSTANCE, true,
-                ImmutableList.of()
+                ImmutableList.of(), true
         );
         SlotReference a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         SlotReference a2 = new SlotReference(
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
-                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+                ImmutableList.of("test_resolve_aggregate_functions", "t1"), true
         );
         Alias pk11 = new Alias(new ExprId(7), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((byte) 1)), "((pk + 1) + 1)");
         Alias pk2 = new Alias(new ExprId(8), new Add(pk, Literal.of((short) 2)), "(pk + 2)");

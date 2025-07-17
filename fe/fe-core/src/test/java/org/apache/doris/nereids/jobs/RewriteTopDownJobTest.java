@@ -73,7 +73,8 @@ public class RewriteTopDownJobTest {
     public void testSimplestScene() {
         Plan leaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"));
         LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(
-                new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"),
+                        false)),
                 leaf
         );
         PlanChecker.from(MemoTestUtils.createConnectContext(), project)

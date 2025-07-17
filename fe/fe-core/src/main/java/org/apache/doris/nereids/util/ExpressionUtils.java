@@ -419,7 +419,8 @@ public class ExpressionUtils {
         if (newExpr instanceof NamedExpression) {
             return (NamedExpression) newExpr;
         } else {
-            return new Alias(expr.getExprId(), newExpr, expr.getName());
+            return new Alias(expr.getExprId(), newExpr, expr.getName(),
+                    expr.isNameFromChild());
         }
     }
 

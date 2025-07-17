@@ -1083,7 +1083,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("10 * 2 / 1 + 1 > (1 + 1) - 100", "true");
 
         // a + 1 > 2
-        Slot a = SlotReference.of("a", IntegerType.INSTANCE);
+        Slot a = SlotReference.of("a", IntegerType.INSTANCE, false);
 
         // a > (1 + 10) / 2 * (10 + 1)
         Expression e3 = PARSER.parseExpression("(1 + 10) / 2 * (10 + 1)");
@@ -1165,7 +1165,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewrite(e7, e8);
 
         // a + interval 1 day
-        Slot a = SlotReference.of("a", DateTimeV2Type.SYSTEM_DEFAULT);
+        Slot a = SlotReference.of("a", DateTimeV2Type.SYSTEM_DEFAULT, false);
         TimestampArithmetic arithmetic = new TimestampArithmetic(Operator.ADD, a, Literal.of(1), TimeUnit.DAY);
         Expression process = process(arithmetic);
         assertRewrite(process, process);

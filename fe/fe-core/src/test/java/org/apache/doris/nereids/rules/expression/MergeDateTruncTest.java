@@ -37,7 +37,7 @@ public class MergeDateTruncTest extends ExpressionRewriteTestHelper {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(MergeDateTrunc.INSTANCE)
         ));
-        Slot dataSlot = new SlotReference("data_slot", DateV2Type.INSTANCE);
+        Slot dataSlot = new SlotReference("data_slot", DateV2Type.INSTANCE, false);
         assertRewrite(new DateTrunc(new DateTrunc(dataSlot, new VarcharLiteral("HOUR")),
                         new VarcharLiteral("DAY")),
                 new DateTrunc(dataSlot, new VarcharLiteral("DAY")));

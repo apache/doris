@@ -39,12 +39,12 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
     protected final String name;
 
     /** ArrayItemReference */
-    public ArrayItemReference(String name, Expression arrayExpression) {
-        this(StatementScopeIdGenerator.newExprId(), name, arrayExpression);
+    public ArrayItemReference(String name, Expression arrayExpression, boolean nameFromChild) {
+        this(StatementScopeIdGenerator.newExprId(), name, arrayExpression, nameFromChild);
     }
 
-    public ArrayItemReference(ExprId exprId, String name, Expression arrayExpression) {
-        super(ImmutableList.of(arrayExpression));
+    public ArrayItemReference(ExprId exprId, String name, Expression arrayExpression, boolean nameFromChild) {
+        super(ImmutableList.of(arrayExpression), nameFromChild);
         Preconditions.checkArgument(arrayExpression.getDataType() instanceof ArrayType,
                 String.format("ArrayItemReference' child %s must return array", child(0)));
         this.exprId = exprId;
@@ -82,7 +82,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
 
     @Override
     public ArrayItemReference withChildren(List<Expression> expressions) {
-        return new ArrayItemReference(exprId, name, expressions.get(0));
+        return new ArrayItemReference(exprId, name, expressions.get(0), nameFromChild);
     }
 
     @Override
@@ -97,7 +97,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
 
     @Override
     public Slot toSlot() {
-        return new ArrayItemSlot(exprId, name, getDataType(), nullable());
+        return new ArrayItemSlot(exprId, name, getDataType(), nullable(), nameFromChild);
     }
 
     @Override
@@ -141,29 +141,31 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
          * @param dataType slot reference logical data type
          * @param nullable true if nullable
          */
-        public ArrayItemSlot(ExprId exprId, String name, DataType dataType, boolean nullable) {
+        public ArrayItemSlot(ExprId exprId, String name, DataType dataType, boolean nullable, boolean nameFromChild) {
             super(exprId, name, dataType, nullable, ImmutableList.of(),
-                    null, null, null, null, ImmutableList.of());
+                    null, null, null, null, ImmutableList.of(),
+                    nameFromChild);
         }
 
         @Override
         public ArrayItemSlot withExprId(ExprId exprId) {
-            return new ArrayItemSlot(exprId, name.get(), dataType, nullable);
+            return new ArrayItemSlot(exprId, name.get(), dataType, nullable, nameFromChild);
         }
 
         @Override
         public ArrayItemSlot withName(String name) {
-            return new ArrayItemSlot(exprId, name, dataType, nullable);
+            return new ArrayItemSlot(exprId, name, dataType, nullable,
+                    nameFromChild);
         }
 
         @Override
         public SlotReference withNullable(boolean nullable) {
-            return new ArrayItemSlot(exprId, name.get(), dataType, this.nullable);
+            return new ArrayItemSlot(exprId, name.get(), dataType, this.nullable, nameFromChild);
         }
 
         @Override
         public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
-            return new ArrayItemSlot(exprId, name.get(), dataType, nullable);
+            return new ArrayItemSlot(exprId, name.get(), dataType, nullable, nameFromChild);
         }
 
         @Override

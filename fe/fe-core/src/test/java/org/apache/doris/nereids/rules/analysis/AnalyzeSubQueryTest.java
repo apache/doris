@@ -131,12 +131,12 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
                                 )
                             )
                         ).when(FieldChecker.check("projects", ImmutableList.of(
-                            new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("T")),
-                            new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("T"))))
+                            new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("T"), false),
+                            new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("T"), false)))
                         )
                     ).when(FieldChecker.check("projects", ImmutableList.of(
-                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2")),
-                        new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("T2"))))
+                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2"), false),
+                        new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("T2"), false)))
                     )
                 );
     }
@@ -159,20 +159,20 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
                                     )
                                 )
                             ).when(FieldChecker.check("projects", ImmutableList.of(
-                                new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT2")),
-                                new SlotReference(new ExprId(3), "score", BigIntType.INSTANCE, true, ImmutableList.of("TT2"))))
+                                new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT2"), false),
+                                new SlotReference(new ExprId(3), "score", BigIntType.INSTANCE, true, ImmutableList.of("TT2"), false)))
                             )
                         )
                         .when(FieldChecker.check("otherJoinConjuncts",
                                 ImmutableList.of(new EqualTo(
-                                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT1")),
-                                        new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T")))))
+                                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT1"), false),
+                                        new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T"), false))))
                         )
                     ).when(FieldChecker.check("projects", ImmutableList.of(
-                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT1")),
-                        new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("TT1")),
-                        new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T")),
-                        new SlotReference(new ExprId(3), "score", BigIntType.INSTANCE, true, ImmutableList.of("T"))))
+                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT1"), false),
+                        new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("TT1"), false),
+                        new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T"), false),
+                        new SlotReference(new ExprId(3), "score", BigIntType.INSTANCE, true, ImmutableList.of("T"), false)))
                     )
                 );
     }
@@ -191,14 +191,14 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
                             )
                         )
                         .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(new EqualTo(
-                                new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("test", "T1")),
-                                new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2")))))
+                                new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("test", "T1"), false),
+                                new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2"), false))))
                         )
                     ).when(FieldChecker.check("projects", ImmutableList.of(
-                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("test", "T1")),
-                        new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("test", "T1")),
-                        new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2")),
-                        new SlotReference(new ExprId(3), "score", BigIntType.INSTANCE, true, ImmutableList.of("T2"))))
+                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("test", "T1"), false),
+                        new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("test", "T1"), false),
+                        new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2"), false),
+                        new SlotReference(new ExprId(3), "score", BigIntType.INSTANCE, true, ImmutableList.of("T2"), false)))
                     )
                 );
     }

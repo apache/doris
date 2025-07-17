@@ -44,7 +44,7 @@ public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSuppo
 
     @Test
     void testSortProject() {
-        SlotReference slotReference = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference slotReference = new SlotReference("col1", IntegerType.INSTANCE, false);
         Alias alias = new Alias(slotReference, "a");
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalProject<Plan> logicalProject = new LogicalProject<>(ImmutableList.of(alias), logicalOlapScan);
@@ -61,7 +61,7 @@ public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSuppo
 
     @Test
     void testSortAggregate() {
-        SlotReference slotReference = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference slotReference = new SlotReference("col1", IntegerType.INSTANCE, false);
         Alias alias = new Alias(slotReference, "a");
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(
@@ -79,7 +79,7 @@ public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSuppo
 
     @Test
     void testSortHavingAggregate() {
-        SlotReference slotReference = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference slotReference = new SlotReference("col1", IntegerType.INSTANCE, false);
         Alias alias = new Alias(slotReference, "a");
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(

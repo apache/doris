@@ -95,7 +95,7 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
                         "foreach must be input array type: '" + nestedName);
             }
             DataType itemType = ((ArrayType) arrayType).getItemType();
-            return new SlotReference("mocked", itemType, (((ArrayType) arrayType).containsNull()));
+            return new SlotReference("mocked", itemType, (((ArrayType) arrayType).containsNull()), false);
         }).collect(Collectors.toList());
         return (AggregateFunction) nestedBuilder.build(nestedName, forEachargs).first;
     }

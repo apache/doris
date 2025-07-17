@@ -87,7 +87,7 @@ public class AggStateType extends DataType {
     public List<Expression> getMockedExpressions() {
         List<Expression> result = new ArrayList<Expression>();
         for (int i = 0; i < subTypes.size(); i++) {
-            result.add(new SlotReference("mocked", subTypes.get(i), subTypeNullables.get(i)));
+            result.add(new SlotReference("mocked", subTypes.get(i), subTypeNullables.get(i), false));
         }
         return result;
     }

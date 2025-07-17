@@ -41,7 +41,7 @@ public class CanInferNotNullForMarkSlotTest extends ExpressionRewriteTestHelper 
 
     @Test
     public void test() {
-        SlotReference slot = new SlotReference("slot", BooleanType.INSTANCE);
+        SlotReference slot = new SlotReference("slot", BooleanType.INSTANCE, false);
         MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
         MarkJoinSlotReference markSlot2 = new MarkJoinSlotReference("markSlot2");
         MarkJoinSlotReference markSlot3 = new MarkJoinSlotReference("markSlot1");

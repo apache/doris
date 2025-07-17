@@ -139,7 +139,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -178,7 +178,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -217,7 +217,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -257,7 +257,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -297,7 +297,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -337,7 +337,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -377,7 +377,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -419,7 +419,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -464,7 +464,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -505,7 +505,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -540,7 +540,7 @@ class ChildOutputPropertyDeriverTest {
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
-                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false),
                                 true, true)))
         );
 
@@ -561,8 +561,8 @@ class ChildOutputPropertyDeriverTest {
 
     @Test
     void testBroadcastJoin(@Injectable LogicalProperties p1, @Injectable GroupPlan p2) {
-        SlotReference leftSlot = new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList());
-        SlotReference rightSlot = new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false, Collections.emptyList());
+        SlotReference leftSlot = new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList(), false);
+        SlotReference rightSlot = new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false, Collections.emptyList(), false);
         List<Slot> leftOutput = new ArrayList<>();
         List<Slot> rightOutput = new ArrayList<>();
         leftOutput.add(leftSlot);
@@ -596,7 +596,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties right = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
-                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
+                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false), true, true))));
 
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
@@ -622,9 +622,9 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
-                        new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
+                        new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList(), false),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
-                                Collections.emptyList()))),
+                                Collections.emptyList(), false))),
                 ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -693,7 +693,7 @@ class ChildOutputPropertyDeriverTest {
 
     @Test
     void testLocalPhaseAggregate() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE, false);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
@@ -706,7 +706,7 @@ class ChildOutputPropertyDeriverTest {
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
-                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
+                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
@@ -716,8 +716,8 @@ class ChildOutputPropertyDeriverTest {
 
     @Test
     void testGlobalPhaseAggregate() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
-        SlotReference partition = new SlotReference("col2", BigIntType.INSTANCE);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE, false);
+        SlotReference partition = new SlotReference("col2", BigIntType.INSTANCE, false);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
@@ -732,7 +732,7 @@ class ChildOutputPropertyDeriverTest {
                 ShuffleType.EXECUTION_BUCKETED);
         PhysicalProperties child = new PhysicalProperties(childHash,
                 new OrderSpec(Lists.newArrayList(
-                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
+                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
@@ -760,7 +760,7 @@ class ChildOutputPropertyDeriverTest {
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecGather.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
-                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
+                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
@@ -769,14 +769,14 @@ class ChildOutputPropertyDeriverTest {
 
     @Test
     void testLocalQuickSort() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE, false);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, SortPhase.LOCAL_SORT, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(sort);
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
-                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
+                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
@@ -786,14 +786,14 @@ class ChildOutputPropertyDeriverTest {
 
     @Test
     void testQuickSort() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE, false);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, SortPhase.MERGE_SORT, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(sort);
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
-                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
+                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
@@ -803,7 +803,7 @@ class ChildOutputPropertyDeriverTest {
 
     @Test
     void testTopN() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE, false);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         // localSort require any
         PhysicalTopN<GroupPlan> sort = new PhysicalTopN<>(orderKeys, 10, 10, SortPhase.LOCAL_SORT, logicalProperties, groupPlan);
@@ -811,7 +811,7 @@ class ChildOutputPropertyDeriverTest {
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
-                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
+                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
@@ -823,7 +823,7 @@ class ChildOutputPropertyDeriverTest {
         new Group(null, groupExpression, null);
         child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
-                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
+                        new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE, false), true, true))));
 
         deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         result = deriver.getOutputProperties(null, groupExpression);
@@ -833,7 +833,7 @@ class ChildOutputPropertyDeriverTest {
 
     @Test
     void testLimit() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE, false);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         PhysicalLimit<GroupPlan> limit = new PhysicalLimit<>(10, 10, LimitPhase.ORIGIN, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(limit);
@@ -865,11 +865,11 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testRepeatReturnAny() {
         SlotReference c1 = new SlotReference(
-                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of());
+                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of(), false);
         SlotReference c2 = new SlotReference(
-                new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of());
+                new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of(), false);
         SlotReference c3 = new SlotReference(
-                new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of());
+                new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of(), false);
         PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(c1, c2), ImmutableList.of(c1), ImmutableList.of(c1, c3)),
                 ImmutableList.of(c1, c2, c3),
@@ -888,11 +888,11 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testRepeatReturnChild() {
         SlotReference c1 = new SlotReference(
-                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of());
+                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of(), false);
         SlotReference c2 = new SlotReference(
-                new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of());
+                new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of(), false);
         SlotReference c3 = new SlotReference(
-                new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of());
+                new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of(), false);
         PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(c1, c2), ImmutableList.of(c1), ImmutableList.of(c1, c3)),
                 ImmutableList.of(c1, c2, c3),
@@ -911,11 +911,11 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testRepeatReturnChild2() {
         SlotReference c1 = new SlotReference(
-                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of());
+                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of(), false);
         SlotReference c2 = new SlotReference(
-                new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of());
+                new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of(), false);
         SlotReference c3 = new SlotReference(
-                new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of());
+                new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of(), false);
         PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(c1, c2, c3), ImmutableList.of(c1, c2), ImmutableList.of(c1, c2)),
                 ImmutableList.of(c1, c2, c3),
