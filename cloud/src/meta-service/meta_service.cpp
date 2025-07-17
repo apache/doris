@@ -2981,45 +2981,6 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
     return true;
 }
 
-static bool clear_all_mow_tablet_job_keys(MetaServiceCode& code, std::string& msg,
-                                          std::stringstream& ss, std::unique_ptr<Transaction>& txn,
-                                          std::string& instance_id, int64_t table_id,
-                                          int64_t lock_id) {
-    std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
-    std::string key1 = mow_tablet_job_key({instance_id, table_id + 1, 0});
-    MowTabletJobPB mow_tablet_job;
-    std::unique_ptr<RangeGetIterator> it;
-    int64_t job_key_num = 0;
-    do {
-        TxnErrorCode err = txn->get(key0, key1, &it);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            ss << "internal error, failed to get mow tablet job, err=" << err;
-            msg = ss.str();
-            LOG(WARNING) << msg;
-            return false;
-        }
-
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-            if (!mow_tablet_job.ParseFromArray(v.data(), v.size())) [[unlikely]] {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "failed to parse MowTabletJobPB";
-                return false;
-            }
-            LOG(INFO) << "remove mow tablet job lock. table_id=" << table_id
-                      << " lock_id=" << lock_id << " expiration=" << mow_tablet_job.expiration()
-                      << " key=" << hex(k);
-            txn->remove(k);
-            job_key_num++;
-        }
-        key0 = it->next_begin_key(); // Update to next smallest key for iteration
-    } while (it->more());
-    LOG_INFO("clear {} mow tablet job keys, instance_id={}, table_id={}", job_key_num, instance_id,
-             table_id);
-    return true;
-}
-
 void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         google::protobuf::RpcController* controller,
         const GetDeleteBitmapUpdateLockRequest* request,
@@ -3103,10 +3064,11 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
             if (urgent) {
                 DCHECK(request->lock_id() > 0);
                 lock_info.clear_initiators();
-                if (!clear_all_mow_tablet_job_keys(code, msg, ss, txn, instance_id, table_id,
-                                                   lock_info.lock_id())) {
-                    return;
-                }
+                std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
+                std::string key1 = mow_tablet_job_key({instance_id, table_id + 1, 0});
+                txn->remove(key0, key1);
+                LOG(INFO) << "remove mow tablet job kv, begin=" << hex(key0) << " end=" << hex(key1)
+                          << " table_id=" << table_id;
                 std::string current_lock_msg =
                         "original lock_id=" + std::to_string(lock_info.lock_id());
                 lock_info.set_lock_id(request->lock_id());
