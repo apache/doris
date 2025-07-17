@@ -356,13 +356,9 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
 
 TEST_F(ColumnVariantTest, test_nested_array_of_jsonb_get) {
     // Test case: Create a ColumnVariant with subcolumn type Array<JSONB>
-    // This covers the code in column_variant.cpp lines 904-919
 
     // Create a ColumnVariant with subcolumns
     auto variant_column = ColumnVariant::create(true);
-
-    // Create a subcolumn with Array<JSONB> type
-    auto array_jsonb_type = make_nullable(ColumnVariant::NESTED_TYPE_AS_ARRAY_OF_JSONB);
 
     // Add subcolumn with path "nested.array"
     variant_column->add_sub_column(PathInData("nested.array"), 0);
