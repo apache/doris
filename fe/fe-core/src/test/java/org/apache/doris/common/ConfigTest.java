@@ -30,6 +30,6 @@ public class ConfigTest {
         // if you want to change be_exec_version, you should know what you are doing
         Assertions.assertEquals(7, Config.max_be_exec_version);
         Assertions.assertEquals(0, Config.min_be_exec_version);
-        Assertions.assertEquals(6, Config.be_exec_version);
+        Assertions.assertEquals(7, Config.be_exec_version);
     }
 }
