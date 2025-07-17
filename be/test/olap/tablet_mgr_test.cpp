@@ -491,7 +491,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     }
 
     {
-        k_engine->_compaction_num_per_round=2;
+        k_engine->_compaction_num_per_round = 2;
         for (int64_t i = 1; i <= 100; ++i) {
             create_tablet(20000 + i, false, i);
         }
