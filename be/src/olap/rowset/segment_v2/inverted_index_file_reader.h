@@ -42,6 +42,7 @@ class DorisCompoundReader;
 
 class InvertedIndexFileReader {
 public:
+    using EntriesType = std::unordered_map<std::string, std::unique_ptr<ReaderFileEntry>>;
     using IndicesEntriesMap =
             std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;
 
