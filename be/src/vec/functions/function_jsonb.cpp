@@ -762,11 +762,6 @@ private:
                                               ColumnString::Offsets& res_offsets, NullMap& null_map,
                                               std::unique_ptr<JsonbToJson>& formater,
                                               const char* l_raw, size_t l_size, JsonbPath& path) {
-        if (null_map[i]) {
-            StringOP::push_null_string(i, res_data, res_offsets, null_map);
-            return;
-        }
-
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
         JsonbDocument* doc = nullptr;
         auto st = JsonbDocument::checkAndCreateDocument(l_raw, l_size, &doc);
@@ -791,6 +786,25 @@ private:
 
         if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
             JsonbWriter writer;
+
+            if constexpr (ValueType::no_quotes) {
+                if (find_result.value->isString()) {
+                    const auto* str_value = find_result.value->unpack<JsonbStringVal>();
+                    const auto* blob = str_value->getBlob();
+                    if (str_value->length() > 1 && blob[0] == '"' &&
+                        blob[str_value->length() - 1] == '"') {
+                        writer.writeStartString();
+                        writer.writeString(blob + 1, str_value->length() - 2);
+                        writer.writeEndString();
+                        StringOP::push_value_string(
+                                std::string_view(writer.getOutput()->getBuffer(),
+                                                 writer.getOutput()->getSize()),
+                                i, res_data, res_offsets);
+                        return;
+                    }
+                }
+            }
+
             writer.writeValue(find_result.value);
             StringOP::push_value_string(std::string_view(writer.getOutput()->getBuffer(),
                                                          writer.getOutput()->getSize()),
@@ -885,7 +899,6 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
                 continue;
             }
 
@@ -925,7 +938,8 @@ public:
 
                     const auto path_index = index_check_const(i, path_const[pi]);
                     if (r_null_maps[pi] && (*r_null_maps[pi])[path_index]) {
-                        continue;
+                        StringOP::push_null_string(i, res_data, res_offsets, null_map);
+                        break;
                     }
 
                     if (!path_const[pi]) {
@@ -1210,6 +1224,16 @@ struct JsonbTypeJson {
     using ColumnType = ColumnString;
     static const bool only_check_exists = false;
     static const bool only_get_type = false;
+    static const bool no_quotes = false;
+};
+
+struct JsonbTypeJsonNoQuotes {
+    using T = std::string;
+    using ReturnType = DataTypeJsonb;
+    using ColumnType = ColumnString;
+    static const bool only_check_exists = false;
+    static const bool only_get_type = false;
+    static const bool no_quotes = true;
 };
 
 struct JsonbTypeType {
@@ -1218,11 +1242,17 @@ struct JsonbTypeType {
     using ColumnType = ColumnString;
     static const bool only_check_exists = false;
     static const bool only_get_type = true;
+    static const bool no_quotes = false;
 };
 
 struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
     static constexpr auto name = "jsonb_extract";
-    static constexpr auto alias = "jsonb_extract";
+    static constexpr auto alias = "json_extract";
+};
+
+struct JsonbExtractJsonbNoQuotes : public JsonbExtractStringImpl<JsonbTypeJsonNoQuotes> {
+    static constexpr auto name = "jsonb_extract_no_quotes";
+    static constexpr auto alias = "json_extract_no_quotes";
 };
 
 struct JsonbType : public JsonbExtractStringImpl<JsonbTypeType> {
@@ -1235,6 +1265,7 @@ using FunctionJsonbType = FunctionJsonbExtract<JsonbType>;
 
 using FunctionJsonbExtractIsnull = FunctionJsonbExtract<JsonbExtractIsnull>;
 using FunctionJsonbExtractJsonb = FunctionJsonbExtract<JsonbExtractJsonb>;
+using FunctionJsonbExtractJsonbNoQuotes = FunctionJsonbExtract<JsonbExtractJsonbNoQuotes>;
 
 template <typename Impl>
 class FunctionJsonbLength : public IFunction {
@@ -2686,6 +2717,9 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionJsonbExtractIsnull::name, FunctionJsonbExtractIsnull::alias);
 
     factory.register_function<FunctionJsonbExtractJsonb>();
+    factory.register_function<FunctionJsonbExtractJsonbNoQuotes>();
+    factory.register_alias(FunctionJsonbExtractJsonbNoQuotes::name,
+                           FunctionJsonbExtractJsonbNoQuotes::alias);
 
     factory.register_function<FunctionJsonbLength<JsonbLengthImpl>>();
     factory.register_function<FunctionJsonbLength<JsonbLengthAndPathImpl>>();
