@@ -273,7 +273,7 @@ Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* 
 
 bool Tablet::set_tablet_schema_into_rowset_meta() {
     bool flag = false;
-    for (auto&& rowset_meta : _tablet_meta->all_mutable_rs_metas()) {
+    for (auto& [_, rowset_meta] : _tablet_meta->all_mutable_rs_metas()) {
         if (!rowset_meta->tablet_schema()) {
             rowset_meta->set_tablet_schema(_tablet_meta->tablet_schema());
             flag = true;
@@ -2831,8 +2831,7 @@ void Tablet::check_table_size_correctness() {
     if (!config::enable_table_size_correctness_check) {
         return;
     }
-    const std::vector<RowsetMetaSharedPtr>& all_rs_metas = _tablet_meta->all_rs_metas();
-    for (const auto& rs_meta : all_rs_metas) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         int64_t total_segment_size = get_segment_file_size(rs_meta);
         int64_t total_inverted_index_size = get_inverted_index_file_size(rs_meta);
         if (rs_meta->data_disk_size() != total_segment_size ||

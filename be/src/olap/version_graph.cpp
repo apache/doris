@@ -37,7 +37,7 @@ namespace doris {
 using namespace ErrorCode;
 
 void TimestampedVersionTracker::_construct_versioned_tracker(
-        const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+        const RowsetMetaMapContainer& rs_metas) {
     int64_t max_version = 0;
 
     // construct the rowset graph
@@ -45,7 +45,7 @@ void TimestampedVersionTracker::_construct_versioned_tracker(
 }
 
 void TimestampedVersionTracker::construct_versioned_tracker(
-        const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+        const RowsetMetaMapContainer& rs_metas) {
     if (rs_metas.empty()) {
         VLOG_NOTICE << "there is no version in the header.";
         return;
@@ -56,8 +56,8 @@ void TimestampedVersionTracker::construct_versioned_tracker(
 }
 
 void TimestampedVersionTracker::construct_versioned_tracker(
-        const std::vector<RowsetMetaSharedPtr>& rs_metas,
-        const std::vector<RowsetMetaSharedPtr>& stale_metas) {
+        const RowsetMetaMapContainer& rs_metas,
+        const RowsetMetaMapContainer& stale_metas) {
     if (rs_metas.empty()) {
         VLOG_NOTICE << "there is no version in the header.";
         return;
@@ -71,15 +71,15 @@ void TimestampedVersionTracker::construct_versioned_tracker(
 }
 
 void TimestampedVersionTracker::_init_stale_version_path_map(
-        const std::vector<RowsetMetaSharedPtr>& rs_metas,
-        const std::vector<RowsetMetaSharedPtr>& stale_metas) {
+        const RowsetMetaMapContainer& rs_metas,
+        const RowsetMetaMapContainer& stale_metas) {
     if (stale_metas.empty()) {
         return;
     }
 
     // Sort stale meta by version diff (second version - first version).
     std::list<RowsetMetaSharedPtr> sorted_stale_metas;
-    for (auto& rs : stale_metas) {
+    for (const auto& [_, rs] : stale_metas) {
         sorted_stale_metas.emplace_back(rs);
     }
 
@@ -141,7 +141,7 @@ void TimestampedVersionTracker::_init_stale_version_path_map(
     }
 
     // 3. generate stale path from `rs_metas`.
-    for (auto& stale_meta : rs_metas) {
+    for (const auto& [_, stale_meta] : rs_metas) {
         std::vector<RowsetMetaSharedPtr> stale_path;
         // 3.1 find a path in stale_map can replace current `stale_meta` version.
         bool r = _find_path_from_stale_map(stale_map, stale_meta->start_version(),
@@ -451,8 +451,9 @@ std::vector<TimestampedVersionSharedPtr>& TimestampedVersionPathContainer::times
     return _timestamped_versions_container;
 }
 
-void VersionGraph::construct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                           int64_t* max_version) {
+void VersionGraph::construct_version_graph(
+        const RowsetMetaMapContainer& rs_metas,
+        int64_t* max_version) {
     if (rs_metas.empty()) {
         VLOG_NOTICE << "there is no version in the header.";
         return;
@@ -462,11 +463,11 @@ void VersionGraph::construct_version_graph(const std::vector<RowsetMetaSharedPtr
     std::vector<int64_t> vertex_values;
     vertex_values.reserve(2 * rs_metas.size());
 
-    for (size_t i = 0; i < rs_metas.size(); ++i) {
-        vertex_values.push_back(rs_metas[i]->start_version());
-        vertex_values.push_back(rs_metas[i]->end_version() + 1);
-        if (max_version != nullptr and *max_version < rs_metas[i]->end_version()) {
-            *max_version = rs_metas[i]->end_version();
+    for (const auto& [_, rs] : rs_metas) {
+        vertex_values.push_back(rs->start_version());
+        vertex_values.push_back(rs->end_version() + 1);
+        if (max_version != nullptr and *max_version < rs->end_version()) {
+            *max_version = rs->end_version();
         }
     }
     std::sort(vertex_values.begin(), vertex_values.end());
@@ -484,11 +485,11 @@ void VersionGraph::construct_version_graph(const std::vector<RowsetMetaSharedPtr
         last_vertex_value = vertex_values[i];
     }
     // Create edges for version graph according to TabletMeta's versions.
-    for (size_t i = 0; i < rs_metas.size(); ++i) {
+    for (const auto& [_, rs] : rs_metas) {
         // Versions in header are unique.
         // We ensure `_vertex_index_map` has its `start_version`.
-        int64_t start_vertex_index = _vertex_index_map[rs_metas[i]->start_version()];
-        int64_t end_vertex_index = _vertex_index_map[rs_metas[i]->end_version() + 1];
+        int64_t start_vertex_index = _vertex_index_map[rs->start_version()];
+        int64_t end_vertex_index = _vertex_index_map[rs->end_version() + 1];
         // Add one edge from `start_version` to `end_version`.
         _version_graph[start_vertex_index].edges.push_front(end_vertex_index);
         // Add reverse edge from `end_version` to `start_version`.
@@ -503,8 +504,9 @@ void VersionGraph::construct_version_graph(const std::vector<RowsetMetaSharedPtr
     }
 }
 
-void VersionGraph::reconstruct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                             int64_t* max_version) {
+void VersionGraph::reconstruct_version_graph(
+        const RowsetMetaMapContainer& rs_metas,
+        int64_t* max_version) {
     _version_graph.clear();
     _vertex_index_map.clear();
 

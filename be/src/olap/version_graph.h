@@ -41,11 +41,13 @@ class VersionGraph {
 public:
     /// Use rs_metas to construct the graph including vertex and edges, and return the
     /// max_version in metas.
-    void construct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                 int64_t* max_version);
+    void construct_version_graph(
+            const RowsetMetaMapContainer& rs_metas,
+            int64_t* max_version);
     /// Reconstruct the graph, begin construction the vertex vec and edges list will be cleared.
-    void reconstruct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                   int64_t* max_version);
+    void reconstruct_version_graph(
+            const RowsetMetaMapContainer& rs_metas,
+            int64_t* max_version);
     /// Add a version to this graph, graph will add the version and edge in version.
     void add_version_to_graph(const Version& version);
     /// Delete a version from graph. Notice that this del operation only remove this edges and
@@ -171,11 +173,13 @@ using PathVersionListSharedPtr = std::shared_ptr<TimestampedVersionPathContainer
 class TimestampedVersionTracker {
 public:
     /// Construct rowsets version tracker by main path rowset meta.
-    void construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
+    void construct_versioned_tracker(
+            const RowsetMetaMapContainer& rs_metas);
 
     /// Construct rowsets version tracker by main path rowset meta and stale rowset meta.
-    void construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                     const std::vector<RowsetMetaSharedPtr>& stale_metas);
+    void construct_versioned_tracker(
+            const RowsetMetaMapContainer& rs_metas,
+            const RowsetMetaMapContainer& stale_metas);
 
     /// Recover rowsets version tracker from stale version path map. When delete operation fails, the
     /// tracker can be recovered from deleted stale_version_path_map.
@@ -258,11 +262,13 @@ public:
 
 private:
     /// Construct rowsets version tracker with main path rowset meta.
-    void _construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
+    void _construct_versioned_tracker(
+            const RowsetMetaMapContainer& rs_metas);
 
     /// init stale_version_path_map by main path rowset meta and stale rowset meta.
-    void _init_stale_version_path_map(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                      const std::vector<RowsetMetaSharedPtr>& stale_metas);
+    void _init_stale_version_path_map(
+            const RowsetMetaMapContainer& rs_metas,
+            const RowsetMetaMapContainer& stale_metas);
 
     /// find a path in stale_map from first_version to second_version, stale_path is used as result.
     bool _find_path_from_stale_map(

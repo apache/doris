@@ -193,8 +193,8 @@ public:
 
     TabletSchema* mutable_tablet_schema();
 
-    const std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>& all_rs_metas() const;
-    std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>& all_mutable_rs_metas();
+    const RowsetMetaMapContainer& all_rs_metas() const;
+    RowsetMetaMapContainer& all_mutable_rs_metas();
     Status add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
@@ -206,8 +206,7 @@ public:
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
     void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
 
-    const std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>& all_stale_rs_metas()
-            const;
+    const RowsetMetaMapContainer& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
@@ -337,11 +336,11 @@ private:
     TabletSchemaSPtr _schema;
     Cache::Handle* _handle = nullptr;
 
-    std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion> _rs_metas;
+    RowsetMetaMapContainer _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
     // These stale rowsets meta are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
-    std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion> _stale_rs_metas;
+    RowsetMetaMapContainer _stale_rs_metas;
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
@@ -777,18 +776,15 @@ inline TabletSchema* TabletMeta::mutable_tablet_schema() {
     return _schema.get();
 }
 
-inline const std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>&
-TabletMeta::all_rs_metas() const {
+inline const RowsetMetaMapContainer& TabletMeta::all_rs_metas() const {
     return _rs_metas;
 }
 
-inline std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>&
-TabletMeta::all_mutable_rs_metas() {
+inline RowsetMetaMapContainer& TabletMeta::all_mutable_rs_metas() {
     return _rs_metas;
 }
 
-inline const std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>&
-TabletMeta::all_stale_rs_metas() const {
+inline const RowsetMetaMapContainer& TabletMeta::all_stale_rs_metas() const {
     return _stale_rs_metas;
 }
 
