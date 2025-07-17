@@ -19,12 +19,12 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;

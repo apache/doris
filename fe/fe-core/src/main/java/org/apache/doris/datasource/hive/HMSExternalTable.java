@@ -1078,8 +1078,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     getRemoteTable().getSd().getInputFormat(),
                     getRemoteTable().getSd().getLocation(), null, Maps.newHashMap()));
         }
-        // Get files for all partitions.
-        String bindBrokerName = catalog.bindBrokerName();
         if (LOG.isDebugEnabled()) {
             for (HivePartition partition : hivePartitions) {
                 LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
