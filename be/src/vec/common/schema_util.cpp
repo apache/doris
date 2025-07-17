@@ -241,6 +241,9 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 // check if two paths which same prefix have different structure
 static bool has_different_structure_in_same_path(const PathInData::Parts& lhs,
                                                  const PathInData::Parts& rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false; // different size means different structure
+    }
     // Since we group by path string, lhs and rhs must have the same size and keys
     // We only need to check if they have different nested structure
     for (size_t i = 0; i < lhs.size(); ++i) {

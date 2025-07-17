@@ -280,6 +280,21 @@ TEST_F(SchemaUtilTest, has_different_structure_in_same_path_indirect) {
         auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
+
+    // Test case 12: we have path like '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}'
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("a", false).append("b", false);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("a.b", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
 }
 
 // Test check_path_conflicts_with_existing function indirectly through update_least_common_schema
