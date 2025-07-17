@@ -38,8 +38,9 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
     @Test
     public void testCoalesce() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(bottomUp((SimplifyConditionalFunction.INSTANCE))));
-        SlotReference slot = new SlotReference("a", StringType.INSTANCE, true);
-        SlotReference nonNullableSlot = new SlotReference("b", StringType.INSTANCE, false);
+        SlotReference slot = new SlotReference("a", StringType.INSTANCE, true, false);
+        SlotReference nonNullableSlot = new SlotReference("b", StringType.INSTANCE, false,
+                false);
 
         // coalesce(null, null, nullable_slot) -> nullable_slot
         assertRewrite(new Coalesce(NullLiteral.INSTANCE, NullLiteral.INSTANCE, slot), slot);
@@ -74,7 +75,8 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         // coalesce(null, nullable_slot, literal) -> coalesce(nullable_slot, slot, literal)
         assertRewrite(new Coalesce(slot, nonNullableSlot), new Coalesce(slot, nonNullableSlot));
 
-        SlotReference datetimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false);
+        SlotReference datetimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false,
+                false);
         // coalesce(null_datetime(0), non-nullable_slot_datetime(6))
         assertRewrite(
                 new Coalesce(new NullLiteral(DateTimeV2Type.of(6)), datetimeSlot),
@@ -90,8 +92,10 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
     @Test
     public void testNvl() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(bottomUp((SimplifyConditionalFunction.INSTANCE))));
-        SlotReference slot = new SlotReference("a", StringType.INSTANCE, true);
-        SlotReference nonNullableSlot = new SlotReference("b", StringType.INSTANCE, false);
+        SlotReference slot = new SlotReference("a", StringType.INSTANCE, true,
+                false);
+        SlotReference nonNullableSlot = new SlotReference("b", StringType.INSTANCE, false,
+                false);
         // nvl(null, nullable_slot) -> nullable_slot
         assertRewrite(new Nvl(NullLiteral.INSTANCE, slot), slot);
 
@@ -107,7 +111,8 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         // nvl(null, null) -> null
         assertRewrite(new Nvl(NullLiteral.INSTANCE, NullLiteral.INSTANCE), new NullLiteral(BooleanType.INSTANCE));
 
-        SlotReference datetimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false);
+        SlotReference datetimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false,
+                false);
         // nvl(null_datetime(0), non-nullable_slot_datetime(6))
         assertRewrite(
                 new Nvl(new NullLiteral(DateTimeV2Type.of(6)), datetimeSlot),
@@ -123,8 +128,9 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
     @Test
     public void testNullIf() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(bottomUp((SimplifyConditionalFunction.INSTANCE))));
-        SlotReference slot = new SlotReference("a", StringType.INSTANCE, true);
-        SlotReference nonNullableSlot = new SlotReference("b", StringType.INSTANCE, false);
+        SlotReference slot = new SlotReference("a", StringType.INSTANCE, true, false);
+        SlotReference nonNullableSlot = new SlotReference("b", StringType.INSTANCE, false,
+                false);
         // nullif(null, slot) -> null
         assertRewrite(new NullIf(NullLiteral.INSTANCE, slot),
                 new Nullable(new NullLiteral(VarcharType.SYSTEM_DEFAULT)));

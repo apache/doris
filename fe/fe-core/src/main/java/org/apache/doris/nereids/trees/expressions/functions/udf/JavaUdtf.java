@@ -150,7 +150,7 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
 
         VirtualSlotReference[] virtualSlots = argTypes.stream()
                 .map(type -> new VirtualSlotReference(type.toString(), type, Optional.empty(),
-                        (shape) -> ImmutableList.of()))
+                        (shape) -> ImmutableList.of(), true))
                 .toArray(VirtualSlotReference[]::new);
 
         JavaUdtf udf = new JavaUdtf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
