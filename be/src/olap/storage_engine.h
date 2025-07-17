@@ -235,7 +235,7 @@ public:
 
     Status submit_clone_task(Tablet* tablet, int64_t version);
 
-    std::unique_ptr<TaskWorkerPool>* clone_workers;
+    std::unique_ptr<PriorTaskWorkerPool>* clone_workers;
 
 private:
     // Instance should be inited from `static open()`
