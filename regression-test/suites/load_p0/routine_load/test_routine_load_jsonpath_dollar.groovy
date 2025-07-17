@@ -139,7 +139,7 @@ suite("test_routine_load_jsonpath_dollar", "p0") {
             assertTrue(jsonContent.contains("time"), "Content should contain the full JSON with 'time' field")
 
             def specificData = sql "select time, id, name from ${tableName} where id = 1"
-            assertEquals("2025-07-16 01:31:13", specificData[0][0])
+            assertEquals("2025-07-16T01:31:13", specificData[0][0])
             assertEquals(1, specificData[0][1])
             assertEquals("test1", specificData[0][2])
         } finally {
