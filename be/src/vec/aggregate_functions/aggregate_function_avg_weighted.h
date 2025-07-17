@@ -50,9 +50,13 @@ struct AggregateFunctionAvgWeightedData {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        if constexpr (is_decimal(T)) {
+        // remove those wrong implementations after upgrade
+        // this function will only support double input
+        if constexpr (T == TYPE_DECIMALV2) {
             DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
             data_sum = data_sum + (double(value) * weight_val);
+        } else if constexpr (is_decimal(T)) {
+            data_sum += double(data_val.value) * weight_val;
         } else {
             data_sum = data_sum + (double(data_val) * weight_val);
         }

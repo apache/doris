@@ -311,8 +311,8 @@ struct ConvertImpl {
                     // block.get_by_position(result).column =
                     //         ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
-                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
-                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>) &&
+                                     (std::is_same_v<ToDataType, DataTypeIPv6>)) {
                     for (size_t i = 0; i < size; ++i) {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
@@ -418,7 +418,12 @@ struct ConvertImplToTimeType {
             } else {
                 for (size_t i = 0; i < size; ++i) {
                     auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
-                    vec_null_map_to[i] = !date_value.from_date_int64(int64_t(vec_from[i]));
+                    if constexpr (is_decimal(FromDataType::PType)) {
+                        vec_null_map_to[i] =
+                                !date_value.from_date_int64(int64_t(vec_from[i].value));
+                    } else {
+                        vec_null_map_to[i] = !date_value.from_date_int64(int64_t(vec_from[i]));
+                    }
                     // DateType of VecDateTimeValue should cast to date
                     if constexpr (IsDateType<ToDataType>) {
                         date_value.cast_to_date();

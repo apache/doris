@@ -367,12 +367,6 @@ struct Decimal {
         return result;
     }
 
-    operator Int128() const
-        requires(IsInt256)
-    {
-        return (Int128)value.items[0] + ((Int128)(value.items[1]) << 64);
-    }
-
     const Decimal<T>& operator++() {
         value++;
         return *this;
@@ -403,11 +397,7 @@ struct Decimal {
         return *this;
     }
 
-    auto operator<=>(const Decimal<T>& x) const
-        requires(!Decimal<T>::IsInt256)
-    {
-        return value <=> x.value;
-    }
+    auto operator<=>(const Decimal<T>& x) const { return value <=> x.value; }
 
     auto operator==(const Decimal<T>& x) const { return value == x.value; }
 
@@ -481,8 +471,10 @@ struct Decimal128V3 : public Decimal<Int128> {
 #undef DECLARE_NUMERIC_CTOR
 
     template <typename U>
-    Decimal128V3(const Decimal<U>& x) {
-        value = x;
+    Decimal128V3(const Decimal<U>& x)
+        requires(!Decimal<U>::IsInt256)
+    {
+        value = x.value;
     }
     static Decimal128V3 from_int_frac(Int128 integer, Int128 fraction, int scale) {
         return {integer * common::exp10_i128(scale) + fraction};
@@ -618,3 +610,29 @@ struct std::hash<doris::vectorized::Decimal256> {
                std::hash<uint64_t>()(x.value & std::numeric_limits<uint64_t>::max());
     }
 };
+
+template <typename T>
+struct fmt::formatter<doris::vectorized::Decimal<T>> {
+    constexpr auto parse(format_parse_context& ctx) {
+        const auto* it = ctx.begin();
+        const auto* end = ctx.end();
+
+        /// Only support {}.
+        if (it != end && *it != '}') {
+            throw format_error("invalid format");
+        }
+
+        return it;
+    }
+
+    template <typename FormatContext>
+    auto format(const doris::vectorized::Decimal<T>& value, FormatContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", to_string(value.value));
+    }
+};
+
+extern template struct fmt::formatter<doris::vectorized::Decimal32>;
+extern template struct fmt::formatter<doris::vectorized::Decimal64>;
+extern template struct fmt::formatter<doris::vectorized::Decimal128V2>;
+extern template struct fmt::formatter<doris::vectorized::Decimal128V3>;
+extern template struct fmt::formatter<doris::vectorized::Decimal256>;
