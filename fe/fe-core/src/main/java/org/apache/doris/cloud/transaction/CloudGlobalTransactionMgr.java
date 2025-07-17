@@ -974,8 +974,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 int retryTime = 0;
                 while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
                     long waitTime = System.currentTimeMillis() - startTime;
-                    boolean urgent = Config.enable_mow_load_force_take_ms_lock
-                            && waitTime > Config.mow_load_force_take_ms_lock_threshold_ms;
+                    boolean enableUrgentLock = Config.enable_mow_load_force_take_ms_lock;
+                    long remainedTime = Config.mow_load_force_take_ms_lock_threshold_ms - waitTime;
+                    boolean urgent = enableUrgentLock && remainedTime < 0;
                     if (urgent) {
                         LOG.info("try to get delete bitmap lock with urgent flag, tableId={}, txnId={}",
                                 tableId, transactionId);
@@ -1031,6 +1032,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                             interval = Config.mow_load_force_take_ms_lock_threshold_ms;
                         }
                         long randomMillis = base + (long) (Math.random() * interval);
+                        if (enableUrgentLock && randomMillis > remainedTime) {
+                            randomMillis = remainedTime;
+                        }
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("randomMillis:{}", randomMillis);
                         }
