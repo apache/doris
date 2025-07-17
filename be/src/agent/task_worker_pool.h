@@ -26,6 +26,7 @@
 #include <string>
 #include <string_view>
 
+#include "common/status.h"
 #include "gutil/ref_counted.h"
 
 namespace doris {

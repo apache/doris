@@ -17,11 +17,11 @@
 
 #include "olap/cumulative_compaction.h"
 
-#include <stddef.h>
-#include <stdint.h>
 #include <cpp/sync_point.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <memory>
 #include <mutex>
