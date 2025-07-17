@@ -688,7 +688,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                     (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                             ? _cumu_compaction_thread_pool
                             : _base_compaction_thread_pool;
-            // 如果线程池队列任务被全部执行，将每次产生的任务翻倍，最大每次产生64个任务
+            // If all tasks in the thread pool queue are executed,
+            // double the number of tasks generated each time,
+            // with a maximum of 64 tasks per generation.
             if (thread_pool->get_queue_size() == 0) {
                 if (_compaction_num_per_round < 64) {
                     _compaction_num_per_round *= 2;
@@ -696,7 +698,8 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                             .tag("new compaction_num_per_round", _compaction_num_per_round);
                 }
             } else {
-                // 清空线程池，保证每次都是score最高的topn提交
+                // Clear the thread pool and ensure that only the
+                // top-N tasks with the highest scores are submitted each time.
                 thread_pool->clear();
             }
             std::vector<TabletSharedPtr> tablets_compaction =
