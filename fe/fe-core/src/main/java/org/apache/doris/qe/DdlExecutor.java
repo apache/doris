@@ -53,7 +53,6 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropIndexPolicyStmt;
-import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -188,8 +187,6 @@ public class DdlExecutor {
             env.backup((BackupStmt) ddlStmt);
         } else if (ddlStmt instanceof RestoreStmt) {
             env.restore((RestoreStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropRepositoryStmt) {
-            env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
         } else if (ddlStmt instanceof InstallPluginStmt) {

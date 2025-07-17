@@ -2662,10 +2662,6 @@ drop_stmt ::=
     {:
         RESULT = new DropTableStmt(ifExists, name, true, false);
     :}
-    | KW_DROP KW_REPOSITORY ident:repoName
-    {:
-        RESULT = new DropRepositoryStmt(repoName);
-    :}
     | KW_DROP KW_ROLE opt_if_exists:ifExists ident:role
     {:
         RESULT = new DropRoleStmt(ifExists, role);
