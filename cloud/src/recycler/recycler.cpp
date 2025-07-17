@@ -375,6 +375,7 @@ void Recycler::check_recycle_tasks() {
 int Recycler::start(brpc::Server* server) {
     instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
+    S3Environment::getInstance();
 
     if (config::enable_checker) {
         checker_ = std::make_unique<Checker>(txn_kv_);
@@ -690,7 +691,9 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_stage(); }))
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::recycle_expired_stage_objects(); }))
-                .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }));
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_operation_logs(); }));
+
         bool finished = true;
         std::vector<int> rets = sync_executor.when_all(&finished);
         for (int ret : rets) {

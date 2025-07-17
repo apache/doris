@@ -42,6 +42,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
@@ -170,6 +171,37 @@ public class RoutineLoadManager implements Writable {
         }
         return beCurrentTaskNumMap;
 
+    }
+
+    public void createRoutineLoadJob(CreateRoutineLoadInfo info, ConnectContext ctx)
+            throws UserException {
+        // check load auth
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                InternalCatalog.INTERNAL_CATALOG_NAME,
+                info.getDBName(),
+                info.getTableName(),
+                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    info.getDBName(),
+                    info.getDBName() + ": " + info.getTableName());
+        }
+
+        RoutineLoadJob routineLoadJob = null;
+        LoadDataSourceType type = LoadDataSourceType.valueOf(info.getTypeName());
+        switch (type) {
+            case KAFKA:
+                routineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(info, ctx);
+                break;
+            default:
+                throw new UserException("Unknown data source type: " + type);
+        }
+
+        routineLoadJob.setOrigStmt(ctx.getStatementContext().getOriginStatement());
+        routineLoadJob.setComment(info.getComment());
+        addRoutineLoadJob(routineLoadJob, info.getDBName(),
+                info.getTableName());
     }
 
     // cloud override

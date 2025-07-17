@@ -750,6 +750,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PREFER_UDF_OVER_BUILTIN = "prefer_udf_over_builtin";
     public static final String ENABLE_ADD_INDEX_FOR_NEW_DATA = "enable_add_index_for_new_data";
 
+    public static final String SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR = "skew_rewrite_join_salt_explode_factor";
+
+    public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
+
+    public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -783,7 +789,7 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to allow predicates with CAST expressions to be pushed down to JDBC external tables."})
     public boolean enableJdbcCastPredicatePushDown = true;
 
-    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
+    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE, affectQueryResult = true)
     public boolean roundPreciseDecimalV2Value = false;
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
@@ -822,7 +828,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
-    @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
+    @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT, affectQueryResult = true)
     private long defaultOrderByLimit = -1;
 
     // query timeout in second.
@@ -875,7 +881,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableSingleDistinctColumnOpt = false;
 
     // Set sqlMode to empty string
-    @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
+    @VariableMgr.VarAttr(name = SQL_MODE, needForward = true, affectQueryResult = true)
     public long sqlMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
 
     @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE, needForward = true)
@@ -949,7 +955,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
     public boolean sqlAutoIsNull = false;
 
-    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
+    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT, affectQueryResult = true)
     private long sqlSelectLimit = Long.MAX_VALUE;
 
     // this is used to make c3p0 library happy
@@ -980,7 +986,7 @@ public class SessionVariable implements Serializable, Writable {
     public int netReadTimeout = 600;
 
     // The current time zone
-    @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true)
+    @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResult = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
@@ -1324,7 +1330,7 @@ public class SessionVariable implements Serializable, Writable {
     public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
-    private boolean enableParallelResultSink = false;
+    private boolean enableParallelResultSink = true;
 
     @VariableMgr.VarAttr(name = "sort_phase_num", fuzzy = true, needForward = true,
             description = {"如设置为1，则只生成1阶段sort，设置为2，则只生成2阶段sort，设置其它值，优化器根据代价选择sort类型",
@@ -1390,6 +1396,9 @@ public class SessionVariable implements Serializable, Writable {
     public void setCboNetWeight(double cboNetWeight) {
         this.cboNetWeight = cboNetWeight;
     }
+
+    @VariableMgr.VarAttr(name = "enable_init_join_order")
+    public boolean enableInitJoinOrder = true;
 
     @VariableMgr.VarAttr(name = CBO_CPU_WEIGHT)
     private double cboCpuWeight = 1.0;
@@ -1468,10 +1477,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
     private boolean enableShortCircuitQueryAcessColumnStore = true;
 
-    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, affectQueryResult = true)
     private boolean checkOverflowForDecimal = true;
 
-    @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, description = {
+    @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, affectQueryResult = true, description = {
             "当decimal数值计算结果精度溢出时，计算结果最多可保留的小数位数", "When the precision of the result of"
             + " a decimal numerical calculation overflows,"
             + "the maximum number of decimal scale that the result can be retained"
@@ -1751,7 +1760,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = false;
 
-    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
+    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN, affectQueryResult = true)
     public long groupConcatMaxLen = 2147483646;
 
     @VariableMgr.VarAttr(
@@ -2329,6 +2338,25 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
 
+    @VariableMgr.VarAttr(name = SKEW_REWRITE_AGG_BUCKET_NUM, needForward = true,
+            description = {"bucketNum参数控制count(distinct)倾斜优化的数据分布。决定不同值在worker间的分配方式，"
+                    + "值越大越能处理极端倾斜但增加shuffle开销，值越小网络开销越低但可能无法完全解决倾斜。",
+                    "The bucketNum parameter controls data distribution for skew optimization "
+                            + "in count(distinct) queries. Determines how distinct values "
+                            + "are distributed across workers to avoid data skew. "
+                            + "Larger values better handle extreme skew but increase shuffle overhead. "
+                            + "Smaller values reduce network traffic but may not fully resolve skew. "
+            }, checker = "checkSkewRewriteAggBucketNum")
+    public int skewRewriteAggBucketNum = 1024;
+
+    public void setSkewRewriteAggBucketNum(int num) {
+        this.skewRewriteAggBucketNum = num;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
+            description = {"cast使用严格模式", "Use strict mode for cast"})
+    public boolean enableStrictCast = false;
+
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
         if (ignoreRuntimeFilterIds.isEmpty()) {
@@ -2400,7 +2428,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
-            "Set to true to enable Decimal256 type" })
+            "Set to true to enable Decimal256 type" }, affectQueryResult = true)
     public boolean enableDecimal256 = false;
 
     @VariableMgr.VarAttr(name = FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
@@ -2574,7 +2602,7 @@ public class SessionVariable implements Serializable, Writable {
         "in条件value数量大于这个threshold后将不会走fast_execute",
         "When the number of values in the IN condition exceeds this threshold,"
                 + " fast_execute will not be used."
-    })
+    }, affectQueryResult = true)
     public int inListValueCountThreshold = 10;
 
     @VariableMgr.VarAttr(name = ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = {
@@ -2668,6 +2696,19 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to prefer UDF over builtin functions"
             })
     public boolean preferUdfOverBuiltin = false;
+
+    @VariableMgr.VarAttr(name = SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR, description = {
+            "join 加盐优化的扩展因子, 对指定的倾斜值，join倾斜侧生成0到 ExplodeFactor - 1的随机值，"
+                    + "join扩展侧复制为 ExplodeFactor 个副本，使hash shuffle之后计算负载均匀分布。"
+                    + "可以配置为0-65535中的数字: 0代表根据集群中be的数量和cpu核数自适应，1-65535中的数量代表扩展倍数",
+            "ExplodeFactor: The expansion factor for join skew optimization. "
+                    + "For specified skewed values, it generates random values between 0 and ExplodeFactor-1 "
+                    + "on the skewed side, while replicating the expanded side into ExplodeFactor copies,"
+                    + "ensuring even load distribution after hash shuffling. "
+                    + "Configurable range: 0-65535 (0=auto-adapt based on BEs and CPU cores;"
+                    + "1-65535=manual expansion multiplier)"
+    }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
+    public int skewRewriteJoinSaltExplodeFactor = 0;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -2927,10 +2968,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getQueryTimeoutS() {
         return queryTimeoutS;
-    }
-
-    public int getAnalyzeTimeoutS() {
-        return analyzeTimeoutS;
     }
 
     public void setEnableTwoPhaseReadOpt(boolean enable) {
@@ -3876,6 +3913,10 @@ public class SessionVariable implements Serializable, Writable {
         this.disableNereidsRules = disableNereidsRules;
     }
 
+    public void setEnableParallelResultSink(boolean enableParallelResultSink) {
+        this.enableParallelResultSink = enableParallelResultSink;
+    }
+
     public void setDisableNereidsExpressionRules(String disableNereidsExpressionRules) {
         BitSet bitSet = new BitSet();
         for (String ruleName : disableNereidsExpressionRules.split(",")) {
@@ -4285,6 +4326,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
+        tResult.setEnableStrictCast(enableStrictCast);
         return tResult;
     }
 
@@ -4389,7 +4431,7 @@ public class SessionVariable implements Serializable, Writable {
             Field[] fields = SessionVariable.class.getDeclaredFields();
             for (Field f : fields) {
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !varAttr.needForward()) {
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResult())) {
                     continue;
                 }
                 map.put(varAttr.name(), String.valueOf(f.get(this)));
@@ -4409,7 +4451,7 @@ public class SessionVariable implements Serializable, Writable {
             for (Field f : fields) {
                 f.setAccessible(true);
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !varAttr.needForward()) {
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResult())) {
                     continue;
                 }
                 String val = variables.get(varAttr.name());
@@ -4726,6 +4768,32 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkSkewRewriteAggBucketNum(String bucketNumStr) {
+        try {
+            long bucketNum = Long.parseLong(bucketNumStr);
+            if (bucketNum <= 0 || bucketNum >= 65536) {
+                throw new InvalidParameterException(
+                        SKEW_REWRITE_AGG_BUCKET_NUM + " should be between 1 and 65535");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    SKEW_REWRITE_AGG_BUCKET_NUM + " must be a valid number between 1 and 65535");
+        }
+    }
+
+    public void checkSkewRewriteJoinSaltExplodeFactor(String factorStr) {
+        try {
+            int factor = Integer.parseInt(factorStr);
+            if (factor < 0 || factor >= 65536) {
+                throw new InvalidParameterException(
+                        SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR + " should be between 0 and 65535");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR + " must be a valid number between 0 and 65535");
+        }
+    }
+
     public boolean isEnableInsertGroupCommit() {
         return Config.wait_internal_group_commit_finish
                 || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.ASYNC_MODE
@@ -4945,5 +5013,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableAddIndexForNewData(boolean enableAddIndexForNewData) {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
+    }
+
+    public boolean enableStrictCast() {
+        return enableStrictCast;
     }
 }

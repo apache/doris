@@ -34,7 +34,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[nation]
 
 Hint log:
-Used: leading(lineitem broadcast { supplier broadcast n1 } { orders shuffle { customer broadcast n2 } } )  
-UnUsed: 
+Used: leading(lineitem broadcast { supplier broadcast n1 } { orders shuffle { customer broadcast n2 } } )
+UnUsed:
 SyntaxError:
 

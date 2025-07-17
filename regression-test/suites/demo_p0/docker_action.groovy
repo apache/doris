@@ -38,8 +38,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 // NOTICE:
 // 1. Need add 'docker' to suite's group, and don't add 'nonConcurrent' to it;
 // 2. In docker closure:
-//    a. Don't use 'Awaitility.await()...until(f)', but use 'dockerAwaitUntil(..., f)';
-//    b. Don't use java Thread, but use regress framework's ThreadAction(see example demo_p0/thread_action.groovy);
+//    a. remove function dockerAwaitUntil(...), should use 'Awaitility.await()...until(f)' directly or use 'awaitUntil(...)';
 // 3. No need to use code ` if (isCloudMode()) { return } `  in docker suites,
 // instead should use `ClusterOptions.cloudMode = true/false` is enough.
 // Because when run docker suite without an external doris cluster, if suite use code `isCloudMode()`, it need specific -runMode=cloud/not_cloud.

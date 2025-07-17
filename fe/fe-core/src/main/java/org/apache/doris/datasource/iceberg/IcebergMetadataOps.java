@@ -175,7 +175,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterCreateDb() {
-        dorisCatalog.onRefreshCache(true);
+        dorisCatalog.resetMetaCacheNames();
     }
 
     private boolean performCreateDb(String dbName, boolean ifNotExists, Map<String, String> properties)
@@ -246,7 +246,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropDb(String dbName) {
-        dorisCatalog.onRefreshCache(true);
+        dorisCatalog.unregisterDatabase(dbName);
     }
 
     @Override
@@ -310,7 +310,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void afterCreateTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().setUnInitialized();
+            db.get().resetMetaCacheNames();
         }
         LOG.info("after create table {}.{}.{}, is db exists: {}",
                 dorisCatalog.getName(), dbName, tblName, db.isPresent());
@@ -338,11 +338,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void afterDropTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            Optional table = db.get().getTableForReplay(tblName);
-            if (table.isPresent()) {
-                Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db.get(), (ExternalTable) table.get(), 0);
-            }
-            db.get().setUnInitialized();
+            db.get().unregisterTable(tblName);
         }
         LOG.info("after drop table {}.{}.{}. is db exists: {}",
                 dorisCatalog.getName(), dbName, tblName, db.isPresent());
@@ -587,7 +583,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
-        return dorisCatalog.getThreadPoolExecutor();
+        return dorisCatalog.getThreadPoolWithPreAuth();
     }
 
     private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {

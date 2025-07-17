@@ -20,6 +20,8 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.aliyun.datalake.metastore.common.DataLakeConfig;
+
 import java.util.Map;
 
 public class AliyunDLFBaseProperties {
@@ -49,10 +51,19 @@ public class AliyunDLFBaseProperties {
             description = "The uid of the Aliyun DLF.")
     protected String dlfUid = "";
 
+    @ConnectorProperty(names = {"dlf.catalog.id"},
+            description = "The catalog id of the Aliyun DLF. If not set, it will be the same as dlf.uid.")
+    protected String dlfCatalogId = "";
+
     @ConnectorProperty(names = {"dlf.access.public", "dlf.catalog.accessPublic"},
             required = false,
             description = "Enable public access to Aliyun DLF.")
     protected String dlfAccessPublic = "false";
+
+    @ConnectorProperty(names = {DataLakeConfig.CATALOG_PROXY_MODE},
+            required = false,
+            description = "The proxy mode of the Aliyun DLF. Default is DLF_ONLY.")
+    protected String dlfProxyMode = "DLF_ONLY";
 
     public static AliyunDLFBaseProperties of(Map<String, String> properties) {
         AliyunDLFBaseProperties propertiesObj = new AliyunDLFBaseProperties();

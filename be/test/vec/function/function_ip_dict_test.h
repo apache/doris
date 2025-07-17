@@ -19,13 +19,13 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <cstdint>
-#include <iomanip>
 #include <string>
 #include <vector>
 
 #include "vec/common/assert_cast.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/dictionary.h"
 #include "vec/functions/ip_address_dictionary.h"
 #include "vec/runtime/ip_address_cidr.h"

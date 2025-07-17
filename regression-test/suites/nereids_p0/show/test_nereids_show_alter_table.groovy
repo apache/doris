@@ -118,6 +118,10 @@ suite("test_nereids_show_alter_table") {
     assertEquals(1, res9.size())
     assertEquals("a_mv", res9.get(0).get(5))
 
+    // the result of 'show alter table materialized view' does not contain IndexName, so this SQL will return empty set
+    def res10 = sql """show alter table materialized view from test_show_alter_table_db where IndexName = 'a_mv';"""
+    assertEquals(0, res10.size())
+
     assertThrows(Exception.class, {
         sql """show alter table materialized view from test_show_alter_table_db where JobId = 1749041691284;"""
     })

@@ -120,9 +120,9 @@ private:
     void bit_pack_8(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
     template <typename U>
-    void bit_pack_32(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
+    void bit_pack_4(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
-    void bit_pack_128(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
+    void bit_pack_1(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
     void bit_packing_one_frame_value(const T* input);
 

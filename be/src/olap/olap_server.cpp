@@ -187,7 +187,8 @@ CompactionSubmitRegistry::TabletSet& CompactionSubmitRegistry::_get_tablet_set(
 static int32_t get_cumu_compaction_threads_num(size_t data_dirs_num) {
     int32_t threads_num = config::max_cumu_compaction_threads;
     if (threads_num == -1) {
-        threads_num = cast_set<int32_t>(data_dirs_num);
+        int32_t num_cores = doris::CpuInfo::num_cores();
+        threads_num = std::max(cast_set<int32_t>(data_dirs_num), num_cores / 6);
     }
     threads_num = threads_num <= 0 ? 1 : threads_num;
     return threads_num;

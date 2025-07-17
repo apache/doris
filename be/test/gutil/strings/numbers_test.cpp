@@ -133,4 +133,64 @@ TEST_F(NumbersTest, test_double_to_buffer) {
     EXPECT_EQ(std::string("-1.7976931348623157e+308"), std::string(buffer2, len2));
 }
 
+/*
+TEST_F(NumbersTest, test_float_to_buffer2) {
+    std::vector<std::pair<float, std::string>> input_values = {
+            {123.456F, "123.456001"},
+            {123.456789F, "123.456787"},
+            {123.456789123F, "123.456787"},
+            {123456.123456789F, "123456.125"},
+            {123456789.12345F, "123456792"},
+            {1234567890.12345F, "1.23456794e+09"},
+            {0.123456789F, "0.123456791"},
+            {0.000123456F, "0.000123456004"},
+            {0.0000123456F, "1.23456002e-05"},
+            {0.0000123456789F, "1.23456794e-05"},
+
+            {1234567890123456.12345F, "1.23456795e+15"},
+            {12345678901234567.12345F, "1.23456784e+16"},
+
+            {0.0, "0"},
+            {-0.0, "-0"},
+            {std::numeric_limits<float>::infinity(), "inf"},
+            {-std::numeric_limits<float>::infinity(), "-inf"},
+            {std::numeric_limits<float>::quiet_NaN(), "nan"}};
+    for (const auto& value : input_values) {
+        std::string str;
+        str.resize(64);
+        auto len = FastFloatToBuffer(value.first, str.data());
+        str.resize(len);
+        EXPECT_EQ(str, value.second);
+    }
+}
+TEST_F(NumbersTest, test_double_to_buffer2) {
+    std::vector<std::pair<double, std::string>> input_values = {
+            {123.456, "123.456"},
+            {123.456789, "123.456789"},
+            {123.456789123, "123.45678912299999"},
+            {123456.123456789, "123456.12345678901"},
+            {123456789.12345, "123456789.12345"},
+
+            {1234567890123456.12345, "1234567890123456"},
+            {12345678901234567.12345, "12345678901234568"},
+            {123456789012345678.12345, "1.2345678901234568e+17"},
+            {1234567890123456789.12345, "1.2345678901234568e+18"},
+            {0.123456789, "0.123456789"},
+            {0.000123456, "0.00012345600000000001"},
+            {0.0000123456, "1.2345599999999999e-05"},
+
+            {0.0, "0"},
+            {-0.0, "-0"},
+            {std::numeric_limits<float>::infinity(), "inf"},
+            {-std::numeric_limits<float>::infinity(), "-inf"},
+            {std::numeric_limits<float>::quiet_NaN(), "nan"}};
+    for (const auto& value : input_values) {
+        std::string str;
+        str.resize(64);
+        auto len = FastDoubleToBuffer(value.first, str.data());
+        str.resize(len);
+        EXPECT_EQ(str, value.second);
+    }
+}
+*/
 } // namespace doris
