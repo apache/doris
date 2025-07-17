@@ -685,20 +685,38 @@ suite("test_analyze_mv") {
         empty_test = sql """show column stats mvTestDup"""
         assertEquals(12, empty_test.size())
 
-        for (int i = 0; i < 120; i++) {
-            result_row = sql """show index stats mvTestDup mv3"""
-            logger.info("mv3 stats: " + result_row)
-            if (result_row[0][4] == "0") {
-                break;
+        def result = sql """show frontends;"""
+        logger.info("show frontends result origin: " + result)
+        def host
+        def port
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][8] == "true") {
+                host = result[i][1]
+                port = result[i][4]
             }
-            Thread.sleep(5000)
         }
-        result_row = sql """show index stats mvTestDup mv3"""
-        assertEquals(1, result_row.size())
-        assertEquals("mvTestDup", result_row[0][0])
-        assertEquals("mv3", result_row[0][1])
-        assertEquals("0", result_row[0][3])
-        assertEquals("0", result_row[0][4])
+        def tokens = context.config.jdbcUrl.split('/')
+        def url=tokens[0] + "//" + host + ":" + port
+        logger.info("Master url is " + url)
+        connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
+            sql """use test_analyze_mv"""
+            result = sql """show frontends;"""
+            logger.info("show frontends result master: " + result)
+            for (int i = 0; i < 120; i++) {
+                result_row = sql """show index stats mvTestDup mv3"""
+                logger.info("mv3 stats: " + result_row)
+                if (result_row[0][4] == "0") {
+                    break;
+                }
+                Thread.sleep(5000)
+            }
+            result_row = sql """show index stats mvTestDup mv3"""
+            assertEquals(1, result_row.size())
+            assertEquals("mvTestDup", result_row[0][0])
+            assertEquals("mv3", result_row[0][1])
+            assertEquals("0", result_row[0][3])
+            assertEquals("0", result_row[0][4])
+        }
 
         // ** Embedded test for skip auto analyze when table is empty again
         wait_row_count_reported("test_analyze_mv", "mvTestDup", 0, 4, "0")
