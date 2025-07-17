@@ -47,7 +47,7 @@ public class ConcatWs extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .varArgs(VarcharType.SYSTEM_DEFAULT, ArrayType.of(VarcharType.SYSTEM_DEFAULT)),
             FunctionSignature.ret(StringType.INSTANCE)
-                    .varArgs(StringType.INSTANCE, ArrayType.of(StringType.SYSTEM_DEFAULT)));
+                    .varArgs(StringType.INSTANCE, ArrayType.of(StringType.INSTANCE)));
 
     /**
      * constructor with 2 or more arguments.
