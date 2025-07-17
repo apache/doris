@@ -548,12 +548,13 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
 // user can get all delete bitmaps from that token.
 // if `token` is nullptr, the calculation will run in local, and user can get the result
 // delete bitmap from `delete_bitmap` directly.
-Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
-                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                      CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
-                                      DeleteBitmapPtr tablet_delete_bitmap) {
+Status BaseTablet::calc_delete_bitmap(
+        const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+        const std::vector<segment_v2::SegmentSharedPtr>& segments,
+        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+        int64_t end_version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
+        DeleteBitmapPtr tablet_delete_bitmap,
+        std::function<void(segment_v2::SegmentSharedPtr, Status)> callback) {
     if (specified_rowsets.empty() || segments.empty()) {
         return Status::OK();
     }
@@ -563,7 +564,8 @@ Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetShared
         const auto& seg = segment;
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet, rowset, seg, specified_rowsets, end_version,
-                                          delete_bitmap, rowset_writer, tablet_delete_bitmap));
+                                          delete_bitmap, rowset_writer, tablet_delete_bitmap,
+                                          callback));
         } else {
             RETURN_IF_ERROR(tablet->calc_segment_delete_bitmap(
                     rowset, segment, specified_rowsets, delete_bitmap, end_version, rowset_writer,
@@ -604,6 +606,14 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                rowset_schema->sequence_col_idx()) != including_cids.cend());
         }
     }
+
+    DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.sleep", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        auto sleep = dp->param<int64_t>("sleep", 10);
+        if (target_tablet_id == tablet_id()) {
+            std::this_thread::sleep_for(std::chrono::seconds(sleep));
+        }
+    });
 
     if (rowset_schema->num_variant_columns() > 0) {
         // During partial updates, the extracted columns of a variant should not be included in the rowset schema.

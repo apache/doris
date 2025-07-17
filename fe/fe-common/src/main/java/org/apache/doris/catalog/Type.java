@@ -582,8 +582,8 @@ public abstract class Type {
         return isObjectStored() || isComplexType() || isJsonbType() || isVariantType();
     }
 
-    public boolean isArrayTypeNestedBaseType() {
-        return isArrayType() && !((ArrayType) this).getItemType().isOnlyMetricType();
+    public boolean isObjectOrVariantType() {
+        return isObjectStored() || isVariantType();
     }
 
     public static final String OnlyObjectTypeErrorMsg =
