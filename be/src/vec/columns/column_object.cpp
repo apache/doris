@@ -939,6 +939,10 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
         res = Null();
         return;
     }
+
+    // JSONB is a special type, it's not a scalar type, we need to handle it specially
+    // 1. we try to get the JSONB Field from ColumnString which has no JSONB type info
+    // 2. Array of JSONB is a special type, we get from ColumnArray of ColumnString, should convert from string Field to JSONB Field
     if (is_finalized() && least_common_type.get_base_type_id() != TypeIndex::JSONB) {
         // common type to get the field value
         get_finalized_column().get(n, res);

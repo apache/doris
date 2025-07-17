@@ -238,8 +238,6 @@ public:
         // If it is the root subcolumn of SubcolumnsTree,
         // the root Node should be JSONB type when finalize
         bool is_root = false;
-        // Cache for type check to avoid repeated expensive equals() calls
-        mutable std::optional<bool> is_nested_array_of_jsonb_cache;
     };
     using Subcolumns = SubcolumnsTree<Subcolumn, false>;
 

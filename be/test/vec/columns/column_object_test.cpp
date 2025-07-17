@@ -166,10 +166,10 @@ TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
 }
 
 TEST_F(ColumnObjectTest, test_nested_array_of_jsonb_get) {
-    // Test case: Create a ColumnVariant with subcolumn type Array<JSONB>
+    // Test case: Create a ColumnObject with subcolumn type Array<JSONB>
 
-    // Create a ColumnVariant with subcolumns
-    auto variant_column = ColumnVariant::create(true);
+    // Create a ColumnObject with subcolumns
+    auto variant_column = ColumnObject::create(true);
 
     // Add subcolumn with path "nested.array"
     variant_column->add_sub_column(PathInData("nested.array"), 0);
@@ -185,8 +185,8 @@ TEST_F(ColumnObjectTest, test_nested_array_of_jsonb_get) {
     std::string test_data1 = R"("a")";
     std::string test_data2 = R"(b)";
 
-    array_of_strings.push_back(test_data1);
-    array_of_strings.push_back(test_data2);
+    array_of_strings.get<Array&>().emplace_back(test_data1);
+    array_of_strings.get<Array&>().emplace_back(test_data2);
 
     // Insert the array field into the subcolumn
     subcolumn->insert(array_of_strings);
@@ -199,14 +199,14 @@ TEST_F(ColumnObjectTest, test_nested_array_of_jsonb_get) {
         EXPECT_NO_THROW(subcolumn->get(0, result));
 
         // Verify the result is still an array
-        EXPECT_EQ(result.get_type(), TypeIndex::Array);
+        EXPECT_EQ(result.get_type(), doris::vectorized::Field::Types::Array);
 
         const auto& result_array = result.get<const Array&>();
         EXPECT_EQ(result_array.size(), 2);
 
         // Check that all elements are JSONB fields
         for (const auto& item : result_array) {
-            EXPECT_EQ(item.get_type(), TypeIndex::String);
+            EXPECT_EQ(item.get_type(), doris::vectorized::Field::Types::String);
         }
 
         // Verify string content is preserved
@@ -221,9 +221,9 @@ TEST_F(ColumnObjectTest, test_nested_array_of_jsonb_get) {
     {
         // Add another row with different int array
         Field int_array = Array();
-        int_array.push_back(1);
-        int_array.push_back(2);
-        int_array.push_back(3);
+        int_array.get<Array&>().push_back(1);
+        int_array.get<Array&>().push_back(2);
+        int_array.get<Array&>().push_back(3);
 
         // and we should add more data to the subcolumn column
         subcolumn->insert(int_array);
@@ -232,21 +232,21 @@ TEST_F(ColumnObjectTest, test_nested_array_of_jsonb_get) {
         // check the subcolumn get method
         Field result;
         EXPECT_NO_THROW(subcolumn->get(1, result));
-        EXPECT_EQ(result.get_type(), TypeIndex::Array);
+        EXPECT_EQ(result.get_type(), doris::vectorized::Field::Types::Array);
         const auto& result_array = result.get<const Array&>();
         EXPECT_EQ(result_array.size(), 3);
-        EXPECT_EQ(result_array[0].get_type(), TypeIndex::JSONB);
-        EXPECT_EQ(result_array[1].get_type(), TypeIndex::JSONB);
-        EXPECT_EQ(result_array[2].get_type(), TypeIndex::JSONB);
+        EXPECT_EQ(result_array[0].get_type(), doris::vectorized::Field::Types::JSONB);
+        EXPECT_EQ(result_array[1].get_type(), doris::vectorized::Field::Types::JSONB);
+        EXPECT_EQ(result_array[2].get_type(), doris::vectorized::Field::Types::JSONB);
 
         // check the first row Field is a string
         Field result_string;
         EXPECT_NO_THROW(subcolumn->get(0, result_string));
-        EXPECT_EQ(result_string.get_type(), TypeIndex::Array);
+        EXPECT_EQ(result_string.get_type(), doris::vectorized::Field::Types::Array);
         const auto& result_string_array = result_string.get<const Array&>();
         EXPECT_EQ(result_string_array.size(), 2);
-        EXPECT_EQ(result_string_array[0].get_type(), TypeIndex::JSONB);
-        EXPECT_EQ(result_string_array[1].get_type(), TypeIndex::JSONB);
+        EXPECT_EQ(result_string_array[0].get_type(), doris::vectorized::Field::Types::JSONB);
+        EXPECT_EQ(result_string_array[1].get_type(), doris::vectorized::Field::Types::JSONB);
 
         // Finalize -> we should get the least common type of the subcolumn
         variant_column->finalize();
@@ -260,8 +260,8 @@ TEST_F(ColumnObjectTest, test_nested_array_of_jsonb_get) {
         EXPECT_NO_THROW(subcolumn_finalized->get(1, result2));
 
         // Verify both results are arrays
-        EXPECT_EQ(result1.get_type(), TypeIndex::Array);
-        EXPECT_EQ(result2.get_type(), TypeIndex::Array);
+        EXPECT_EQ(result1.get_type(), doris::vectorized::Field::Types::Array);
+        EXPECT_EQ(result2.get_type(), doris::vectorized::Field::Types::Array);
 
         const auto& array1 = result1.get<const Array&>();
         const auto& array2 = result2.get<const Array&>();
@@ -271,10 +271,10 @@ TEST_F(ColumnObjectTest, test_nested_array_of_jsonb_get) {
 
         // Verify all elements are JSONB
         for (const auto& item : array1) {
-            EXPECT_EQ(item.get_type(), TypeIndex::JSONB);
+            EXPECT_EQ(item.get_type(), doris::vectorized::Field::Types::JSONB);
         }
         for (const auto& item : array2) {
-            EXPECT_EQ(item.get_type(), TypeIndex::JSONB);
+            EXPECT_EQ(item.get_type(), doris::vectorized::Field::Types::JSONB);
         }
     }
 
@@ -289,7 +289,7 @@ TEST_F(ColumnObjectTest, test_nested_array_of_jsonb_get) {
         // check the subcolumn get method
         Field result;
         EXPECT_NO_THROW(subcolumn->get(2, result));
-        EXPECT_EQ(result.get_type(), TypeIndex::Array);
+        EXPECT_EQ(result.get_type(), doris::vectorized::Field::Types::Array);
         const auto& result_array = result.get<const Array&>();
         EXPECT_EQ(result_array.size(), 0);
     }
