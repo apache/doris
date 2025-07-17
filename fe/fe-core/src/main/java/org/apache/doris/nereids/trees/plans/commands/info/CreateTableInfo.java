@@ -244,6 +244,10 @@ public class CreateTableInfo {
         return properties;
     }
 
+    public boolean isIfNotExists() {
+        return ifNotExists;
+    }
+
     /**
      * full qualifier table name.
      */
@@ -1182,5 +1186,50 @@ public class CreateTableInfo {
     public boolean isTemp() {
         return isTemp;
     }
-}
 
+    public PartitionDesc getPartitionDesc() {
+        return partitionTableInfo.convertToPartitionDesc(isExternal);
+    }
+
+    public List<Column> getColumns() {
+        return columns.stream()
+            .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public DistributionDesc getDistributionDesc() {
+        return distribution != null ? distribution.translateToCatalogStyle() : null;
+    }
+
+    public boolean isExternal() {
+        return isExternal;
+    }
+
+    public Map<String, String> getExtProperties() {
+        return extProperties;
+    }
+
+    public List<Index> getIndexes() {
+        return indexes.stream().map(IndexDefinition::translateToCatalogStyle)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * getRollupAlterClauseList
+     */
+    public List<AlterClause> getRollupAlterClauseList() {
+        List<AlterClause> addRollups = Lists.newArrayList();
+        if (!rollups.isEmpty()) {
+            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
+                    .collect(Collectors.toList()));
+        }
+        return addRollups;
+    }
+
+    public KeysDesc getKeysDesc() {
+        return new KeysDesc(keysType, keys, clusterKeysColumnNames);
+    }
+}
