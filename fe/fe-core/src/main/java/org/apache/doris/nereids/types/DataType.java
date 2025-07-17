@@ -55,6 +55,32 @@ public abstract class DataType {
     public static final int DEFAULT_SCALE = 0;
     public static final int DEFAULT_PRECISION = 9;
 
+    public static final Map<Type, DataType> legacyTypeToNereidsType
+            = ImmutableMap.<Type, DataType>builder()
+            .put(Type.BOOLEAN, BooleanType.INSTANCE)
+            .put(Type.TINYINT, TinyIntType.INSTANCE)
+            .put(Type.SMALLINT, SmallIntType.INSTANCE)
+            .put(Type.INT, IntegerType.INSTANCE)
+            .put(Type.BIGINT, BigIntType.INSTANCE)
+            .put(Type.LARGEINT, LargeIntType.INSTANCE)
+            .put(Type.FLOAT, FloatType.INSTANCE)
+            .put(Type.DOUBLE, DoubleType.INSTANCE)
+            .put(Type.CHAR, StringType.INSTANCE)
+            .put(Type.VARCHAR, StringType.INSTANCE)
+            .put(Type.STRING, StringType.INSTANCE)
+            .put(Type.DATE, DateType.INSTANCE)
+            .put(Type.DATEV2, DateType.INSTANCE)
+            .put(Type.DATETIME, DateTimeType.INSTANCE)
+            .put(Type.DATETIMEV2, DateTimeV2Type.SYSTEM_DEFAULT)
+            .put(Type.DECIMALV2, DecimalV2Type.SYSTEM_DEFAULT)
+            .put(Type.DECIMAL32, DecimalV3Type.SYSTEM_DEFAULT)
+            .put(Type.DECIMAL64, DecimalV3Type.SYSTEM_DEFAULT)
+            .put(Type.DECIMAL128, DecimalV3Type.SYSTEM_DEFAULT)
+            .put(Type.DECIMAL256, DecimalV3Type.SYSTEM_DEFAULT)
+            .put(Type.IPV4, IPv4Type.INSTANCE)
+            .put(Type.IPV6, IPv6Type.INSTANCE)
+            .build();
+
     protected static final NereidsParser PARSER = new NereidsParser();
 
     // use class and supplier here to avoid class load deadlock.

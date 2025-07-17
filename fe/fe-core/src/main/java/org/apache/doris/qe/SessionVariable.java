@@ -754,6 +754,23 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
 
+    public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
+
+    @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true)
+    private double hotValueThreshold = 0.33;
+
+    public void setHotValueThreshold(double threshold) {
+        this.hotValueThreshold = threshold;
+    }
+
+    public static double getHotValueThreshold() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().hotValueThreshold;
+        } else {
+            return 0.5;
+        }
+    }
+
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
     /**
