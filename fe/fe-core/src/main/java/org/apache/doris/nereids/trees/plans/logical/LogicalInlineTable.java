@@ -112,7 +112,8 @@ public class LogicalInlineTable extends LogicalLeaf implements InlineTable, Bloc
                     break;
                 }
             }
-            output.add(new SlotReference(firstRowColumn.getName(), firstRowColumn.getDataType(), nullable));
+            output.add(new SlotReference(firstRowColumn.getName(), firstRowColumn.getDataType(), nullable,
+                    false));
         }
         return output.build();
     }

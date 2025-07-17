@@ -189,8 +189,8 @@ class EliminateFilterTest implements MemoPatternMatchSupported {
 
     @Test
     void testEliminateNullLiteral() {
-        Expression a = new SlotReference("a", IntegerType.INSTANCE);
-        Expression b = new SlotReference("b", IntegerType.INSTANCE);
+        Expression a = new SlotReference("a", IntegerType.INSTANCE, false);
+        Expression b = new SlotReference("b", IntegerType.INSTANCE, false);
         Expression one = Literal.of(1);
         Expression two = Literal.of(2);
         Expression expression = new And(Arrays.asList(

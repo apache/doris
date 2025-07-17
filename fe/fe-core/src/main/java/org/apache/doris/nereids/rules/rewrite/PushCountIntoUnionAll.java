@@ -110,7 +110,8 @@ public class PushCountIntoUnionAll implements RewriteRuleFactory {
         List<NamedExpression> newLogicalUnionOutputs = Lists.newArrayList();
         for (NamedExpression ce : upperOutputExpressions) {
             if (ce instanceof Alias) {
-                newLogicalUnionOutputs.add(new SlotReference(ce.getName(), ce.getDataType(), ce.nullable()));
+                newLogicalUnionOutputs.add(new SlotReference(ce.getName(), ce.getDataType(), ce.nullable(),
+                        ce.isNameFromChild()));
             } else if (ce instanceof SlotReference) {
                 newLogicalUnionOutputs.add(ce);
             } else {

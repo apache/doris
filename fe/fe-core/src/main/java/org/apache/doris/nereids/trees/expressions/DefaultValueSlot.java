@@ -31,7 +31,7 @@ import java.util.Optional;
 public class DefaultValueSlot extends Slot {
 
     public DefaultValueSlot() {
-        super(Optional.empty());
+        super(Optional.empty(), true);
     }
 
     @Override

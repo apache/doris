@@ -1065,11 +1065,13 @@ class MemoTest implements MemoPatternMatchSupported {
     void testRewriteMiddlePlans() {
         UnboundRelation unboundRelation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"));
         LogicalProject insideProject = new LogicalProject<>(
-                ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"),
+                        false)),
                 unboundRelation
         );
         LogicalProject rootProject = new LogicalProject<>(
-                ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"),
+                        false)),
                 insideProject
         );
 
@@ -1079,12 +1081,12 @@ class MemoTest implements MemoPatternMatchSupported {
         Group targetGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 1).findFirst().get();
         LogicalProject rewriteInsideProject = new LogicalProject<>(
                 ImmutableList.of(new SlotReference("rewrite_inside", StringType.INSTANCE,
-                        false, ImmutableList.of("test"))),
+                        false, ImmutableList.of("test"), false)),
                 new GroupPlan(leafGroup)
         );
         LogicalProject rewriteProject = new LogicalProject<>(
                 ImmutableList.of(new SlotReference("rewrite", StringType.INSTANCE,
-                        true, ImmutableList.of("test"))),
+                        true, ImmutableList.of("test"), false)),
                 rewriteInsideProject
         );
         memo.copyIn(rewriteProject, targetGroup, true);
@@ -1122,11 +1124,13 @@ class MemoTest implements MemoPatternMatchSupported {
     void testEliminateRootWithChildPlanThreeLevels() {
         UnboundRelation unboundRelation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"));
         LogicalProject<UnboundRelation> insideProject = new LogicalProject<>(
-                ImmutableList.of(new SlotReference("inside", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                ImmutableList.of(new SlotReference("inside", StringType.INSTANCE, true,
+                        ImmutableList.of("test"), false)),
                 unboundRelation
         );
         LogicalProject<LogicalProject<UnboundRelation>> rootProject = new LogicalProject<>(
-                ImmutableList.of(new SlotReference("outside", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                ImmutableList.of(new SlotReference("outside", StringType.INSTANCE, true,
+                        ImmutableList.of("test"), false)),
                 insideProject
         );
 

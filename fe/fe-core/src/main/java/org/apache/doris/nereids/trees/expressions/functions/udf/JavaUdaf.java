@@ -144,7 +144,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
 
         VirtualSlotReference[] virtualSlots = argTypes.stream()
                 .map(type -> new VirtualSlotReference(type.toString(), type, Optional.empty(),
-                        (shape) -> ImmutableList.of()))
+                        (shape) -> ImmutableList.of(), true))
                 .toArray(VirtualSlotReference[]::new);
 
         DataType intermediateType = null;
