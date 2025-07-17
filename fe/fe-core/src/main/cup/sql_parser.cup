@@ -1302,11 +1302,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterWorkloadSchedPolicyStmt(policyName, properties);
     :}
-    | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
-      opt_datasource_properties:datasourceProperties
-    {:
-        RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
-    :}
     | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
     opt_properties:properties
     {:
