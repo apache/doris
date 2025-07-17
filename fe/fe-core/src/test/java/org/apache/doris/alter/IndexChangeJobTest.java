@@ -99,7 +99,7 @@ public class IndexChangeJobTest {
         masterTransMgr.setEditLog(masterEnv.getEditLog());
         slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
+        //analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         // Initialize ConnectContext
         ctx = new ConnectContext();
         new MockUp<ConnectContext>() {
