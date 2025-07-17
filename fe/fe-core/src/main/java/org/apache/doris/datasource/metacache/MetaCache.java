@@ -99,7 +99,7 @@ public class MetaCache<T> {
                     return val;
                 }
                 if (LOG.isDebugEnabled()) {
-                    LOG.info("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
+                    LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
                             this.name, name, id, new Exception());
                 }
                 metaObjCache.invalidate(name);
@@ -146,7 +146,7 @@ public class MetaCache<T> {
             }
         });
         if (LOG.isDebugEnabled()) {
-            LOG.info("invalidate obj in metacache {}, obj name: {}, id: {}",
+            LOG.debug("invalidate obj in metacache {}, obj name: {}, id: {}",
                     name, localName, id, new Exception());
         }
         metaObjCache.invalidate(localName);
@@ -156,7 +156,7 @@ public class MetaCache<T> {
     public void invalidateAll() {
         namesCache.invalidateAll();
         if (LOG.isDebugEnabled()) {
-            LOG.info("invalidate all in metacache {}", name, new Exception());
+            LOG.debug("invalidate all in metacache {}", name, new Exception());
         }
         metaObjCache.invalidateAll();
         idToName.clear();
