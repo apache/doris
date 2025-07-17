@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_partition_filter_partition_pruning", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,external_docker,external_docker_doris") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -23,7 +23,7 @@ suite("test_iceberg_partition_filter_partition_pruning", "p0,external,doris,exte
         return
     }
 
-    String catalog_name = "test_iceberg_systable_ctl"
+    String catalog_name = "test_iceberg_runtime_filter_partition_pruning"
     String db_name = "partition_db"
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
