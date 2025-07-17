@@ -34,14 +34,14 @@ import java.util.List;
     * This rule is useful for optimizing queries that use ConcatWs with multiple array arguments,
     * allowing them to be processed more efficiently by combining the arrays into a single array argument.
  */
-public class ConcatWsTMultiArrayToOne implements ExpressionPatternRuleFactory {
+public class ConcatWsMultiArrayToOne implements ExpressionPatternRuleFactory {
 
-    public static final ConcatWsTMultiArrayToOne INSTANCE = new ConcatWsTMultiArrayToOne();
+    public static final ConcatWsMultiArrayToOne INSTANCE = new ConcatWsMultiArrayToOne();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(ConcatWs.class).then(ConcatWsTMultiArrayToOne::rewrite)
+                matchesType(ConcatWs.class).then(ConcatWsMultiArrayToOne::rewrite)
                         .toRule(ExpressionRuleType.CONCATWS_MULTI_ARRAY_TO_ONE));
     }
 

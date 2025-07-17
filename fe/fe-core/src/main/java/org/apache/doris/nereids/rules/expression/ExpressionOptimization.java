@@ -65,7 +65,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     LikeToEqualRewrite.INSTANCE,
                     BetweenToEqual.INSTANCE,
                     LogToLn.INSTANCE,
-                    ConcatWsTMultiArrayToOne.INSTANCE
+                    ConcatWsMultiArrayToOne.INSTANCE
             )
     );
 
