@@ -81,5 +81,74 @@ suite("set_operation") {
     checkColNames("set_operation_table_test2",
             ["__literal_0", "__cast_1", "item_sk", "sales_price", "__literal_4"])
 
+
+    sql """
+    CREATE TABLE IF NOT EXISTS set_operation_table_test3
+    PROPERTIES (  "replication_num" = "1")
+    AS
+    SELECT 'STORE', 
+           date_add(ss_sold_date_sk, INTERVAL 2 DAY),
+           ss_item_sk as item_sk,
+           ss_sales_price as sales_price,
+           'STORE()##'
+    FROM store_sales
+    INTERSECT
+    SELECT 'WEB',
+           ws_sold_date_sk as date_sk,
+           ws_item_sk as item_sk,
+           ws_sales_price as sales_price,
+           ''
+    FROM web_sales;
+    """
+
+    checkColNames("set_operation_table_test2",
+            ["__literal_0", "__cast_1", "item_sk", "sales_price", "__literal_4"])
+
+
+    sql """
+    CREATE TABLE IF NOT EXISTS set_operation_table_test4
+    PROPERTIES (  "replication_num" = "1")
+    AS
+    SELECT 'STORE', 
+           date_add(ss_sold_date_sk, INTERVAL 2 DAY),
+           ss_item_sk as item_sk,
+           ss_sales_price as sales_price,
+           'STORE()##'
+    FROM store_sales
+    EXCEPT
+    SELECT 'WEB',
+           ws_sold_date_sk as date_sk,
+           ws_item_sk as item_sk,
+           ws_sales_price as sales_price,
+           ''
+    FROM web_sales;
+    """
+
+    checkColNames("set_operation_table_test2",
+            ["__literal_0", "__cast_1", "item_sk", "sales_price", "__literal_4"])
+
+
+    sql """
+    CREATE TABLE IF NOT EXISTS set_operation_table_test5
+    PROPERTIES (  "replication_num" = "1")
+    AS
+    SELECT 'STORE', 
+           date_add(ss_sold_date_sk, INTERVAL 2 DAY),
+           ss_item_sk as item_sk,
+           ss_sales_price as sales_price,
+           'STORE()##'
+    FROM store_sales
+    MINUS
+    SELECT 'WEB',
+           ws_sold_date_sk as date_sk,
+           ws_item_sk as item_sk,
+           ws_sales_price as sales_price,
+           ''
+    FROM web_sales;
+    """
+
+    checkColNames("set_operation_table_test2",
+            ["__literal_0", "__cast_1", "item_sk", "sales_price", "__literal_4"])
+
 }
 
