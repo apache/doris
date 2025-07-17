@@ -1397,6 +1397,9 @@ public class SessionVariable implements Serializable, Writable {
         this.cboNetWeight = cboNetWeight;
     }
 
+    @VariableMgr.VarAttr(name = "enable_init_join_order")
+    public boolean enableInitJoinOrder = true;
+
     @VariableMgr.VarAttr(name = CBO_CPU_WEIGHT)
     private double cboCpuWeight = 1.0;
 
