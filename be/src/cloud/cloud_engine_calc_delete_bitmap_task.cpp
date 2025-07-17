@@ -326,7 +326,7 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         int64_t next_visible_version =
                 txn_info.is_txn_load ? txn_info.next_visible_version : version;
         RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(version, transaction_id, delete_bitmap,
-                                                         lock_id, next_visible_version));
+                                                         lock_id, next_visible_version, rowset));
 
         LOG(INFO) << "tablet=" << _tablet_id << ", " << txn_str
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
