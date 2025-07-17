@@ -1047,6 +1047,8 @@ DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
 // Global segcompaction thread pool size.
 DEFINE_mInt32(segcompaction_num_threads, "5");
 
+DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
+
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
