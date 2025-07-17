@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AbstractBackupStmt;
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupType;
-import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.StorageBackend;
@@ -328,12 +327,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
-    // handle drop repository stmt
-    public void dropRepository(DropRepositoryStmt stmt) throws DdlException {
-        dropRepository(stmt.getRepoName());
-    }
-
-    // handle drop repository stmt
+    // handle drop repository command
     public void dropRepository(String repoName) throws DdlException {
         tryLock();
         try {
