@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BuildIndexClause;
