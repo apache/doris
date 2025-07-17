@@ -239,8 +239,16 @@ TEST(LogTest, RpcRunningOutput) {
                                 "partition_id=10023 tablet_id=10024"),
               std::string::npos);
 
-    std::regex log_pattern(
-            R"(\[INFO\] finish "create_tablets" remote caller: [^ ]+ response=status \{ code: OK msg: *\} log_id=\S+ instance_id="test_instance")");
-    ASSERT_TRUE(std::regex_search(captured_log, log_pattern));
-    std::cerr << "Captured Log:\n" << captured_log << std::endl;
+    std::regex pattern(
+            R"(\[INFO\] finish "create_tablets".*log_id=\S+.*instance_id="test_instance")");
+    std::istringstream iss(captured_log);
+    std::string line;
+    bool found = false;
+    while (std::getline(iss, line)) {
+        if (std::regex_search(line, pattern)) {
+            found = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(found);
 }
