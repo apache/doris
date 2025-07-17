@@ -142,10 +142,8 @@ public:
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finalized) {
-            _execution_dep->set_always_ready();
-            for (auto* dep : _filter_dependencies) {
-                dep->set_always_ready();
-            }
+            std::for_each(_execution_dependencies.begin(), _execution_dependencies.end(),
+                          [&](Dependency* dep) { dep->set_ready(); });
             for (auto& deps : _read_dependencies) {
                 for (auto* dep : deps) {
                     dep->set_always_ready();
@@ -248,6 +246,7 @@ private:
     void _init_profile();
     void _fresh_profile_counter();
     Status _open();
+    Status _prepare();
 
     uint32_t _index;
     PipelinePtr _pipeline;
@@ -299,7 +298,7 @@ private:
     std::vector<std::vector<Dependency*>> _read_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
-    std::vector<Dependency*> _filter_dependencies;
+    std::vector<Dependency*> _execution_dependencies;
 
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
@@ -311,8 +310,6 @@ private:
     bool _dry_run = false;
 
     Dependency* _blocked_dep = nullptr;
-
-    Dependency* _execution_dep = nullptr;
 
     std::atomic<bool> _finalized = false;
     std::mutex _dependency_lock;
