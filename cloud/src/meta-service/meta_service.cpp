@@ -358,6 +358,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
         for (size_t i = response->versions_size(); i < num_acquired; i += BATCH_SIZE) {
@@ -459,6 +460,8 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
         stats.get_counter += txn->num_get_keys();
         stats.put_counter += txn->num_put_keys();
     };
@@ -606,6 +609,8 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         instance_key(key_info, &key);
 
         err = txn0->get(key, &val);
+        stats.get_bytes += val.size() + key.size();
+        stats.get_counter++;
         LOG(INFO) << "get instance_key=" << hex(key);
         stats.get_counter++;
         if (err != TxnErrorCode::TXN_OK) {
@@ -1726,6 +1731,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
         TabletIndexPB idx;
@@ -1766,6 +1772,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
 
                 if (version_pb.pending_txn_ids_size() > 0) {
                     DCHECK(version_pb.pending_txn_ids_size() == 1);
+                    stats.get_bytes += txn->get_bytes();
                     stats.get_counter += txn->num_get_keys();
                     txn.reset();
                     TEST_SYNC_POINT_CALLBACK("get_rowset::advance_last_pending_txn_id",
@@ -1900,6 +1907,7 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             return;
         }
         DORIS_CLOUD_DEFER {
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             // the txn is not a local variable, if not reset will count last res twice
             txn.reset(nullptr);
@@ -2246,6 +2254,9 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                 g_bvar_update_delete_bitmap_fail_counter << 1;
                 return;
             }
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
@@ -2359,6 +2370,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
         MetaDeleteBitmapInfo start_key_info {instance_id, tablet_id, rowset_ids[i],
@@ -2387,6 +2399,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &round, &err);
             int64_t retry = 0;
             while (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
+                stats.get_bytes += txn->get_bytes();
                 stats.get_counter += txn->num_get_keys();
                 txn = nullptr;
                 err = txn_kv_->create_txn(&txn);
@@ -2481,6 +2494,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
         TabletIndexPB idx(request->idx());
@@ -2635,6 +2649,9 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
         stats.get_counter += txn->num_get_keys();
         stats.put_counter += txn->num_put_keys();
         stats.del_counter += txn->num_del_keys();

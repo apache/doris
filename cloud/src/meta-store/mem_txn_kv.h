@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -57,6 +58,9 @@ public:
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
                         int limit, bool* more, std::map<std::string, std::string>* kv_list);
 
+    int64_t get_bytes_ {};
+    int64_t put_bytes_ {};
+    int64_t del_bytes_ {};
     int64_t get_count_ {};
     int64_t put_count_ {};
     int64_t del_count_ {};
@@ -203,6 +207,8 @@ public:
 
     size_t put_bytes() const override { return put_bytes_; }
 
+    size_t get_bytes() const override { return get_bytes_; }
+
 private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
 
@@ -229,6 +235,7 @@ private:
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};
     size_t put_bytes_ {0};
+    size_t get_bytes_ {0};
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {
@@ -249,6 +256,12 @@ public:
     void seek(size_t pos) override { idx_ = pos; }
 
     bool more() override { return more_; }
+
+    int64_t get_kv_bytes() const override {
+        int64_t kv_bytes {};
+        for (auto& [k, v] : kvs_) kv_bytes += k.size() + v.size();
+        return kv_bytes;
+    }
 
     int size() override { return kvs_size_; }
     void reset() override { idx_ = 0; }
