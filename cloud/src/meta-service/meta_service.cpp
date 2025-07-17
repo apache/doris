@@ -1824,8 +1824,9 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             code = MetaServiceCode::INVALID_ARGUMENT;
             ss << "no valid compaction_cnt or cumulative_point given. req_bc_cnt=" << req_bc_cnt
                << ", bc_cnt=" << bc_cnt << ", req_cc_cnt=" << req_cc_cnt << ", cc_cnt=" << cc_cnt
-               << ", req_cp=" << req_cp << ", cp=" << cp;
+               << ", req_cp=" << req_cp << ", cp=" << cp << " tablet_id=" << tablet_id;
             msg = ss.str();
+            LOG(WARNING) << msg;
             return;
         }
         auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
