@@ -427,17 +427,17 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 14 scan io
-    int read_bytes_per_second = -1;
+    int64_t read_bytes_per_second = -1;
     if (tworkload_group_info.__isset.read_bytes_per_second &&
         tworkload_group_info.read_bytes_per_second > 0) {
-        read_bytes_per_second = (int)tworkload_group_info.read_bytes_per_second;
+        read_bytes_per_second = tworkload_group_info.read_bytes_per_second;
     }
 
     // 15 remote scan io
-    int remote_read_bytes_per_second = -1;
+    int64_t remote_read_bytes_per_second = -1;
     if (tworkload_group_info.__isset.remote_read_bytes_per_second &&
         tworkload_group_info.remote_read_bytes_per_second > 0) {
-        remote_read_bytes_per_second = (int)tworkload_group_info.remote_read_bytes_per_second;
+        remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
     }
 
     // 16 total slots
