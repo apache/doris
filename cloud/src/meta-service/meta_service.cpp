@@ -3062,6 +3062,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 return;
             }
             if (urgent) {
+                // since currently only the FE Master initiates the lock request for import tasks,
+                // and it does so in a single-threaded manner, there is no need to check the lock id here
                 DCHECK(request->lock_id() > 0);
                 lock_info.clear_initiators();
                 std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
@@ -3312,6 +3314,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
             return;
         }
         if (urgent) {
+            // since currently only the FE Master initiates the lock request for import tasks,
+            // and it does so in a single-threaded manner, there is no need to check the lock id here
             DCHECK(request->lock_id() > 0);
             LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
                       << " lock_id=" << request->lock_id()
