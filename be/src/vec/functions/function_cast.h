@@ -21,6 +21,7 @@
 #pragma once
 
 #include <cctz/time_zone.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
@@ -39,6 +40,8 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/type_limit.h"
 #include "udf/udf.h"
@@ -329,8 +332,8 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
-                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
-                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>) &&
+                                     (std::is_same_v<ToDataType, DataTypeIPv6>)) {
                     for (size_t i = 0; i < size; ++i) {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
@@ -1486,18 +1489,20 @@ private:
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable &&
-                   (IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType>)&&!(
-                           check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDate>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
+                   (IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType>) &&
+                   !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDate>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();
         }
 
         /// Check conversion using underlying function
-        { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
+        {
+            function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""}));
+        }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
@@ -1509,7 +1514,9 @@ private:
         FunctionPtr function = FunctionToString::create();
 
         /// Check conversion using underlying function
-        { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
+        {
+            function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""}));
+        }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
@@ -1699,9 +1706,24 @@ private:
         };
     }
 
+    bool can_cast_json_type(PrimitiveType pt) const {
+        return is_int_or_bool(pt) || is_float_or_double(pt) || is_string_type(pt) ||
+               is_decimal(pt) || pt == TYPE_ARRAY || pt == TYPE_STRUCT;
+    }
+
     // check jsonb value type and get to_type value
     WrapperType create_jsonb_wrapper(const DataTypeJsonb& from_type, const DataTypePtr& to_type,
                                      bool jsonb_string_as_string) const {
+        if (!can_cast_json_type(to_type->get_primitive_type())) {
+            return create_unsupport_wrapper(fmt::format(
+                    "CAST AS JSONB can only be performed between "
+                    "JSONB, String, Number, Boolean, Date, DateTime, Array, Struct types. "
+                    "Got {} to {}",
+                    from_type.get_name(), to_type->get_name())
+
+            );
+        }
+
         switch (to_type->get_primitive_type()) {
         case PrimitiveType::TYPE_BOOLEAN:
             return &ConvertImplFromJsonb<PrimitiveType::TYPE_BOOLEAN, ColumnUInt8,
@@ -1742,6 +1764,13 @@ private:
     // use jsonb writer to create jsonb value
     WrapperType create_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
                                      bool string_as_jsonb_string) const {
+        if (!can_cast_json_type(from_type->get_primitive_type())) {
+            return create_unsupport_wrapper(fmt::format(
+                    "CAST AS JSONB can only be performed between "
+                    "JSONB, String, Number, Boolean, Date, DateTime, Array, Struct types. "
+                    "Got {} to {}",
+                    from_type->get_name(), to_type.get_name()));
+        }
         switch (from_type->get_primitive_type()) {
         case PrimitiveType::TYPE_BOOLEAN:
             return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
