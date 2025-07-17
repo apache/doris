@@ -99,7 +99,7 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
         VirtualSlotReference newOne = new VirtualSlotReference(newExprId,
                 virtualSlotReference.getName(), virtualSlotReference.getDataType(),
                 virtualSlotReference.nullable(), virtualSlotReference.getQualifier(),
-                newOriginExpression, newFunction);
+                newOriginExpression, newFunction, virtualSlotReference.isNameFromChild());
         exprIdReplaceMap.put(virtualSlotReference.getExprId(), newOne.getExprId());
         return newOne;
     }
@@ -111,9 +111,9 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
         ArrayItemReference newOne;
         if (exprIdReplaceMap.containsKey(arrayItemSlot.getExprId())) {
             newOne = new ArrayItemReference(exprIdReplaceMap.get(arrayItemSlot.getExprId()),
-                    arrayItemSlot.getName(), arrayExpression);
+                    arrayItemSlot.getName(), arrayExpression, arrayItemSlot.isNameFromChild());
         } else {
-            newOne = new ArrayItemReference(arrayItemSlot.getName(), arrayExpression);
+            newOne = new ArrayItemReference(arrayItemSlot.getName(), arrayExpression, arrayItemSlot.isNameFromChild());
             exprIdReplaceMap.put(arrayItemSlot.getExprId(), newOne.getExprId());
         }
         return newOne;

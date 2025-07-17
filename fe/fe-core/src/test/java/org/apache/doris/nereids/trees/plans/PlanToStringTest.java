@@ -69,7 +69,7 @@ public class PlanToStringTest {
                 )
         );
         LogicalAggregate<Plan> plan = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
-                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList(), false)), child);
 
         Assertions.assertTrue(plan.toString()
                 .matches("LogicalAggregate\\[\\d+\\] \\( groupByExpr=\\[], outputExpr=\\[a#\\d+], hasRepeat=false.*"));
@@ -104,8 +104,8 @@ public class PlanToStringTest {
                 )
         );
         LogicalJoin<Plan, Plan> plan = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(
-                new EqualTo(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
-                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                new EqualTo(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList(), false),
+                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList(), false))),
                 left, right, null);
         System.out.println(plan.toString());
         Assertions.assertTrue(plan.toString().matches(
@@ -131,7 +131,7 @@ public class PlanToStringTest {
                 )
         );
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
-                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList(), false)), child);
         Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+].*"));
     }
 
@@ -145,8 +145,8 @@ public class PlanToStringTest {
                 )
         );
         List<OrderKey> orderKeyList = Lists.newArrayList(
-                new OrderKey(new SlotReference("col1", IntegerType.INSTANCE), true, true),
-                new OrderKey(new SlotReference("col2", IntegerType.INSTANCE), true, true));
+                new OrderKey(new SlotReference("col1", IntegerType.INSTANCE, false), true, true),
+                new OrderKey(new SlotReference("col2", IntegerType.INSTANCE, false), true, true));
 
         LogicalSort<Plan> plan = new LogicalSort<>(orderKeyList, child);
         Assertions.assertTrue(plan.toString().matches("LogicalSort\\[\\d+\\] \\( orderKeys=\\[col1#\\d+ asc null first, col2#\\d+ asc null first] \\)"));

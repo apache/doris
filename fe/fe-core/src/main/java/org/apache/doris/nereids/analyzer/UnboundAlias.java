@@ -53,11 +53,11 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     }
 
     private UnboundAlias(List<Expression> children, Optional<String> alias) {
-        this(children, alias, false);
+        this(children, alias, !alias.isPresent());
     }
 
     private UnboundAlias(List<Expression> children, Optional<String> alias, boolean nameFromChild) {
-        super(children);
+        super(children, nameFromChild);
         this.alias = alias;
         this.nameFromChild = nameFromChild;
     }

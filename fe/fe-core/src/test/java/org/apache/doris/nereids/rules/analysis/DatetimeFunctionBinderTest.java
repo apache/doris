@@ -95,23 +95,23 @@ public class DatetimeFunctionBinderTest {
     private final Interval secondInterval = new Interval(tinyIntLiteral, "SECOND");
 
     private final SlotReference yearUnit = new SlotReference(new ExprId(-1), "YEAR",
-            TinyIntType.INSTANCE, false, ImmutableList.of());
+            TinyIntType.INSTANCE, false, ImmutableList.of(), true);
     private final SlotReference quarterUnit = new SlotReference(new ExprId(-1), "QUARTER",
-            TinyIntType.INSTANCE, false, ImmutableList.of());
+            TinyIntType.INSTANCE, false, ImmutableList.of(), true);
     private final SlotReference monthUnit = new SlotReference(new ExprId(-1), "MONTH",
-            TinyIntType.INSTANCE, false, ImmutableList.of());
+            TinyIntType.INSTANCE, false, ImmutableList.of(), true);
     private final SlotReference weekUnit = new SlotReference(new ExprId(-1), "WEEK",
-            TinyIntType.INSTANCE, false, ImmutableList.of());
+            TinyIntType.INSTANCE, false, ImmutableList.of(), true);
     private final SlotReference dayUnit = new SlotReference(new ExprId(-1), "DAY",
-            TinyIntType.INSTANCE, false, ImmutableList.of());
+            TinyIntType.INSTANCE, false, ImmutableList.of(), true);
     private final SlotReference hourUnit = new SlotReference(new ExprId(-1), "HOUR",
-            TinyIntType.INSTANCE, false, ImmutableList.of());
+            TinyIntType.INSTANCE, false, ImmutableList.of(), true);
     private final SlotReference minuteUnit = new SlotReference(new ExprId(-1), "MINUTE",
-            TinyIntType.INSTANCE, false, ImmutableList.of());
+            TinyIntType.INSTANCE, false, ImmutableList.of(), true);
     private final SlotReference secondUnit = new SlotReference(new ExprId(-1), "SECOND",
-            TinyIntType.INSTANCE, false, ImmutableList.of());
+            TinyIntType.INSTANCE, false, ImmutableList.of(), true);
     private final SlotReference invalidUnit = new SlotReference(new ExprId(-1), "INVALID",
-            TinyIntType.INSTANCE, false, ImmutableList.of());
+            TinyIntType.INSTANCE, false, ImmutableList.of(), true);
 
     private final DateTimeV2Literal dateTimeV2Literal1 = new DateTimeV2Literal("2024-12-01");
     private final DateTimeV2Literal dateTimeV2Literal2 = new DateTimeV2Literal("2024-12-26");

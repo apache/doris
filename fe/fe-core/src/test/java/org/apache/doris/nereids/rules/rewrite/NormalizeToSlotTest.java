@@ -36,7 +36,7 @@ public class NormalizeToSlotTest {
 
     @Test
     void testSlotReferenceWithItsAlias() {
-        SlotReference slotReference = new SlotReference("c1", StringType.INSTANCE);
+        SlotReference slotReference = new SlotReference("c1", StringType.INSTANCE, false);
         Alias alias = new Alias(slotReference, "a1");
         Set<Alias> existsAliases = ImmutableSet.of(alias);
         List<Expression> sourceExpressions = ImmutableList.of(slotReference, alias);

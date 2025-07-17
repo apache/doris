@@ -67,7 +67,7 @@ class GroupExpressionMatchingTest {
 
         Plan leaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"));
         LogicalProject root = new LogicalProject(ImmutableList
-                .of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                .of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"), false)),
                 leaf);
         Memo memo = new Memo(null, root);
 
@@ -98,7 +98,7 @@ class GroupExpressionMatchingTest {
 
         Plan leaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"));
         LogicalProject root = new LogicalProject(ImmutableList
-                .of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                .of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"), false)),
                 leaf);
         Memo memo = new Memo(null, root);
 
@@ -138,7 +138,7 @@ class GroupExpressionMatchingTest {
     void testAnyWithChild() {
         Plan root = new LogicalProject(
                 ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true,
-                        ImmutableList.of("test"))),
+                        ImmutableList.of("test"), false)),
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test")));
         Memo memo = new Memo(null, root);
 
