@@ -347,8 +347,6 @@ public:
                                "get field not supported in PredicateColumnType");
     }
 
-    size_t serialize_size_at(size_t row) const override { return 0; }
-
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
