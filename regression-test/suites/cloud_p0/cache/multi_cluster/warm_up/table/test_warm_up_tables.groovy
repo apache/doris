@@ -31,7 +31,7 @@ suite("test_warm_up_tables") {
     }
     def getTablesFromShowCommand = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][9]
+         return jobStateResult[0]
     }
 
     List<String> ipList = new ArrayList<>();
@@ -174,8 +174,8 @@ suite("test_warm_up_tables") {
     waitJobDone(jobId_);
 
     def tablesString = getTablesFromShowCommand(jobId_[0][0])
-    assertTrue(tablesString.contains("customer.p3"), tablesString)
-    assertTrue(tablesString.contains("supplier"), tablesString)
+    assertTrue(tablesString.any { it.contains("customer.p3") })
+    assertTrue(tablesString.any { it.contains("supplier") })
 
     sleep(30000)
     long ttl_cache_size = 0

@@ -127,7 +127,6 @@ suite("test_warm_up_cluster_empty") {
         for (; i < retryTime; i++) {
             sleep(1000)
             def statuses = getJobState(jobId[0][0])
-            logger.info(statuses)
             if (statuses.any { it.equals("CANCELLED") }) {
                 assertTrue(false);
             }

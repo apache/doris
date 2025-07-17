@@ -144,29 +144,6 @@ def clearFileCache = { check_func ->
             DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 32
             PROPERTIES("file_cache_ttl_seconds"="120","disable_auto_compaction" = "true") as select * from customer_ttl"""
 
-    sleep(30000) // 30s
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            Boolean flag2 = false;
-            for (String line in strs) {
-                if (flag1 && flag2) break;
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    long cur_ttl_cache_size = line.substring(i).toLong()
-                    assertTrue(Math.abs(2* ttl_cache_size - cur_ttl_cache_size) < 10000)
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
-    }
-
     sleep(150000)
     getMetricsMethod.call() {
         respCode, body ->

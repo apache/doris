@@ -31,7 +31,7 @@ suite("test_warm_up_table") {
     }
     def getTablesFromShowCommand = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][9]
+         return jobStateResult[0]
     }
 
     List<String> ipList = new ArrayList<>();
@@ -164,7 +164,8 @@ suite("test_warm_up_table") {
         assertTrue(false);
     }
     def tablesString = getTablesFromShowCommand(jobId[0][0])
-    assertTrue(tablesString.contains("customer"), tablesString)
+    
+    assertTrue(tablesString.any { it.contains("customer") })
     sleep(30000)
     long ttl_cache_size = 0
     getMetricsMethod.call(ipList[0], brpcPortList[0]) {
