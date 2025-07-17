@@ -178,11 +178,11 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
             DCHECK(c.expiration() > 0 || c.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) << proto_to_json(c);
             DCHECK(c.lease() > 0) << proto_to_json(c);
             if (c.expiration() > 0 && c.expiration() < now) {
-                LOG_INFO("got an expired job. job=") << proto_to_json(c) << " now=" << now;
+                LOG_INFO("got an expired job.") << " job=" << proto_to_json(c) << " now=" << now;
                 return true;
             }
             if (c.lease() > 0 && c.lease() < now) {
-                LOG_INFO("got a job exceeding lease. job=") << proto_to_json(c) << " now=" << now;
+                LOG_INFO("got a job exceeding lease.") << " job=" << proto_to_json(c) << " now=" << now;
                 return true;
             }
             return false;
@@ -267,7 +267,7 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
         msg = "pb serialization error";
         return;
     }
-    LOG_INFO("compaction job to save job=") << proto_to_json(compaction);
+    LOG_INFO("compaction job to save") << " job=" << proto_to_json(compaction);
     txn->put(job_key, job_val);
     need_commit = true;
 }
@@ -389,7 +389,7 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
         return;
     }
 
-    LOG_INFO("schema_change job to save job=") << proto_to_json(schema_change);
+    LOG_INFO("schema_change job to save") << "job=" << proto_to_json(schema_change);
     txn->put(job_key, job_val);
     auto new_tablet_job_key =
             job_tablet_key({instance_id, new_tablet_idx.table_id(), new_tablet_idx.index_id(),
@@ -482,8 +482,8 @@ static bool check_and_remove_delete_bitmap_update_lock(
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
-    LOG_INFO("get delete bitmap update lock info, table_id=")
-            << table_id << " tablet_id=" << tablet_id << " lock_id=" << lock_id
+    LOG_INFO("get delete bitmap update lock info")
+            << ", table_id=" << table_id << " tablet_id=" << tablet_id << " lock_id=" << lock_id
             << " initiator=" << lock_initiator << " key=" << hex(lock_key) << " err=" << err;
     if (err != TxnErrorCode::TXN_OK) {
         ss << "failed to get delete bitmap update lock key, instance_id=" << instance_id
@@ -530,8 +530,8 @@ static bool check_and_remove_delete_bitmap_update_lock(
             return false;
         }
         txn->remove(tablet_job_key);
-        LOG_INFO("remove tablet job lock, table_id=")
-                << table_id << " tablet_id=" << tablet_id << " lock_id=" << lock_id
+        LOG_INFO("remove tablet job lock")
+                << ", table_id=" << table_id << " tablet_id=" << tablet_id << " lock_id=" << lock_id
                 << " initiator=" << lock_initiator << " key=" << hex(tablet_job_key);
         // may left a lock key for -1
         return true;
@@ -553,9 +553,9 @@ static bool check_and_remove_delete_bitmap_update_lock(
             return false;
         }
         if (initiators->empty()) {
-            LOG_INFO("remove delete bitmap lock, table_id=")
-                    << table_id << " tablet_id=" << tablet_id << " lock_id=" << lock_id
-                    << " key=" << hex(lock_key);
+            LOG_INFO("remove delete bitmap lock")
+                    << ", table_id=" << table_id << " tablet_id=" << tablet_id
+                    << " lock_id=" << lock_id << " key=" << hex(lock_key);
             txn->remove(lock_key);
             return true;
         }
@@ -565,9 +565,10 @@ static bool check_and_remove_delete_bitmap_update_lock(
             msg = "pb serialization error";
             return false;
         }
-        LOG_INFO("remove delete bitmap lock initiator, table_id=")
-                << table_id << " tablet_id=" << tablet_id << ", key=" << hex(lock_key)
-                << " lock_id=" << lock_id << " initiator=" << lock_initiator
+        LOG_INFO("remove delete bitmap lock initiator")
+                << ", table_id=" << table_id << " tablet_id=" << tablet_id
+                << ", key=" << hex(lock_key) << " lock_id=" << lock_id
+                << " initiator=" << lock_initiator
                 << " initiators_size=" << lock_info.initiators_size();
         txn->put(lock_key, lock_val);
     }
@@ -581,19 +582,20 @@ static void remove_delete_bitmap_update_lock_v1(std::unique_ptr<Transaction>& tx
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
-    LOG_INFO("get remove delete bitmap update lock info, table_id=")
-            << table_id << " key=" << hex(lock_key) << " err=" << err
+    LOG_INFO("get remove delete bitmap update lock info")
+            << ", table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err
             << " initiator=" << lock_initiator;
     if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to get delete bitmap update lock key, instance_id=")
-                << instance_id << " table_id=" << table_id << " key=" << hex(lock_key)
-                << " err=" << err;
+        LOG_WARNING("failed to get delete bitmap update lock key")
+                << ", instance_id=" << instance_id << " table_id=" << table_id
+                << " key=" << hex(lock_key) << " err=" << err;
         return;
     }
     DeleteBitmapUpdateLockPB lock_info;
     if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
-        LOG_WARNING("failed to parse DeleteBitmapUpdateLockPB, instance_id=")
-                << instance_id << " table_id=" << table_id << " key=" << hex(lock_key);
+        LOG_WARNING("failed to parse DeleteBitmapUpdateLockPB")
+                << ", instance_id=" << instance_id << " table_id=" << table_id
+                << " key=" << hex(lock_key);
         return;
     }
     if (lock_info.lock_id() != lock_id) {
@@ -609,26 +611,26 @@ static void remove_delete_bitmap_update_lock_v1(std::unique_ptr<Transaction>& tx
         }
     }
     if (!found) {
-        LOG_WARNING("failed to find lock_initiator, table_id=")
-                << table_id << " tablet_id=" << tablet_id << " lock_id=" << lock_id
+        LOG_WARNING("failed to find lock_initiator")
+                << ", table_id=" << table_id << " tablet_id=" << tablet_id << " lock_id=" << lock_id
                 << " initiator=" << lock_initiator << " key=" << hex(lock_key);
         return;
     }
     if (initiators->empty()) {
-        LOG_INFO("remove delete bitmap lock, table_id=")
-                << table_id << " tablet_id=" << tablet_id << " lock_id=" << lock_id
+        LOG_INFO("remove delete bitmap lock")
+                << ", table_id=" << table_id << " tablet_id=" << tablet_id << " lock_id=" << lock_id
                 << " initiator=" << lock_initiator << " key=" << hex(lock_key);
         txn->remove(lock_key);
         return;
     }
     lock_info.SerializeToString(&lock_val);
     if (lock_val.empty()) {
-        LOG_WARNING("failed to seiralize lock_info, table_id=")
-                << table_id << " key=" << hex(lock_key);
+        LOG_WARNING("failed to seiralize lock_info")
+                << ", table_id=" << table_id << " key=" << hex(lock_key);
         return;
     }
-    LOG_INFO("remove delete bitmap lock initiator, table_id=")
-            << table_id << " tablet_id=" << tablet_id << " key=" << hex(lock_key)
+    LOG_INFO("remove delete bitmap lock initiator")
+            << ", table_id=" << table_id << " tablet_id=" << tablet_id << " key=" << hex(lock_key)
             << " lock_id=" << lock_id << " initiator=" << lock_initiator
             << " initiators_size=" << lock_info.initiators_size();
     txn->put(lock_key, lock_val);
@@ -649,14 +651,15 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
             remove_delete_bitmap_update_lock_v1(txn, instance_id, table_id, tablet_id, lock_id,
                                                 lock_initiator);
         } else if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to get tablet job key, instance_id=")
-                    << instance_id << " table_id=" << table_id << " initiator=" << lock_initiator
-                    << " key=" << hex(tablet_job_key) << " err=" << err;
+            LOG_WARNING("failed to get tablet job key")
+                    << ", instance_id=" << instance_id << " table_id=" << table_id
+                    << " initiator=" << lock_initiator << " key=" << hex(tablet_job_key)
+                    << " err=" << err;
             return;
         } else {
             txn->remove(tablet_job_key);
-            LOG_INFO("remove tablet job key, table_id=")
-                    << table_id << ", key=" << hex(tablet_job_key)
+            LOG_INFO("remove tablet job key")
+                    << ", table_id=" << table_id << ", key=" << hex(tablet_job_key)
                     << " initiator=" << lock_initiator;
         }
     } else {
@@ -738,7 +741,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         recorded_job.mutable_compaction()->erase(recorded_compaction);
         auto job_val = recorded_job.SerializeAsString();
         txn->put(job_key, job_val);
-        LOG_INFO("abort tablet compaction job, tablet_id=") << tablet_id << " key=" << hex(job_key);
+        LOG_INFO("abort tablet compaction job")
+                << ", tablet_id=" << tablet_id << " key=" << hex(job_key);
         if (compaction.has_delete_bitmap_lock_initiator()) {
             remove_delete_bitmap_update_lock(
                     txn, instance_id, table_id, tablet_id, COMPACTION_DELETE_BITMAP_LOCK_ID,
@@ -762,7 +766,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         recorded_compaction->set_lease(compaction.lease());
         auto job_val = recorded_job.SerializeAsString();
         txn->put(job_key, job_val);
-        LOG_INFO("lease tablet compaction job, tablet_id=") << tablet_id << " key=" << hex(job_key);
+        LOG_INFO("lease tablet compaction job")
+                << ", tablet_id=" << tablet_id << " key=" << hex(job_key);
         need_commit = true;
         return;
     }
@@ -858,8 +863,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     txn->put(stats_key, stats_val);
     merge_tablet_stats(*stats, detached_stats); // this is to check
     if (stats->data_size() < 0 || stats->num_rowsets() < 1) [[unlikely]] {
-        LOG_ERROR("buggy data size, tablet_id=")
-                << tablet_id << " stats.num_rows=" << stats->num_rows()
+        LOG_ERROR("buggy data size")
+                << ", tablet_id=" << tablet_id << " stats.num_rows=" << stats->num_rows()
                 << " stats.data_size=" << stats->data_size()
                 << " stats.num_rowsets=" << stats->num_rowsets()
                 << " stats.num_segments=" << stats->num_segments()
@@ -882,7 +887,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         recorded_job.mutable_compaction()->erase(recorded_compaction);
         auto job_val = recorded_job.SerializeAsString();
         txn->put(job_key, job_val);
-        LOG_INFO("remove compaction job, tablet_id=") << tablet_id << " key=" << hex(job_key);
+        LOG_INFO("remove compaction job") << ", tablet_id=" << tablet_id << " key=" << hex(job_key);
         need_commit = true;
         return;
     }
@@ -920,8 +925,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     std::unique_ptr<RangeGetIterator> it;
     int num_rowsets = 0;
     DORIS_CLOUD_DEFER {
-        LOG_INFO("get rowset meta, num_rowsets=")
-                << num_rowsets << " range=[" << hex(rs_start) << "," << hex(rs_end) << "]";
+        LOG_INFO("get rowset meta") << ", num_rowsets=" << num_rowsets << " range=["
+                                    << hex(rs_start) << "," << hex(rs_end) << "]";
     };
 
     auto rs_start1 = rs_start;
@@ -964,7 +969,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             recycle_rowset.set_type(RecycleRowsetPB::COMPACT);
             auto recycle_val = recycle_rowset.SerializeAsString();
             txn->put(recycle_key, recycle_val);
-            LOG_INFO("put recycle rowset, tablet_id=") << tablet_id << " key=" << hex(recycle_key);
+            LOG_INFO("put recycle rowset")
+                    << ", tablet_id=" << tablet_id << " key=" << hex(recycle_key);
 
             ++num_rowsets;
             if (!it->has_next()) rs_start1 = k;
@@ -991,7 +997,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         recorded_job.mutable_compaction()->erase(recorded_compaction);
         auto job_val = recorded_job.SerializeAsString();
         txn->put(job_key, job_val);
-        LOG_INFO("remove compaction job, tablet_id=") << tablet_id << " key=" << hex(job_key);
+        LOG_INFO("remove compaction job") << ", tablet_id=" << tablet_id << " key=" << hex(job_key);
         need_commit = true;
         TEST_SYNC_POINT_CALLBACK("process_compaction_job::too_few_rowsets", &need_commit);
         return;
@@ -1041,13 +1047,13 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     }
 
     txn->remove(tmp_rowset_key);
-    LOG_INFO("remove tmp rowset meta, tablet_id=")
-            << tablet_id << " tmp_rowset_key=" << hex(tmp_rowset_key);
+    LOG_INFO("remove tmp rowset meta")
+            << ", tablet_id=" << tablet_id << " tmp_rowset_key=" << hex(tmp_rowset_key);
 
     int64_t version = compaction.output_versions(0);
     auto rowset_key = meta_rowset_key({instance_id, tablet_id, version});
     txn->put(rowset_key, tmp_rowset_val);
-    LOG_INFO("put rowset meta, tablet_id=") << tablet_id << " rowset_key=" << hex(rowset_key);
+    LOG_INFO("put rowset meta") << ", tablet_id=" << tablet_id << " rowset_key=" << hex(rowset_key);
 
     //==========================================================================
     //                      Remove compaction job
@@ -1056,7 +1062,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     recorded_job.mutable_compaction()->erase(recorded_compaction);
     auto job_val = recorded_job.SerializeAsString();
     txn->put(job_key, job_val);
-    LOG_INFO("remove compaction job tabelt_id=") << tablet_id << " key=" << hex(job_key);
+    LOG_INFO("remove compaction job") << " tabelt_id=" << tablet_id << " key=" << hex(job_key);
     response->set_alter_version(recorded_job.has_schema_change() &&
                                                 recorded_job.schema_change().has_alter_version()
                                         ? recorded_job.schema_change().alter_version()
@@ -1228,7 +1234,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                 new_tablet_job_val = new_recorded_job.SerializeAsString();
                 txn->put(new_tablet_job_key, new_tablet_job_val);
             }
-            LOG_INFO("remove schema_change job tablet_id=") << tablet_id << " key=" << hex(job_key);
+            LOG_INFO("remove schema_change job")
+                    << " tablet_id=" << tablet_id << " key=" << hex(job_key);
 
             need_commit = true;
         }
@@ -1265,8 +1272,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
         std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
         txn->remove(pending_key);
-        LOG_INFO("xxx sc remove delete bitmap pending key, pending_key=")
-                << hex(pending_key) << " tablet_id=" << new_tablet_id
+        LOG_INFO("xxx sc remove delete bitmap pending key")
+                << ", pending_key=" << hex(pending_key) << " tablet_id=" << new_tablet_id
                 << ", job_id=" << schema_change.id();
     }
 
@@ -1354,8 +1361,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             recycle_rowset.set_type(RecycleRowsetPB::DROP);
             auto recycle_val = recycle_rowset.SerializeAsString();
             txn->put(recycle_key, recycle_val);
-            LOG_INFO("put recycle rowset, tablet_id=")
-                    << new_tablet_id << " key=" << hex(recycle_key);
+            LOG_INFO("put recycle rowset")
+                    << ", tablet_id=" << new_tablet_id << " key=" << hex(recycle_key);
 
             if (!it->has_next()) rs_start1 = k;
         }
@@ -1449,7 +1456,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         new_tablet_job_val = new_recorded_job.SerializeAsString();
         txn->put(new_tablet_job_key, new_tablet_job_val);
     }
-    LOG_INFO("remove schema_change job tablet_id=") << tablet_id << " key=" << hex(job_key);
+    LOG_INFO("remove schema_change job") << " tablet_id=" << tablet_id << " key=" << hex(job_key);
 
     need_commit = true;
 }
@@ -1466,7 +1473,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
         SS << "cannot find instance_id with cloud_unique_id="
            << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
         msg = ss.str();
-        LOG_INFO("{}", msg);
+        LOG_INFO(msg);
         return;
     }
 

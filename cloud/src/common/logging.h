@@ -69,7 +69,7 @@ public:
     std::string to_string() const;
 
 private:
-    std::variant<uint64_t, int64_t*, std::string*> data_;
+    std::variant<uint64_t, int64_t*, std::string*, std::string> data_;
 };
 
 class AnnotateTag final : public butil::LinkNode<AnnotateTag> {

@@ -72,6 +72,8 @@ std::string AnnotateTagValue::to_string() const {
                             return fmt::format("\"{}\"", *val);
                         } else if constexpr (std::is_pointer_v<ValueType>) {
                             return std::to_string(*val);
+                        } else if constexpr (std::is_same_v<std::string, ValueType>) {
+                            return val;
                         } else {
                             return std::to_string(val);
                         }
