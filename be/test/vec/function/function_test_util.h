@@ -40,8 +40,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/block.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
@@ -292,7 +292,7 @@ template <typename ResultType, bool ResultNullable = false, int ResultScale = -1
           int ResultPrecision = -1, bool datetime_is_string_format = true>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
                       const DataSet& data_set, bool expect_execute_fail = false,
-                      bool expect_result_ne = false) {
+                      bool expect_result_ne = false, bool is_strict_mode = false) {
     TestCaseInfo::arg_size = static_cast<int>(input_types.size());
     TestCaseInfo::func_call_index++;
     // 1.0 create data type
@@ -360,7 +360,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     auto fn_ctx_return = get_return_type_descriptor<ResultType>(std::max(0, ResultScale),
                                                                 std::max(0, ResultPrecision));
 
-    FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
+    FunctionUtils fn_utils(fn_ctx_return, arg_types, is_strict_mode);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols(constant_cols);
     static_cast<void>(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));

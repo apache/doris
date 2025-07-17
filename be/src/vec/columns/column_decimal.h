@@ -86,7 +86,9 @@ private:
     friend class COWHelper<IColumn, Self>;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using value_type =
+            typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
+    using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
     using Container = DecimalPaddedPODArray<value_type>;
 
 private:
@@ -234,9 +236,10 @@ public:
 
     UInt32 get_scale() const { return scale; }
 
+    //TODO: use CppNativeType instead of value_type
     value_type get_scale_multiplier() const;
-    value_type get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
-    value_type get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
+    CppNativeType get_intergral_part(size_t n) const { return data[n] / get_scale_multiplier(); }
+    CppNativeType get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
 
     void erase(size_t start, size_t length) override {
         if (start >= data.size() || length == 0) {

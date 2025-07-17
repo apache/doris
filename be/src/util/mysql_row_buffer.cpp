@@ -191,14 +191,6 @@ char* add_float(T data, char* pos, bool dynamic_mode) {
     return pos + length;
 }
 
-static char* add_time(double data, char* pos, bool dynamic_mode) {
-    int length = time_to_buffer_from_double(data, pos + !dynamic_mode);
-    if (!dynamic_mode) {
-        int1store(pos++, length);
-    }
-    return pos + length;
-}
-
 static char* add_timev2(double data, char* pos, bool dynamic_mode, int scale) {
     int length = timev2_to_buffer_from_double(data, pos + !dynamic_mode, scale);
     if (!dynamic_mode) {
@@ -424,19 +416,6 @@ static int encode_binary_timev2(char* buff, double time, int scale) {
     }
 
     return pos; // Return total bytes written to buffer
-}
-
-template <bool is_binary_format>
-int MysqlRowBuffer<is_binary_format>::push_time(double data) {
-    if (is_binary_format && !_dynamic_mode) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Not supported time type for binary protocol");
-    }
-    // 1 for string trail, 1 for length, other for time str
-    reserve(2 + MAX_TIME_WIDTH);
-
-    _pos = add_time(data, _pos, _dynamic_mode);
-    return 0;
 }
 
 template <bool is_binary_format>

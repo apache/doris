@@ -42,13 +42,8 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
-class Arena;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+class Arena;
 
 /** Column, that is just group of few another columns.
   */
@@ -194,6 +189,15 @@ public:
     size_t serialize_size_at(size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_impl(char* pos, const size_t row) const override;
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    size_t get_max_row_byte_size() const override;
+    template <bool positive>
+    struct less;
 };
 
 } // namespace doris::vectorized

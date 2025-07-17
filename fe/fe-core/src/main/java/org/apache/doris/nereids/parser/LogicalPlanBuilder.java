@@ -3295,7 +3295,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         DataType dataType = array.expectedInputTypes().get(0);
         return items.stream()
-                .map(item -> item.checkedCastTo(dataType))
+                .map(item -> {
+                    try {
+                        return item.checkedCastTo(dataType);
+                    } catch (Exception ignored) {
+                        return item.deprecatingCheckedCastTo(dataType);
+                    }
+                })
                 .map(Literal.class::cast)
                 .collect(ImmutableList.toImmutableList());
     }

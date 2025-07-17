@@ -44,7 +44,7 @@ public class SessionVariablesTest extends TestWithFeService {
         Field[] fields = SessionVariable.class.getDeclaredFields();
         for (Field f : fields) {
             VariableMgr.VarAttr varAttr = f.getAnnotation(VariableMgr.VarAttr.class);
-            if (varAttr == null || !varAttr.needForward()) {
+            if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResult())) {
                 continue;
             }
             numOfForwardVars++;

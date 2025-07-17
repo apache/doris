@@ -290,7 +290,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
             ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
-                Optional.of(insertCtx), Optional.empty());
+                Optional.of(insertCtx), Optional.empty(), false);
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());

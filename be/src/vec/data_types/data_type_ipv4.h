@@ -69,8 +69,9 @@ public:
 
     MutableColumnPtr create_column() const override;
 
+    using SerDeType = DataTypeIPv4SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeIPv4SerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 };
 

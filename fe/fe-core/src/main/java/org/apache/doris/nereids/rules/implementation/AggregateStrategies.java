@@ -60,9 +60,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -2254,7 +2254,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         int bucket = bucketNum / 2;
         DataType type = bucket <= 128 ? TinyIntType.INSTANCE : SmallIntType.INSTANCE;
         Mod mod = new Mod(new XxHash32(TypeCoercionUtils.castIfNotSameType(
-                aggFunc.child(0), StringType.INSTANCE)), new SmallIntLiteral((short) bucket));
+                aggFunc.child(0), StringType.INSTANCE)), new IntegerLiteral((short) bucket));
         Cast cast = new Cast(mod, type);
         return new Alias(cast, SALT_EXPR + cascadesContext.getStatementContext().generateColumnName());
     }

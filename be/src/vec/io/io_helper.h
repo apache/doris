@@ -101,8 +101,7 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     StringParser::ParseResult result;
     x = StringParser::string_to_float<T>(in.position(), in.count(), &result);
 
-    // to support nan and inf
-    if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(x) || std::isinf(x))) {
+    if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
         return false;
     }
 
@@ -111,10 +110,10 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     return true;
 }
 
-template <typename T>
+template <typename T, bool enable_strict_mode = false>
 bool read_int_text_impl(T& x, ReadBuffer& buf) {
     StringParser::ParseResult result;
-    x = StringParser::string_to_int<T>(buf.position(), buf.count(), &result);
+    x = StringParser::string_to_int<T, enable_strict_mode>(buf.position(), buf.count(), &result);
 
     if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
         return false;
@@ -272,10 +271,6 @@ StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 p
 
 template <typename T>
 bool try_read_bool_text(T& x, ReadBuffer& buf) {
-    if (read_int_text_impl<T>(x, buf)) {
-        return x == 0 || x == 1;
-    }
-
     StringParser::ParseResult result;
     x = StringParser::string_to_bool(buf.position(), buf.count(), &result);
     if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
@@ -287,9 +282,9 @@ bool try_read_bool_text(T& x, ReadBuffer& buf) {
     return true;
 }
 
-template <typename T>
+template <typename T, bool enable_strict_mode = false>
 bool try_read_int_text(T& x, ReadBuffer& buf) {
-    return read_int_text_impl<T>(x, buf);
+    return read_int_text_impl<T, enable_strict_mode>(x, buf);
 }
 
 template <typename T>
@@ -351,4 +346,15 @@ bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& loca
                                UInt32 scale) {
     return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
+
+#include "common/compile_check_begin.h"
+
+bool inline try_read_bool_text(UInt8& x, StringRef& buf) {
+    StringParser::ParseResult result;
+    x = StringParser::string_to_bool(buf.data, buf.size, &result);
+    return result == StringParser::PARSE_SUCCESS;
+}
+
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

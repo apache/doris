@@ -121,3 +121,39 @@ null
 \N	\N
 \N	\N
 
+-- !example1 --
+"v31"
+
+-- !example2 --
+\N
+
+-- !example3 --
+\N
+
+-- !example4 --
+1234.56
+
+-- !example5 --
+"2025-06-05 14:47:01"
+
+-- !example6 --
+\N
+
+-- !example7_1 --
+["doris",123]
+
+-- !example7_2 --
+["doris"]
+
+-- !example7_3 --
+\N
+
+-- !example8_1 --
+[1,2,3,4,5]
+
+-- !example8_2 --
+[[1,2,3,4,5],"abc",{"k4":"v4"},"v4"]
+
+-- !example9 --
+null	false
+

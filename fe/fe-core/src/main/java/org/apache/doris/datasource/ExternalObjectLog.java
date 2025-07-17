@@ -62,11 +62,10 @@ public class ExternalObjectLog implements Writable {
 
     }
 
-    public static ExternalObjectLog createForRefreshDb(long catalogId, String dbName, boolean invalidCache) {
+    public static ExternalObjectLog createForRefreshDb(long catalogId, String dbName) {
         ExternalObjectLog externalObjectLog = new ExternalObjectLog();
         externalObjectLog.setCatalogId(catalogId);
         externalObjectLog.setDbName(dbName);
-        externalObjectLog.setInvalidCache(invalidCache);
         return externalObjectLog;
     }
 

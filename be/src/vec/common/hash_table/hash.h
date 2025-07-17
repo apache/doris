@@ -25,8 +25,8 @@
 #include "parallel_hashmap/phmap_utils.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 
 // Here is an empirical value.
 static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;

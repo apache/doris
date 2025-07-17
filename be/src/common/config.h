@@ -1087,14 +1087,13 @@ DECLARE_Int32(segcompaction_task_max_rows);
 // Max total file size allowed in a single segcompaction task.
 DECLARE_Int64(segcompaction_task_max_bytes);
 
+DECLARE_Int32(segcompaction_wait_for_dbm_task_timeout_s);
+
 // Global segcompaction thread pool size.
 DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
-
-// enable prefetch tablets before opening
-DECLARE_mBool(enable_prefetch_tablet);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);

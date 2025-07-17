@@ -61,6 +61,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/scanner.h"

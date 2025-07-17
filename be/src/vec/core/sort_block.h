@@ -33,8 +33,10 @@
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -238,6 +240,14 @@ public:
                      EqualRange& range, bool last_column) const {
         _sort_by_default(column, flags, perms, range, last_column);
     }
+    void sort_column(const ColumnMap& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        _sort_by_default(column, flags, perms, range, last_column);
+    }
+    void sort_column(const ColumnStruct& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        _sort_by_default(column, flags, perms, range, last_column);
+    }
 
     void sort_column(const ColumnString64& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
@@ -366,7 +376,9 @@ private:
         auto comparator = [&](const size_t a, const size_t b) {
             if constexpr (!std::is_same_v<ColumnType, ColumnString> &&
                           !std::is_same_v<ColumnType, ColumnString64> &&
-                          !std::is_same_v<ColumnType, ColumnArray>) {
+                          !std::is_same_v<ColumnType, ColumnArray> &&
+                          !std::is_same_v<ColumnType, ColumnMap> &&
+                          !std::is_same_v<ColumnType, ColumnStruct>) {
                 auto value_a = column.get_data()[a];
                 auto value_b = column.get_data()[b];
                 return value_a > value_b ? 1 : (value_a < value_b ? -1 : 0);

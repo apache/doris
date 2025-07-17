@@ -107,18 +107,26 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     // default is empty. only for OlapInsertExecutor#finalizeSink will construct one for check allow auto partition
     private final Optional<InsertCommandContext> insertCtx;
     private final Optional<LogicalPlan> cte;
+    private final boolean needNormalizePlan;
+
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+            Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
+        this(logicalQuery, labelName, insertCtx, cte, true);
+    }
 
     /**
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
+                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
+                                  boolean needNormalizePlan) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.originLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.logicalQuery = Optional.empty();
         this.insertCtx = insertCtx;
         this.cte = cte;
+        this.needNormalizePlan = needNormalizePlan;
     }
 
     /**
@@ -132,6 +140,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         this.insertCtx = command.insertCtx;
         this.cte = command.cte;
         this.jobId = command.jobId;
+        this. needNormalizePlan = true;
     }
 
     public LogicalPlan getLogicalQuery() {
@@ -277,8 +286,12 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             );
             if (!(this instanceof InsertIntoDictionaryCommand)) {
                 // process inline table (default values, empty values)
-                this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(originLogicalQuery,
-                        targetTableIf, analyzeContext, insertCtx));
+                if (needNormalizePlan) {
+                    this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(originLogicalQuery,
+                            targetTableIf, analyzeContext, insertCtx));
+                } else {
+                    this.logicalQuery = Optional.of(originLogicalQuery);
+                }
             }
             if (cte.isPresent()) {
                 this.logicalQuery = Optional.of((LogicalPlan) cte.get().withChildren(logicalQuery.get()));

@@ -3026,7 +3026,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return false;
         }
 
-        if (sortNode.getSortInfo().getOrderingExprs().stream().anyMatch(e -> e.getType().isArrayType())) {
+        if (sortNode.getSortInfo().getOrderingExprs().stream().anyMatch(e -> e.getType().isComplexType())) {
             return false;
         }
 

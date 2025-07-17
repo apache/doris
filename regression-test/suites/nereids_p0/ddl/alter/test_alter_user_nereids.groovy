@@ -19,6 +19,7 @@ suite("test_alter_user_nereids") {
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
 	
+    sql """DROP USER if exists 'fjytf';"""
     sql """CREATE USER 'fjytf';"""
 	
     sql """ALTER USER fjytf@'%' IDENTIFIED BY "12345";"""

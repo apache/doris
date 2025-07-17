@@ -187,8 +187,7 @@ IndexStorageFormatV2::create_output_stream() {
 
     DCHECK(_index_file_writer->_idx_v2_writer != nullptr)
             << "inverted index file writer v2 is nullptr";
-    auto compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-            out_dir->createOutputV2(_index_file_writer->_idx_v2_writer.get()));
+    auto compound_file_output = out_dir->createOutputV2(_index_file_writer->_idx_v2_writer.get());
 
     return {std::move(out_dir_ptr), std::move(compound_file_output)};
 }

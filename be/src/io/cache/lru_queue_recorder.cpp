@@ -54,7 +54,6 @@ void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
                 break;
             }
             case CacheLRULogType::MOVETOBACK: {
-                LOG(INFO) << "MOVETOBACK" << log->hash.to_string() << " " << log->offset;
                 auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
                 if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
                     shadow_queue.move_to_end(it, lru_log_lock);

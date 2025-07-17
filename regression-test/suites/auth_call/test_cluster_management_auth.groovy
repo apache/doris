@@ -76,10 +76,7 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
     // pipeline can't support delete node, it can affect other case
     if (is_exists_follower()) {
         connect(user, "${pwd}", context.config.jdbcUrl) {
-            test {
-                sql """show frontends"""
-                exception "denied"
-            }
+            sql """show frontends"""
             test {
                 sql """ALTER SYSTEM add FOLLOWER '${follower_ip}:${follower_host}'"""
                 exception "denied"
@@ -93,10 +90,7 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
 
     if (is_exists_observer()) {
         connect(user, "${pwd}", context.config.jdbcUrl) {
-            test {
-                sql """show frontends"""
-                exception "denied"
-            }
+            sql """show frontends"""
             test {
                 sql """ALTER SYSTEM add OBSERVER '${observer_ip}:${observer_host}'"""
                 exception "denied"
@@ -110,10 +104,8 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
 
     if (is_exists_backends()) {
         connect(user, "${pwd}", context.config.jdbcUrl) {
-            test {
-                sql """show backends"""
-                exception "denied"
-            }
+            sql """show backends"""
+
             test {
                 sql """ALTER SYSTEM add backend '${backend_ip}:${backend_host}'"""
                 exception "denied"

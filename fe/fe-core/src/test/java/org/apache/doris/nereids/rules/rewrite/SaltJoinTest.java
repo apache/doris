@@ -35,6 +35,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
         createTable("create table test.test_skew10(a int,c varchar(100), b int) distributed by hash(a) buckets 32 properties(\"replication_num\"=\"1\");");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setParallelResultSink(false);
     }
 
     @Test

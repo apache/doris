@@ -42,7 +42,8 @@ suite("test_statistic_partial_update", "p0, nonConcurrent") {
         try {
             sql """INSERT INTO internal.__internal_schema.column_statistics VALUES ('132440--1-supplier_info',0,11833,132440,-1,'supplier_info',null,144620,1,144620,'null','null',578480,'2024-04-01 09:49:04')"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("You must explicitly specify the columns to be updated when updating partial columns using the INSERT statement"));
+            logger.info("error message: " + e.getMessage())
+            assertTrue(e.getMessage().contains("Column count doesn't match value count"))
         }
         sql """analyze table mvTestUni with sync"""
     } finally {

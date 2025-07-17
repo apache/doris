@@ -22,7 +22,7 @@
 
 #include "runtime/decimalv2_value.h"
 #include "util/types.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
