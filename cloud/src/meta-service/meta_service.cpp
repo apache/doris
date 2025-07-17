@@ -3067,7 +3067,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 DCHECK(request->lock_id() > 0);
                 lock_info.clear_initiators();
                 std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
-                std::string key1 = mow_tablet_job_key({instance_id, table_id + 1, 0});
+                std::string key1 = mow_tablet_job_key(
+                        {instance_id, table_id + 1, std::numeric_limits<int64_t>::max()});
                 txn->remove(key0, key1);
                 LOG(INFO) << "remove mow tablet job kv, begin=" << hex(key0) << " end=" << hex(key1)
                           << " table_id=" << table_id;
@@ -3151,8 +3152,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                     bool has_unexpired_compaction = false;
                     int64_t unexpired_expiration = 0;
                     std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
-                    std::string key1 = mow_tablet_job_key(
-                            {instance_id, table_id + 1, std::numeric_limits<int64_t>::max()});
+                    std::string key1 = mow_tablet_job_key({instance_id, table_id + 1, 0});
                     MowTabletJobPB mow_tablet_job;
                     std::unique_ptr<RangeGetIterator> it;
                     int64_t expired_job_num = 0;
