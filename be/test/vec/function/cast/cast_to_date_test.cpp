@@ -27,11 +27,10 @@ TEST_F(FunctionCastTest, strict_test_from_string_to_date) {
             // Valid ISO 8601 format with timezone
             {{std::string("2023-07-16T19:20:30.123+08:00")}, std::string("2023-07-16")},
             {{std::string("2023-07-16T19+08:00")}, std::string("2023-07-16")},
-            // keep its origin behaviour. timezone offset and time part could together impact date part.
-            // here 1920 is treated as 1,920 hours and carried over to the day.
-            {{std::string("2023-07-16T1920+08:00")}, std::string("2023-10-04")},
+            {{std::string("2023-07-16T1920+08:00")}, std::string("2023-07-16")},
+            {{std::string("2023-07-16T1920+00:00")}, std::string("2023-07-16")},
             {{std::string("70-1-1T00:00:00-0000")}, std::string("1970-01-01")},
-            {{std::string("19991231T235960.5UTC")}, std::string("2000-01-01")},
+            {{std::string("19991231T235960.5UTC")}, Null()},
 
             // Date with timezone names
             {{std::string("2024-02-29 12:00:00 Europe/Paris")}, std::string("2024-02-29")},
@@ -47,15 +46,15 @@ TEST_F(FunctionCastTest, strict_test_from_string_to_date) {
 
             // Compact formats
             {{std::string("20240501 01")}, Null()},
-            {{std::string("20230716 1920Z")}, Null()},
-            {{std::string("20240501T0000")}, Null()},
+            {{std::string("20230716 1920Z")}, std::string("2023-07-16")},
+            {{std::string("20240501T0000")}, std::string("2024-05-01")},
 
             // High precision timestamps
             {{std::string("2024-12-31 23:59:59.9999999")}, std::string("2024-12-31")},
             {{std::string("2025/06/15T00:00:00.99999999999999")}, std::string("2025-06-15")},
 
             // Various timezone offsets
-            {{std::string("2020-12-12 13:12:12-03:00")}, std::string("2020-12-13")},
+            {{std::string("2020-12-12 13:12:12-03:00")}, std::string("2020-12-12")},
             {{std::string("0023-01-01T00:00Z")}, std::string("0023-01-01")},
 
             // Year cutoff cases
@@ -65,27 +64,27 @@ TEST_F(FunctionCastTest, strict_test_from_string_to_date) {
             // Compact numeric formats
             {{std::string("230102")}, std::string("2023-01-02")},
             {{std::string("19230101")}, std::string("1923-01-01")},
-            {{std::string("120102030405")}, std::string("2012-01-02")},
+            {{std::string("120102030405")}, Null()},
             {{std::string("20120102030405")}, std::string("2012-01-02")},
-            {{std::string("120102030405.999")}, std::string("2012-01-02")},
+            {{std::string("120102030405.999")}, Null()},
 
             // Invalid formats (should return NULL)
-            {{std::string("2020-05-05 12:30:60")}, std::string("2020-05-05")},
-            {{std::string("2023-07-16T19.123+08:00")}, std::string("2023-07-16")},
+            {{std::string("2020-05-05 12:30:60")}, Null()},
+            {{std::string("2023-07-16T19.123+08:00")}, Null()},
             {{std::string("2024/05/01")}, std::string("2024-05-01")},
-            {{std::string("24012")}, std::string("2024-01-02")},
+            {{std::string("24012")}, Null()},
             {{std::string("2411 123")}, Null()},
-            {{std::string("2024-05-01 01:030:02")}, std::string("2024-05-01")},
+            {{std::string("2024-05-01 01:030:02")}, Null()},
             {{std::string("10000-01-01 00:00:00")}, Null()},
             {{std::string("2024-0131T12:00")}, Null()},
-            {{std::string("2024-05-01@00:00")}, std::string("2024-05-01")},
-            {{std::string("20120212051")}, std::string("2020-12-02")},
+            {{std::string("2024-05-01@00:00")}, Null()},
+            {{std::string("20120212051")}, Null()},
             {{std::string("2024-05-01T00:00XYZ")}, Null()},
-            {{std::string("2024-5-1T24:00")}, std::string("2024-05-01")},
+            {{std::string("2024-5-1T24:00")}, Null()},
             {{std::string("2024-02-30")}, Null()},
-            {{std::string("2024-05-01T12:60")}, std::string("2024-05-01")},
-            {{std::string("2012-06-30T23:59:60")}, std::string("2012-06-30")},
-            {{std::string("2024-05-01T00:00+14:30")}, std::string("2024-04-30")},
+            {{std::string("2024-05-01T12:60")}, Null()},
+            {{std::string("2012-06-30T23:59:60")}, Null()},
+            {{std::string("2024-05-01T00:00+14:30")}, Null()},
             {{std::string("2024-05-01T00:00+08:25")}, Null()}};
     check_function_for_cast<DataTypeDateV2>(input_types, data_set);
 }
@@ -95,20 +94,20 @@ TEST_F(FunctionCastTest, non_strict_test_from_string_to_date) {
     DataSet data_set = {
             // Flexible date formats
             {{std::string("2023-7-4T9-5-3.1Z")}, std::string("2023-07-04")},
-            {{std::string("99.12.31 23.59.59+05:30")}, std::string("2000-01-01")},
+            {{std::string("99.12.31 23.59.59+05:30")}, std::string("1999-12-31")},
             {{std::string("2000/01/01T00/00/00-230")}, std::string("2000-01-01")},
-            {{std::string("85 1 1T0 0 0. CST")}, Null()},
+            {{std::string("85 1 1T0 0 0. CST")}, std::string("1985-01-01")},
             {{std::string("2024-02-29T23:59:59.999999 UTC")}, std::string("2024-02-29")},
-            {{std::string("70-01-01T00:00:00+14")}, Null()},
+            {{std::string("70-01-01T00:00:00+14")}, std::string("1970-01-01")},
             {{std::string("0023-1-1T1:2:3. -00:00")}, std::string("0023-01-01")},
             {{std::string("2025/06/15T00:00:00.0-0")}, std::string("2025-06-15")},
             {{std::string("2025/06/15T00:00:00.99999999999")}, std::string("2025-06-15")},
-            {{std::string("2024-02-29T23-59-60ZULU")}, std::string("2024-03-01")},
+            {{std::string("2024-02-29T23-59-60ZULU")}, Null()},
             {{std::string("2024 12 31T121212.123456 America/New_York")}, Null()},
 
             // Invalid formats
-            {{std::string("123.123")}, std::string("2012-03-12")},
-            {{std::string("12121")}, std::string("2012-12-01")},
+            {{std::string("123.123")}, Null()},
+            {{std::string("12121")}, Null()},
     };
     check_function_for_cast<DataTypeDateV2>(input_types, data_set);
 }
@@ -143,9 +142,9 @@ TEST_F(FunctionCastTest, test_from_decimal_to_date) {
     // Test casting from Decimal(9,3)
     {
         InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL64, 3, 10}};
-        DataSet data_set = {{{DECIMAL64(123, 123, 3)}, Null()},
-                            {{DECIMAL64(20150102, 123, 3)}, Null()},
-                            {{DECIMAL64(20151231, 999, 3)}, Null()},
+        DataSet data_set = {{{DECIMAL64(123, 123, 3)}, std::string("2000-01-23")},
+                            {{DECIMAL64(20150102, 123, 3)}, std::string("2015-01-02")},
+                            {{DECIMAL64(20151231, 999, 3)}, std::string("2015-12-31")},
                             {{DECIMAL64(1000, 0, 3)}, Null()},
                             {{Null()}, Null()}};
         check_function_for_cast<DataTypeDateV2>(input_types, data_set);

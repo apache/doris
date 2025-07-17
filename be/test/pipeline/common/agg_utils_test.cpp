@@ -21,6 +21,7 @@
 
 #include <cstdint>
 
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::pipeline {
@@ -330,5 +331,4 @@ TEST_F(AggregatedDataVariantsTest, TestInvalidKeyType) {
     std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
     ASSERT_THROW(_variants->init(types, static_cast<HashKeyType>(-1)), Exception);
 }
-
 } // namespace doris::pipeline

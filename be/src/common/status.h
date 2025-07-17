@@ -135,6 +135,7 @@ namespace ErrorCode {
     E(QUERY_MEMORY_EXCEEDED, -257, false);                   \
     E(WORKLOAD_GROUP_MEMORY_EXCEEDED, -258, false);          \
     E(PROCESS_MEMORY_EXCEEDED, -259, false);                 \
+    E(INVALID_INPUT_SYNTAX, -260, false);                    \
     E(CE_CMD_PARAMS_ERROR, -300, true);                      \
     E(CE_BUFFER_TOO_SMALL, -301, true);                      \
     E(CE_CMD_NOT_VALID, -302, true);                         \
