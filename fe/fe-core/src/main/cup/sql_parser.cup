@@ -2668,10 +2668,6 @@ drop_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
     :}
-    | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
-    {:
-        RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
-    :}
     | KW_DROP KW_WORKLOAD KW_POLICY opt_if_exists:ifExists ident_or_text:policyName
     {:
         RESULT = new DropWorkloadSchedPolicyStmt(ifExists, policyName);
