@@ -42,6 +42,7 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.ConfigOption;
@@ -63,6 +64,7 @@ import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
+import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -380,4 +382,16 @@ public class PaimonUtil {
         }
     }
 
+    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues) {
+        Map<String, String> partitionInfoMap = new HashMap<>();
+        List<String> partitionKeys = table.partitionKeys();
+        RowType partitionType = table.rowType().project(partitionKeys);
+        RowDataToObjectArrayConverter toObjectArrayConverter = new RowDataToObjectArrayConverter(
+                partitionType);
+        Object[] partitionValuesArray = toObjectArrayConverter.convert(partitionValues);
+        for (int i = 0; i < partitionKeys.size(); i++) {
+            partitionInfoMap.put(partitionKeys.get(i), partitionValuesArray[i].toString());
+        }
+        return partitionInfoMap;
+    }
 }

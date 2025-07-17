@@ -243,6 +243,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             tableFormatFileDesc.setTableLevelRowCount(paimonSplit.getRowCount().get());
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
+        rangeDesc.setDataLakePartitionValues(paimonSplit.getPaimonPartitionValues());
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -275,12 +276,15 @@ public class PaimonScanNode extends FileQueryScanNode {
 
             BinaryRow partitionValue = dataSplit.partition();
             selectedPartitionValues.add(partitionValue);
+            Map<String, String> partitionInfoMap = PaimonUtil.getPartitionInfoMap(
+                    source.getPaimonTable(), partitionValue);
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
             if (applyCountPushdown && dataSplit.mergedRowCountAvailable()) {
                 splitStat.setMergedRowCount(dataSplit.mergedRowCount());
                 PaimonSplit split = new PaimonSplit(dataSplit);
                 split.setRowCount(dataSplit.mergedRowCount());
+                split.setPaimonPartitionValues(partitionInfoMap);
                 pushDownCountSplits.add(split);
                 pushDownCountSum += dataSplit.mergedRowCount();
             } else if (!forceJniScanner && supportNativeReader(optRawFiles)) {
@@ -305,10 +309,12 @@ public class PaimonScanNode extends FileQueryScanNode {
                                 null,
                                 PaimonSplit.PaimonSplitCreator.DEFAULT);
                         for (Split dorisSplit : dorisSplits) {
-                            ((PaimonSplit) dorisSplit).setSchemaId(file.schemaId());
+                            PaimonSplit paimonSplit = (PaimonSplit) dorisSplit;
+                            paimonSplit.setSchemaId(file.schemaId());
+                            paimonSplit.setPaimonPartitionValues(partitionInfoMap);
                             // try to set deletion file
                             if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
-                                ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i));
+                                paimonSplit.setDeletionFile(optDeletionFiles.get().get(i));
                                 splitStat.setHasDeletionVector(true);
                             }
                         }
