@@ -101,13 +101,11 @@ AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
         return res;
     }
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
-    if (argument_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_OBJECT ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_HLL ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_QUANTILE_STATE) {
+    WhichDataType which(argument_type);
+    if (which.idx == TypeIndex::Array || which.idx == TypeIndex::MAP ||
+        which.idx == TypeIndex::STRUCT || which.idx == TypeIndex::AGG_STATE ||
+        which.idx == TypeIndex::OBJECT || which.idx == TypeIndex::HLL ||
+        which.idx == TypeIndex::QUANTILE_STATE) {
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<SingleValueDataComplexType>>(argument_types,
                                                                            result_is_nullable);
