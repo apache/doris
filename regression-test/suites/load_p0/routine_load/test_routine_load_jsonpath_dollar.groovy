@@ -65,7 +65,7 @@ suite("test_routine_load_jsonpath_dollar", "p0") {
             // Create routine load job with $. in jsonpaths
             sql """
                 CREATE ROUTINE LOAD ${jobName} ON ${tableName}
-                COLUMNS(time, id, name, content),
+                COLUMNS(ot,time=from_unixtime(`ot`), id, name, content),
                 PRECEDING FILTER ((`ot` > 0) AND (`id` != ''))
                 PROPERTIES
                 (
