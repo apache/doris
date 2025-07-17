@@ -84,7 +84,6 @@ Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size, const io::I
         if (version == InvertedIndexStorageFormatPB::V2) {
             DCHECK(version == _storage_format);
             int32_t numIndices = _stream->readInt(); // Read number of indices
-            ReaderFileEntry* entry = nullptr;
 
             for (int32_t i = 0; i < numIndices; ++i) {
                 int64_t indexId = _stream->readLong();      // Read index ID
@@ -95,23 +94,19 @@ Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size, const io::I
 
                 int32_t numFiles = _stream->readInt(); // Read number of files in the index
 
-                // true, true means it will deconstruct key and value
-                auto fileEntries = std::make_unique<EntriesType>(true, true);
+                auto fileEntries = std::make_unique<EntriesType>();
+                fileEntries->reserve(numFiles);
 
                 for (int32_t j = 0; j < numFiles; ++j) {
-                    entry = _CLNEW ReaderFileEntry();
-
                     int32_t file_name_length = _stream->readInt();
-                    // aid will destruct in EntriesType map.
-                    char* aid = (char*)malloc(file_name_length + 1);
-                    _stream->readBytes(reinterpret_cast<uint8_t*>(aid), file_name_length);
-                    aid[file_name_length] = '\0';
-                    //stream->readString(tid, CL_MAX_PATH);
-                    entry->file_name = std::string(aid, file_name_length);
+                    std::string file_name(file_name_length, '\0');
+                    _stream->readBytes(reinterpret_cast<uint8_t*>(file_name.data()),
+                                       file_name_length);
+                    auto entry = std::make_unique<ReaderFileEntry>();
+                    entry->file_name = std::move(file_name);
                     entry->offset = _stream->readLong();
                     entry->length = _stream->readLong();
-
-                    fileEntries->put(aid, entry);
+                    fileEntries->emplace(entry->file_name, std::move(entry));
                 }
 
                 _indices_entries.emplace(std::make_pair(indexId, std::move(suffix_str)),
@@ -223,8 +218,8 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
                     errMsg.str()));
         }
         // Need to clone resource here, because index searcher cache need it.
-        compound_reader = std::make_unique<DorisCompoundReader>(
-                _stream->clone(), index_it->second.get(), _read_buffer_size, io_ctx);
+        compound_reader = std::make_unique<DorisCompoundReader>(_stream->clone(), *index_it->second,
+                                                                _read_buffer_size, io_ctx);
     }
     return compound_reader;
 }
@@ -290,13 +285,14 @@ Status InvertedIndexFileReader::has_null(const TabletIndex* index_meta, bool* re
     if (index_it == _indices_entries.end()) {
         *res = false;
     } else {
-        auto* entries = index_it->second.get();
-        ReaderFileEntry* e =
-                entries->get((char*)InvertedIndexDescriptor::get_temporary_null_bitmap_file_name());
-        if (e == nullptr) {
+        const auto& entries = index_it->second;
+        auto entry_it =
+                entries->find(InvertedIndexDescriptor::get_temporary_null_bitmap_file_name());
+        if (entry_it == entries->end()) {
             *res = false;
             return Status::OK();
         }
+        const auto& e = entry_it->second;
         // roaring bitmap cookie header size is 5
         if (e->length <= 5) {
             *res = false;
@@ -309,11 +305,11 @@ Status InvertedIndexFileReader::has_null(const TabletIndex* index_meta, bool* re
 
 void InvertedIndexFileReader::debug_file_entries() {
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
-    for (auto& index : _indices_entries) {
+    for (const auto& index : _indices_entries) {
         LOG(INFO) << "index_id:" << index.first.first;
-        auto* index_entries = index.second.get();
-        for (auto& entry : (*index_entries)) {
-            ReaderFileEntry* file_entry = entry.second;
+        const auto& index_entries = index.second;
+        for (const auto& entry : *index_entries) {
+            const auto& file_entry = entry.second;
             LOG(INFO) << "file entry name:" << file_entry->file_name
                       << " length:" << file_entry->length << " offset:" << file_entry->offset;
         }
