@@ -484,7 +484,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         }
         if (expression instanceof UnboundSlot) {
             String name = ((UnboundSlot) expression).getName();
-            mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0)), false,false));
+            mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0)), false, false));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;
