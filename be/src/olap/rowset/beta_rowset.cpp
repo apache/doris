@@ -193,13 +193,13 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
                                                     : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true,
             .cache_base_path = "",
-            .file_size = _rowset_meta->segment_file_size(cast_set<int>(seg_id)),
+            .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
     };
 
     auto s = segment_v2::Segment::open(
-            fs, seg_path, _rowset_meta->tablet_id(), cast_set<uint32_t>(seg_id), rowset_id(),
+            fs, seg_path, _rowset_meta->tablet_id(), static_cast<uint32_t>(seg_id), rowset_id(),
             _schema, reader_options, segment,
-            _rowset_meta->inverted_index_file_info(cast_set<int>(seg_id)), stats);
+            _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();

@@ -60,7 +60,7 @@ public:
                                 ->consumption()));
             }
 
-            uint32_t id = cast_set<uint32_t>(_segments_rowid_map.size());
+            uint32_t id = static_cast<uint32_t>(_segments_rowid_map.size());
             _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
             _id_to_segment_map.emplace_back(src_rowset_id, i);
             std::vector<std::pair<uint32_t, uint32_t>> vec(

@@ -19,6 +19,8 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <cstdint>
+
 #include "common/consts.h"
 #include "common/logging.h"
 #include "olap/base_tablet.h"
@@ -36,13 +38,13 @@
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
                                UniqueKeyUpdateModePB unique_key_update_mode,
                                PartialUpdateNewRowPolicyPB policy,
                                const std::set<std::string>& partial_update_cols,
-                               bool is_strict_mode, int64_t timestamp_ms, int32_t nano_seconds,
-                               const std::string& timezone,
+                               bool is_strict_mode_, int64_t timestamp_ms_, int32_t nano_seconds_,
+                               const std::string& timezone_,
                                const std::string& auto_increment_column,
                                int32_t sequence_map_col_uid, int64_t cur_max_version) {
     partial_update_mode = unique_key_update_mode;
@@ -50,9 +52,9 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     sequence_map_col_unqiue_id = sequence_map_col_uid;
-    this->timestamp_ms = timestamp_ms;
-    this->nano_seconds = nano_seconds;
-    this->timezone = timezone;
+    timestamp_ms = timestamp_ms_;
+    nano_seconds = nano_seconds_;
+    timezone = timezone_;
     missing_cids.clear();
     update_cids.clear();
 
@@ -93,7 +95,7 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
             }
         }
     }
-    this->is_strict_mode = is_strict_mode;
+    is_strict_mode = is_strict_mode_;
     is_input_columns_contains_auto_inc_column =
             is_fixed_partial_update() &&
             partial_update_input_columns.contains(auto_increment_column);
@@ -319,7 +321,7 @@ Status FixedReadPlan::read_columns_by_plan(
     }
     bool has_row_column = tablet_schema.has_row_store_for_all_columns();
     auto mutable_columns = block.mutate_columns();
-    size_t read_idx = 0;
+    uint32_t read_idx = 0;
     for (const auto& [rowset_id, segment_row_mappings] : plan) {
         for (const auto& [segment_id, mappings] : segment_row_mappings) {
             auto rowset_iter = rsid_to_rowset.find(rowset_id);
@@ -330,7 +332,7 @@ Status FixedReadPlan::read_columns_by_plan(
                     continue;
                 }
                 rids.emplace_back(rid);
-                (*read_index)[pos] = read_idx++;
+                (*read_index)[static_cast<uint32_t>(pos)] = read_idx++;
             }
             if (has_row_column) {
                 auto st = BaseTablet::fetch_value_through_row_column(
@@ -361,7 +363,7 @@ Status FixedReadPlan::fill_missing_columns(
         RowsetWriterContext* rowset_ctx, const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         const TabletSchema& tablet_schema, vectorized::Block& full_block,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-        const size_t& segment_start_pos, const vectorized::Block* block) const {
+        uint32_t segment_start_pos, const vectorized::Block* block) const {
     auto mutable_full_columns = full_block.mutate_columns();
     // create old value columns
     const auto& missing_cids = rowset_ctx->partial_update_info->missing_cids;
@@ -453,8 +455,8 @@ void FlexibleReadPlan::prepare_to_read(const RowLocation& row_location, size_t p
                                        const BitmapValue& skip_bitmap) {
     if (!use_row_store) {
         for (uint64_t col_uid : skip_bitmap) {
-            plan[row_location.rowset_id][row_location.segment_id][col_uid].emplace_back(
-                    row_location.row_id, pos);
+            plan[row_location.rowset_id][row_location.segment_id][static_cast<uint32_t>(col_uid)]
+                    .emplace_back(row_location.row_id, pos);
         }
     } else {
         row_store_plan[row_location.rowset_id][row_location.segment_id].emplace_back(
@@ -471,7 +473,7 @@ Status FlexibleReadPlan::read_columns_by_plan(
 
     // cid -> next rid to fill in block
     std::map<uint32_t, uint32_t> next_read_idx;
-    for (std::size_t cid {0}; cid < tablet_schema.num_columns(); cid++) {
+    for (uint32_t cid {0}; cid < tablet_schema.num_columns(); cid++) {
         next_read_idx[cid] = 0;
     }
 
@@ -486,7 +488,7 @@ Status FlexibleReadPlan::read_columns_by_plan(
                 std::vector<uint32_t> rids;
                 for (auto [rid, pos] : mappings) {
                     rids.emplace_back(rid);
-                    (*read_index)[cid][pos] = next_read_idx[cid]++;
+                    (*read_index)[cid][static_cast<uint32_t>(pos)] = next_read_idx[cid]++;
                 }
 
                 TabletColumn tablet_column = tablet_schema.column(cid);
@@ -507,7 +509,7 @@ Status FlexibleReadPlan::read_columns_by_plan(
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block& old_value_block, std::map<uint32_t, uint32_t>* read_index) const {
     DCHECK(use_row_store);
-    size_t read_idx = 0;
+    uint32_t read_idx = 0;
     for (const auto& [rowset_id, segment_row_mappings] : row_store_plan) {
         for (const auto& [segment_id, mappings] : segment_row_mappings) {
             auto rowset_iter = rsid_to_rowset.find(rowset_id);
@@ -515,7 +517,7 @@ Status FlexibleReadPlan::read_columns_by_plan(
             std::vector<uint32_t> rids;
             for (auto [rid, pos] : mappings) {
                 rids.emplace_back(rid);
-                (*read_index)[pos] = read_idx++;
+                (*read_index)[static_cast<uint32_t>(pos)] = read_idx++;
             }
             auto st = BaseTablet::fetch_value_through_row_column(rowset_iter->second, tablet_schema,
                                                                  segment_id, rids, cids_to_read,
@@ -533,8 +535,8 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
         RowsetWriterContext* rowset_ctx, const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         const TabletSchema& tablet_schema, vectorized::Block& full_block,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-        const std::size_t segment_start_pos, const std::size_t block_start_pos,
-        const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
+        uint32_t segment_start_pos, uint32_t block_start_pos, const vectorized::Block* block,
+        std::vector<BitmapValue>* skip_bitmaps) const {
     auto mutable_full_columns = full_block.mutate_columns();
 
     // missing_cids are all non sort key columns' cids

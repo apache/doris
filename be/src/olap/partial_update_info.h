@@ -132,7 +132,7 @@ public:
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 const TabletSchema& tablet_schema, vectorized::Block& full_block,
                                 const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos,
+                                bool has_default_or_nullable, uint32_t segment_start_pos,
                                 const vectorized::Block* block) const;
 
 private:
@@ -156,13 +156,14 @@ public:
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 vectorized::Block& old_value_block,
                                 std::map<uint32_t, uint32_t>* read_index) const;
-    Status fill_non_primary_key_columns(
-            RowsetWriterContext* rowset_ctx,
-            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-            const TabletSchema& tablet_schema, vectorized::Block& full_block,
-            const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-            const std::size_t segment_start_pos, const std::size_t block_start_pos,
-            const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
+    Status fill_non_primary_key_columns(RowsetWriterContext* rowset_ctx,
+                                        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                        const TabletSchema& tablet_schema,
+                                        vectorized::Block& full_block,
+                                        const std::vector<bool>& use_default_or_null_flag,
+                                        bool has_default_or_nullable, uint32_t segment_start_pos,
+                                        uint32_t block_start_pos, const vectorized::Block* block,
+                                        std::vector<BitmapValue>* skip_bitmaps) const;
 
     Status fill_non_primary_key_columns_for_column_store(
             RowsetWriterContext* rowset_ctx,
@@ -170,16 +171,16 @@ public:
             const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
             vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
             const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-            const std::size_t segment_start_pos, const std::size_t block_start_pos,
-            const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
+            uint32_t segment_start_pos, uint32_t block_start_pos, const vectorized::Block* block,
+            std::vector<BitmapValue>* skip_bitmaps) const;
     Status fill_non_primary_key_columns_for_row_store(
             RowsetWriterContext* rowset_ctx,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
             vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
             const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-            const std::size_t segment_start_pos, const std::size_t block_start_pos,
-            const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
+            uint32_t segment_start_pos, uint32_t block_start_pos, const vectorized::Block* block,
+            std::vector<BitmapValue>* skip_bitmaps) const;
 
 private:
     bool use_row_store {false};
