@@ -657,7 +657,6 @@ public:
 
     // Tablets should be hold before open phase.
     Status open(RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) = 0;
