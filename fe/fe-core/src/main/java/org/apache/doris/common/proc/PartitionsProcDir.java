@@ -188,7 +188,7 @@ public class PartitionsProcDir implements ProcDirInterface {
         }
 
         if (expr instanceof EqualTo && expr.child(1) instanceof StringLikeLiteral) {
-            return ((StringLikeLiteral) expr.child(1)).getValue().equals(element);
+            return ((StringLikeLiteral) expr.child(1)).getValue().equals(element.toString());
         }
         long leftVal;
         long rightVal;
