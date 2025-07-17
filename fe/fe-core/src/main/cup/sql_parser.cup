@@ -2502,12 +2502,6 @@ resume_job_stmt ::=
     {:
         RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.RUNNING);
     :}
-    ;    
-cancel_job_task_stmt ::=
-   KW_CANCEL KW_TASK opt_wild_where
-    {:
-      RESULT = new CancelJobTaskStmt(parser.where);
-    :}
     ;                          
 // Routine load statement
 create_routine_load_stmt ::=
