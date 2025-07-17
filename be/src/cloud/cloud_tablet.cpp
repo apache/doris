@@ -983,7 +983,7 @@ int64_t CloudTablet::get_cloud_base_compaction_score() const {
         bool has_delete = false;
         int64_t point = cumulative_layer_point();
         std::shared_lock<std::shared_mutex> rlock(_meta_lock);
-        for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
+        for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
             if (rs_meta->start_version() >= point) {
                 continue;
             }

@@ -291,8 +291,8 @@ Versions BaseTablet::get_missed_versions(int64_t spec_version) const {
     Versions existing_versions;
     {
         std::shared_lock rdlock(_meta_lock);
-        for (const auto& rs : _tablet_meta->all_rs_metas()) {
-            existing_versions.emplace_back(rs->version());
+        for (const auto& [ver, _] : _tablet_meta->all_rs_metas()) {
+            existing_versions.emplace_back(ver);
         }
     }
     return calc_missed_versions(spec_version, std::move(existing_versions));
@@ -302,8 +302,8 @@ Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version) const {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
 
     Versions existing_versions;
-    for (const auto& rs : _tablet_meta->all_rs_metas()) {
-        existing_versions.emplace_back(rs->version());
+    for (const auto& [ver, _] : _tablet_meta->all_rs_metas()) {
+        existing_versions.emplace_back(ver);
     }
     return calc_missed_versions(spec_version, std::move(existing_versions));
 }
