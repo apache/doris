@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics.util;
 
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -43,6 +42,7 @@ import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
@@ -570,17 +570,17 @@ class StatisticsUtilTest {
     @Test
     void testGetHotValues() {
         String value1 = "1234 :0.33 ;222 :0.22";
-        Map<LiteralExpr, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
+        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
         Assertions.assertEquals(2, hotValues.size());
 
         int i = 0;
-        for (Map.Entry<LiteralExpr, Float> entry : hotValues.entrySet()) {
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
             if (i == 0) {
-                Assertions.assertEquals(1234, entry.getKey().getLongValue());
+                Assertions.assertEquals("1234", entry.getKey().getStringValue());
                 Assertions.assertEquals("0.33", entry.getValue().toString());
                 i++;
             } else {
-                Assertions.assertEquals(222, entry.getKey().getLongValue());
+                Assertions.assertEquals("222", entry.getKey().getStringValue());
                 Assertions.assertEquals("0.22", entry.getValue().toString());
             }
         }
@@ -589,8 +589,8 @@ class StatisticsUtilTest {
         hotValues = StatisticsUtil.getHotValues(value2, Type.INT);
         Assertions.assertEquals(1, hotValues.size());
 
-        for (Map.Entry<LiteralExpr, Float> entry : hotValues.entrySet()) {
-            Assertions.assertEquals(1234, entry.getKey().getLongValue());
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+            Assertions.assertEquals("1234", entry.getKey().getStringValue());
             Assertions.assertEquals("0.33", entry.getValue().toString());
         }
 
@@ -598,7 +598,7 @@ class StatisticsUtilTest {
         hotValues = StatisticsUtil.getHotValues(value3, Type.STRING);
         Assertions.assertEquals(2, hotValues.size());
         i = 0;
-        for (Map.Entry<LiteralExpr, Float> entry : hotValues.entrySet()) {
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
             if (i == 0) {
                 Assertions.assertEquals("aabbcc:;", entry.getKey().getStringValue());
                 Assertions.assertEquals("0.33", entry.getValue().toString());
