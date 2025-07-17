@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("multi_slot6") {
+    // this mv rewrite would not be rewritten in RBO, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS multi_slot6; """
 
     sql """
