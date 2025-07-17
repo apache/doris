@@ -261,6 +261,9 @@ void CloudStorageEngine::stop() {
     if (_calc_tablet_delete_bitmap_task_thread_pool) {
         _calc_tablet_delete_bitmap_task_thread_pool->shutdown();
     }
+    if (_sync_delete_bitmap_thread_pool) {
+        _sync_delete_bitmap_thread_pool->shutdown();
+    }
 }
 
 bool CloudStorageEngine::stopped() {
@@ -303,6 +306,10 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
                             .set_min_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .build(&_calc_tablet_delete_bitmap_task_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("SyncDeleteBitmapThreadPool")
+                            .set_min_threads(config::sync_delete_bitmap_task_max_thread)
+                            .set_max_threads(config::sync_delete_bitmap_task_max_thread)
+                            .build(&_sync_delete_bitmap_thread_pool));
 
     // TODO(plat1ko): check_bucket_enable_versioning_thread
 

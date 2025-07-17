@@ -1288,7 +1288,6 @@ const roaring::Roaring* DeleteBitmap::get(const BitmapKey& bmk) const {
 
 void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
                           DeleteBitmap* subset_rowset_map) const {
-    roaring::Roaring roaring;
     DCHECK(start < end);
     std::shared_lock l(lock);
     for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
@@ -1297,6 +1296,25 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
             break;
         }
         subset_rowset_map->set(k, bm);
+    }
+}
+
+void DeleteBitmap::subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
+                                  int64_t start_version, int64_t end_version,
+                                  DeleteBitmap* subset_delete_map) const {
+    DCHECK(start_version <= end_version);
+    for (auto& [rowset_id, segment_num] : rowset_ids) {
+        for (int64_t seg_id = 0; seg_id < segment_num; ++seg_id) {
+            BitmapKey end {rowset_id, seg_id, end_version};
+            auto bm = get_agg_without_cache(end, start_version);
+            VLOG_DEBUG << "subset delete bitmap, tablet=" << _tablet_id << ", rowset=" << rowset_id
+                       << ", segment=" << seg_id << ", version=[" << start_version << "-"
+                       << end_version << "], cardinality=" << bm->cardinality();
+            if (bm->isEmpty()) {
+                continue;
+            }
+            subset_delete_map->merge(end, *bm);
+        }
     }
 }
 
