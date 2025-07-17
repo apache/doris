@@ -76,6 +76,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -872,6 +873,18 @@ public class Alter {
                 Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable, isReplay);
             }
         }
+    }
+
+    public void processAlterView(AlterViewCommand command, ConnectContext ctx) throws UserException {
+        org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo alterViewInfo = command.getAlterViewInfo();
+        TableNameInfo tableNameInfo = alterViewInfo.getViewName();
+        String dbName = tableNameInfo.getDb();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        String tableName = tableNameInfo.getTbl();
+        View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
+        modifyViewDef(db, view, alterViewInfo.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(),
+                alterViewInfo.getColumns(), alterViewInfo.getComment());
     }
 
     public void processAlterView(AlterViewStmt stmt, ConnectContext ctx) throws UserException {

@@ -27,7 +27,6 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelExportStmt;
-import org.apache.doris.analysis.CancelJobTaskStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
@@ -51,11 +50,9 @@ import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropIndexPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
-import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
-import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
@@ -155,20 +152,11 @@ public class DdlExecutor {
             } catch (Exception e) {
                 throw new DdlException(e.getMessage());
             }
-        } else if (ddlStmt instanceof CancelJobTaskStmt) {
-            CancelJobTaskStmt stmt = (CancelJobTaskStmt) ddlStmt;
-            try {
-                env.getJobManager().cancelTaskById(stmt.getJobName(), stmt.getTaskId());
-            } catch (Exception e) {
-                throw new DdlException(e.getMessage());
-            }
         } else if (ddlStmt instanceof DropUserStmt) {
             DropUserStmt stmt = (DropUserStmt) ddlStmt;
             env.getAuth().dropUser(stmt);
         } else if (ddlStmt instanceof AlterRoleStmt) {
             env.getAuth().alterRole((AlterRoleStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropRoleStmt) {
-            env.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
             env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
 
@@ -194,8 +182,6 @@ public class DdlExecutor {
             env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
-            env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().createWorkloadSchedPolicy((CreateWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {

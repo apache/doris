@@ -17,7 +17,6 @@
 
 package org.apache.doris.resource.workloadgroup;
 
-import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -392,10 +391,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             writeUnlock();
         }
         LOG.info("Alter workload group {} for compute group {} success: {}", newWorkloadGroup, cg.getName());
-    }
-
-    public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
-        throw new DdlException("Unsupported drop statement.");
     }
 
     public void dropWorkloadGroup(String computeGroup, String workloadGroupName, boolean ifExists)

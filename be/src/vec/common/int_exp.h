@@ -24,7 +24,7 @@
 #include <limits>
 #include <utility>
 
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 
 namespace exp_details {
 
@@ -291,6 +291,24 @@ constexpr inline int64_t max_i64(int digit_count) {
                                   99999999999999999LL,
                                   999999999999999999LL};
     return values[digit_count];
+}
+
+constexpr inline int count_digits_fast(int64_t n) {
+    uint64_t abs_n = (n < 0 ? uint64_t(-n) : uint64_t(n));
+    if (abs_n == 0) [[unlikely]] {
+        return 1;
+    }
+
+    int bits = 64 - __builtin_clzll(abs_n);
+    int d = (bits * 1233) >> 12;
+
+    if (abs_n < int_exp10(d)) {
+        --d;
+    } else if (abs_n >= int_exp10(d + 1)) {
+        ++d;
+    }
+
+    return d + 1;
 }
 
 constexpr inline __int128 max_i128(int digit_count) {
