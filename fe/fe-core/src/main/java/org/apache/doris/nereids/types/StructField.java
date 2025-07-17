@@ -27,8 +27,6 @@ import java.util.Objects;
  */
 public class StructField {
 
-    public static final String DEFAULT_FIELD_NAME = "col";
-
     private final String name;
     private final DataType dataType;
     private final boolean nullable;
