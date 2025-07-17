@@ -2262,7 +2262,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         }
         LOG.info("rewriteReplicaAllocationProperties, properties={}, replicaAlloc={}, num={}",
-                stmt.getProperties, replicaAlloc, replicaAlloc.getTotalReplicaNum());
+                stmt.getProperties(), replicaAlloc, replicaAlloc.getTotalReplicaNum());
 
         long bufferSize = IdGeneratorUtil.getBufferSizeForCreateTable(stmt, replicaAlloc);
         IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
