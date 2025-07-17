@@ -145,7 +145,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         size_t iov_count = std::min(data_cnt - completed_iov, static_cast<size_t>(IOV_MAX));
         ssize_t res;
         RETRY_ON_EINTR(res, SYNC_POINT_HOOK_RETURN_VALUE(::writev(_fd, iov.data() + completed_iov,
-                                                                  static_cast<int32_t>(iov_count)),
+                                                                  cast_set<int32_t>(iov_count)),
                                                          "LocalFileWriter::writev", _fd));
         DBUG_EXECUTE_IF("LocalFileWriter::appendv.io_error", {
             auto sub_path = dp->param<std::string>("sub_path", "");
