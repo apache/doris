@@ -102,8 +102,9 @@ public:
 
     static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);
 
+    using SerDeType = DataTypeBitMapSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeBitMapSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 };
 
