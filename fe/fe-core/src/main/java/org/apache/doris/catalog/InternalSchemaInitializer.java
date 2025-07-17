@@ -321,7 +321,7 @@ public class InternalSchemaInitializer extends Thread {
          *   `time` datetimev2(3) NULL COMMENT "",
          *   `client_ip` varchar(128) NULL COMMENT "",
          *   `user` varchar(128) NULL COMMENT "",
-         *   `frontend_ip` varchar(128) NULL COMMENT "",
+         *   `frontend_ip` varchar(1024) NULL COMMENT "",
          *   `catalog` varchar(128) NULL COMMENT "",
          *   `db` varchar(128) NULL COMMENT "",
          *   `state` varchar(128) NULL COMMENT "",
