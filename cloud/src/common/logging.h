@@ -24,8 +24,10 @@
 
 #include <cstdint>
 #include <ostream>
+#include <string>
 #include <string_view>
 #include <type_traits>
+#include <variant>
 
 namespace doris::cloud {
 
@@ -43,18 +45,23 @@ uint64_t get_log_id(google::protobuf::RpcController* controller);
 
 // If you want to use AnnotateTag but the parameters do not match AnnotateTagAllowType, causing the compile fail
 // you need to add the supported types using the following syntax:
-// such as you want add a `int64_t txn_id; AnnotateTag tag_txn_id("txn_id", txn_id);`
-// 1. add type to AnnotateTagAllowType: `std::is_same_v<int64_t, T>` connect with `||` with other is_same_v
-// 2. --if is a rvalue (see tag_log_id) add origin type to `std::variant<..., uint64_t> data;`
-//    +-if is a lvalue (see txn_id) add pointer type to `std::variant<..., int64_t*> data;`
-//    +-if is a more complex type (class A,B...) maybe you need rewrite `AnnotateTagValue::to_string()`
+// such as you want add a `ClassA a; AnnotateTag tag_a("a", a);`
+// 1. add type to AnnotateTagAllowType: `std::is_same_v<ClassA, T>` connect with `||` with other is_same_v
+// 2. add ClassA type to `ValueType<..., ClassA> data_;`
+// 3. if is a complex type (class A,B...) maybe you need rewrite `AnnotateTagValue::to_string()`
 //      +- you need prove a lambda to AnnotateTagValueHelper{[](const A&)...} make sure return std::string
 template <typename T>
 concept AnnotateTagAllowType = requires {
-    std::is_same_v<uint64_t, T> || std::is_same_v<int64_t, T> || std::is_same_v<std::string, T>;
+    std::is_arithmetic<T>() || std::is_same_v<std::string, T> ||
+            std::is_same_v<std::string_view, T>;
 };
 
 class AnnotateTagValue {
+    template <typename... Ts>
+    struct ValueType {
+        using Type = std::variant<Ts..., Ts*...>;
+    };
+
 public:
     template <AnnotateTagAllowType T>
     explicit AnnotateTagValue(T&& val) {
@@ -65,11 +72,15 @@ public:
             data_ = &val;
         }
     };
+    AnnotateTagValue(std::string& str) : data_(&str) {};
+    AnnotateTagValue(const char*& str) : data_(std::string(str)) {};
+    AnnotateTagValue(const std::string& str) : data_(str) {};
 
     std::string to_string() const;
 
 private:
-    std::variant<uint64_t, int64_t*, std::string*, std::string> data_;
+    ValueType<char, bool, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t,
+              std::string, std::string_view>::Type data_;
 };
 
 class AnnotateTag final : public butil::LinkNode<AnnotateTag> {

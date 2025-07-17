@@ -70,10 +70,15 @@ std::string AnnotateTagValue::to_string() const {
                         using ValueType = std::remove_cvref_t<decltype(val)>;
                         if constexpr (std::is_same_v<std::string*, ValueType>) {
                             return fmt::format("\"{}\"", *val);
+                        } else if constexpr (std::is_same_v<std::string_view*, ValueType>) {
+                            return fmt::format("\"{}\"", *val);
                         } else if constexpr (std::is_pointer_v<ValueType>) {
                             return std::to_string(*val);
+                        } else if constexpr (std::is_same_v<std::string_view, ValueType>) {
+                            return fmt::format("\"{}\"", val);
                         } else if constexpr (std::is_same_v<std::string, ValueType>) {
-                            return val;
+                            return fmt::format("\"{}\"", val);
+                            ;
                         } else {
                             return std::to_string(val);
                         }
