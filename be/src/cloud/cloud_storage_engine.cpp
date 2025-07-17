@@ -1175,7 +1175,7 @@ Status CloudStorageEngine::_check_all_root_path_cluster_id() {
             return Status::OK();
         } else {
             // If no cluster id file exists, use the configured cluster id
-            RETURN_IF_ERROR(set_cluster_id(_effective_cluster_id));
+            return set_cluster_id(_effective_cluster_id);
         }
     }
     if (cluster_ids.size() > 1) {
@@ -1184,12 +1184,11 @@ Status CloudStorageEngine::_check_all_root_path_cluster_id() {
                 "different cluster ids: {}",
                 fmt::join(cluster_ids, ", "));
     }
-    if (_effective_cluster_id != -1 && *cluster_ids.begin() != _effective_cluster_id) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::Corruption("multiple cluster ids is not equal. config::cluster_id={}, "
+    if (_effective_cluster_id != -1 && !cluster_ids.empty() && *cluster_ids.begin() != _effective_cluster_id) {
+        return Status::Corruption("multiple cluster ids is not equal. config::cluster_id={}, "
                                    "storage path cluster_id={}",
-                                   _effective_cluster_id, *cluster_ids.begin()),
-                "cluster id not equal");
+                                   _effective_cluster_id, *cluster_ids.begin());
+               
     }
     return Status::OK();
 }
