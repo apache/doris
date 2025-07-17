@@ -405,7 +405,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 if (!checkTransactionStateBeforeCommit(dbId, transactionId)) {
                     return;
                 }
-                DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext();
+                DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext(transactionId);
                 getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext);
                 if (lockContext.getBackendToPartitionTablets().isEmpty()) {
                     throw new UserException(
@@ -821,6 +821,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 throw new MetaNotFoundException("partition " + partitionId + " does not exist");
             }
             lockContext.getPartitions().putIfAbsent(partitionId, partition);
+        }
+        if (!tableList.isEmpty() && !tabletCommitInfos.isEmpty() && lockContext.getTableToTabletList().isEmpty()) {
+            String tableListDebugStr = tableList.stream().map(table -> String.valueOf(table.getId()))
+                    .collect(Collectors.joining(", "));
+            String tabletMetaDebugStr = tabletMetaList.stream().map(TabletMeta::toString)
+                    .collect(Collectors.joining("\n"));
+            LOG.warn(
+                    "getPartitionInfo for lock_id: {} failed, LockContext.TableToTabletList is empty,"
+                            + " this should never happen. tableList: {}, tabletIds: {}, tabletMetaList: {}",
+                    lockContext.getLockId(), tableListDebugStr, tabletIds.toString(), tabletMetaDebugStr);
         }
     }
 
