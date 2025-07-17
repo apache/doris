@@ -23,6 +23,7 @@
 #include <google/protobuf/service.h>
 
 #include <cstdint>
+#include <ostream>
 #include <string_view>
 #include <type_traits>
 
@@ -33,6 +34,8 @@ uint64_t get_log_id(google::protobuf::RpcController* controller);
 
 /// Wrap a glog stream and tag on the log. usage:
 ///   LOG_INFO("here is an info for a {} query", query_type).tag("query_id", queryId);
+///   LOG_INFO("msg") << "query_id" << query_id;
+///   LOG_INFO("msg {}", msg) << "query_id" << query_id;
 #define LOG_INFO(...) ::doris::cloud::TaggableLogger(LOG(INFO), ##__VA_ARGS__)
 #define LOG_WARNING(...) ::doris::cloud::TaggableLogger(LOG(WARNING), ##__VA_ARGS__)
 #define LOG_ERROR(...) ::doris::cloud::TaggableLogger(LOG(ERROR), ##__VA_ARGS__)
@@ -98,8 +101,9 @@ public:
         } else {
             stream_ << fmt::format(fmt, std::forward<Args>(args)...);
         }
-        AnnotateTag::format_tag_list(stream_);
     };
+
+    ~TaggableLogger() { AnnotateTag::format_tag_list(stream_); };
 
     template <typename V>
     TaggableLogger& tag(std::string_view key, const V& value) {
@@ -110,6 +114,16 @@ public:
             stream_ << value;
         }
         return *this;
+    }
+
+    template <typename V>
+    std::ostream& operator<<(const V& value) {
+        if constexpr (std::is_convertible_v<V, std::string_view>) {
+            stream_ << '"' << value << '"';
+        } else {
+            stream_ << value;
+        }
+        return stream_;
     }
 
 private:

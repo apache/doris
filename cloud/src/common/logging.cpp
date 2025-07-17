@@ -67,7 +67,7 @@ std::string AnnotateTagValue::to_string() const {
     return std::visit(
             AnnotateTagValueHelper {
                     [](const auto& val) {
-                        using ValueType = std::remove_cv_t<std::remove_reference_t<decltype(val)>>;
+                        using ValueType = std::remove_cvref_t<decltype(val)>;
                         if constexpr (std::is_same_v<std::string*, ValueType>) {
                             return fmt::format("\"{}\"", *val);
                         } else if constexpr (std::is_pointer_v<ValueType>) {

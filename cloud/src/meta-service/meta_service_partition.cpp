@@ -125,6 +125,7 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         pb.SerializeToString(&to_save_val);
     }
     for (auto index_id : request->index_ids()) {
+        AnnotateTag tag_index_id("index_id", index_id);
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
@@ -189,6 +190,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     }
 
     for (auto index_id : request->index_ids()) {
+        AnnotateTag tag_index_id("index_id", index_id);
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
@@ -283,6 +285,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     }
     bool need_commit = false;
     for (auto index_id : request->index_ids()) {
+        AnnotateTag tag_index_id("index_id", index_id);
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
@@ -399,6 +402,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         pb.SerializeToString(&to_save_val);
     }
     for (auto part_id : request->partition_ids()) {
+        AnnotateTag tag_partition_id("index_id", part_id);
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
         err = txn->get(key, &val);
@@ -463,6 +467,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
     }
 
     for (auto part_id : request->partition_ids()) {
+        AnnotateTag tag_partition_id("index_id", part_id);
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
         err = txn->get(key, &val);
