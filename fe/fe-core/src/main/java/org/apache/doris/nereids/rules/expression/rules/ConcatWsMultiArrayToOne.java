@@ -30,22 +30,19 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * In MySQL, LOG(col, e) is equivalent to LN(col), where e is Euler’s number
- * (~2.71828).
- * Currently, MySQL also supports LOG(col) as a shorthand for LOG(col, e) (i.e.,
- * natural logarithm).
- * This conversion replaces LOG(col) with LN(col) when only a single argument is
- * provided.
+    * ConcatWsTMultiArrayToOne, convert ConcatWs with multiple array arguments to a single array argument.
+    * This rule is useful for optimizing queries that use ConcatWs with multiple array arguments,
+    * allowing them to be processed more efficiently by combining the arrays into a single array argument.
  */
-public class ConcatWsToArrayConcat implements ExpressionPatternRuleFactory {
+public class ConcatWsTMultiArrayToOne implements ExpressionPatternRuleFactory {
 
-    public static final ConcatWsToArrayConcat INSTANCE = new ConcatWsToArrayConcat();
+    public static final ConcatWsTMultiArrayToOne INSTANCE = new ConcatWsTMultiArrayToOne();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(ConcatWs.class).then(ConcatWsToArrayConcat::rewrite)
-                        .toRule(ExpressionRuleType.CONCATWS_TO_ARRAY_CONCAT));
+                matchesType(ConcatWs.class).then(ConcatWsTMultiArrayToOne::rewrite)
+                        .toRule(ExpressionRuleType.CONCATWS_MULTI_ARRAY_TO_ONE));
     }
 
     /** rewrite */
