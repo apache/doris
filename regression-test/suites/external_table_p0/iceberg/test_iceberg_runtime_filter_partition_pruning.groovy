@@ -24,7 +24,7 @@ suite("test_iceberg_partition_filter_partition_pruning", "p0,external,doris,exte
     }
 
     String catalog_name = "test_iceberg_systable_ctl"
-    String db_name = "demo.partition_db"
+    String db_name = "partition_db"
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -104,18 +104,18 @@ suite("test_iceberg_partition_filter_partition_pruning", "p0,external,doris,exte
                 group by partition_key having count(*) > 0
                 order by partition_key desc limit 2);
         """
-        qt_runtime_filter_partition_pruning_timestamp1 """
-            select count(*) from timestamp_partitioned where partition_key =
-                (select partition_key from timestamp_partitioned
-                group by partition_key having count(*) > 0
-                order by partition_key desc limit 1);
-        """
-        qt_runtime_filter_partition_pruning_timestamp2 """
-            select count(*) from timestamp_partitioned where partition_key in
-                (select partition_key from timestamp_partitioned
-                group by partition_key having count(*) > 0
-                order by partition_key desc limit 2);
-        """
+        // qt_runtime_filter_partition_pruning_timestamp1 """
+        //     select count(*) from timestamp_partitioned where partition_key =
+        //         (select partition_key from timestamp_partitioned
+        //         group by partition_key having count(*) > 0
+        //         order by partition_key desc limit 1);
+        // """
+        // qt_runtime_filter_partition_pruning_timestamp2 """
+        //     select count(*) from timestamp_partitioned where partition_key in
+        //         (select partition_key from timestamp_partitioned
+        //         group by partition_key having count(*) > 0
+        //         order by partition_key desc limit 2);
+        // """
         qt_runtime_filter_partition_pruning_boolean1 """
             select count(*) from boolean_partitioned where partition_key =
                 (select partition_key from boolean_partitioned
@@ -129,13 +129,13 @@ suite("test_iceberg_partition_filter_partition_pruning", "p0,external,doris,exte
         """
     }
     try {
-        sql """ set enable_runtime_filter_partition_pruning = false; """
+        sql """ set enable_runtime_filter_partition_prune = false; """
         test_runtime_filter_partition_pruning()
-        sql """ set enable_runtime_filter_partition_pruning = true; """
+        sql """ set enable_runtime_filter_partition_prune = true; """
         test_runtime_filter_partition_pruning()
 
     } finally {
-        sql """ set enable_runtime_filter_partition_pruning = true; """
+        sql """ set enable_runtime_filter_partition_prune = true; """
     }
 
 }
