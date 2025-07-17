@@ -86,8 +86,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    using SerDeType = DataTypeStringSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeStringSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
     bool is_char_type() const { return _primitive_type == PrimitiveType::TYPE_CHAR; }
     int len() const { return _len; }
@@ -109,5 +110,10 @@ private:
     const int _len;
     const PrimitiveType _primitive_type;
 };
+
+template <typename T>
+constexpr static bool IsStringType = false;
+template <>
+inline constexpr bool IsStringType<DataTypeString> = true;
 
 } // namespace doris::vectorized

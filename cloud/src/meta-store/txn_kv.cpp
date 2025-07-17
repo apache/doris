@@ -65,6 +65,8 @@ static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector)
     case RangeKeySelector::LAST_LESS_THAN:
         return {0, 0};
     }
+    LOG(FATAL) << "Unknown RangeKeySelector: " << static_cast<int>(selector);
+    return {0, 0};
 }
 
 int FdbTxnKv::init() {

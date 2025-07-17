@@ -245,8 +245,12 @@ Status CsvReader::init_reader(bool is_load) {
              _file_format_type != TFileFormatType::FORMAT_CSV_PLAIN)) {
             return Status::InternalError<false>("For now we do not support split compressed file");
         }
-        _start_offset -= 1;
-        _size += 1;
+        // pre-read to promise first line skipped always read
+        int64_t pre_read_len = std::min(
+                static_cast<int64_t>(_params.file_attributes.text_params.line_delimiter.size()),
+                _start_offset);
+        _start_offset -= pre_read_len;
+        _size += pre_read_len;
         // not first range will always skip one line
         _skip_lines = 1;
     }

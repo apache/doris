@@ -10,6 +10,7 @@ add_library(MetaStore STATIC
     document_message.cpp
     keys.cpp
     mem_txn_kv.cpp
+    meta_reader.cpp
     txn_kv.cpp
     versioned_value.cpp
 )

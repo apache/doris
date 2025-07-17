@@ -129,12 +129,12 @@ void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v);
 void versioned_remove(Transaction* txn, std::string_view key_with_versionstamp);
 
 // Put a versioned value into the transaction with a specific versionstamp.
-bool versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value);
+void versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value);
 
 // Put a versioned value, the versionstamp will be generated automatically.
 //
 // The generated versionstamp will be the largest versionstamp in the underlying storage.
-bool versioned_put(Transaction* txn, std::string_view key, std::string_view value);
+void versioned_put(Transaction* txn, std::string_view key, std::string_view value);
 
 // Get a versioned value from the transaction by key and versionstamp.
 //
@@ -157,5 +157,20 @@ static inline TxnErrorCode versioned_get(Transaction* txn, std::string_view key,
                                          bool snapshot = false) {
     return versioned_get(txn, key, Versionstamp::max(), value_version, value, snapshot);
 }
+
+// Encode a versioned key with the given versionstamp.
+//
+// The key is the original key, and the versionstamp is appended to the key.
+// The resulting key will be in the format: "key + versionstamp + VERSIONSTAMP_END_TAG".
+std::string encode_versioned_key(std::string_view key, Versionstamp v);
+
+// Decode a versioned key to extract the versionstamp.
+//
+// The key should be in the format: "key + versionstamp + VERSIONSTAMP_END_TAG".
+// If the key is valid, it returns true and sets `v` to the extracted versionstamp.
+// If the key is invalid or does not contain a versionstamp, it returns false.
+//
+// The key is modified to remove the versionstamp and end tag.
+bool decode_versioned_key(std::string_view* key, Versionstamp* v);
 
 } // namespace doris::cloud

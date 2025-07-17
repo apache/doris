@@ -18,6 +18,7 @@
  */
 
 suite("nlj") {
+    sql 'set enable_parallel_result_sink=false;'
     sql """
     drop table if exists a;
     create table a (

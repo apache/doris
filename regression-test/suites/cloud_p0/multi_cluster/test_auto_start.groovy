@@ -126,7 +126,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
         // cloud control set cluster status SUSPENDED
         set_cluster_status(uniqueId, cloudClusterId, "SUSPENDED", ms)
 
-        dockerAwaitUntil(5) {
+        awaitUntil(5) {
             tag = getCloudBeTagByName(clusterName)
             logger.info("tag = {}", tag) 
             jsonObject = jsonSlurper.parseText(tag)
@@ -154,7 +154,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
         // cloud control
         future2 = thread {
             // check cluster "TO_RESUME"
-            dockerAwaitUntil(5) {
+            awaitUntil(5) {
                 tag = getCloudBeTagByName(clusterName)
                 logger.info("tag = {}", tag) 
                 jsonObject = jsonSlurper.parseText(tag)
@@ -177,7 +177,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
 
         // add 1 nodes, check it status NORMAL
         cluster.addBackend(1, null)
-        dockerAwaitUntil(5) {
+        awaitUntil(5) {
             result = sql """SHOW BACKENDS"""
             result.size() == 4
         }

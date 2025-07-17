@@ -33,8 +33,8 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/arithmetic_overflow.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -438,19 +438,19 @@ template <typename... Ts>
 using Switch = typename std::disjunction<Ts..., Case<true, InvalidType>>::type;
 
 template <typename DataType>
-constexpr bool IsIntegral = false;
+constexpr bool IsDataTypeIntegral = false;
 template <>
-inline constexpr bool IsIntegral<DataTypeUInt8> = true;
+inline constexpr bool IsDataTypeIntegral<DataTypeUInt8> = true;
 template <>
-inline constexpr bool IsIntegral<DataTypeInt8> = true;
+inline constexpr bool IsDataTypeIntegral<DataTypeInt8> = true;
 template <>
-inline constexpr bool IsIntegral<DataTypeInt16> = true;
+inline constexpr bool IsDataTypeIntegral<DataTypeInt16> = true;
 template <>
-inline constexpr bool IsIntegral<DataTypeInt32> = true;
+inline constexpr bool IsDataTypeIntegral<DataTypeInt32> = true;
 template <>
-inline constexpr bool IsIntegral<DataTypeInt64> = true;
+inline constexpr bool IsDataTypeIntegral<DataTypeInt64> = true;
 template <>
-inline constexpr bool IsIntegral<DataTypeInt128> = true;
+inline constexpr bool IsDataTypeIntegral<DataTypeInt128> = true;
 
 template <PrimitiveType A, PrimitiveType B>
 constexpr bool UseLeftDecimal = false;
@@ -489,17 +489,17 @@ struct BinaryOperationTraits {
             Case<IsDataTypeDecimal<LeftDataType> && IsDataTypeDecimal<RightDataType>,
                  RightDataType>,
             Case<IsDataTypeDecimal<LeftDataType> && !IsDataTypeDecimal<RightDataType> &&
-                         IsIntegral<RightDataType>,
+                         IsDataTypeIntegral<RightDataType>,
                  LeftDataType>,
             Case<!IsDataTypeDecimal<LeftDataType> && IsDataTypeDecimal<RightDataType> &&
-                         IsIntegral<LeftDataType>,
+                         IsDataTypeIntegral<LeftDataType>,
                  RightDataType>,
             /// Decimal <op> Real is not supported (traditional DBs convert Decimal <op> Real to Real)
             Case<IsDataTypeDecimal<LeftDataType> && !IsDataTypeDecimal<RightDataType> &&
-                         !IsIntegral<RightDataType>,
+                         !IsDataTypeIntegral<RightDataType>,
                  InvalidType>,
             Case<!IsDataTypeDecimal<LeftDataType> && IsDataTypeDecimal<RightDataType> &&
-                         !IsIntegral<LeftDataType>,
+                         !IsDataTypeIntegral<LeftDataType>,
                  InvalidType>,
             /// number <op> number -> see corresponding impl
             Case<!IsDataTypeDecimal<LeftDataType> && !IsDataTypeDecimal<RightDataType>,

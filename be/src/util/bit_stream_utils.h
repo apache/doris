@@ -234,14 +234,6 @@ public:
     template <typename UINT_T>
     bool GetUleb128(UINT_T* v);
 
-    /// Read a ZigZag encoded int from the stream. The encoded int must start at the
-    /// beginning of a byte. Return false if there were not enough bytes in the buffer or
-    /// the int is invalid. For more details on ZigZag encoding:
-    /// https://developers.google.com/protocol-buffers/docs/encoding#signed-integers
-    /// INT_T must be a signed integer type.
-    template <typename INT_T>
-    bool GetZigZagInteger(INT_T* v);
-
     /// Returns the number of bytes left in the stream.
     int bytes_left() { return buffer_end_ - buffer_pos_; }
 

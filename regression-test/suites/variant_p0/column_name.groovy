@@ -80,4 +80,14 @@ suite("regression_test_variant_column_name", "variant_type"){
         logger.info("""INSERT INTO ${table_name} failed: """ + ex)
         assertTrue(ex.toString().contains("may contains duplicated entry"));
     }
+
+    // test key length larger than 255 bytes
+    def key = "a"
+    for (int i = 0; i < 256; i++) {
+        key += "a"
+    }
+    test {
+        sql """insert into var_column_name values (8, '{"${key}": "test"}')"""
+        exception "Key length exceeds maximum allowed size of 255 bytes."
+    }
 }

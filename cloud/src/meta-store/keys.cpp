@@ -573,8 +573,7 @@ void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::
     encode_bytes(PARTITION_INVERTED_INDEX_KEY_INFIX, out); // "partition_inverted"
     encode_int64(std::get<1>(in), out);                    // db_id
     encode_int64(std::get<2>(in), out);                    // table_id
-    encode_int64(std::get<3>(in), out);                    // index_id
-    encode_int64(std::get<4>(in), out);                    // partition_id
+    encode_int64(std::get<3>(in), out);                    // partition_id
 }
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out) {

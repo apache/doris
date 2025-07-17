@@ -67,6 +67,8 @@ import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -430,9 +432,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1)
-                    .add(unboundFunction.isDistinct())
-                    .addAll(unboundFunction.getArguments())
-                    .build()
+                .add(unboundFunction.isDistinct())
+                .addAll(unboundFunction.getArguments())
+                .build()
                 : (List) unboundFunction.getArguments();
 
         String dbName = unboundFunction.getDbName();
@@ -497,6 +499,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 }
             }
         }
+        if (unboundFunction.isSkew() && unboundFunction.isDistinct() && buildResult.first instanceof AggregateFunction
+                && buildResult.first instanceof SupportMultiDistinct) {
+            Expression bound = ((AggregateFunction) buildResult.first).withIsSkew(true);
+            buildResult = Pair.of(bound, (BoundFunction) bound);
+        }
+
         if (builder instanceof AliasUdfBuilder) {
             if (sqlCacheContext.isPresent()) {
                 sqlCacheContext.get().setCannotProcessExpression(true);

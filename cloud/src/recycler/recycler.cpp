@@ -691,7 +691,9 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_stage(); }))
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::recycle_expired_stage_objects(); }))
-                .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }));
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_operation_logs(); }));
+
         bool finished = true;
         std::vector<int> rets = sync_executor.when_all(&finished);
         for (int ret : rets) {

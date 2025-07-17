@@ -33,6 +33,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -49,7 +51,7 @@ class DataTypeDateTimeV2;
 } // namespace doris::vectorized
 
 namespace doris {
-
+#include "common/compile_check_avoid_begin.h"
 enum TimeUnit {
     MICROSECOND,
     MILLISECOND,
@@ -419,11 +421,77 @@ public:
     [[nodiscard]] bool check_range_and_set_time(uint32_t year, uint32_t month, uint32_t day,
                                                 uint32_t hour, uint32_t minute, uint32_t second,
                                                 uint16_t type) {
-        if (check_range(year, month, day, hour, minute, second, type)) {
+        if (check_range(year, month, day, hour, minute, second, type)) [[unlikely]] {
             return false;
         }
         unchecked_set_time(year, month, day, hour, minute, second);
         return true;
+    }
+
+    // for date type, when we cast_to_date, the time part will be reset to 0. so dont worry.
+    template <TimeUnit unit>
+    [[nodiscard]] bool set_time_unit(uint32_t val) {
+        // is uint so need check upper bound only
+        if constexpr (unit == TimeUnit::YEAR) {
+            if (val > MAX_YEAR) [[unlikely]] {
+                return false;
+            }
+            _year = val;
+        } else if constexpr (unit == TimeUnit::MONTH) {
+            if (val > MAX_MONTH || !val) [[unlikely]] {
+                return false;
+            }
+            _month = val;
+        } else if constexpr (unit == TimeUnit::DAY) {
+            DCHECK(_month <= MAX_MONTH);
+            DCHECK(_month != 0);
+            if (!val ||
+                (val > S_DAYS_IN_MONTH[_month] && (!is_leap(_year) || _month != 2 || val != 29))) {
+                return false;
+            }
+            _day = val;
+        } else if constexpr (unit == TimeUnit::HOUR) {
+            if (val > MAX_HOUR) [[unlikely]] {
+                return false;
+            }
+            _hour = val;
+        } else if constexpr (unit == TimeUnit::MINUTE) {
+            if (val > MAX_MINUTE) [[unlikely]] {
+                return false;
+            }
+            _minute = val;
+        } else if constexpr (unit == TimeUnit::SECOND) {
+            if (val > MAX_SECOND) [[unlikely]] {
+                return false;
+            }
+            _second = val;
+        } else {
+            static_assert(unit == TimeUnit::YEAR, "Unsupported TimeUnit in set_time_unit");
+            __builtin_unreachable();
+        }
+        return true;
+    }
+
+    template <TimeUnit unit>
+    void unchecked_set_time_unit(uint32_t val) {
+        // is uint so need check upper bound only
+        if constexpr (unit == TimeUnit::YEAR) {
+            _year = val;
+        } else if constexpr (unit == TimeUnit::MONTH) {
+            _month = val;
+        } else if constexpr (unit == TimeUnit::DAY) {
+            _day = val;
+        } else if constexpr (unit == TimeUnit::HOUR) {
+            _hour = val;
+        } else if constexpr (unit == TimeUnit::MINUTE) {
+            _minute = val;
+        } else if constexpr (unit == TimeUnit::SECOND) {
+            _second = val;
+        } else {
+            static_assert(unit == TimeUnit::YEAR,
+                          "Unsupported TimeUnit in unchecked_set_time_unit");
+            __builtin_unreachable();
+        }
     }
 
     void unchecked_set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
@@ -609,13 +677,9 @@ public:
 
     VecDateTimeValue& operator--() { return *this += -1; }
 
-    uint32_t to_date_v2() const {
-        CHECK(_type == TIME_DATE);
-        return (year() << 9 | month() << 5 | day());
-    }
+    uint32_t to_date_v2() const { return (year() << 9 | month() << 5 | day()); }
 
     uint64_t to_datetime_v2() const {
-        CHECK(_type == TIME_DATETIME);
         return (uint64_t)(((uint64_t)year() << 46) | ((uint64_t)month() << 42) |
                           ((uint64_t)day() << 37) | ((uint64_t)hour() << 32) |
                           ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
@@ -1204,6 +1268,46 @@ public:
 
     bool get_date_from_daynr(uint64_t);
 
+    // do check no matter `this` is date or datetime
+    template <TimeUnit unit>
+    [[nodiscard]] bool test_time_unit(uint32_t val) {
+        // is uint so need check upper bound only
+        if constexpr (unit == TimeUnit::YEAR) {
+            if (val > MAX_YEAR) [[unlikely]] {
+                return false;
+            }
+        } else if constexpr (unit == TimeUnit::MONTH) {
+            if (val > MAX_MONTH || !val) [[unlikely]] {
+                return false;
+            }
+        } else if constexpr (unit == TimeUnit::DAY) {
+            DCHECK(date_v2_value_.month_ <= MAX_MONTH);
+            DCHECK(date_v2_value_.month_ != 0);
+            if (!val ||
+                (val > S_DAYS_IN_MONTH[date_v2_value_.month_] &&
+                 !(is_leap(date_v2_value_.year_) && date_v2_value_.month_ == 2 && val == 29))) {
+                return false;
+            }
+        } else if constexpr (unit == TimeUnit::HOUR) {
+            if (val > MAX_HOUR) [[unlikely]] {
+                return false;
+            }
+        } else if constexpr (unit == TimeUnit::MINUTE) {
+            if (val > MAX_MINUTE) [[unlikely]] {
+                return false;
+            }
+        } else if constexpr (unit == TimeUnit::SECOND) {
+            if (val > MAX_SECOND) [[unlikely]] {
+                return false;
+            }
+        } else if constexpr (unit == TimeUnit::MICROSECOND) {
+            if (val > MAX_MICROSECOND) [[unlikely]] {
+                return false;
+            }
+        }
+        return true;
+    }
+
     template <TimeUnit unit>
     [[nodiscard]] bool set_time_unit(uint32_t val) {
         // is uint so need check upper bound only
@@ -1650,7 +1754,7 @@ struct DateTraits<uint64_t> {
     using T = DateV2Value<DateTimeV2ValueType>;
     using DateType = vectorized::DataTypeDateTimeV2;
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris
 
 template <>

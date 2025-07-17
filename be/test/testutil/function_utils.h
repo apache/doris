@@ -19,24 +19,22 @@
 #include <vector>
 
 #include "runtime/types.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
 
-class RuntimeState;
 class FunctionContext;
 
 class FunctionUtils {
 public:
-    FunctionUtils();
     FunctionUtils(const vectorized::DataTypePtr& return_type,
-                  const std::vector<vectorized::DataTypePtr>& arg_types, int varargs_buffer_size);
-    ~FunctionUtils();
+                  const std::vector<vectorized::DataTypePtr>& arg_types, bool enable_strict_cast);
 
     doris::FunctionContext* get_fn_ctx() { return _fn_ctx.get(); }
 
 private:
-    RuntimeState* _state = nullptr;
+    std::unique_ptr<MockRuntimeState> _state;
     std::unique_ptr<doris::FunctionContext> _fn_ctx;
 };
 

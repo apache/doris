@@ -32,7 +32,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <PrimitiveType Type>
 struct MultiplyIntegralImpl {
     static constexpr bool result_is_decimal = false;
@@ -127,7 +127,8 @@ struct MultiplyDecimalImpl {
         requires(is_decimal(Result))
     static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(ArgNativeTypeA a,
                                                                             ArgNativeTypeB b) {
-        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) * b;
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(
+                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) * b);
     }
 
     template <PrimitiveType Result = TYPE_DECIMALV2>
@@ -774,5 +775,5 @@ void register_function_multiply(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_FLOAT>>>();
     factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_DOUBLE>>>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

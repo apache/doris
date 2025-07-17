@@ -478,7 +478,6 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "replace_column_data" + get_name());
     }
-    size_t serialize_size_at(size_t row) const override { return 0; }
 
 private:
     // May throw execption

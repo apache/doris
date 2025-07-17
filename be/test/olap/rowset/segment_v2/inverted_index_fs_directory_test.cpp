@@ -556,7 +556,7 @@ TEST_F(DorisFSDirectoryTest, FSIndexOutputV2FlushBufferError) {
     Status s = _fs->create_file(file_path, &writer);
     EXPECT_TRUE(s.ok());
 
-    auto* output = _directory->createOutputV2(writer.get());
+    auto output = _directory->createOutputV2(writer.get());
 
     // Write small chunks to fill the buffer and trigger flush
     // BufferedIndexOutput buffer size is 1024 bytes
@@ -573,7 +573,6 @@ TEST_F(DorisFSDirectoryTest, FSIndexOutputV2FlushBufferError) {
     } catch (...) {
         // Ignore close errors in cleanup
     }
-    delete output;
 }
 
 // Test 38: FSIndexOutputV2 flushBuffer with null writer

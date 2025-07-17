@@ -80,7 +80,7 @@
 // 0x03 "version" ${instance_id} "table" ${table_id} ${timestamp}           -> ${empty_value}
 //
 // 0x03 "index" ${instance_id} "partition" ${partition_id}                                                  -> PartitionIndexPB
-// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${index_id} ${partition}           -> ${empty_value}
+// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition}                       -> ${empty_value}
 // 0x03 "index" ${instance_id} "tablet" ${tablet_id}                                                        -> TabletIndexPB
 // 0x03 "index" ${instance_id} "tablet_inverted" ${db_id} ${table_id} ${index_id} ${partition} ${tablet}    -> ${empty_value}
 // 0x03 "index" ${instance_id} "index" ${index_id}                                                          -> IndexIndexPB
@@ -242,9 +242,9 @@ using TableVersionKeyInfo = BasicKeyInfo<31, std::tuple<std::string, int64_t>>;
 //                                                      0:instance_id  1:partition_id
 using PartitionIndexKeyInfo = BasicKeyInfo<32, std::tuple<std::string, int64_t>>;
 
-// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${index_id} ${partition} -> ${empty_value}
-//                                                      0:instance_id  1:db_id  2:table_id  3:index_id  4:partition_id
-using PartitionInvertedIndexKeyInfo = BasicKeyInfo<33, std::tuple<std::string, int64_t, int64_t, int64_t, int64_t>>;
+// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition} -> ${empty_value}
+//                                                      0:instance_id  1:db_id  2:table_id  3:partition_id
+using PartitionInvertedIndexKeyInfo = BasicKeyInfo<33, std::tuple<std::string, int64_t, int64_t, int64_t>>;
 
 // 0x03 "index" ${instance_id} "tablet" ${tablet_id}                        -> TabletIndexPB
 //                                                      0:instance_id  1:tablet_id

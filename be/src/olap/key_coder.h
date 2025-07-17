@@ -34,6 +34,7 @@
 #include "olap/olap_common.h"
 #include "olap/types.h"
 #include "util/slice.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
 
 namespace doris {
@@ -82,8 +83,7 @@ template <FieldType field_type>
 class KeyCoderTraits<
         field_type,
         typename std::enable_if<
-                std::is_integral<typename CppTypeTraits<field_type>::CppType>::value ||
-                field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
+                IsIntegral<typename CppTypeTraits<field_type>::CppType>::value ||
                 vectorized::IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
@@ -93,7 +93,7 @@ public:
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // swap MSB to encode integer
-        if (std::is_signed<CppType>::value) {
+        if (IsSigned<CppType>::value) {
             unsigned_val ^=
                     (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
         }
@@ -117,7 +117,7 @@ public:
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
         unsigned_val = to_endian<std::endian::big>(unsigned_val);
-        if (std::is_signed<CppType>::value) {
+        if (IsSigned<CppType>::value) {
             unsigned_val ^=
                     (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
         }

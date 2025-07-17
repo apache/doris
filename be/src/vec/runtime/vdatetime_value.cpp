@@ -42,7 +42,7 @@
 #include "vec/common/int_exp.h"
 
 namespace doris {
-
+#include "common/compile_check_avoid_begin.h"
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
@@ -3679,6 +3679,10 @@ template <typename T>
 uint8_t DateV2Value<T>::calc_week(const uint32_t& day_nr, const uint16_t& year,
                                   const uint8_t& month, const uint8_t& day, uint8_t mode,
                                   uint16_t* to_year, bool disable_lut) {
+    if (year == 0) [[unlikely]] {
+        *to_year = 0;
+        return 0;
+    }
     if (config::enable_time_lut && !disable_lut && mode == 3 && year >= 1950 && year < 2030) {
         return doris::TimeLUT::GetImplement()
                 ->week_of_year_table[year - doris::LUT_START_YEAR][month - 1][day - 1];
@@ -3988,5 +3992,5 @@ template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MONTH>(
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

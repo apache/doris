@@ -61,7 +61,7 @@ public class GroupConcat extends NullableAggregateFunction
      * constructor with 1 argument.
      */
     public GroupConcat(boolean distinct, boolean alwaysNullable, Expression arg, Expression... others) {
-        this(distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg, others));
+        this(distinct, alwaysNullable, false, ExpressionUtils.mergeArguments(arg, others));
     }
 
     /**
@@ -81,8 +81,8 @@ public class GroupConcat extends NullableAggregateFunction
     /**
      * constructor for always nullable.
      */
-    public GroupConcat(boolean distinct, boolean alwaysNullable, List<Expression> args) {
-        super("group_concat", distinct, alwaysNullable, args);
+    public GroupConcat(boolean distinct, boolean alwaysNullable, boolean isSkew, List<Expression> args) {
+        super("group_concat", distinct, alwaysNullable, isSkew, args);
         this.nonOrderArguments = findOrderExprIndex(children);
     }
 
@@ -103,7 +103,7 @@ public class GroupConcat extends NullableAggregateFunction
 
     @Override
     public GroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new GroupConcat(distinct, alwaysNullable, children);
+        return new GroupConcat(distinct, alwaysNullable, isSkew, children);
     }
 
     /**
@@ -111,7 +111,12 @@ public class GroupConcat extends NullableAggregateFunction
      */
     @Override
     public GroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new GroupConcat(distinct, alwaysNullable, children);
+        return new GroupConcat(distinct, alwaysNullable, isSkew, children);
+    }
+
+    @Override
+    public Expression withIsSkew(boolean isSkew) {
+        return new GroupConcat(distinct, alwaysNullable, isSkew, children());
     }
 
     @Override

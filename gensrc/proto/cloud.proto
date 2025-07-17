@@ -537,7 +537,6 @@ message TabletIndexPB {
 message PartitionIndexPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
 }
 
 message TabletMetaInfoPB { // For update tablet meta
@@ -652,6 +651,13 @@ message SchemaChangeLogPB {
     repeated RecycleRowsetPB recycle_rowsets = 4;
 }
 
+message CommitPartitionLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+}
+
 message DropPartitionLogPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
@@ -688,6 +694,7 @@ message OperationLogPB {
     optional DropIndexLogPB drop_index = 6;
     optional UpdateTabletLogPB update_tablet = 7;
     optional UpdateDeleteBitmapLogPB update_delete_bitmap = 8;
+    optional CommitPartitionLogPB commit_partition = 9;
 }
 
 enum SnapshotType {

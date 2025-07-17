@@ -125,6 +125,24 @@ xxx_request_count{region="west",service="search"} 1
 put() and get() methods must match in count. Also, all supported bvar types
 have different behaviors for how values are processed and retrieved.
 */
+
+template <typename T>
+struct is_valid_bvar_type : std::false_type {};
+template <typename T>
+struct is_valid_bvar_type<bvar::Adder<T>> : std::true_type {};
+template <>
+struct is_valid_bvar_type<bvar::IntRecorder> : std::true_type {};
+template <typename T>
+struct is_valid_bvar_type<bvar::Maxer<T>> : std::true_type {};
+template <typename T>
+struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
+template <>
+struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
+template <typename T>
+struct is_bvar_status : std::false_type {};
+template <typename T>
+struct is_bvar_status<bvar::Status<T>> : std::true_type {};
+
 template <typename BvarType>
 class mBvarWrapper {
 public:
@@ -158,23 +176,6 @@ public:
     }
 
 private:
-    template <typename T>
-    struct is_valid_bvar_type : std::false_type {};
-    template <typename T>
-    struct is_valid_bvar_type<bvar::Adder<T>> : std::true_type {};
-    template <>
-    struct is_valid_bvar_type<bvar::IntRecorder> : std::true_type {};
-    template <typename T>
-    struct is_valid_bvar_type<bvar::Maxer<T>> : std::true_type {};
-    template <typename T>
-    struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
-    template <>
-    struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
-    template <typename T>
-    struct is_bvar_status : std::false_type {};
-    template <typename T>
-    struct is_bvar_status<bvar::Status<T>> : std::true_type {};
-
     bvar::MultiDimension<BvarType> counter_;
 };
 

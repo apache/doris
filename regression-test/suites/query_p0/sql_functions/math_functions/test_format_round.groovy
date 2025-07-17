@@ -46,15 +46,16 @@ suite("test_format_round", "p0") {
         """
 
         sql """ INSERT INTO test_format_round VALUES
-                    (1, 123, 123456, 123455677788, 123456.1234567, 123456.1234567);
+                    (1, 123, 123456, 123455677788, 123456.1234567, 123456.1234567),
+                    (2, 123, 12313, 094720913, 434.1234567, 34.1234567);
             """
         qt_select_default """ SELECT * FROM test_format_round t ORDER BY user_id; """
 
-    order_qt_format_round_8 """ select format_round(int_col, 6) from test_format_round"""
-    order_qt_format_round_9 """ select format_round(bigint_col, 6) from test_format_round"""
-    order_qt_format_round_10 """ select format_round(largeint_col, 6) from test_format_round"""
-    order_qt_format_round_12 """ select format_round(double_col, 6) from test_format_round"""
-    order_qt_format_round_13 """ select format_round(decimal_col, 6) from test_format_round"""
+    order_qt_format_round_8 """ select format_round(int_col, 6) from test_format_round order by user_id"""
+    order_qt_format_round_9 """ select format_round(bigint_col, 6) from test_format_round order by user_id"""
+    order_qt_format_round_10 """ select format_round(largeint_col, 6) from test_format_round order by user_id"""
+    order_qt_format_round_12 """ select format_round(double_col, 6) from test_format_round order by user_id"""
+    order_qt_format_round_13 """ select format_round(decimal_col, 6) from test_format_round order by user_id"""
 
     test {
         sql """select format_round(1234567.8910, -1) """

@@ -95,8 +95,7 @@ TEST(VersionedValueTest, Remove) {
         VersionPB version_pb;
         version_pb.set_version(i * 10);
         Versionstamp versionstamp(i * 10, 0);
-        ASSERT_TRUE(
-                versioned_put(txn.get(), key_prefix, versionstamp, version_pb.SerializeAsString()));
+        versioned_put(txn.get(), key_prefix, versionstamp, version_pb.SerializeAsString());
         std::string key(key_prefix);
         encode_versionstamp(versionstamp, &key);
         std::cout << "Put key: " << hex(key) << ", version: " << versionstamp.version()
@@ -157,8 +156,7 @@ TEST(VersionedValueTest, Get) {
         VersionPB version_pb;
         version_pb.set_version(i * 10);
         Versionstamp versionstamp(i * 10, 0);
-        ASSERT_TRUE(
-                versioned_put(txn.get(), key_prefix, versionstamp, version_pb.SerializeAsString()));
+        versioned_put(txn.get(), key_prefix, versionstamp, version_pb.SerializeAsString());
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -221,8 +219,7 @@ TEST(VersionedValueTest, GetRange) {
             VersionPB version_pb;
             version_pb.set_version(suffix);
             std::string key = fmt::format("{}{:02}", key_prefix, suffix);
-            ASSERT_TRUE(
-                    versioned_put(txn.get(), key, versionstamp, version_pb.SerializeAsString()));
+            versioned_put(txn.get(), key, versionstamp, version_pb.SerializeAsString());
             ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         }
     }
@@ -409,7 +406,7 @@ TEST(VersionedMessageTest, GetRange2) {
             Versionstamp version(100, 0);
             VersionPB value;
             value.set_version(100);
-            ASSERT_TRUE(versioned_put(txn.get(), key, version, value.SerializeAsString()));
+            versioned_put(txn.get(), key, version, value.SerializeAsString());
             ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         }
         // Insert some versioned documents, with version 200
@@ -419,7 +416,7 @@ TEST(VersionedMessageTest, GetRange2) {
             Versionstamp version(200, 0);
             VersionPB value;
             value.set_version(200);
-            ASSERT_TRUE(versioned_put(txn.get(), key, version, value.SerializeAsString()));
+            versioned_put(txn.get(), key, version, value.SerializeAsString());
             ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         }
     }
@@ -489,7 +486,7 @@ TEST(VersionedMessageTest, GetRangeWithRangeKeySelector) {
         Versionstamp version(100, 0);
         VersionPB value;
         value.set_version(100);
-        ASSERT_TRUE(versioned_put(txn.get(), key, version, value.SerializeAsString()));
+        versioned_put(txn.get(), key, version, value.SerializeAsString());
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 

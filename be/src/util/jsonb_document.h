@@ -77,6 +77,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "util/string_util.h"
 #include "vec/core/types.h"
 
@@ -199,6 +200,49 @@ enum class JsonbType : char {
     T_Decimal256 = 0x11, // DecimalV3 only
     NUM_TYPES,
 };
+
+inline PrimitiveType get_primitive_type_from_json_type(JsonbType json_type) {
+    switch (json_type) {
+    case JsonbType::T_Null:
+        return TYPE_NULL;
+    case JsonbType::T_True:
+    case JsonbType::T_False:
+        return TYPE_BOOLEAN;
+    case JsonbType::T_Int8:
+        return TYPE_TINYINT;
+    case JsonbType::T_Int16:
+        return TYPE_SMALLINT;
+    case JsonbType::T_Int32:
+        return TYPE_INT;
+    case JsonbType::T_Int64:
+        return TYPE_BIGINT;
+    case JsonbType::T_Double:
+        return TYPE_DOUBLE;
+    case JsonbType::T_String:
+        return TYPE_STRING;
+    case JsonbType::T_Binary:
+        return TYPE_BINARY;
+    case JsonbType::T_Object:
+        return TYPE_STRUCT;
+    case JsonbType::T_Array:
+        return TYPE_ARRAY;
+    case JsonbType::T_Int128:
+        return TYPE_LARGEINT;
+    case JsonbType::T_Float:
+        return TYPE_FLOAT;
+    case JsonbType::T_Decimal32:
+        return TYPE_DECIMAL32;
+    case JsonbType::T_Decimal64:
+        return TYPE_DECIMAL64;
+    case JsonbType::T_Decimal128:
+        return TYPE_DECIMAL128I;
+    case JsonbType::T_Decimal256:
+        return TYPE_DECIMAL256;
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Unsupported JsonbType: {}",
+                        static_cast<int>(json_type));
+    }
+}
 
 //for parse json path
 constexpr char SCOPE = '$';
@@ -453,9 +497,9 @@ public:
         return true;
     }
 
-    size_t get_leg_vector_size() { return leg_vector.size(); }
+    size_t get_leg_vector_size() const { return leg_vector.size(); }
 
-    leg_info* get_leg_from_leg_vector(size_t i) { return leg_vector[i].get(); }
+    leg_info* get_leg_from_leg_vector(size_t i) const { return leg_vector[i].get(); }
 
     void clean() { leg_vector.clear(); }
 
@@ -611,6 +655,8 @@ struct JsonbValue {
     bool isDecimal64() const { return (type == JsonbType::T_Decimal64); }
     bool isDecimal128() const { return (type == JsonbType::T_Decimal128); }
     bool isDecimal256() const { return (type == JsonbType::T_Decimal256); }
+
+    PrimitiveType get_primitive_type() const { return get_primitive_type_from_json_type(type); }
 
     const char* typeName() const {
         switch (type) {
@@ -1270,12 +1316,12 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     }
     case JsonbType::T_Object: {
         if (rhs->isObject()) {
-            const auto* str_value1 = unpack<ObjectVal>();
-            auto* str_value2 = rhs->unpack<ObjectVal>();
-            for (int i = 0; i < str_value2->numElem(); ++i) {
-                JsonbKeyValue* key = str_value2->getJsonbKeyValue(i);
-                JsonbValue* value = str_value1->find(key->getKeyStr(), key->klen());
-                if (key != nullptr && value != nullptr && !value->contains(key->value())) {
+            const auto* obj_value1 = unpack<ObjectVal>();
+            const auto* obj_value2 = rhs->unpack<ObjectVal>();
+            for (int i = 0; i < obj_value2->numElem(); ++i) {
+                JsonbKeyValue* key = obj_value2->getJsonbKeyValue(i);
+                JsonbValue* value = obj_value1->find(key->getKeyStr(), key->klen());
+                if (value == nullptr || !value->contains(key->value())) {
                     return false;
                 }
             }

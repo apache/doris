@@ -51,12 +51,12 @@
 
 using namespace doris;
 
-static const std::string instance_id = "instance_id_recycle_test";
-static int64_t current_time = 0;
+std::string instance_id = "instance_id_recycle_test";
+int64_t current_time = 0;
 static constexpr int64_t db_id = 1000;
 static RecyclerMetricsContext ctx;
 
-static doris::cloud::RecyclerThreadPoolGroup thread_group;
+doris::cloud::RecyclerThreadPoolGroup thread_group;
 
 int main(int argc, char** argv) {
     auto conf_file = "doris_cloud.conf";

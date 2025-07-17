@@ -24,7 +24,7 @@
 #include <ostream>
 #include <string>
 
-#include "wide_integer.h"
+#include "extended_types.h"
 
 namespace wide {
 

@@ -40,7 +40,7 @@ public class ArrayLiteralTest  {
         DateLiteral dateLiteral = new DateLiteral("2022-10-10", Type.DATE);
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
-        Assert.assertEquals("[1.0, 2.15]", arrayLiteral1.getStringValueForQuery(options));
+        Assert.assertEquals("[1, 2.15]", arrayLiteral1.getStringValueForQuery(options));
         ArrayLiteral arrayLiteralWithTime = new ArrayLiteral(floatLiteral1);
         Assert.assertEquals("[\"11:22:33\"]", arrayLiteralWithTime.getStringValueForQuery(options));
 
@@ -88,7 +88,7 @@ public class ArrayLiteralTest  {
         MapLiteral mapLiteral = new MapLiteral(intLiteral1, floatLiteral);
         StructLiteral structLiteral = new StructLiteral(intLiteral1, floatLiteral, dateLiteral);
         ArrayLiteral arrayLiteral13 = new ArrayLiteral(arrayLiteral, arrayLiteral);
-        Assert.assertEquals("[[1.0, 2.15], [1.0, 2.15]]",
+        Assert.assertEquals("[[1, 2.15], [1, 2.15]]",
                 arrayLiteral13.getStringValueForQuery(options));
         ArrayLiteral arrayLiteral14 = new ArrayLiteral(mapLiteral);
         Assert.assertEquals("[{1:2.15}]", arrayLiteral14.getStringValueForQuery(options));
@@ -112,7 +112,7 @@ public class ArrayLiteralTest  {
         DateLiteral dateLiteral = new DateLiteral("2022-10-10", Type.DATE);
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
-        Assert.assertEquals("[1.0, 2.15]", arrayLiteral1.getStringValueForQuery(options));
+        Assert.assertEquals("[1, 2.15]", arrayLiteral1.getStringValueForQuery(options));
         ArrayLiteral arrayLiteralWithTime = new ArrayLiteral(floatLiteral1);
         Assert.assertEquals("[11:22:33]", arrayLiteralWithTime.getStringValueForQuery(options));
 
@@ -160,7 +160,7 @@ public class ArrayLiteralTest  {
         MapLiteral mapLiteral = new MapLiteral(intLiteral1, floatLiteral);
         StructLiteral structLiteral = new StructLiteral(intLiteral1, floatLiteral, dateLiteral);
         ArrayLiteral arrayLiteral13 = new ArrayLiteral(arrayLiteral, arrayLiteral);
-        Assert.assertEquals("[[1.0, 2.15], [1.0, 2.15]]", arrayLiteral13.getStringValueForQuery(options));
+        Assert.assertEquals("[[1, 2.15], [1, 2.15]]", arrayLiteral13.getStringValueForQuery(options));
         ArrayLiteral arrayLiteral14 = new ArrayLiteral(mapLiteral);
         Assert.assertEquals("[{1=2.15}]", arrayLiteral14.getStringValueForQuery(options));
         ArrayLiteral arrayLiteral15 = new ArrayLiteral(structLiteral);
@@ -182,7 +182,7 @@ public class ArrayLiteralTest  {
         DateLiteral dateLiteral = new DateLiteral("2022-10-10", Type.DATE);
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
-        Assert.assertEquals("[1.0,2.15]", arrayLiteral1.getStringValueForQuery(options));
+        Assert.assertEquals("[1,2.15]", arrayLiteral1.getStringValueForQuery(options));
         ArrayLiteral arrayLiteralWithTime = new ArrayLiteral(floatLiteral1);
         Assert.assertEquals("[\"11:22:33\"]", arrayLiteralWithTime.getStringValueForQuery(options));
 
@@ -231,7 +231,7 @@ public class ArrayLiteralTest  {
         MapLiteral mapLiteral = new MapLiteral(intLiteral1, floatLiteral);
         StructLiteral structLiteral = new StructLiteral(intLiteral1, floatLiteral, dateLiteral);
         ArrayLiteral arrayLiteral13 = new ArrayLiteral(arrayLiteral, arrayLiteral);
-        Assert.assertEquals("[[1.0,2.15],[1.0,2.15]]", arrayLiteral13.getStringValueForQuery(options));
+        Assert.assertEquals("[[1,2.15],[1,2.15]]", arrayLiteral13.getStringValueForQuery(options));
         ArrayLiteral arrayLiteral14 = new ArrayLiteral(mapLiteral);
         Assert.assertEquals("[{1:2.15}]", arrayLiteral14.getStringValueForQuery(options));
         ArrayLiteral arrayLiteral15 = new ArrayLiteral(structLiteral);
@@ -254,7 +254,7 @@ public class ArrayLiteralTest  {
         DateLiteral dateLiteral = new DateLiteral("2022-10-10", Type.DATE);
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
-        Assert.assertEquals("[1.0, 2.15]", arrayLiteral1.getStringValueForStreamLoad(options));
+        Assert.assertEquals("[1, 2.15]", arrayLiteral1.getStringValueForStreamLoad(options));
         ArrayLiteral arrayLiteralWithTime = new ArrayLiteral(floatLiteral1);
         Assert.assertEquals("[\"11:22:33\"]", arrayLiteralWithTime.getStringValueForStreamLoad(options));
 
@@ -303,7 +303,7 @@ public class ArrayLiteralTest  {
         MapLiteral mapLiteral = new MapLiteral(intLiteral1, floatLiteral);
         StructLiteral structLiteral = new StructLiteral(intLiteral1, floatLiteral, dateLiteral);
         ArrayLiteral arrayLiteral13 = new ArrayLiteral(arrayLiteral, arrayLiteral);
-        Assert.assertEquals("[[1.0, 2.15], [1.0, 2.15]]",
+        Assert.assertEquals("[[1, 2.15], [1, 2.15]]",
                 arrayLiteral13.getStringValueForStreamLoad(options));
         ArrayLiteral arrayLiteral14 = new ArrayLiteral(mapLiteral);
         Assert.assertEquals("[{1:2.15}]", arrayLiteral14.getStringValueForStreamLoad(options));

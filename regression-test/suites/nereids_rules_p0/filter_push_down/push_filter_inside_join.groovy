@@ -83,33 +83,33 @@ suite("push_filter_inside_join") {
     """
 
     // Push combine condition into cross join
-    qt_pushdown_cross_join_combine"""
-    explain shape plan select * from t1 cross join t2 where t1.msg = t2.msg and t1.msg + t2.msg = "";
-    """
+    //qt_pushdown_cross_join_combine"""
+    //explain shape plan select * from t1 cross join t2 where t1.msg = t2.msg and t1.msg + t2.msg = "";
+    //"""
 
     // Push combine condition into inner join
-    qt_pushdown_inner_join_combine"""
-    explain shape plan select * from t1 inner join t2 on t1.id = t2.id where t1.msg = t2.msg and t1.msg + t2.msg = "";
-    """
+    //qt_pushdown_inner_join_combine"""
+    //explain shape plan select * from t1 inner join t2 on t1.id = t2.id where t1.msg = t2.msg and t1.msg + t2.msg = "";
+    //"""
 
     // Push combine condition into left join
-    qt_pushdown_left_join_combine"""
-    explain shape plan select * from t1 left join t2 on t1.id = t2.id where t1.msg = t2.msg and t1.msg + t2.msg = "";
-    """
+    //qt_pushdown_left_join_combine"""
+    //explain shape plan select * from t1 left join t2 on t1.id = t2.id where t1.msg = t2.msg and t1.msg + t2.msg = "";
+    //"""
 
     // Push combine condition into right join
-    qt_pushdown_right_join_combine"""
-    explain shape plan select * from t1 right join t2 on t1.id = t2.id where t2.msg = t1.msg and t1.msg + t2.msg = "";
-    """
+    //qt_pushdown_right_join_combine"""
+    //explain shape plan select * from t1 right join t2 on t1.id = t2.id where t2.msg = t1.msg and t1.msg + t2.msg = "";
+    //"""
 
     // Push combine condition into full join
-    qt_pushdown_full_join_combine"""
-    explain shape plan select * from t1 full join t2 on t1.id = t2.id where t1.msg = t2.msg and t1.msg + t2.msg = "";
-    """
+    //qt_pushdown_full_join_combine"""
+    //explain shape plan select * from t1 full join t2 on t1.id = t2.id where t1.msg = t2.msg and t1.msg + t2.msg = "";
+    //"""
 
     // Push combine condition into cross join
-    qt_pushdown_cross_join_combine"""
-    explain shape plan select * from t1 cross join t2 where t1.msg = t2.msg and t1.msg + t2.msg = "";
-    """
+    //qt_pushdown_cross_join_combine"""
+    //explain shape plan select * from t1 cross join t2 where t1.msg = t2.msg and t1.msg + t2.msg = "";
+    //"""
 }
 

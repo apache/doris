@@ -38,7 +38,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------PhysicalOlapScan[date_dim]
 
 Hint log:
-Used: leading(wscs broadcast date_dim )  leading(wswscs shuffle date_dim )  leading(wswscs shuffle date_dim ) leading(y shuffle z )
+Used: leading(wscs broadcast date_dim ) leading(wswscs shuffle date_dim ) leading(wswscs shuffle date_dim ) leading(y shuffle z )
 UnUsed:
 SyntaxError:
 

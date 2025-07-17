@@ -37,7 +37,7 @@ public class JsonSearch extends ScalarFunction implements ExplicitlyCastableSign
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(JsonType.INSTANCE)
-                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+                    .args(JsonType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
     );
 
     public JsonSearch(Expression arg0, Expression arg1, Expression arg2) {
