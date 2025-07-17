@@ -397,6 +397,8 @@ struct TQueryOptions {
   // true to use strict cast mode.
   166: optional bool enable_strict_cast = false
 
+  166: optional i64 query_freshness_tolerance_ms
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
