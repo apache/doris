@@ -125,6 +125,7 @@ private:
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str, DataTypePtr& nested_type,
                                 ColumnString* dest_column_ptr) {
+                                    /*
         using NestType = typename ColumnType::value_type;
         bool is_decimal = IsDecimalNumber<NestType>;
 
@@ -161,7 +162,7 @@ private:
             dest_column_ptr->insert_data(result_str.c_str(), result_str.size());
             prev_src_offset = curr_src_offset;
         }
-
+                                    */
         return true;
     }
 

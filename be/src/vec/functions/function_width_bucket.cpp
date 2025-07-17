@@ -94,6 +94,7 @@ private:
     void _execute(const IColumn& expr_column, const IColumn& min_value_column,
                   const IColumn& max_value_column, const int64_t num_buckets,
                   IColumn& nested_column) const {
+        /*
         const auto& expr_column_concrete = assert_cast<const ColumnType&>(expr_column);
         const auto& min_value_column_concrete = assert_cast<const ColumnType&>(min_value_column);
         const auto& max_value_column_concrete = assert_cast<const ColumnType&>(max_value_column);
@@ -104,7 +105,6 @@ private:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto min_value = min_value_column_concrete.get_data()[i];
             auto max_value = max_value_column_concrete.get_data()[i];
-            auto average_value = (max_value - min_value) / (1.0 * num_buckets);
             if (expr_column_concrete.get_data()[i] < min_value) {
                 continue;
             } else if (expr_column_concrete.get_data()[i] >= max_value) {
@@ -113,11 +113,13 @@ private:
                 if ((max_value - min_value) / num_buckets == 0) {
                     continue;
                 }
+                auto average_value = (max_value - min_value) / (1.0 * num_buckets);
                 nested_column_concrete.get_data()[i] =
                         (int64_t)(1 +
                                   (expr_column_concrete.get_data()[i] - min_value) / average_value);
             }
         }
+            */
     }
 
     void _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,

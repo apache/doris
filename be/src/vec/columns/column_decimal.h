@@ -193,7 +193,6 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    bool get_bool(size_t n) const override { return bool(data[n]); }
     Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
 
     void clear() override { data.clear(); }

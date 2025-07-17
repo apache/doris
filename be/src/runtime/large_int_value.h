@@ -25,6 +25,8 @@
 #include <string>
 
 #include "olap/olap_common.h"
+#include "vec/core/types.h"
+
 namespace doris {
 #include "common/compile_check_begin.h"
 
@@ -40,6 +42,9 @@ public:
     static std::string to_string(__int128 value) { return fmt::format(FMT_COMPILE("{}"), value); }
     static std::string to_string(__uint128_t value) {
         return fmt::format(FMT_COMPILE("{}"), value);
+    }
+    static std::string to_string(vectorized::Decimal128V3 value) {
+        return fmt::format(FMT_COMPILE("{}"), value.value);
     }
 };
 
