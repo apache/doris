@@ -1722,6 +1722,8 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
                 nullable_column = assert_cast<ColumnNullable*>(column_ptr);
                 target_column_ptr = &nullable_column->get_nested_column();
                 nullable_column->get_null_map_data().push_back(0);
+            } else {
+                target_column_ptr = column_ptr;
             }
             auto* column_string = assert_cast<ColumnString*>(target_column_ptr);
             column_string->insert_data(_simdjson_ondemand_padding_buffer.data(),
