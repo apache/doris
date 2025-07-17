@@ -58,7 +58,6 @@ statementBase
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
     | supportedRefreshStatement         #supportedRefreshStatementAlias
-    | supportedStatsStatement           #supportedStatsStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
     | supportedLoadStatement            #supportedLoadStatementAlias
     | supportedCancelStatement          #supportedCancelStatementAlias
