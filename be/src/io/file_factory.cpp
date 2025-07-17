@@ -24,6 +24,7 @@
 #include <mutex>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
