@@ -203,6 +203,11 @@ public:
     // Waits until all the tasks are completed.
     void wait();
 
+    // Clear all queued tasks from the thread pool and all tokens
+    // Running tasks will continue to execute, but all pending tasks will be removed
+    // Returns the number of tasks that were cleared
+    int clear();
+
     // Waits for the pool to reach the idle state, or until 'delta' time elapses.
     // Returns true if the pool reached the idle state, false otherwise.
     template <class Rep, class Period>
@@ -465,11 +470,6 @@ public:
         std::lock_guard<std::mutex> l(_pool->_lock);
         return _entries.size();
     }
-
-    // Clear all queued tasks from the thread pool and all tokens
-    // Running tasks will continue to execute, but all pending tasks will be removed
-    // Returns the number of tasks that were cleared
-    int clear();
 
     ThreadPoolToken(const ThreadPoolToken&) = delete;
     void operator=(const ThreadPoolToken&) = delete;
