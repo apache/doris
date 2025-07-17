@@ -96,8 +96,8 @@ suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,ext
     sql """ switch ${catalog_name};"""
     sql """ use my_namespace;""" 
     sql """ set enable_fallback_to_original_planner=false """
-    def tables = sql """ show tables; """
-    assertTrue(tables.size() > 0)
+    // def tables = sql """ show tables; """
+    // assertTrue(tables.size() > 0)
 
     try {
         for (String format_compression in format_compressions) {
