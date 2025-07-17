@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_use_meta_cache_true", "p0,external,hive,external_docker,external_docker_hive") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -42,11 +42,11 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 );"""
                 
                 // create from Doris, the cache will be filled immediately
-                String database= "test_use_meta_cache_db"
-                String table = "test_use_meta_cache_tbl"
-                String database_hive = "test_use_meta_cache_db_hive"
-                String table_hive = "test_use_meta_cache_tbl_hive"
-                String partitioned_table_hive = "test_use_meta_cache_partitioned_tbl_hive"
+                String database= "test_use_meta_cache_db_${use_meta_cache}"
+                String table = "test_use_meta_cache_tbl_${use_meta_cache}"
+                String database_hive = "test_use_meta_cache_db_hive_${use_meta_cache}"
+                String table_hive = "test_use_meta_cache_tbl_hive_${use_meta_cache}"
+                String partitioned_table_hive = "test_use_meta_cache_partitioned_tbl_hive_${use_meta_cache}"
 
                 sql "switch ${catalog}"
                 sql "drop database if exists ${database} force"
@@ -76,6 +76,7 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 } else {
                     // if not use meta cache, can not use
                     sql "refresh catalog ${catalog}"
+                    sql "show databases"
                     sql "use ${database_hive}"
                 }
 
@@ -89,13 +90,14 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 if (use_meta_cache) {
                     // but can select
                     sql "select * from ${table_hive}"
-                    // still not see
+                    // after select, the names cache is refresh, so can see
                     order_qt_sql06 "show tables"
                     sql "refresh database ${database_hive}"
                 } else {
                     // if not use meta cache, can not select
                     sql "refresh database ${database_hive}"
                     sql "select * from ${table_hive}"
+                    // after select, the names cache is refresh, so can see
                     order_qt_sql06 "show tables"
                 }
                 // can see
@@ -128,6 +130,8 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 // can see because partition file listing is not cached
                 order_qt_sql09 "show partitions from ${partitioned_table_hive}"
 
+                // before drop table, we can see the tables
+                order_qt_sql091 "show tables"
                 // drop tables
                 hive_docker "drop table ${database_hive}.${partitioned_table_hive}"
                 hive_docker "drop table ${database_hive}.${table_hive}"
@@ -146,7 +150,6 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 order_qt_sql13 "show databases like '%${database_hive}%'";
             }
             test_use_meta_cache(true)
-            test_use_meta_cache(false)
         } finally {
         }
     }

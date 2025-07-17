@@ -350,8 +350,7 @@ public class DdlExecutor {
                     refreshTableStmt.getTblName(), false);
         } else if (ddlStmt instanceof RefreshDbStmt) {
             RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
-            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName(),
-                    refreshDbStmt.isInvalidCache());
+            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName());
         } else if (ddlStmt instanceof AlterResourceStmt) {
             env.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterColocateGroupStmt) {
