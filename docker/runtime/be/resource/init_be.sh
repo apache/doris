@@ -20,6 +20,9 @@ set -eo pipefail
 shopt -s nullglob
 
 DORIS_HOME="/opt/apache-doris"
+ENV_PREFIX="DORIS_"
+CONFIG_FILE=${DORIS_HOME}/be/conf/be.conf
+BE_ALREADY_EXISTS=false
 
 # Obtain necessary and basic information to complete initialization
 
@@ -34,7 +37,7 @@ doris_log() {
     local text="$*"
     if [ "$#" -eq 0 ]; then text="$(cat)"; fi
     local dt="$(date -Iseconds)"
-    printf '%s [%s] [Entrypoint]: %s\n' "$dt" "$type" "$text"
+    printf '%s [%s] [Entrypoint-init-be]: %s\n' "$dt" "$type" "$text"
 }
 doris_note() {
     doris_log Note "$@"
@@ -54,127 +57,66 @@ _is_sourced() {
     [ "${FUNCNAME[1]}" = 'source' ]
 }
 
-docker_setup_env() {
-    declare -g DATABASE_ALREADY_EXISTS
-    if [ -d "${DORIS_HOME}/be/storage/data" ]; then
-        DATABASE_ALREADY_EXISTS='true'
-    fi
-}
-
-add_priority_networks() {
-    doris_note "add priority_networks ${1} to ${DORIS_HOME}/be/conf/be.conf"
-    echo "priority_networks = ${1}" >>${DORIS_HOME}/be/conf/be.conf
-}
-
 show_be_args(){
     doris_note "============= init args ================"
-    doris_note "MASTER_FE_IP " ${MASTER_FE_IP}
-    doris_note "CURRENT_BE_IP " ${CURRENT_BE_IP}
+    doris_note "MASTER_FE_HOST " ${MASTER_FE_HOST}
+    doris_note "CURRENT_BE_HOST " ${CURRENT_BE_HOST}
     doris_note "CURRENT_BE_PORT " ${CURRENT_BE_PORT}
-    doris_note "RUN_TYPE " ${RUN_TYPE}
 }
 
 # Execute sql script, passed via stdin
 # usage: docker_process_sql sql_script
 docker_process_sql() {
     set +e
-    if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
-        mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>/dev/null
-    elif [[ $RUN_TYPE == "FQDN" ]]; then
-        mysql -uroot -P9030 -h${MASTER_NODE_NAME} --comments "$@" 2>/dev/null
-    fi
-}
-
-node_role_conf(){
-    if [[ ${NODE_ROLE} == 'computation' ]]; then
-        doris_note "this node role is computation"
-        echo "be_node_role=computation" >>${DORIS_HOME}/be/conf/be.conf
-    else
-        doris_note "this node role is mix"
-    fi
+    mysql -uroot -P9030 -h${MASTER_FE_HOST} --comments "$@" 2>/dev/null
 }
 
 register_be_to_fe() {
     set +e
-    # check fe status
-    local is_fe_start=false
-    if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
-        check_be_status
-        if [ -n "$BE_ALREADY_EXISTS" ]; then
-            doris_warn "Same backend already exists! No need to register again！"
-            return
-        fi
-    fi
     for i in {1..300}; do
-        if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
-            SQL="alter system add backend '${CURRENT_BE_IP}:${CURRENT_BE_PORT}';"
-            doris_note "Executing SQL: $SQL"
-            docker_process_sql <<<"$SQL"
-        elif [[ $RUN_TYPE == "FQDN" ]]; then
-            SQL="alter system add backend '${CURRENT_NODE_NAME}:${CURRENT_BE_PORT}';"
-            doris_note "Executing SQL: $SQL"
-            docker_process_sql <<<"$SQL"
-        fi
+        SQL="alter system add backend '${CURRENT_BE_HOST}:${CURRENT_BE_PORT}';"
+        doris_note "Executing SQL: $SQL"
+        docker_process_sql <<<"$SQL"
+
         register_be_status=$?
         if [[ $register_be_status == 0 ]]; then
-            doris_note "BE successfully registered to FE！"
-            is_fe_start=true
+            doris_note "BE successfully registered to FE!"
+            BE_ALREADY_EXISTS=true
             return
         else
             check_be_status
-            if [[ $IS_BE_JOIN_STATUS == "true" ]]; then
+            if [[ $BE_ALREADY_EXISTS == "true" ]]; then
                 return
             fi
         fi
+
         if [[ $(( $i % 20 )) == 1 ]]; then
-            doris_note "Register BE to FE is failed. retry."
+            doris_note "Register BE to FE is failed. Tried times ${i}, retry..."
         fi
         sleep 1
     done
-    if ! [[ $is_fe_start ]]; then
-        doris_error "Failed to register BE to FE！Tried 30 times！Maybe FE Start Failed！"
-    fi
+
+    if [[ $BE_ALREADY_EXISTS != "true" ]]; then
+        doris_error "be can not register in cluster! Byebye..."
+    fi 
+    
+    doris_note "current be has been registered in cluster."
 }
 
 check_be_status() {
     set +e
-    declare -g IS_FE_START_STATUS IS_BE_JOIN_STATUS
-    IS_FE_START_STATUS=false
-    IS_BE_JOIN_STATUS=false
-    for i in {1..30}; do
-        if [[ $(($i % 15)) == 1 ]]; then
-            doris_warn "start check be register status~"
-        fi
-        if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
-            docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
-        elif [[ $RUN_TYPE == "FQDN" ]]; then
-            docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_NODE_NAME}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
-        fi
-        be_join_status=$?
-        if [[ "${be_join_status}" == 0 ]]; then
-            doris_note "Verify that BE is registered to FE successfully"
-            IS_FE_START_STATUS=true
-            IS_BE_JOIN_STATUS=true
-            return
-        else
-            if [[ $(($i % 15)) == 1 ]]; then
-                doris_note "register is failed, wait next~"
-            fi
-        fi
-        sleep 1
-    done
-    if [[ ! $IS_FE_START_STATUS ]]; then
-        doris_error "Failed to register BE to FE！Tried 30 times！Maybe FE Start Failed！"
-    fi
-}
 
-add_fqdn_conf() {
-    doris_note "add 'FE hosts msg' \n${FE_HOSTS_MSG} to /etc/hosts"
-    echo -e ${FE_HOSTS_MSG} >/etc/hosts
-    doris_note "add 'BE hosts msg' \n${BE_HOSTS_MSG} to /etc/hosts"
-    echo -e ${BE_HOSTS_MSG} >>/etc/hosts
-    doris_note "add 'host_name = ${CURRENT_NODE_NAME}' to /etc/hostname"
-    echo ${CURRENT_NODE_NAME} >/etc/hostname
+    BE_ALREADY_EXISTS=false
+    doris_warn "start check be register status~"
+    docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_HOST}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
+
+    be_join_status=$?
+    if [[ "${be_join_status}" == 0 ]]; then
+        doris_note "Verify that BE is registered to FE successfully"
+        BE_ALREADY_EXISTS=true
+    else
+        doris_note "current be has not been registered in cluster."
+    fi
 }
 
 cleanup() {
@@ -182,21 +124,108 @@ cleanup() {
     ${DORIS_HOME}/be/bin/stop_be.sh
 }
 
+# Convert a string to lowercase (portable implementation)
+to_lowercase() {
+    echo "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+# Conversion function: Convert config file key to environment variable key
+# Example: fqdn → DORIS_FQDN
+convert_config_to_env_key() {
+    config_key="$1"
+    # Add prefix and convert to uppercase (adjust as needed)
+    echo "${ENV_PREFIX}${config_key}" | tr '[:lower:]' '[:upper:]'
+}
+
+reset_conf_by_env(){
+    
+    if [ ! -f "$CONFIG_FILE" ]; then
+        touch "$CONFIG_FILE"
+    fi
+    
+    # Temporary file to store processed configuration
+    TEMP_CONFIG=$(mktemp)
+    
+    # Mark processed environment variables
+    processed_vars=""
+    
+    # Process existing config lines
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip empty lines/comments
+        case "$line" in
+            ''|*[![:print:]]*) echo "$line" >> "$TEMP_CONFIG"; continue ;;
+            \#*) echo "$line" >> "$TEMP_CONFIG"; continue ;;
+        esac
+    
+        # Extract key/value
+        config_key=$(echo "$line" | cut -d= -f1 | tr -d '[:space:]')
+        config_value=$(echo "$line" | cut -d= -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        
+        # Get corresponding env variable
+        env_var=$(convert_config_to_env_key "$config_key")
+        env_value=$(eval echo "\$$env_var")
+    
+        # Skip if env variable not set
+        [ -z "$env_value" ] && echo "$line" >> "$TEMP_CONFIG" && continue
+    
+        # Only replace if values differ (case-sensitive comparison)
+        if [ "$config_value" != "$env_value" ]; then
+            echo "$config_key = $env_value" >> "$TEMP_CONFIG"
+            doris_note "Replaced: $config_key = $config_value → $env_value"
+        else
+            echo "$line" >> "$TEMP_CONFIG"
+            doris_note "Skipped (same value): $config_key = $config_value"
+        fi
+        
+        processed_vars="$processed_vars $(to_lowercase "$env_var")"
+    done < "$CONFIG_FILE"
+    
+    # Flag to track if we've added the comment line
+    added_comment=0
+    for env_var in $(env | cut -d= -f1); do
+        # Skip variables without prefix
+        case "$(to_lowercase "$env_var")" in
+            "$(to_lowercase "$ENV_PREFIX")"*) ;;
+            *) continue ;;
+        esac
+    
+        # Normalize for case-insensitive checks
+        env_var_lower=$(to_lowercase "$env_var")
+        
+        # Skip if already processed
+        case " $processed_vars " in
+            *" $env_var_lower "*) continue ;;
+        esac
+    
+        # Extract config key by stripping prefix
+        config_key=$(echo "$env_var" | sed "s/^$ENV_PREFIX//" | tr '[:upper:]' '[:lower:]')
+        env_value=$(eval echo "\$$env_var")
+        
+        # Add comment line before first new entry
+        if [ $added_comment -eq 0 ]; then
+            echo "# Added from environment variables" >> "$TEMP_CONFIG"
+            added_comment=1
+        fi
+
+        # Add new config entry
+        echo "$config_key = $env_value" >> "$TEMP_CONFIG"
+        doris_note "Added: $config_key = $env_value (from $env_var)"
+    done
+    
+    # Replace original config file
+    mv "$TEMP_CONFIG" "$CONFIG_FILE"
+    
+    doris_note "Configuration file '$CONFIG_FILE' processing completed by env"
+}
+
 _main() {
     trap 'cleanup' SIGTERM SIGINT
-    docker_setup_env
-    if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
-        if [ $RUN_TYPE == "FQDN" ]; then
-            add_fqdn_conf
-        else
-            add_priority_networks $PRIORITY_NETWORKS
-        fi
-        node_role_conf
-        show_be_args
-        register_be_to_fe
-    fi
-    check_be_status
-    doris_note "Ready to start BE！"
+
+    show_be_args
+    reset_conf_by_env
+    register_be_to_fe
+
+    doris_note "Ready to start BE!"
     export SKIP_CHECK_ULIMIT=true
     ${DORIS_HOME}/be/bin/start_be.sh --console &
     child_pid=$!
