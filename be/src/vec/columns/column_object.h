@@ -97,6 +97,8 @@ public:
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
+    // Array(Nullable(Jsonb))
+    const static DataTypePtr NESTED_TYPE_AS_ARRAY_OF_JSONB;
 
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
@@ -236,6 +238,8 @@ public:
         // If it is the root subcolumn of SubcolumnsTree,
         // the root Node should be JSONB type when finalize
         bool is_root = false;
+        // Cache for type check to avoid repeated expensive equals() calls
+        mutable std::optional<bool> is_nested_array_of_jsonb_cache;
     };
     using Subcolumns = SubcolumnsTree<Subcolumn, false>;
 

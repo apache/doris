@@ -939,25 +939,7 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
         res = Null();
         return;
     }
-    if (is_finalized()) {
-        // TODO(hangyu) : we should use data type to get the field value
-        // here is a special case for Array<JsonbField>
-        if (least_common_type.get_type_id() == TypeIndex::Array &&
-            least_common_type.get_base_type_id() == TypeIndex::JSONB) {
-            // Array of JsonbField is special case
-            get_finalized_column().get(n, res);
-            // here we will get a Array<String> Field or NULL, if it is Array<String>, we need to convert it to Array<JsonbField>
-            convert_array_string_to_array_jsonb(res);
-            return;
-        }
-
-        // here is a special case for JsonbField
-        if (least_common_type.get_base_type_id() == TypeIndex::JSONB) {
-            res = JsonbField();
-            get_finalized_column().get(n, res);
-            return;
-        }
-
+    if (is_finalized() && least_common_type.get_base_type_id() != TypeIndex::JSONB) {
         // common type to get the field value
         get_finalized_column().get(n, res);
         return;
@@ -974,11 +956,20 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
         const auto& part = data[i];
         const auto& part_type = data_types[i];
         if (ind < part->size()) {
-            res = vectorized::remove_nullable(part_type)->get_default();
+            auto non_nullable_type = vectorized::remove_nullable(part_type);
+            bool is_nested_array_of_jsonb =
+                    non_nullable_type->equals(*NESTED_TYPE_AS_ARRAY_OF_JSONB);
+
+            res = non_nullable_type->get_default();
             part->get(ind, res);
-            Field new_field;
-            convert_field_to_type(res, *least_common_type.get(), &new_field);
-            res = new_field;
+
+            if (is_nested_array_of_jsonb) {
+                convert_array_string_to_array_jsonb(res);
+            } else {
+                Field new_field;
+                convert_field_to_type(res, *least_common_type.get(), &new_field);
+                res = new_field;
+            }
             return;
         }
 
@@ -1869,6 +1860,10 @@ bool ColumnObject::is_scalar_variant() const {
 const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataTypeNullable>(
         std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
                 std::make_shared<vectorized::DataTypeObject>())));
+
+const DataTypePtr ColumnObject::NESTED_TYPE_AS_ARRAY_OF_JSONB =
+        std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
+                std::make_shared<vectorized::DataTypeJsonb>()));
 
 DataTypePtr ColumnObject::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();
