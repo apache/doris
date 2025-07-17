@@ -25,9 +25,12 @@
 #include <memory>
 
 #include "runtime/define_primitive_type.h"
+#include "runtime/jsonb_value.h"
 #include "vec/columns/common_column_test.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nothing.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris::vectorized {
@@ -348,6 +351,140 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
 
         EXPECT_EQ(result1_map.at(PathInData("b")).get<const String&>(), "hello");
         EXPECT_EQ(result2_map.at(PathInData("a")).get<Int64>(), 123);
+    }
+}
+
+TEST_F(ColumnVariantTest, test_nested_array_of_jsonb_get) {
+    // Test case: Create a ColumnVariant with subcolumn type Array<JSONB>
+    // This covers the code in column_variant.cpp lines 904-919
+
+    // Create a ColumnVariant with subcolumns
+    auto variant_column = ColumnVariant::create(true);
+
+    // Create a subcolumn with Array<JSONB> type
+    auto array_jsonb_type = make_nullable(ColumnVariant::NESTED_TYPE_AS_ARRAY_OF_JSONB);
+
+    // Add subcolumn with path "nested.array"
+    variant_column->add_sub_column(PathInData("nested.array"), 0);
+
+    // Get the subcolumn and manually set its type to Array<JSONB>
+    auto* subcolumn = variant_column->get_subcolumn(PathInData("nested.array"));
+    ASSERT_NE(subcolumn, nullptr);
+
+    // Create test data: Array of strings
+    Field array_of_strings = Field::create_field<TYPE_ARRAY>(Array());
+
+    // Add string elements to the array
+    std::string test_data1 = R"("a")";
+    std::string test_data2 = R"(b)";
+
+    array_of_strings.get<Array&>().push_back(Field::create_field<TYPE_STRING>(test_data1));
+    array_of_strings.get<Array&>().push_back(Field::create_field<TYPE_STRING>(test_data2));
+
+    // Insert the array field into the subcolumn
+    subcolumn->insert(array_of_strings);
+
+    // Test 1:  the column and test get method
+    {
+        EXPECT_TRUE(variant_column->is_finalized());
+        // check the subcolumn get method
+        Field result;
+        EXPECT_NO_THROW(subcolumn->get(0, result));
+
+        // Verify the result is still an array
+        EXPECT_EQ(result.get_type(), PrimitiveType::TYPE_ARRAY);
+
+        const auto& result_array = result.get<const Array&>();
+        EXPECT_EQ(result_array.size(), 2);
+
+        // Check that all elements are JSONB fields
+        for (const auto& item : result_array) {
+            EXPECT_EQ(item.get_type(), PrimitiveType::TYPE_STRING);
+        }
+
+        // Verify string content is preserved
+        const auto& string1 = result_array[0].get<const String&>();
+        const auto& string2 = result_array[1].get<const String&>();
+
+        EXPECT_EQ(string1, R"("a")"); // "\"a\""
+        EXPECT_EQ(string2, R"(b)");   // "b"
+    }
+
+    // Test 2: Test with a row of different type of array to test the subcolumn get method
+    {
+        // Add another row with different int array
+        Field int_array = Field::create_field<TYPE_ARRAY>(Array());
+        int_array.get<Array&>().push_back(Field::create_field<TYPE_INT>(1));
+        int_array.get<Array&>().push_back(Field::create_field<TYPE_INT>(2));
+        int_array.get<Array&>().push_back(Field::create_field<TYPE_INT>(3));
+
+        // and we should add more data to the subcolumn column
+        subcolumn->insert(int_array);
+
+        EXPECT_FALSE(variant_column->is_finalized());
+        // check the subcolumn get method
+        Field result;
+        EXPECT_NO_THROW(subcolumn->get(1, result));
+        EXPECT_EQ(result.get_type(), PrimitiveType::TYPE_ARRAY);
+        const auto& result_array = result.get<const Array&>();
+        EXPECT_EQ(result_array.size(), 3);
+        EXPECT_EQ(result_array[0].get_type(), PrimitiveType::TYPE_JSONB);
+        EXPECT_EQ(result_array[1].get_type(), PrimitiveType::TYPE_JSONB);
+        EXPECT_EQ(result_array[2].get_type(), PrimitiveType::TYPE_JSONB);
+
+        // check the first row Field is a string
+        Field result_string;
+        EXPECT_NO_THROW(subcolumn->get(0, result_string));
+        EXPECT_EQ(result_string.get_type(), PrimitiveType::TYPE_ARRAY);
+        const auto& result_string_array = result_string.get<const Array&>();
+        EXPECT_EQ(result_string_array.size(), 2);
+        EXPECT_EQ(result_string_array[0].get_type(), PrimitiveType::TYPE_JSONB);
+        EXPECT_EQ(result_string_array[1].get_type(), PrimitiveType::TYPE_JSONB);
+
+        // Finalize -> we should get the least common type of the subcolumn
+        variant_column->finalize();
+        EXPECT_TRUE(variant_column->is_finalized());
+        // we should get another subcolumn from the variant column
+        auto* subcolumn_finalized = variant_column->get_subcolumn(PathInData("nested.array"));
+        ASSERT_NE(subcolumn_finalized, nullptr);
+        // check the subcolumn_finalized get method
+        Field result1, result2;
+        EXPECT_NO_THROW(subcolumn_finalized->get(0, result1));
+        EXPECT_NO_THROW(subcolumn_finalized->get(1, result2));
+
+        // Verify both results are arrays
+        EXPECT_EQ(result1.get_type(), PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(result2.get_type(), PrimitiveType::TYPE_ARRAY);
+
+        const auto& array1 = result1.get<const Array&>();
+        const auto& array2 = result2.get<const Array&>();
+
+        EXPECT_EQ(array1.size(), 2);
+        EXPECT_EQ(array2.size(), 3);
+
+        // Verify all elements are JSONB
+        for (const auto& item : array1) {
+            EXPECT_EQ(item.get_type(), PrimitiveType::TYPE_JSONB);
+        }
+        for (const auto& item : array2) {
+            EXPECT_EQ(item.get_type(), PrimitiveType::TYPE_JSONB);
+        }
+    }
+
+    // Test 4: Test with empty array
+    {
+        auto* subcolumn = variant_column->get_subcolumn(PathInData("nested.array"));
+        ASSERT_NE(subcolumn, nullptr);
+        Field empty_array_field = Field::create_field<TYPE_ARRAY>(Array());
+        subcolumn->insert(empty_array_field);
+
+        EXPECT_TRUE(variant_column->is_finalized());
+        // check the subcolumn get method
+        Field result;
+        EXPECT_NO_THROW(subcolumn->get(2, result));
+        EXPECT_EQ(result.get_type(), PrimitiveType::TYPE_ARRAY);
+        const auto& result_array = result.get<const Array&>();
+        EXPECT_EQ(result_array.size(), 0);
     }
 }
 
