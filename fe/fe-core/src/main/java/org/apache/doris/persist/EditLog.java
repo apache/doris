@@ -2434,8 +2434,4 @@ public class EditLog {
     public void logBranchOrTag(TableBranchOrTagInfo info) {
         logEdit(OperationType.OP_BRANCH_OR_TAG, info);
     }
-
-    public void logAlterExternalTableSchema(AlterExternalTableSchemaLog log) {
-        logEdit(OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA, log);
-    }
 }
