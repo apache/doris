@@ -697,7 +697,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 }
             } else {
                 // 清空线程池，保证每次都是score最高的topn提交
-                thread_pool.clear();
+                thread_pool->clear();
             }
             std::vector<TabletSharedPtr> tablets_compaction =
                     _generate_compaction_tasks(compaction_type, data_dirs, check_score);
