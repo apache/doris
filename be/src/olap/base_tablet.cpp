@@ -21,6 +21,7 @@
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <iterator>
 #include <random>
@@ -2113,7 +2114,8 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
 
 int32_t BaseTablet::max_version_config() {
     int32_t max_version = tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
-                                  ? config::time_series_max_tablet_version_num
+                                  ? std::max(config::time_series_max_tablet_version_num,
+                                             config::max_tablet_version_num)
                                   : config::max_tablet_version_num;
     return max_version;
 }
