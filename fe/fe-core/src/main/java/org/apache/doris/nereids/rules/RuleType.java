@@ -251,6 +251,7 @@ public enum RuleType {
     REWRITE_TOPN_EXPRESSION(RuleTypeClass.REWRITE),
     EXTRACT_FILTER_FROM_JOIN(RuleTypeClass.REWRITE),
     REORDER_JOIN(RuleTypeClass.REWRITE),
+    INIT_JOIN_ORDER(RuleTypeClass.REWRITE),
     MERGE_PERCENTILE_TO_ARRAY(RuleTypeClass.REWRITE),
 
     // rewrite load project for stream load
