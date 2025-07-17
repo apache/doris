@@ -30,7 +30,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/field.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -40,6 +39,7 @@ namespace doris::vectorized {
 // declare function
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory);
 
 TEST(AggTest, basic_test) {
     Arena arena;
@@ -103,4 +103,30 @@ TEST(AggTest, topn_test) {
     EXPECT_EQ(result, expect_result);
     agg_function->destroy(place);
 }
+
+TEST(AggTest, window_function_test) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_bit(factory);
+    DataTypes data_types = {make_nullable(std::make_shared<DataTypeInt8>())};
+    bool is_window_function = true;
+    auto agg_function = factory.get("group_bit_or", data_types, true, -1,
+                                    {.enable_decimal256 = false,
+                                     .column_names = {},
+                                     .is_window_function = is_window_function});
+    auto size = agg_function->size_of_data();
+    EXPECT_EQ(size, 6);
+    size = agg_function->align_of_data();
+    EXPECT_EQ(size, 4);
+
+    is_window_function = false;
+    auto agg_function2 = factory.get("group_bit_or", data_types, true, -1,
+                                     {.enable_decimal256 = false,
+                                      .column_names = {},
+                                      .is_window_function = is_window_function});
+    auto size2 = agg_function2->size_of_data();
+    EXPECT_EQ(size2, 2);
+    size2 = agg_function2->align_of_data();
+    EXPECT_EQ(size2, 1);
+}
+
 } // namespace doris::vectorized
