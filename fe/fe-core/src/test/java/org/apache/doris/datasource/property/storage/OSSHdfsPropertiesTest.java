@@ -122,7 +122,7 @@ public class OSSHdfsPropertiesTest {
         props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("ap-southeast-5", props.getBackendConfigProperties().get("fs.oss.region"));
         origProps.put("dlf.endpoint", "dlf.us-east-1.aliyuncs.com");
-        props = (OSSHdfsProperties) StorageProperties.createAll(origProps).get(1);
+        props = (OSSHdfsProperties) StorageProperties.createAll(origProps).get(0);
         Assertions.assertEquals("us-east-1", props.getBackendConfigProperties().get("fs.oss.region"));
     }
 

@@ -43,7 +43,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY",
-            "dlf.access_key", "dlf.catalog.accessKeyId" },
+            "dlf.access_key", "dlf.catalog.accessKeyId"},
             description = "The access key of OSS.")
     protected String accessKey = "";
 
@@ -99,11 +99,20 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 .filter(e -> e.getKey().equalsIgnoreCase("uri"))
                 .map(Map.Entry::getValue)
                 .findFirst();
-        if (!uriValue.isPresent()) {
+        return uriValue.filter(OSSProperties::isKnownObjectStorage).isPresent();
+    }
+
+    private static boolean isKnownObjectStorage(String value) {
+        if (value == null) {
             return false;
         }
-        String uri = uriValue.get();
-        return uri.contains("aliyuncs.com");
+        if (!value.contains("aliyuncs.com")) {
+            return false;
+        }
+        boolean isAliyunOss = (value.contains("oss-") || value.contains("dlf."));
+        boolean isAmazonS3 = value.contains("s3.");
+        boolean isDls = value.contains("dls");
+        return isAliyunOss || isAmazonS3 || isDls;
     }
 
     @Override

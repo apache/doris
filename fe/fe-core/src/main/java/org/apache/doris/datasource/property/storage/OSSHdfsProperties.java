@@ -85,7 +85,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     protected String securityToken = "";
 
     private static final Set<String> OSS_ENDPOINT_KEY_NAME = ImmutableSet.of("oss.hdfs.endpoint",
-            "dlf.endpoint", "dlf.catalog.endpoint", "call_center", "oss.endpoint");
+            "dlf.endpoint", "dlf.catalog.endpoint", "oss.endpoint");
 
     private Map<String, String> backendConfigProperties;
 
