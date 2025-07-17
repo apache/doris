@@ -201,10 +201,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMilliseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
@@ -246,7 +242,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
@@ -692,10 +687,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FromIso8601Date.class, "from_iso8601_date"),
             scalar(FromUnixtime.class, "from_unixtime"),
             scalar(G.class, "g"),
-            scalar(GetJsonBigInt.class, "get_json_bigint"),
-            scalar(GetJsonDouble.class, "get_json_double"),
-            scalar(GetJsonInt.class, "get_json_int"),
-            scalar(GetJsonString.class, "get_json_string"),
             scalar(Greatest.class, "greatest"),
             scalar(Grouping.class, "grouping"),
             scalar(GroupingId.class, "grouping_id"),
@@ -739,28 +730,21 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonObject.class, "json_object", "jsonb_object"),
             scalar(JsonQuote.class, "json_quote"),
             scalar(JsonUnQuote.class, "json_unquote"),
-            scalar(JsonExtract.class, "json_extract"),
             scalar(JsonExtractNoQuotes.class, "json_extract_no_quotes"),
             scalar(JsonInsert.class, "json_insert", "jsonb_insert"),
             scalar(JsonReplace.class, "json_replace", "jsonb_replace"),
             scalar(JsonSet.class, "json_set", "jsonb_set"),
             scalar(JsonbExistsPath.class, "json_exists_path"),
             scalar(JsonbExistsPath.class, "jsonb_exists_path"),
-            scalar(JsonbExtract.class, "jsonb_extract"),
-            scalar(JsonbExtractBigint.class, "json_extract_bigint"),
-            scalar(JsonbExtractBigint.class, "jsonb_extract_bigint"),
-            scalar(JsonbExtractLargeint.class, "json_extract_largeint"),
-            scalar(JsonbExtractLargeint.class, "jsonb_extract_largeint"),
-            scalar(JsonbExtractBool.class, "json_extract_bool"),
-            scalar(JsonbExtractBool.class, "jsonb_extract_bool"),
-            scalar(JsonbExtractDouble.class, "json_extract_double"),
-            scalar(JsonbExtractDouble.class, "jsonb_extract_double"),
-            scalar(JsonbExtractInt.class, "json_extract_int"),
-            scalar(JsonbExtractInt.class, "jsonb_extract_int"),
+            scalar(JsonbExtract.class, "jsonb_extract", "json_extract"),
+            scalar(JsonbExtractBigint.class, "jsonb_extract_bigint", "json_extract_bigint", "get_json_bigint"),
+            scalar(JsonbExtractLargeint.class, "jsonb_extract_largeint", "json_extract_largeint"),
+            scalar(JsonbExtractBool.class, "jsonb_extract_bool", "json_extract_bool"),
+            scalar(JsonbExtractDouble.class, "jsonb_extract_double", "json_extract_double", "get_json_double"),
+            scalar(JsonbExtractInt.class, "jsonb_extract_int", "json_extract_int", "get_json_int"),
             scalar(JsonbExtractIsnull.class, "json_extract_isnull"),
             scalar(JsonbExtractIsnull.class, "jsonb_extract_isnull"),
-            scalar(JsonbExtractString.class, "json_extract_string"),
-            scalar(JsonbExtractString.class, "jsonb_extract_string"),
+            scalar(JsonbExtractString.class, "jsonb_extract_string", "json_extract_string", "get_json_string"),
             scalar(JsonbParse.class, "json_parse"),
             scalar(JsonbParse.class, "jsonb_parse"),
             scalar(JsonbParseErrorToInvalid.class, "json_parse_error_to_invalid"),

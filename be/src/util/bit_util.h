@@ -22,7 +22,7 @@
 
 #include <type_traits>
 
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #ifndef __APPLE__
 #include <endian.h>
 #endif

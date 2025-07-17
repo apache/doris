@@ -33,10 +33,10 @@ set debug_skip_fold_constant=false;
 -- SELECT from_unixtime(7200, 'America/Chicago'); # differ: doris : America/Chicago, presto : 1969-12-31 20:00:00.000 America/Chicago
 -- SELECT from_unixtime(7200, 'America/Los_Angeles'); # differ: doris : America/Los_Angeles, presto : 1969-12-31 18:00:00.000 America/Los_Angeles
 -- SELECT date('2001-08-22'); # differ: doris : 2001-08-22, presto : 2001-08-22
--- SELECT date(TIMESTAMP '2001-08-22 03:04:05.321 +07:09'); # differ: doris : None, presto : 2001-08-22
+-- SELECT date(TIMESTAMP '2001-08-22 03:04:05.321 +07:00'); # differ: doris : None, presto : 2001-08-22
 -- SELECT date(TIMESTAMP '2001-08-22 03:04:05.321'); # differ: doris : 2001-08-22, presto : 2001-08-22
 -- SELECT from_iso8601_timestamp('2001-08-22T03:04:05.321-11:00'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp'
--- SELECT from_iso8601_timestamp('2001-08-22T03:04:05.321+07:09'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp'
+-- SELECT from_iso8601_timestamp('2001-08-22T03:04:05.321+07:00'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp'
 -- SELECT from_iso8601_date('2001-08-22'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_date'
 -- SELECT from_iso8601_timestamp_nanos('2001-08-22T12:34:56.123456789Z'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp_nanos'
 -- SELECT from_iso8601_timestamp_nanos('2001-08-22T07:34:56.123456789-05:00'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp_nanos'
@@ -62,7 +62,7 @@ set debug_skip_fold_constant=false;
 -- SELECT last_day_of_month(TIMESTAMP '2019-08-01 17:00:00.000'); # differ: doris : 2019-08-31, presto : 2019-08-31
 -- SELECT last_day_of_month(TIMESTAMP '2019-08-01 23:59:59.999'); # differ: doris : 2019-08-31, presto : 2019-08-31
 -- SELECT last_day_of_month(TIMESTAMP '2019-08-31 23:59:59.999'); # differ: doris : 2019-09-30, presto : 2019-08-31
--- SELECT last_day_of_month(TIMESTAMP '2001-08-22 03:04:05.321 +07:09'); # differ: doris : None, presto : 2001-08-31
+-- SELECT last_day_of_month(TIMESTAMP '2001-08-22 03:04:05.321 +07:00'); # differ: doris : None, presto : 2001-08-31
 -- SELECT date_trunc('day', DATE'2001-08-22'); # differ: doris : 2001-08-22, presto : 2001-08-22
 -- SELECT date_trunc('week', DATE'2001-08-22'); # differ: doris : 2001-08-20, presto : 2001-08-20
 -- SELECT date_trunc('month', DATE'2001-08-22'); # differ: doris : 2001-08-01, presto : 2001-08-01
@@ -113,36 +113,36 @@ SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321', '%g');
 -- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321', '%4'); # differ: doris : , presto : 4
 SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321', '%x %v');
 SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321', '%Y年%m月%d日');
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%a'); # differ: doris : None, presto : Tue
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%b'); # differ: doris : None, presto : Jan
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%c'); # differ: doris : None, presto : 1
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%d'); # differ: doris : None, presto : 09
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%e'); # differ: doris : None, presto : 9
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%f'); # differ: doris : None, presto : 321000
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%H'); # differ: doris : None, presto : 13
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%h'); # differ: doris : None, presto : 01
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%I'); # differ: doris : None, presto : 01
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%i'); # differ: doris : None, presto : 04
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%j'); # differ: doris : None, presto : 009
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%k'); # differ: doris : None, presto : 13
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%l'); # differ: doris : None, presto : 1
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%M'); # differ: doris : None, presto : January
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%m'); # differ: doris : None, presto : 01
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%p'); # differ: doris : None, presto : PM
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%r'); # differ: doris : None, presto : 01:04:05 PM
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%S'); # differ: doris : None, presto : 05
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%s'); # differ: doris : None, presto : 05
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%T'); # differ: doris : None, presto : 13:04:05
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%v'); # differ: doris : None, presto : 02
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%W'); # differ: doris : None, presto : Tuesday
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%Y'); # differ: doris : None, presto : 2001
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%y'); # differ: doris : None, presto : 01
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%%'); # differ: doris : None, presto : %
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', 'foo'); # differ: doris : None, presto : foo
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%g'); # differ: doris : None, presto : g
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%4'); # differ: doris : None, presto : 4
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%x %v'); # differ: doris : None, presto : 2001 02
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%Y年%m月%d日'); # differ: doris : None, presto : 2001年01月09日
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%a'); # differ: doris : None, presto : Tue
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%b'); # differ: doris : None, presto : Jan
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%c'); # differ: doris : None, presto : 1
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%d'); # differ: doris : None, presto : 09
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%e'); # differ: doris : None, presto : 9
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%f'); # differ: doris : None, presto : 321000
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%H'); # differ: doris : None, presto : 13
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%h'); # differ: doris : None, presto : 01
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%I'); # differ: doris : None, presto : 01
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%i'); # differ: doris : None, presto : 04
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%j'); # differ: doris : None, presto : 009
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%k'); # differ: doris : None, presto : 13
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%l'); # differ: doris : None, presto : 1
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%M'); # differ: doris : None, presto : January
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%m'); # differ: doris : None, presto : 01
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%p'); # differ: doris : None, presto : PM
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%r'); # differ: doris : None, presto : 01:04:05 PM
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%S'); # differ: doris : None, presto : 05
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%s'); # differ: doris : None, presto : 05
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%T'); # differ: doris : None, presto : 13:04:05
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%v'); # differ: doris : None, presto : 02
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%W'); # differ: doris : None, presto : Tuesday
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%Y'); # differ: doris : None, presto : 2001
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%y'); # differ: doris : None, presto : 01
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%%'); # differ: doris : None, presto : %
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', 'foo'); # differ: doris : None, presto : foo
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%g'); # differ: doris : None, presto : g
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%4'); # differ: doris : None, presto : 4
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%x %v'); # differ: doris : None, presto : 2001 02
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%Y年%m月%d日'); # differ: doris : None, presto : 2001年01月09日
 -- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.32', '%f'); # differ: doris : 000000, presto : 320000
 SELECT date_format(TIMESTAMP '2001-01-09 00:04:05.32', '%k');
 -- SELECT date_parse('2013', '%Y'); # differ: doris : 2013-01-01, presto : 2013-01-01 00:00:00.000
@@ -236,10 +236,10 @@ set debug_skip_fold_constant=true;
 -- SELECT from_unixtime(7200, 'America/Chicago'); # differ: doris : America/Chicago, presto : 1969-12-31 20:00:00.000 America/Chicago
 -- SELECT from_unixtime(7200, 'America/Los_Angeles'); # differ: doris : America/Los_Angeles, presto : 1969-12-31 18:00:00.000 America/Los_Angeles
 -- SELECT date('2001-08-22'); # differ: doris : 2001-08-22, presto : 2001-08-22
--- SELECT date(TIMESTAMP '2001-08-22 03:04:05.321 +07:09'); # differ: doris : 2001-08-22, presto : 2001-08-22
+-- SELECT date(TIMESTAMP '2001-08-22 03:04:05.321 +07:00'); # differ: doris : 2001-08-22, presto : 2001-08-22
 -- SELECT date(TIMESTAMP '2001-08-22 03:04:05.321'); # differ: doris : 2001-08-22, presto : 2001-08-22
 -- SELECT from_iso8601_timestamp('2001-08-22T03:04:05.321-11:00'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp'
--- SELECT from_iso8601_timestamp('2001-08-22T03:04:05.321+07:09'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp'
+-- SELECT from_iso8601_timestamp('2001-08-22T03:04:05.321+07:00'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp'
 -- SELECT from_iso8601_date('2001-08-22'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_date'
 -- SELECT from_iso8601_timestamp_nanos('2001-08-22T12:34:56.123456789Z'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp_nanos'
 -- SELECT from_iso8601_timestamp_nanos('2001-08-22T07:34:56.123456789-05:00'); # error: errCode = 2, detailMessage = Can not found function 'from_iso8601_timestamp_nanos'
@@ -265,7 +265,7 @@ set debug_skip_fold_constant=true;
 -- SELECT last_day_of_month(TIMESTAMP '2019-08-01 17:00:00.000'); # differ: doris : 2019-08-31, presto : 2019-08-31
 -- SELECT last_day_of_month(TIMESTAMP '2019-08-01 23:59:59.999'); # differ: doris : 2019-08-31, presto : 2019-08-31
 -- SELECT last_day_of_month(TIMESTAMP '2019-08-31 23:59:59.999'); # differ: doris : 2019-09-30, presto : 2019-08-31
--- SELECT last_day_of_month(TIMESTAMP '2001-08-22 03:04:05.321 +07:09'); # differ: doris : 2001-08-31, presto : 2001-08-31
+-- SELECT last_day_of_month(TIMESTAMP '2001-08-22 03:04:05.321 +07:00'); # differ: doris : 2001-08-31, presto : 2001-08-31
 -- SELECT date_trunc('day', DATE'2001-08-22'); # differ: doris : 2001-08-22, presto : 2001-08-22
 -- SELECT date_trunc('week', DATE'2001-08-22'); # differ: doris : 2001-08-20, presto : 2001-08-20
 -- SELECT date_trunc('month', DATE'2001-08-22'); # differ: doris : 2001-08-01, presto : 2001-08-01
@@ -316,36 +316,36 @@ SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321', '%g');
 -- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321', '%4'); # differ: doris : %, presto : 4
 SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321', '%x %v');
 SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321', '%Y年%m月%d日');
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%a'); # differ: doris : Tuesday, presto : Tue
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%b');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%c');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%d');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%e');
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%f'); # differ: doris : 000000, presto : 321000
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%H');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%h');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%I');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%i');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%j');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%k');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%l');
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%M'); # differ: doris : 04, presto : January
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%m');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%p');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%r');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%S');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%s');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%T');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%v');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%W');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%Y');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%y');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%%');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', 'foo');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%g');
--- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%4'); # differ: doris : %, presto : 4
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%x %v');
-SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:09', '%Y年%m月%d日');
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%a'); # differ: doris : Tuesday, presto : Tue
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%b');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%c');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%d');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%e');
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%f'); # differ: doris : 000000, presto : 321000
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%H');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%h');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%I');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%i');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%j');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%k');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%l');
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%M'); # differ: doris : 04, presto : January
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%m');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%p');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%r');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%S');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%s');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%T');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%v');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%W');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%Y');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%y');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%%');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', 'foo');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%g');
+-- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%4'); # differ: doris : %, presto : 4
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%x %v');
+SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.321 +07:00', '%Y年%m月%d日');
 -- SELECT date_format(TIMESTAMP '2001-01-09 13:04:05.32', '%f'); # differ: doris : 000000, presto : 320000
 SELECT date_format(TIMESTAMP '2001-01-09 00:04:05.32', '%k');
 -- SELECT date_parse('2013', '%Y'); # differ: doris : 2013-01-01, presto : 2013-01-01 00:00:00.000

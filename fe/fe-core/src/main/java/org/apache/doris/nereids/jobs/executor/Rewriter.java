@@ -91,6 +91,7 @@ import org.apache.doris.nereids.rules.rewrite.InferInPredicateFromOr;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
+import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
@@ -141,12 +142,12 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.SplitMultiDistinct;
-import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
@@ -336,6 +337,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(new EliminateNotNull()),
                         topDown(new ConvertInnerOrCrossJoin())
                 ),
+                topic("set initial join order",
+                        bottomUp(ImmutableList.of(new InitJoinOrder()))),
                 topic("Set operation optimization",
                         topic("",
                                 cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
@@ -407,7 +410,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new AdjustAggregateNullableForEmptySet()
                         )
                 ),
-
                 topic("Eager aggregation",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalAggregate.class, LogicalJoin.class
@@ -427,6 +429,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new EliminateJoinByFK()),
                     topDown(new EliminateJoinByUnique())
                 ),
+                topic("join skew salting rewrite",
+                        topDown(new SaltJoin())),
                 topic("eliminate Aggregate according to fd items",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
@@ -654,8 +658,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                         () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
                                 )
                         ),
-                        topic("stats related jobs",
-                                custom(RuleType.STATS_DERIVER, StatsDerive::new)),
                         topic("whole plan check",
                                 custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                         ),

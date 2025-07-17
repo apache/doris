@@ -148,6 +148,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         // when use_meta_cache is true, the table will be recreated after refresh.
         // so we need to get table again
         table = (TestExternalTable) test2.getDbNullable("db1").getTable("tbl11").get();
+        Assertions.assertTrue(((ExternalCatalog) test2).isInitialized());
         Assertions.assertFalse(table.isObjectCreated());
         test2.getDbNullable("db1").getTables();
         Assertions.assertFalse(table.isObjectCreated());
@@ -156,6 +157,10 @@ public class RefreshCatalogTest extends TestWithFeService {
         } catch (Exception e) {
             // Do nothing
         }
+        // after refresh, the catalog will be set to uninitialized
+        Assertions.assertFalse(((ExternalCatalog) test2).isInitialized());
+        // call get table to trigger catalog initialization
+        table = (TestExternalTable) test2.getDbNullable("db1").getTable("tbl11").get();
         Assertions.assertTrue(((ExternalCatalog) test2).isInitialized());
     }
 
@@ -231,3 +236,4 @@ public class RefreshCatalogTest extends TestWithFeService {
         }
     }
 }
+

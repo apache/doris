@@ -37,7 +37,7 @@ public interface RewriteJob {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         long elapsedS = context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) / 1000;
         if (sessionVariable.enableNereidsTimeout && elapsedS > sessionVariable.nereidsTimeoutSecond) {
-            throw new AnalysisException(String.format("Nereids cost too much time ( %ds > %ds",
+            throw new AnalysisException(String.format("Nereids cost too much time (%ds > %ds)",
                     elapsedS, sessionVariable.nereidsTimeoutSecond));
         }
     }

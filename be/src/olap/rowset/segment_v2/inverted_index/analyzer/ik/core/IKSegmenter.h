@@ -29,6 +29,7 @@
 #include "LetterSegmenter.h"
 #include "SurrogatePairSegmenter.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/cfg/Configuration.h"
+#include "vec/common/arena.h"
 namespace doris::segment_v2 {
 
 class IKSegmenter {
@@ -40,7 +41,7 @@ public:
 
 private:
     std::vector<std::unique_ptr<ISegmenter>> loadSegmenters();
-    IKMemoryPool<Cell> pool_;
+    vectorized::Arena arena_;
     lucene::util::Reader* input_;
     std::shared_ptr<Configuration> config_;
     std::unique_ptr<AnalyzeContext> context_;

@@ -30,6 +30,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
@@ -121,7 +122,7 @@ static void remove_instance_info(TxnKv* txn_kv) {
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << "Failed to commit transaction";
 }
 
-TEST(RecyclerTest, RecycleOneOperationLog) {
+TEST(RecycleOperationLogTest, RecycleOneOperationLog) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -164,6 +165,98 @@ TEST(RecyclerTest, RecycleOneOperationLog) {
     ASSERT_EQ(recycler.recycle_operation_logs(), 0);
 
     // Scan the operation logs to verify that the empty log is removed.
+    remove_instance_info(txn_kv.get());
+    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
+}
+
+TEST(RecycleOperationLogTest, RecycleCommitPartitionLog) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    update_instance_info(txn_kv.get(), instance);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    uint64_t db_id = 1;
+    uint64_t table_id = 2;
+    uint64_t index_id = 3;
+    uint64_t partition_id = 4;
+    {
+        // Update the table version
+        std::string ver_key = versioned::table_version_key({instance_id, table_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), ver_key, "");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        Versionstamp table_version;
+        TxnErrorCode err = meta_reader.get_table_version(table_id, &table_version);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Put a commit partition log
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.mutable_min_timestamp()->append(
+                reinterpret_cast<const char*>(versionstamp.data().data()),
+                versionstamp.data().size());
+        auto* commit_partition = operation_log.mutable_commit_partition();
+        commit_partition->set_db_id(db_id);
+        commit_partition->set_table_id(table_id);
+        commit_partition->add_index_ids(index_id);
+        commit_partition->add_partition_ids(partition_id);
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs.
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // The above table version key should be removed.
+    {
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        Versionstamp table_version;
+        TxnErrorCode err = meta_reader.get_table_version(table_id, &table_version);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    {
+        // Put a new commit partition log
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.mutable_min_timestamp()->append(
+                reinterpret_cast<const char*>(versionstamp.data().data()),
+                versionstamp.data().size());
+        auto* commit_partition = operation_log.mutable_commit_partition();
+        commit_partition->set_db_id(db_id);
+        commit_partition->set_table_id(table_id);
+        commit_partition->add_index_ids(index_id);
+        commit_partition->add_partition_ids(partition_id);
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs.
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Scan the operation logs to verify that the commit partition log is removed.
     remove_instance_info(txn_kv.get());
     ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
 }

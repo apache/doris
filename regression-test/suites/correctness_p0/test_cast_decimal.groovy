@@ -16,9 +16,10 @@
 // under the License.
 
 suite("test_cast_decimal") {
+    sql """set enable_strict_cast=false;"""
     explain {
         sql """select cast(32123.34212456734 as decimal(3,2));"""
-        contains "CAST(32123.34212456734 AS decimalv3(3,2))"
+        contains "NULL"
     }
 
     sql """drop table if exists test_ttt"""

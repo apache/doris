@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include <streamvbyte.h>
 
+#include <cmath>
 #include <cstddef>
 #include <iostream>
 #include <limits>
@@ -126,7 +127,24 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
                 Slice slice {actual_str_value.data(), actual_str_value.size()};
                 st = serde.deserialize_one_cell_from_json(*deser_column, slice, option);
                 EXPECT_TRUE(st.ok()) << "Failed to deserialize column at row " << j << ": " << st;
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else {
+                        EXPECT_EQ(actual_value, expected_value);
+                    }
+                    // EXPECT_NEAR(actual_value, expected_value, 0.00001)
+                    //         << "Row " << j << " value mismatch: expected " << expected_value
+                    //         << ", got " << actual_value;
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
 
@@ -158,7 +176,21 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             EXPECT_TRUE(st.ok()) << "Failed to deserialize column from json: " << st;
             EXPECT_EQ(num_deserialized, row_count);
             for (size_t j = 0; j != row_count; ++j) {
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else {
+                        EXPECT_EQ(actual_value, expected_value);
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
 
@@ -173,7 +205,21 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             st = serde.read_column_from_pb(*deser_column, pv);
             EXPECT_TRUE(st.ok()) << "Failed to read column from pb: " << st;
             for (size_t j = 0; j != row_count; ++j) {
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else {
+                        EXPECT_EQ(actual_value, expected_value);
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
         {
@@ -201,7 +247,21 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
             }
             for (size_t j = 0; j != row_count; ++j) {
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else {
+                        EXPECT_EQ(actual_value, expected_value);
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
         {

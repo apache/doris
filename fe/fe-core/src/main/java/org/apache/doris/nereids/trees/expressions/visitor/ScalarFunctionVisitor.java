@@ -207,10 +207,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
@@ -250,7 +246,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
@@ -1281,22 +1276,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(fromUnixtime, context);
     }
 
-    default R visitGetJsonDouble(GetJsonDouble getJsonDouble, C context) {
-        return visitScalarFunction(getJsonDouble, context);
-    }
-
-    default R visitGetJsonInt(GetJsonInt getJsonInt, C context) {
-        return visitScalarFunction(getJsonInt, context);
-    }
-
-    default R visitGetJsonBigInt(GetJsonBigInt getJsonBigInt, C context) {
-        return visitScalarFunction(getJsonBigInt, context);
-    }
-
-    default R visitGetJsonString(GetJsonString getJsonString, C context) {
-        return visitScalarFunction(getJsonString, context);
-    }
-
     default R visitG(G g, C context) {
         return visitScalarFunction(g, context);
     }
@@ -1443,10 +1422,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonObject(JsonObject jsonObject, C context) {
         return visitScalarFunction(jsonObject, context);
-    }
-
-    default R visitJsonExtract(JsonExtract jsonExtract, C context) {
-        return visitScalarFunction(jsonExtract, context);
     }
 
     default R visitJsonExtractNoQuotes(JsonExtractNoQuotes jsonExtract, C context) {

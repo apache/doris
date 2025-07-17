@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "testutil/mock/mock_runtime_state.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
