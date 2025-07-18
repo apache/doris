@@ -106,9 +106,9 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
+    using SerDeType = DataTypeArraySerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeArraySerDe>(nested->get_serde(nesting_level + 1),
-                                                    nesting_level);
+        return std::make_shared<SerDeType>(nested->get_serde(nesting_level + 1), nesting_level);
     };
 
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {

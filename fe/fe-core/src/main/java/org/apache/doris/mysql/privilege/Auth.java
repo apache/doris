@@ -19,7 +19,6 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.AlterRoleStmt;
-import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
@@ -1102,11 +1101,6 @@ public class Auth implements Writable {
             writeUnlock();
         }
         LOG.info("finished to create role: {}, is replay: {}", role, isReplay);
-    }
-
-    // drop role
-    public void dropRole(DropRoleStmt stmt) throws DdlException {
-        dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
     }
 
     public void dropRole(String role, boolean ignoreIfNonExists) throws DdlException {

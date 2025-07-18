@@ -333,10 +333,14 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         specified_rowsets = _context.tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
     }
     OlapStopWatch watch;
+    auto finish_callback = [this](segment_v2::SegmentSharedPtr segment, Status st) {
+        auto* task = calc_delete_bitmap_task(segment->id());
+        task->set_status(st);
+    };
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
             _context.tablet, rowset_ptr, segments, specified_rowsets,
             _context.mow_context->delete_bitmap, _context.mow_context->max_version,
-            _calc_delete_bitmap_token.get()));
+            _calc_delete_bitmap_token.get(), nullptr, nullptr, std::move(finish_callback)));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -420,8 +424,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
                 auto dst_seg_id = _num_segcompacted.load();
                 RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
                 if (_segcompaction_worker->need_convert_delete_bitmap()) {
-                    _segcompaction_worker->convert_segment_delete_bitmap(
-                            _context.mow_context->delete_bitmap, segid, dst_seg_id);
+                    RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
+                            segment, _context.mow_context->delete_bitmap, segid, dst_seg_id));
                 }
                 continue;
             } else {
@@ -449,10 +453,12 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         VLOG_DEBUG << "only one candidate segment";
         auto src_seg_id = _segcompacted_point.load();
         auto dst_seg_id = _num_segcompacted.load();
+        segment_v2::SegmentSharedPtr segment;
+        RETURN_IF_ERROR(_load_noncompacted_segment(segment, src_seg_id));
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            _segcompaction_worker->convert_segment_delete_bitmap(
-                    _context.mow_context->delete_bitmap, src_seg_id, dst_seg_id);
+            RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
+                    segment, _context.mow_context->delete_bitmap, src_seg_id, dst_seg_id));
         }
         segments->clear();
         return Status::OK();
@@ -650,10 +656,12 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     VLOG_DEBUG << "segcompaction last few segments";
     for (int32_t segid = _segcompacted_point; segid < _num_segment; segid++) {
         auto dst_segid = _num_segcompacted.load();
+        segment_v2::SegmentSharedPtr segment;
+        RETURN_IF_ERROR(_load_noncompacted_segment(segment, segid));
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            _segcompaction_worker->convert_segment_delete_bitmap(
-                    _context.mow_context->delete_bitmap, segid, dst_segid);
+            RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
+                    segment, _context.mow_context->delete_bitmap, segid, dst_segid));
         }
     }
     return Status::OK();

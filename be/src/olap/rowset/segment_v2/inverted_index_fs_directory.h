@@ -79,7 +79,7 @@ public:
     void renameFile(const char* from, const char* to) override;
     void touchFile(const char* name) override;
     lucene::store::IndexOutput* createOutput(const char* name) override;
-    lucene::store::IndexOutput* createOutputV2(io::FileWriter* file_writer);
+    std::unique_ptr<lucene::store::IndexOutput> createOutputV2(io::FileWriter* file_writer);
     void close() override;
     std::string toString() const override;
     static const char* getClassName();

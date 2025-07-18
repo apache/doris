@@ -44,6 +44,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(store_sales date_dim )
-UnUsed:  leading(sb sc store item)
+UnUsed: leading(sb sc store item)
 SyntaxError: leading(store_sales date_dim) Msg:one query block can only have one leading clause
 

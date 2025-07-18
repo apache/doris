@@ -19,18 +19,15 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
 
-#include <algorithm>
 #include <cinttypes>
+#include <climits>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
 #include <limits>
 #include <memory>
-#include <new>
-#include <sstream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -47,13 +44,14 @@
 #include "runtime/collection_value.h"
 #include "runtime/map_value.h"
 #include "runtime/struct_value.h"
+#include "runtime/type_limit.h"
 #include "util/binary_cast.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/common/arena.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -859,9 +857,9 @@ struct NumericFieldTypeTraits<fieldType, false> : public BaseFieldTypeTraits<fie
 template <FieldType fieldType>
 struct FieldTypeTraits
         : public NumericFieldTypeTraits<
-                  fieldType,
-                  std::is_arithmetic_v<typename BaseFieldTypeTraits<fieldType>::CppType> &&
-                          std::is_signed_v<typename BaseFieldTypeTraits<fieldType>::CppType>> {};
+                  fieldType, IsArithmeticV<typename BaseFieldTypeTraits<fieldType>::CppType> &&
+                                     IsSignedV<typename BaseFieldTypeTraits<fieldType>::CppType>> {
+};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>

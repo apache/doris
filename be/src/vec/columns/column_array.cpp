@@ -208,7 +208,7 @@ StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
 }
 
 template <bool positive>
-struct less {
+struct ColumnArray::less {
     const ColumnArray& parent;
     const int nan_direction_hint;
     explicit less(const ColumnArray& parent_, int nan_direction_hint_)
@@ -245,9 +245,9 @@ void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), less<false>(*this, nan_direction_hint));
+        pdqsort(res.begin(), res.end(), ColumnArray::less<false>(*this, nan_direction_hint));
     } else {
-        pdqsort(res.begin(), res.end(), less<true>(*this, nan_direction_hint));
+        pdqsort(res.begin(), res.end(), ColumnArray::less<true>(*this, nan_direction_hint));
     }
 }
 
@@ -278,13 +278,11 @@ int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_dir
 }
 
 size_t ColumnArray::get_max_row_byte_size() const {
-    DCHECK(!data->is_variable_length() || data->is_column_string() || data->is_column_string64());
     size_t max_size = 0;
     size_t num_rows = size();
+    auto sz = data->get_max_row_byte_size();
     for (size_t i = 0; i < num_rows; ++i) {
-        max_size = std::max(max_size,
-                            size_at(i) * data->get_max_row_byte_size() +
-                                    (data->is_variable_length() ? sizeof(size_t) * size_at(i) : 0));
+        max_size = std::max(max_size, size_at(i) * sz);
     }
 
     return sizeof(size_t) + max_size;
