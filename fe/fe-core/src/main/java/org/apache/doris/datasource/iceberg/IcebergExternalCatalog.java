@@ -85,11 +85,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
-                ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
-                Integer.MAX_VALUE,
-                String.format("iceberg_catalog_%s_executor_pool", name),
-                true,
-                preExecutionAuthenticator);
+            ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+            Integer.MAX_VALUE,
+            String.format("iceberg_catalog_%s_executor_pool", name),
+            true,
+            preExecutionAuthenticator);
         metadataOps = ops;
     }
 
