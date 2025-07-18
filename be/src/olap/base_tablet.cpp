@@ -461,7 +461,7 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
 Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
                                   bool with_seq_col,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                  RowLocation* row_location, uint32_t version,
+                                  RowLocation* row_location, int64_t version,
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
                                   std::string* encoded_seq_value, OlapReaderStatistics* stats,
@@ -719,12 +719,11 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             Status st = Status::OK();
             if (tablet_delete_bitmap == nullptr) {
                 st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                    cast_set<uint32_t>(dummy_version.first - 1), segment_caches,
-                                    &rowset_find);
+                                    dummy_version.first - 1, segment_caches, &rowset_find);
             } else {
                 st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                    cast_set<uint32_t>(dummy_version.first - 1), segment_caches,
-                                    &rowset_find, true, nullptr, nullptr, tablet_delete_bitmap);
+                                    dummy_version.first - 1, segment_caches, &rowset_find, true,
+                                    nullptr, nullptr, tablet_delete_bitmap);
             }
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump

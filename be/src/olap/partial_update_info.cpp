@@ -564,8 +564,8 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
         const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
         vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-        const std::size_t segment_start_pos, const std::size_t block_start_pos,
-        const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
+        uint32_t segment_start_pos, uint32_t block_start_pos, const vectorized::Block* block,
+        std::vector<BitmapValue>* skip_bitmaps) const {
     auto* info = rowset_ctx->partial_update_info.get();
     int32_t seq_col_unique_id = -1;
     if (tablet_schema.has_sequence_col()) {
@@ -592,7 +592,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                                  const vectorized::IColumn& default_value_col,
                                  const vectorized::IColumn& old_value_col,
                                  const vectorized::IColumn& cur_col, std::size_t block_pos,
-                                 std::size_t segment_pos, bool skipped, bool row_has_sequence_col,
+                                 uint32_t segment_pos, bool skipped, bool row_has_sequence_col,
                                  bool use_default, const signed char* delete_sign_column_data) {
         if (skipped) {
             DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
@@ -677,8 +677,8 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
         const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
         vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-        const std::size_t segment_start_pos, const std::size_t block_start_pos,
-        const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
+        uint32_t segment_start_pos, uint32_t block_start_pos, const vectorized::Block* block,
+        std::vector<BitmapValue>* skip_bitmaps) const {
     auto* info = rowset_ctx->partial_update_info.get();
     int32_t seq_col_unique_id = -1;
     if (tablet_schema.has_sequence_col()) {
@@ -784,7 +784,7 @@ BlockAggregator::BlockAggregator(segment_v2::VerticalSegmentWriter& vertical_seg
         : _writer(vertical_segment_writer), _tablet_schema(*_writer._tablet_schema) {}
 
 void BlockAggregator::merge_one_row(vectorized::MutableBlock& dst_block,
-                                    vectorized::Block* src_block, int64_t rid,
+                                    vectorized::Block* src_block, int rid,
                                     BitmapValue& skip_bitmap) {
     for (size_t cid {_tablet_schema.num_key_columns()}; cid < _tablet_schema.num_columns(); cid++) {
         if (cid == _tablet_schema.skip_bitmap_col_idx()) {
@@ -810,7 +810,7 @@ void BlockAggregator::merge_one_row(vectorized::MutableBlock& dst_block,
 }
 
 void BlockAggregator::append_one_row(vectorized::MutableBlock& dst_block,
-                                     vectorized::Block* src_block, int64_t rid) {
+                                     vectorized::Block* src_block, int rid) {
     dst_block.add_row(src_block, rid);
     _state.rows++;
     VLOG_DEBUG << fmt::format("append a new row, after append, output_block.rows()={}, state: {}",
@@ -827,7 +827,7 @@ void BlockAggregator::remove_last_n_rows(vectorized::MutableBlock& dst_block, in
 }
 
 void BlockAggregator::append_or_merge_row(vectorized::MutableBlock& dst_block,
-                                          vectorized::Block* src_block, int64_t rid,
+                                          vectorized::Block* src_block, int rid,
                                           BitmapValue& skip_bitmap, bool have_delete_sign) {
     if (have_delete_sign) {
         // remove all the previous batched rows
@@ -846,9 +846,9 @@ void BlockAggregator::append_or_merge_row(vectorized::MutableBlock& dst_block,
 };
 
 Status BlockAggregator::aggregate_rows(
-        vectorized::MutableBlock& output_block, vectorized::Block* block, int64_t start,
-        int64_t end, std::string key, std::vector<BitmapValue>* skip_bitmaps,
-        const signed char* delete_signs, vectorized::IOlapColumnDataAccessor* seq_column,
+        vectorized::MutableBlock& output_block, vectorized::Block* block, int start, int end,
+        std::string key, std::vector<BitmapValue>* skip_bitmaps, const signed char* delete_signs,
+        vectorized::IOlapColumnDataAccessor* seq_column,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
     VLOG_DEBUG << fmt::format("merge rows in range=[{}-{})", start, end);
@@ -870,7 +870,7 @@ Status BlockAggregator::aggregate_rows(
     Status st = _writer._tablet->lookup_row_key(
             key, &_tablet_schema, false, specified_rowsets, &loc, _writer._mow_context->max_version,
             segment_caches, &rowset, true, &previous_encoded_seq_value);
-    int64_t pos = start;
+    int pos = start;
     bool is_expected_st = (st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
     DCHECK(is_expected_st || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
             << "[BlockAggregator::aggregate_rows] unexpected error status while lookup_row_key:"
@@ -913,7 +913,7 @@ Status BlockAggregator::aggregate_rows(
         }
     }
 
-    for (int64_t rid {pos}; rid < end; rid++) {
+    for (int rid {pos}; rid < end; rid++) {
         auto& skip_bitmap = skip_bitmaps->at(rid);
         bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
         bool have_delete_sign =
@@ -936,7 +936,7 @@ Status BlockAggregator::aggregate_rows(
 };
 
 Status BlockAggregator::aggregate_for_sequence_column(
-        vectorized::Block* block, size_t num_rows,
+        vectorized::Block* block, int num_rows,
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
         vectorized::IOlapColumnDataAccessor* seq_column,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -958,7 +958,7 @@ Status BlockAggregator::aggregate_for_sequence_column(
 
     int same_key_rows {0};
     std::string previous_key {};
-    for (size_t block_pos {0}; block_pos < num_rows; block_pos++) {
+    for (int block_pos {0}; block_pos < num_rows; block_pos++) {
         std::string key = _writer._full_encode_keys(key_columns, block_pos);
         if (block_pos > 0 && previous_key == key) {
             same_key_rows++;
@@ -999,7 +999,7 @@ Status BlockAggregator::fill_sequence_column(vectorized::Block* block, size_t nu
     auto new_seq_col_ptr = tmp_block.get_by_position(0).column->assume_mutable();
     const auto& old_seq_col_ptr = *seq_col_block.get_by_position(0).column;
     const auto& cur_seq_col_ptr = *block->get_by_position(_tablet_schema.sequence_col_idx()).column;
-    for (size_t block_pos {0}; block_pos < num_rows; block_pos++) {
+    for (uint32_t block_pos {0}; block_pos < num_rows; block_pos++) {
         if (read_index.contains(block_pos)) {
             new_seq_col_ptr->insert_from(old_seq_col_ptr, read_index[block_pos]);
             skip_bitmaps[block_pos].remove(seq_col_unique_id);
@@ -1111,7 +1111,7 @@ Status BlockAggregator::filter_block(vectorized::Block* block, size_t num_rows,
             {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), col_name});
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
     DCHECK_EQ(num_cols, block->columns());
-    int merged_rows = num_rows - block->rows();
+    size_t merged_rows = num_rows - block->rows();
     if (duplicate_rows != merged_rows) {
         auto msg = fmt::format(
                 "filter_block_for_flexible_partial_update {}: duplicate_rows != merged_rows, "
@@ -1127,7 +1127,7 @@ Status BlockAggregator::convert_pk_columns(
         vectorized::Block* block, size_t row_pos, size_t num_rows,
         std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns) {
     key_columns.clear();
-    for (std::size_t cid {0}; cid < _tablet_schema.num_key_columns(); cid++) {
+    for (uint32_t cid {0}; cid < _tablet_schema.num_key_columns(); cid++) {
         RETURN_IF_ERROR(_writer._olap_data_convertor->set_source_content_with_specifid_column(
                 block->get_by_position(cid), row_pos, num_rows, cid));
         auto [status, column] = _writer._olap_data_convertor->convert_column_data(cid);
@@ -1171,8 +1171,9 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
     // some of them don't. We can't do the de-duplication in memtable because we don't know the historical data. We must
     // de-duplicate them here.
     if (_tablet_schema.has_sequence_col()) {
-        RETURN_IF_ERROR(aggregate_for_sequence_column(block, num_rows, key_columns, seq_column,
-                                                      specified_rowsets, segment_caches));
+        RETURN_IF_ERROR(aggregate_for_sequence_column(block, static_cast<int>(num_rows),
+                                                      key_columns, seq_column, specified_rowsets,
+                                                      segment_caches));
     }
 
     // 2. merge duplicate rows and handle insert after delete
