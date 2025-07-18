@@ -305,11 +305,11 @@ Status CGroupUtil::parse_cpuset_line(std::string cpuset_line, int* cpu_count_ptr
     return Status::OK();
 }
 
-int CGroupUtil::get_cgroup_limited_cpu_number(int physical_cores) {
+int CGroupUtil::get_cgroup_limited_cpu_number(int64_t physical_cores) {
     if (physical_cores <= 0) {
         return physical_cores;
     }
-    int ret = physical_cores;
+    int64_t ret = physical_cores;
 #if defined(OS_LINUX)
     // For cgroup v2
     // Child cgroup's cpu.max may bigger than parent group's cpu.max,

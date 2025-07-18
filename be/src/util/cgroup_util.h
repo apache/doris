@@ -111,7 +111,7 @@ public:
     // cpuset_line: 0-4,6,8-10
     static Status parse_cpuset_line(std::string cpuset_line, int* cpu_count_ptr);
 
-    static int get_cgroup_limited_cpu_number(int physical_cores);
+    static int get_cgroup_limited_cpu_number(int64_t physical_cores);
 
     static int get_cgroup_v2_cpu_quota_number(std::filesystem::path& current_path,
                                               const std::filesystem::path& default_cg_mout_path,
