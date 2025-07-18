@@ -160,6 +160,7 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
 
     // Test 9: Rename table
     String renamed_table_name = "iceberg_ddl_test_renamed"
+    sql """ drop table if exists ${renamed_table_name} """
     sql """ ALTER TABLE ${table_name} RENAME ${renamed_table_name} """
     // Verify table renamed
     qt_rename_table_1 """ DESC ${renamed_table_name} """
