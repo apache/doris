@@ -173,7 +173,7 @@ public class Alter {
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
-            Database db) throws UserException {
+                                          Database db) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
             throw new UserException("z-order table can not support schema change!");
@@ -693,7 +693,7 @@ public class Alter {
             } else if (alterClause instanceof AlterMultiPartitionClause) {
                 if (!((AlterMultiPartitionClause) alterClause).isTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
-                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
                 Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
             } else {
@@ -778,7 +778,7 @@ public class Alter {
             } else if (alterClause instanceof AlterMultiPartitionClause) {
                 if (!((AlterMultiPartitionClause) alterClause).isTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
-                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
                 Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
             } else {
@@ -1100,7 +1100,7 @@ public class Alter {
                 // if current partition is already in remote storage
                 if (partition.getRemoteDataSize() > 0) {
                     throw new AnalysisException(
-                            "Cannot cancel storage policy for partition which is already on cold storage.");
+                        "Cannot cancel storage policy for partition which is already on cold storage.");
                 }
 
                 // if current partition will be cooldown in 20s later
@@ -1112,12 +1112,12 @@ public class Alter {
                             : Long.MAX_VALUE;
                     if (policy.getCooldownTtl() > 0) {
                         latestTime = Math.min(latestTime,
-                                partition.getVisibleVersionTime() + policy.getCooldownTtl() * 1000);
+                            partition.getVisibleVersionTime() + policy.getCooldownTtl() * 1000);
                     }
                     if (latestTime < System.currentTimeMillis() + 20 * 1000) {
                         throw new AnalysisException(
-                                "Cannot cancel storage policy for partition which already be cooldown"
-                                        + " or will be cooldown soon later");
+                            "Cannot cancel storage policy for partition which already be cooldown"
+                                + " or will be cooldown soon later");
                     }
                 }
 
@@ -1233,8 +1233,8 @@ public class Alter {
     }
 
     private void markReplicasForDropping(List<Replica> replicas, int replicasToDrop,
-            Map<Long, Long> tableBeToReplicaNumMap,
-            Map<Long, Long> partitionBeToReplicaNumMap) {
+                                  Map<Long, Long> tableBeToReplicaNumMap,
+                                  Map<Long, Long> partitionBeToReplicaNumMap) {
         for (int i = 0; i < replicas.size(); i++) {
             Replica r = replicas.get(i);
             long beId = r.getBackendIdWithoutException();
@@ -1259,7 +1259,7 @@ public class Alter {
         for (RewriteProperty property : PropertyAnalyzer.getInstance().getForceProperties()) {
             if (properties.containsKey(property.key())) {
                 throw new DdlException("Cann't modify property '" + property.key() + "'"
-                        + (Config.isCloudMode() ? " in cloud mode" : "") + ".");
+                    + (Config.isCloudMode() ? " in cloud mode" : "") + ".");
             }
         }
     }
