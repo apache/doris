@@ -167,7 +167,7 @@ public:
                 all_serialize_value_into_arena(row_num, _column_names.size(), columns, arena);
         const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                 *columns[_column_names.size() - 1]);
-        set.insert(str_serialized, cast_set<uint64_t>(TResult(column.get_data()[row_num])));
+        set.insert(str_serialized, static_cast<uint64_t>(TResult(column.get_data()[row_num])));
         arena.rollback(str_serialized.size);
     }
 
