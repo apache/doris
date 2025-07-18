@@ -486,9 +486,17 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
         }
         _reconstruct_version_tracker_if_necessary();
     }
+<<<<<<< HEAD
 
     // if the rowset is not used by any query, we can recycle its cached data early.
     recycle_cached_data(expired_rowsets);
+=======
+    auto recycled_rowsets = recycle_cached_data(expired_rowsets);
+    if (!recycled_rowsets.empty()) {
+        auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+        manager.recycle_cache(tablet_id(), recycled_rowsets);
+    }
+>>>>>>> 0345f71f2d ([fix](warmup) avoid calling recycle_cache after rebalance (#4169))
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
     }
@@ -538,6 +546,7 @@ void CloudTablet::remove_unused_rowsets() {
     int64_t removed_rowsets_num = 0;
     int64_t removed_delete_bitmap_num = 0;
     OlapStopWatch watch;
+<<<<<<< HEAD
     std::lock_guard<std::mutex> lock(_gc_mutex);
     // 1. remove unused rowsets's cache data and delete bitmap
     for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
@@ -548,6 +557,47 @@ void CloudTablet::remove_unused_rowsets() {
                          << rs.use_count() << " references, it cannot be removed";
             ++it;
             continue;
+=======
+
+    {
+        std::lock_guard<std::mutex> lock(_gc_mutex);
+        // 1. remove unused rowsets's cache data and delete bitmap
+        for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
+            auto& rs = it->second;
+            if (rs.use_count() > 1) {
+                LOG(WARNING) << "tablet_id:" << tablet_id() << " rowset: " << rs->rowset_id()
+                             << " has " << rs.use_count() << " references, it cannot be removed";
+                ++it;
+                continue;
+            }
+            tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
+            rs->clear_cache();
+            removed_rowsets.push_back(std::move(rs));
+            g_unused_rowsets_count << -1;
+            it = _unused_rowsets.erase(it);
+        }
+    }
+
+    {
+        std::vector<RecycledRowsets> recycled_rowsets;
+
+        for (auto& rs : removed_rowsets) {
+            auto index_names = rs->get_index_file_names();
+            recycled_rowsets.emplace_back(rs->rowset_id(), rs->num_segments(), index_names);
+            int64_t segment_size_sum = 0;
+            for (int32_t i = 0; i < rs->num_segments(); i++) {
+                segment_size_sum += rs->rowset_meta()->segment_file_size(i);
+            }
+            g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
+            g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
+            g_file_cache_recycle_cached_data_index_num << index_names.size();
+        }
+
+        if (recycled_rowsets.size() > 0) {
+            auto& manager =
+                    ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+            manager.recycle_cache(tablet_id(), recycled_rowsets);
+>>>>>>> 0345f71f2d ([fix](warmup) avoid calling recycle_cache after rebalance (#4169))
         }
         tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
         rs->clear_cache();
@@ -594,11 +644,21 @@ void CloudTablet::update_base_size(const Rowset& rs) {
 }
 
 void CloudTablet::clear_cache() {
-    CloudTablet::recycle_cached_data(get_snapshot_rowset(true));
+    auto recycled_rowsets = CloudTablet::recycle_cached_data(get_snapshot_rowset(true));
+    if (!recycled_rowsets.empty()) {
+        auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+        manager.recycle_cache(tablet_id(), recycled_rowsets);
+    }
     _engine.tablet_mgr().erase_tablet(tablet_id());
 }
 
+<<<<<<< HEAD
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
+=======
+std::vector<RecycledRowsets> CloudTablet::recycle_cached_data(
+        const std::vector<RowsetSharedPtr>& rowsets) {
+    std::vector<RecycledRowsets> recycled_rowsets;
+>>>>>>> 0345f71f2d ([fix](warmup) avoid calling recycle_cache after rebalance (#4169))
     for (const auto& rs : rowsets) {
         // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
         if (rs.use_count() > 2) {
@@ -607,7 +667,22 @@ void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowset
             return;
         }
         rs->clear_cache();
+<<<<<<< HEAD
     }
+=======
+        auto index_names = rs->get_index_file_names();
+        recycled_rowsets.emplace_back(rs->rowset_id(), rs->num_segments(), index_names);
+
+        int64_t segment_size_sum = 0;
+        for (int32_t i = 0; i < rs->num_segments(); i++) {
+            segment_size_sum += rs->rowset_meta()->segment_file_size(i);
+        }
+        g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
+        g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
+        g_file_cache_recycle_cached_data_index_num << index_names.size();
+    }
+    return recycled_rowsets;
+>>>>>>> 0345f71f2d ([fix](warmup) avoid calling recycle_cache after rebalance (#4169))
 }
 
 void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segments,
