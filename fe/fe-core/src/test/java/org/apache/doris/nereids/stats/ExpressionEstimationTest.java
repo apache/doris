@@ -64,7 +64,7 @@ class ExpressionEstimationTest {
     // a belongs to [0, 500]
     @Test
     public void test1() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
         Max max = new Max(a);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
 
@@ -88,7 +88,7 @@ class ExpressionEstimationTest {
     // a belongs to [0, 500]
     @Test
     public void test2() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
 
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
@@ -112,7 +112,7 @@ class ExpressionEstimationTest {
     // b belongs to [300, 1000]
     @Test
     public void test3() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
 
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
@@ -129,7 +129,7 @@ class ExpressionEstimationTest {
                 .setMaxValue(1000);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         slotToColumnStat.put(b, builder1.build());
         Add add = new Add(a, b);
         ColumnStatistic estimated = ExpressionEstimation.estimate(add, stat);
@@ -142,7 +142,7 @@ class ExpressionEstimationTest {
     // b belongs to [300, 1000]
     @Test
     public void test4() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
@@ -152,7 +152,7 @@ class ExpressionEstimationTest {
                 .setMaxValue(500);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         builder.setMinValue(300);
         builder.setMaxValue(1000);
         slotToColumnStat.put(b, builder.build());
@@ -167,7 +167,7 @@ class ExpressionEstimationTest {
     // b belongs to [-300, 1000]
     @Test
     public void test5() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
@@ -177,7 +177,7 @@ class ExpressionEstimationTest {
                 .setMaxValue(-100);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         builder.setMinValue(-300);
         builder.setMaxValue(1000);
         slotToColumnStat.put(b, builder.build());
@@ -192,7 +192,7 @@ class ExpressionEstimationTest {
     // b belongs to [-1000, -300]
     @Test
     public void test6() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
@@ -202,7 +202,7 @@ class ExpressionEstimationTest {
                 .setMaxValue(-100);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         builder.setMinValue(-1000);
         builder.setMaxValue(-300);
         slotToColumnStat.put(b, builder.build());
@@ -217,7 +217,7 @@ class ExpressionEstimationTest {
     // b belongs to [-300, 1000]
     @Test
     public void test7() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
 
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
@@ -234,7 +234,7 @@ class ExpressionEstimationTest {
                 .setMaxValue(1000);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         slotToColumnStat.put(b, builder1.build());
         Divide divide = new Divide(a, b);
         ColumnStatistic estimated = ExpressionEstimation.estimate(divide, stat);
@@ -247,7 +247,7 @@ class ExpressionEstimationTest {
     // b belongs to [-1000, -100]
     @Test
     public void test8() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
 
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
@@ -264,7 +264,7 @@ class ExpressionEstimationTest {
                 .setMaxValue(-100);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         slotToColumnStat.put(b, builder1.build());
         Divide divide = new Divide(a, b);
         ColumnStatistic estimated = ExpressionEstimation.estimate(divide, stat);
@@ -275,7 +275,7 @@ class ExpressionEstimationTest {
     // cast(str to double) = double
     @Test
     public void testCastStrToDouble() {
-        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(100)
@@ -297,7 +297,7 @@ class ExpressionEstimationTest {
     // both min and max can be converted to date
     @Test
     public void testCastStrToDateSuccess() {
-        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(100)
@@ -319,7 +319,7 @@ class ExpressionEstimationTest {
     // min or max cannot be converted to date
     @Test
     public void testCastStrToDateFail() {
-        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(100)
@@ -339,7 +339,7 @@ class ExpressionEstimationTest {
 
     @Test
     public void testCaseWhen() {
-        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(100)
@@ -348,7 +348,7 @@ class ExpressionEstimationTest {
                 .setMaxExpr(new StringLiteral("2021abcdefg"))
                 .setMaxValue(20210101000000.0);
         slotToColumnStat.put(a, builder.build());
-        SlotReference b = new SlotReference("b", StringType.INSTANCE);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE, false);
         builder = new ColumnStatisticBuilder()
                 .setNdv(10)
                 .setMinExpr(new StringLiteral("2020-01-01"))
@@ -371,7 +371,7 @@ class ExpressionEstimationTest {
 
     @Test
     public void testIf() {
-        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(100)
@@ -380,7 +380,7 @@ class ExpressionEstimationTest {
                 .setMaxExpr(new StringLiteral("2021abcdefg"))
                 .setMaxValue(20210101000000.0);
         slotToColumnStat.put(a, builder.build());
-        SlotReference b = new SlotReference("b", StringType.INSTANCE);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE, false);
         builder = new ColumnStatisticBuilder()
                 .setNdv(10)
                 .setMinExpr(new StringLiteral("2020-01-01"))
@@ -398,7 +398,7 @@ class ExpressionEstimationTest {
 
     @Test
     public void testNonNullable() {
-        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(100)
@@ -472,7 +472,7 @@ class ExpressionEstimationTest {
 
     @Test
     public void testThrowException() {
-        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         Cast cast = new Cast(a, DateType.INSTANCE);
         // do not throw any exception
         ColumnStatistic est = ExpressionEstimation.estimate(cast, null);

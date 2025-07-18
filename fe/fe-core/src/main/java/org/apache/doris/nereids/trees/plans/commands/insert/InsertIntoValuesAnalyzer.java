@@ -125,7 +125,7 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
                     for (int columnId = 0; columnId < firstRow.size(); columnId++) {
                         String name = firstRow.get(columnId).getName();
                         DataType commonDataType = castedRows.get(0).get(columnId).getDataType();
-                        outputs.add(new SlotReference(name, commonDataType, nullables.get(columnId)));
+                        outputs.add(new SlotReference(name, commonDataType, nullables.get(columnId), false));
                     }
                     return new LogicalUnion(Qualifier.ALL, castedRows, ImmutableList.of()).withNewOutputs(outputs);
                 } else if (originConstants.size() == 1) {

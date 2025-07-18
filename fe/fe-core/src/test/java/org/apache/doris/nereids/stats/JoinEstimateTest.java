@@ -50,8 +50,8 @@ public class JoinEstimateTest {
      */
     @Test
     public void testInnerJoinStats() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         EqualTo eq = new EqualTo(a, b);
         Statistics leftStats = new StatisticsBuilder().setRowCount(100).build();
         leftStats.addColumnStats(a,
@@ -93,9 +93,9 @@ public class JoinEstimateTest {
 
     @Test
     public void testOuterJoinStats() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, false);
         EqualTo eq = new EqualTo(a, b);
         Statistics leftStats = new StatisticsBuilder().setRowCount(100).build();
         leftStats.addColumnStats(a,

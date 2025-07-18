@@ -45,7 +45,7 @@ public class SubqueryToApplyTest {
 
     @Test
     void testAddNvlAggregate() {
-        SlotReference slotReference = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference slotReference = new SlotReference("col1", IntegerType.INSTANCE, false);
         NamedExpression aggregateFunction = new Alias(new ExprId(12345), new Count(slotReference), "count");
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(

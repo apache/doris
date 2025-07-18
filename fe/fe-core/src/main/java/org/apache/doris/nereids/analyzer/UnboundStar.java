@@ -47,7 +47,7 @@ public class UnboundStar extends Slot implements LeafExpression, Unbound, Propag
     private final List<NamedExpression> replacedAlias;
 
     public UnboundStar(List<String> qualifier) {
-        super(Optional.empty());
+        super(Optional.empty(), false);
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = Optional.empty();
         this.exceptedSlots = ImmutableList.of();
@@ -55,7 +55,7 @@ public class UnboundStar extends Slot implements LeafExpression, Unbound, Propag
     }
 
     public UnboundStar(List<String> qualifier, Optional<Pair<Integer, Integer>> indexInSqlString) {
-        super(Optional.empty());
+        super(Optional.empty(), false);
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = indexInSqlString;
         this.exceptedSlots = ImmutableList.of();
@@ -71,7 +71,7 @@ public class UnboundStar extends Slot implements LeafExpression, Unbound, Propag
      */
     public UnboundStar(List<String> qualifier, List<NamedExpression> exceptedSlots,
             List<NamedExpression> replacedAlias) {
-        super(Optional.empty());
+        super(Optional.empty(), false);
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = Optional.empty();
         this.exceptedSlots = Objects.requireNonNull(ImmutableList.copyOf(exceptedSlots),
@@ -90,7 +90,7 @@ public class UnboundStar extends Slot implements LeafExpression, Unbound, Propag
      */
     public UnboundStar(List<String> qualifier, List<NamedExpression> exceptedSlots, List<NamedExpression> replacedAlias,
             Optional<Pair<Integer, Integer>> indexInSqlString) {
-        super(Optional.empty());
+        super(Optional.empty(), false);
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = indexInSqlString;
         this.exceptedSlots = Objects.requireNonNull(ImmutableList.copyOf(exceptedSlots),

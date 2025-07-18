@@ -17,7 +17,7 @@ package infer_expr_name
 // under the License.
 
 suite("load") {
-    String database = context.config.getDbNameByFile(context.file)
+    String database = context.config.getDbNameByFile(context.file) + "_test"
     sql "drop database if exists ${database}"
     sql "create database ${database}"
     sql "use ${database}"

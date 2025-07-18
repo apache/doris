@@ -50,8 +50,8 @@ class EliminateEmptyRelationTest implements MemoPatternMatchSupported {
     @Test
     void testEliminateUnionEmptyChild() {
         List<SlotReference> emptyOutput = new ArrayList<>();
-        emptyOutput.add(new SlotReference("k", IntegerType.INSTANCE));
-        emptyOutput.add(new SlotReference("v", StringType.INSTANCE));
+        emptyOutput.add(new SlotReference("k", IntegerType.INSTANCE, false));
+        emptyOutput.add(new SlotReference("v", StringType.INSTANCE, false));
         LogicalEmptyRelation emptyRelation = new LogicalEmptyRelation(new RelationId(1000), emptyOutput);
 
         List<Plan> children = new ArrayList<>();

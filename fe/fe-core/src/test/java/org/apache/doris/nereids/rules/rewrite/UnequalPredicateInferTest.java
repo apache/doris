@@ -50,9 +50,9 @@ public class UnequalPredicateInferTest {
     @Test
     public void testInferWithTransitiveEqualitySameTable() {
         // t1.a = t1.b, t1.b = t1.c  only output 2 predicates
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         EqualTo equalTo1 = new EqualTo(a, b);
         EqualTo equalTo2 = new EqualTo(b, c);
         Set<Expression> inputs = new LinkedHashSet<>();
@@ -67,9 +67,9 @@ public class UnequalPredicateInferTest {
 
     @Test
     public void testTopoSort() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         // a b c has index 0 1 2 (sort by toSql())
         // a>b b>c
         ComparisonPredicate gt1 = new GreaterThan(a, b);
@@ -120,9 +120,9 @@ public class UnequalPredicateInferTest {
 
     @Test
     public void testTopoSortWithEqual() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         // a=b b>c
         ComparisonPredicate gt1 = new EqualTo(a, b);
         ComparisonPredicate gt2 = new GreaterThan(b, c);
@@ -139,9 +139,9 @@ public class UnequalPredicateInferTest {
 
     @Test
     public void testTopoSortWithEqualMulti() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         Literal d = new IntegerLiteral(1);
         // a=b b>c 1<c
         ComparisonPredicate eq = new EqualTo(a, b);
@@ -176,8 +176,8 @@ public class UnequalPredicateInferTest {
     // t1.a = 1, t1.b = 1 -> t1.a = 1, t1.b = 1
     @Test
     public void testChooseEqualPredicatesSameTable1() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, d);
@@ -201,9 +201,9 @@ public class UnequalPredicateInferTest {
     // t1.a = 1, t1.b = 1, t1.c = 1 -> t1.a = 1, t1.b = 1, t1.c = 1
     @Test
     public void testChooseEqualPredicatesSameTable2() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, d);
@@ -232,8 +232,8 @@ public class UnequalPredicateInferTest {
     // t1.a = 1, t1.b = t1.a -> t1.a = 1, t1.b = 1
     @Test
     public void testChooseEqualPredicatesSameTable3() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, a);
@@ -257,9 +257,9 @@ public class UnequalPredicateInferTest {
     // t1.a = 1, t1.b = t1.a, t1.a = t1.c -> t1.a = 1, t1.b = 1, t1.c = 1
     @Test
     public void testChooseEqualPredicatesSameTable4() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, a);
@@ -288,10 +288,10 @@ public class UnequalPredicateInferTest {
     // t1.a = 1, t1.b = t1.a, t1.d = t1.c -> t1.a = 1, t1.b = 1, t1.c = t1.d
     @Test
     public void testChooseEqualPredicatesSameTable5() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference d = new SlotReference("d", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference d = new SlotReference("d", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, literal);
         ComparisonPredicate eq2 = new EqualTo(b, a);
@@ -319,8 +319,8 @@ public class UnequalPredicateInferTest {
     @Test
     // t1.a = 1, t2.b = 1 -> t1.a = 1, t2.b = 1
     public void testChooseEqualPredicatesDiffTable1() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, d);
@@ -344,9 +344,9 @@ public class UnequalPredicateInferTest {
     // t1.a = 1, t2.b = 1, t3.c = 1 -> t1.a = 1, t2.b = 1, t2.c = 1
     @Test
     public void testChooseEqualPredicatesDiffTable2() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"), false);
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, d);
@@ -375,9 +375,9 @@ public class UnequalPredicateInferTest {
     // t1.a = 1, t2.b = t1.a, t1.a = t3.c -> t1.a = 1, t2.b = 1, t3.c = 1
     @Test
     public void testChooseEqualPredicatesDiffTable3() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"), false);
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, a);
@@ -406,10 +406,10 @@ public class UnequalPredicateInferTest {
     // t1.a = 1, t2.b = t1.a, t4.d = t3.c -> t1.a = 1, t2.b = 1, t4.d = t3.c
     @Test
     public void testChooseEqualPredicatesDiffTable5() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
-        SlotReference d = new SlotReference("d", IntegerType.INSTANCE, true, ImmutableList.of("t4"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"), false);
+        SlotReference d = new SlotReference("d", IntegerType.INSTANCE, true, ImmutableList.of("t4"), false);
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, literal);
         ComparisonPredicate eq2 = new EqualTo(b, a);
@@ -440,8 +440,8 @@ public class UnequalPredicateInferTest {
     // a>1 b>a -> a>1 b>a
     @Test
     public void testChooseUnequalPredicatesSameTable1() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate cmp1 = new GreaterThan(a, literal);
         ComparisonPredicate cmp2 = new GreaterThan(b, a);
@@ -465,8 +465,8 @@ public class UnequalPredicateInferTest {
     // a<1 b=a -> b<1 b=a
     @Test
     public void testChooseUnequalPredicatesSameTable2() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate cmp1 = new LessThan(a, literal);
         ComparisonPredicate cmp2 = new EqualTo(b, a);
@@ -499,8 +499,8 @@ public class UnequalPredicateInferTest {
     // t1.a>1 t1.b>t1.a -> t1.a>1,t1.b>1,t1.b>t1.a
     @Test
     public void testChooseUnequalPredicatesDiffTable1() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate cmp1 = new GreaterThan(a, literal);
         ComparisonPredicate cmp2 = new GreaterThan(b, a);
@@ -525,8 +525,8 @@ public class UnequalPredicateInferTest {
     // t1.a<1 t2.b=t1.a -> t2.b<1 t2.a<1 t2.b=t1.a
     @Test
     public void testChooseUnequalPredicatesDiffTable2() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate cmp1 = new LessThan(b, literal);
         ComparisonPredicate cmp2 = new EqualTo(b, a);
@@ -560,9 +560,9 @@ public class UnequalPredicateInferTest {
     // t1.a=t2.b t1.a=t3.c t2.b=t3.c -> t1.a=t2.b t1.a=t3.c t2.b=t3.c
     @Test
     public void testInferWithTransitiveEqualityDifferentTableThreeConjuncts1() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"), false);
         ComparisonPredicate cmp1 = new EqualTo(a, b);
         ComparisonPredicate cmp2 = new EqualTo(a, c);
         ComparisonPredicate cmp3 = new EqualTo(b, c);
@@ -579,9 +579,9 @@ public class UnequalPredicateInferTest {
     // t1.a=t3.c t1.a=t2.b t1.b=t3.c -> t1.a=t2.b t1.a=t3.c t2.b=t3.c
     @Test
     public void testInferWithTransitiveEqualityDifferentTableTwoConjuncts() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"), false);
         ComparisonPredicate cmp1 = new EqualTo(a, c);
         ComparisonPredicate cmp2 = new EqualTo(a, b);
         ComparisonPredicate cmp3 = new EqualTo(b, c);
@@ -597,9 +597,9 @@ public class UnequalPredicateInferTest {
     // t1.a=t3.c t1.a=t2.b t1.b=t3.c -> t1.a=t2.b t1.a=t3.c t2.b=t3.c
     @Test
     public void testUtilChooseMultiEquals() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"), false);
         ComparisonPredicate cmp1 = new EqualTo(a, c);
         ComparisonPredicate cmp2 = new EqualTo(a, b);
         ComparisonPredicate cmp3 = new EqualTo(b, c);
@@ -616,9 +616,9 @@ public class UnequalPredicateInferTest {
     // t1.a=t3.c t1.a=t2.b -> t1.a=t2.b t1.a=t3.c t2.b=t3.c
     @Test
     public void testUtilChooseMultiEquals2() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"), false);
         ComparisonPredicate cmp1 = new EqualTo(a, c);
         ComparisonPredicate cmp2 = new EqualTo(a, b);
         ComparisonPredicate cmp3 = new EqualTo(b, c);
@@ -633,8 +633,8 @@ public class UnequalPredicateInferTest {
 
     @Test
     public void testPredicateUtils() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate cmp1 = new LessThan(a, literal);
         ComparisonPredicate cmp2 = new EqualTo(b, a);
@@ -656,9 +656,9 @@ public class UnequalPredicateInferTest {
     @Test
     public void testInferWithTransitiveEqualityWithCastDateToDateTime() {
         // cast(d_datev2 as datetime) = cast(d_datev2 as datetime)
-        SlotReference a = new SlotReference("a", DateV2Type.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", DateV2Type.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", DateTimeType.INSTANCE, true, ImmutableList.of("t3"));
+        SlotReference a = new SlotReference("a", DateV2Type.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", DateV2Type.INSTANCE, true, ImmutableList.of("t2"), false);
+        SlotReference c = new SlotReference("c", DateTimeType.INSTANCE, true, ImmutableList.of("t3"), false);
         EqualTo equalTo1 = new EqualTo(new Cast(a, DateTimeType.INSTANCE), c);
         EqualTo equalTo2 = new EqualTo(new Cast(b, DateTimeType.INSTANCE), c);
         Set<Expression> inputs = new HashSet<>();
@@ -672,9 +672,9 @@ public class UnequalPredicateInferTest {
     @Test
     public void testInferWithTransitiveEqualityWithCastDatev2andDate() {
         // cast(d_datev2 as date) = cast(d_date as d_datev2)
-        SlotReference a = new SlotReference("a", DateV2Type.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", DateV2Type.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", DateType.INSTANCE, true, ImmutableList.of("t3"));
+        SlotReference a = new SlotReference("a", DateV2Type.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", DateV2Type.INSTANCE, true, ImmutableList.of("t2"), false);
+        SlotReference c = new SlotReference("c", DateType.INSTANCE, true, ImmutableList.of("t3"), false);
         EqualTo equalTo1 = new EqualTo(new Cast(a, DateType.INSTANCE), c);
         EqualTo equalTo2 = new EqualTo(b, new Cast(c, DateV2Type.INSTANCE));
 

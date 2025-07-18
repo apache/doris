@@ -93,8 +93,8 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
     void testEliminateProjectWhenEmptyRelationChild() {
         LogicalPlan unnecessaryProject = new LogicalPlanBuilder(new LogicalEmptyRelation(new RelationId(1),
                 ImmutableList.of(
-                        new SlotReference("k1", IntegerType.INSTANCE),
-                        new SlotReference("k2", IntegerType.INSTANCE))))
+                        new SlotReference("k1", IntegerType.INSTANCE, false),
+                        new SlotReference("k2", IntegerType.INSTANCE, false))))
                 .project(ImmutableList.of(1, 0))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
