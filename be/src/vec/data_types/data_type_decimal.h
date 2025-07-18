@@ -741,8 +741,6 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
             // For decimal256, we need to use long double to avoid overflow when
             // static casting the multiplier to floating type, and also to be as precise as possible;
             // For other decimal types, we use double to be as precise as possible.
-            using DoubleType =
-                    std::conditional_t<IsDataTypeDecimal256<ToDataType>, long double, double>;
             dst[i].value = typename ToDataType::FieldType::NativeType(
                     static_cast<double>(src[i] * static_cast<FromFieldType>(multiplier.value) +
                                         ((src[i] >= 0) ? 0.5 : -0.5)));
