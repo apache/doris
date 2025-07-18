@@ -47,6 +47,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
 const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
@@ -104,7 +106,7 @@ std::string WorkloadGroup::debug_string() const {
 bool WorkloadGroup::try_add_wg_refresh_interval_memory_growth(int64_t size) {
     auto realtime_total_mem_used =
             _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
-    if ((realtime_total_mem_used >
+    if (((double)realtime_total_mem_used >
          ((double)_memory_limit * _memory_high_watermark.load(std::memory_order_relaxed) / 100))) {
         // If a group is enable memory overcommit, then not need check the limit
         // It is always true, and it will only fail when process memory is not
@@ -123,7 +125,7 @@ bool WorkloadGroup::try_add_wg_refresh_interval_memory_growth(int64_t size) {
 
 std::string WorkloadGroup::_memory_debug_string() const {
     auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
-    auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
+    auto mem_used_ratio = (double)realtime_total_mem_used / ((double)_memory_limit + 1);
     auto mem_used_ratio_int = (int64_t)(mem_used_ratio * 100 + 0.5);
     mem_used_ratio = (double)mem_used_ratio_int / 100;
     return fmt::format(
@@ -338,7 +340,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 3 version
-    int version = 0;
+    int64_t version = 0;
     if (tworkload_group_info.__isset.version) {
         version = tworkload_group_info.version;
     } else {
@@ -425,14 +427,14 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 14 scan io
-    int read_bytes_per_second = -1;
+    int64_t read_bytes_per_second = -1;
     if (tworkload_group_info.__isset.read_bytes_per_second &&
         tworkload_group_info.read_bytes_per_second > 0) {
         read_bytes_per_second = tworkload_group_info.read_bytes_per_second;
     }
 
     // 15 remote scan io
-    int remote_read_bytes_per_second = -1;
+    int64_t remote_read_bytes_per_second = -1;
     if (tworkload_group_info.__isset.remote_read_bytes_per_second &&
         tworkload_group_info.remote_read_bytes_per_second > 0) {
         remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
@@ -598,7 +600,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
 
 void WorkloadGroup::upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info) {
     int cpu_hard_limit = wg_info->cpu_hard_limit;
-    uint64_t cpu_share = wg_info->cpu_share;
+    int cpu_share = static_cast<int>(wg_info->cpu_share);
     create_cgroup_cpu_ctl_no_lock();
 
     if (_cgroup_cpu_ctl) {
@@ -705,5 +707,7 @@ void WorkloadGroup::try_stop_schedulers() {
         _memtable_flush_pool->wait();
     }
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
