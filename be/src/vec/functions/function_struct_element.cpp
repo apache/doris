@@ -83,6 +83,8 @@ public:
         return make_nullable(struct_type->get_elements()[index]);
     }
 
+    bool skip_return_type_check() const override { return true; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto* struct_type = check_and_get_data_type<DataTypeStruct>(
