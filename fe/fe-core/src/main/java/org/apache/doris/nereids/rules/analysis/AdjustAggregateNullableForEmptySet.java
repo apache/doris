@@ -87,7 +87,7 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
         if (newConjuncts.equals(having.getConjuncts())) {
             return null;
         }
-        return having.withConjuncts(newConjuncts);
+        return (LogicalPlan) having.withConjuncts(newConjuncts);
     }
 
     /**

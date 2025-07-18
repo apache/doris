@@ -82,7 +82,7 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                                         .castIfNotSameType(f.child(0), f.getDataType()), ne.getName()));
                             } else if (f instanceof Count) {
                                 newOutput.add((NamedExpression) ne.withChildren(
-                                        ifNullElse(f.child(0)), new BigIntLiteral(0), new BigIntLiteral(1)));
+                                        ifNullElse(f.child(0), new BigIntLiteral(0), new BigIntLiteral(1))));
                             } else {
                                 throw new IllegalStateException("Unexpected aggregate function: " + f);
                             }

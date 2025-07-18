@@ -64,7 +64,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * because some rule could change output's nullable.
@@ -462,12 +464,13 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     private <T extends Expression> Optional<List<T>> updateExpressions(List<T> inputs,
             Map<ExprId, Slot> replaceMap, boolean debugCheck) {
         ImmutableList.Builder<T> result = ImmutableList.builderWithExpectedSize(inputs.size());
+        boolean changed = false;
         for (T input : inputs) {
             Optional<T> newInput = updateExpression(input, replaceMap, debugCheck);
             changed |= newInput.isPresent();
             result.add(newInput.orElse(input));
         }
-        return result.build();
+        return changed ? Optional.of(result.build()) : Optional.empty();
     }
 
     private <T extends Expression> Optional<Set<T>> updateExpressions(Set<T> inputs,
@@ -479,5 +482,6 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             changed |= newInput.isPresent();
             result.add(newInput.orElse(input));
         }
+        return changed ? Optional.of(result.build()) : Optional.empty();
     }
 }

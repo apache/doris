@@ -273,7 +273,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (newConjuncts.equals(having.getConjuncts())) {
                     return having;
                 }
-                return having.withExpressions(newConjuncts);
+                return having.withConjuncts(newConjuncts);
             }).toRule(RuleType.REWRITE_HAVING_EXPRESSION);
         }
     }

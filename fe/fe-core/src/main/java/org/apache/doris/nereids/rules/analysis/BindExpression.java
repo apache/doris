@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -642,7 +643,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 });
             }
         }
-        List<NamedExpression> projects = adjustProjectionAggNullable(boundProjectionsBuilder.build());
+        List<NamedExpression> projects = adjustProjectionAggNullable(boundProjections.build());
         return project.withProjects(projects);
     }
 
