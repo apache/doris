@@ -64,7 +64,7 @@ import java.util.Optional;
 
 /**
  * All data type literal expression in Nereids.
- * TODO: Increase the implementation of sub expression. such as Integer.
+ * TODO: Increase the implementation of sub expression. such as Integer.z
  */
 public abstract class Literal extends Expression implements LeafExpression {
 
