@@ -243,6 +243,7 @@ import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
@@ -5918,7 +5919,8 @@ public class Env {
             View newView = new View(tableId, tableName, columns);
             newView.setComment(stmt.getComment());
             newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
-                    ConnectContext.get().getSessionVariable().getSqlMode());
+                    ConnectContext.get().getSessionVariable().getSqlMode(),
+                    ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
             if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
                 throw new DdlException("Failed to create view[" + tableName + "].");
             }

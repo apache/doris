@@ -29,6 +29,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public class AlterViewInfo implements Writable {
@@ -38,12 +39,15 @@ public class AlterViewInfo implements Writable {
     private long tableId;
     @SerializedName(value = "inlineViewDef")
     private String inlineViewDef;
+    @Deprecated
     @SerializedName(value = "sqlMode")
     private long sqlMode;
     @SerializedName(value = "newFullSchema")
     private List<Column> newFullSchema;
     @SerializedName(value = "comment")
     private String comment;
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
 
     public AlterViewInfo() {
         // for persist
@@ -51,13 +55,14 @@ public class AlterViewInfo implements Writable {
     }
 
     public AlterViewInfo(long dbId, long tableId, String inlineViewDef, List<Column> newFullSchema, long sqlMode,
-                         String comment) {
+                         String comment, Map<String, String> sessionVariables) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.inlineViewDef = inlineViewDef;
         this.newFullSchema = newFullSchema;
         this.sqlMode = sqlMode;
         this.comment = comment;
+        this.sessionVariables = sessionVariables;
     }
 
     public long getDbId() {
@@ -82,6 +87,10 @@ public class AlterViewInfo implements Writable {
 
     public String getComment() {
         return comment;
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 
     @Override

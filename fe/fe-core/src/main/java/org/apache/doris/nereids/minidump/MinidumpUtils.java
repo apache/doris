@@ -47,6 +47,7 @@ import org.apache.doris.statistics.Histogram;
 
 import com.google.common.collect.Maps;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.collections.MapUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
@@ -134,7 +135,7 @@ public class MinidumpUtils {
                     String viewJsonValue = tableJson.get("TableValue").toString();
                     newTable = GsonUtils.GSON.fromJson(viewJsonValue, View.class);
                     ((View) newTable).setInlineViewDefWithSqlMode(tableJson.get("InlineViewDef").toString(),
-                            tableJson.getLong("SqlMode"));
+                            tableJson.getLong("SqlMode"), getSessionVariablesFromJson(tableJson));
                     break;
                 default:
                     newTable = null;
@@ -145,6 +146,16 @@ public class MinidumpUtils {
             tables.put(key, newTable);
         }
         return tables;
+    }
+
+    private static Map<String, String> getSessionVariablesFromJson(JSONObject tableJson) {
+        JSONObject sessionVariablesObject = tableJson.getJSONObject("SessionVariables");
+        if (sessionVariablesObject == null) {
+            return Maps.newHashMap();
+        }
+        Type mapType = new TypeToken<Map<String, String>>() {
+        }.getType();
+        return GsonUtils.GSON.fromJson(tableJson.getString("SessionVariables"), mapType);
     }
 
     /**
@@ -285,6 +296,10 @@ public class MinidumpUtils {
             if (table.getValue() instanceof View) {
                 oneTableJson.put("InlineViewDef", ((View) table.getValue()).getInlineViewDef());
                 oneTableJson.put("SqlMode", Long.toString(((View) table.getValue()).getSqlMode()));
+                Map<String, String> sessionVariables = ((View) table.getValue()).getSessionVariables();
+                if (!MapUtils.isEmpty(sessionVariables)) {
+                    oneTableJson.put("SessionVariables", GsonUtils.GSON.toJson(sessionVariables));
+                }
             }
             JSONObject jsonTableValues = new JSONObject(tableValues);
             oneTableJson.put("TableValue", jsonTableValues);
