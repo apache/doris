@@ -89,7 +89,7 @@ private:
         for (size_t i = 0; i < size; ++i) {
             c[i] = Impl::apply(a[i], column_right_ptr->template get_value<int8_t>());
         }
-        return std::move(column_result);
+        return column_result;
     }
 
     ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
@@ -103,7 +103,7 @@ private:
         for (size_t i = 0; i < size; ++i) {
             c[i] = Impl::apply(column_left_ptr->template get_value<int64_t>(), b[i]);
         }
-        return std::move(column_result);
+        return column_result;
     }
 
     ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
@@ -120,7 +120,7 @@ private:
         for (size_t i = 0; i < size; ++i) {
             c[i] = Impl::apply(a[i], b[i]);
         }
-        return std::move(column_result);
+        return column_result;
     }
 };
 
