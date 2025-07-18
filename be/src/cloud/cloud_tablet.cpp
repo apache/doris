@@ -28,6 +28,8 @@
 
 #include <atomic>
 #include <memory>
+#include <ranges>
+#include <ratio>
 #include <shared_mutex>
 #include <unordered_map>
 #include <vector>
@@ -124,6 +126,52 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
         return st;
     }
     VLOG_DEBUG << "capture consitent versions: " << version_path;
+    return capture_rs_readers_unlocked(version_path, rs_splits);
+}
+
+Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
+        const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
+        bool skip_missing_version, int64_t query_freshness_tolerance_ms) {
+    Versions version_path;
+    std::shared_lock rlock(_meta_lock);
+    // find a versin path where every edge(rowset) has been warmuped
+    auto rowset_is_warmed_up = [&](int64_t start_version, int64_t end_version) -> bool {
+        if (start_version > end_version) {
+            return false;
+        }
+        Version version {start_version, end_version};
+        auto it = _rs_version_map.find(version);
+        if (it == _rs_version_map.end()) {
+            it = _stale_rs_version_map.find(version);
+            if (it == _stale_rs_version_map.end()) {
+                return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
+                        "fail to find Rowset in stale_rs_version for version. tablet={}, "
+                        "version={}-{}",
+                        tablet_id(), version.first, version.second);
+            }
+        }
+        const auto& rs = it->second;
+        return rs->has_been_warmed_up();
+    };
+    RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
+            0, version_path, rowset_is_warmed_up));
+    int64_t path_max_version = version_path.back().second;
+    bool should_fallback =
+            std::ranges::any_of(_tablet_meta->all_rs_metas(), [&](const auto& rs_meta) -> bool {
+                if (rs_meta->version() == Version {0, 1}) {
+                    // skip rowset[0-1]
+                    return false;
+                }
+                // TODO: consider use another timestamp
+                return rs_meta->start_version() > path_max_version &&
+                       std::chrono::seconds(::time(nullptr) - rs_meta->newest_write_timestamp()) >
+                               std::chrono::milliseconds(query_freshness_tolerance_ms);
+            });
+    if (should_fallback) {
+        // if there exists a rowset which satisfies freshness tolerance and has not been warmuped up
+        // yet, fallback to capture rowsets as usual
+        return capture_rs_readers(spec_version, rs_splits, skip_missing_version);
+    }
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }
 

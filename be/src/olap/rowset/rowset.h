@@ -318,6 +318,11 @@ public:
 
     std::vector<std::string> get_index_file_names();
 
+    bool has_been_warmed_up() const {
+        // TODO: change me
+        return true;
+    }
+
 protected:
     friend class RowsetFactory;
 
