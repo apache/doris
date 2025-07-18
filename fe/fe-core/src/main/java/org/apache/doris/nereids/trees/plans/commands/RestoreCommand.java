@@ -53,6 +53,13 @@ import java.util.Set;
  * RestoreCommand
  */
 public class RestoreCommand extends Command implements ForwardWithSync {
+    public static final String PROP_RESERVE_REPLICA = "reserve_replica";
+    public static final String PROP_RESERVE_COLOCATE = "reserve_colocate";
+    public static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
+    public static final String PROP_CLEAN_TABLES = "clean_tables";
+    public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
+    public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
+    public static final String PROP_FORCE_REPLACE = "force_replace";
     private static final Logger LOG = LogManager.getLogger(RestoreCommand.class);
     private static final String PROP_TIMEOUT = "timeout";
     private static final long MIN_TIMEOUT_MS = 600 * 1000L;
@@ -60,15 +67,6 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     private static final String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
     private static final String PROP_META_VERSION = "meta_version";
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
-
-    private static final String PROP_RESERVE_REPLICA = "reserve_replica";
-    private static final String PROP_RESERVE_COLOCATE = "reserve_colocate";
-    private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
-    private static final String PROP_CLEAN_TABLES = "clean_tables";
-    private static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
-    private static final String PROP_ATOMIC_RESTORE = "atomic_restore";
-    private static final String PROP_FORCE_REPLACE = "force_replace";
-
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private String backupTimestamp = null;
@@ -200,7 +198,10 @@ public class RestoreCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void analyzeProperties() throws AnalysisException {
+    /**
+     * analyzeProperties
+     */
+    public void analyzeProperties() throws AnalysisException {
         // timeout
         if (properties.containsKey("timeout")) {
             try {
