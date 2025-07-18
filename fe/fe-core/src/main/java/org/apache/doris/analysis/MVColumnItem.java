@@ -28,8 +28,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
-import com.google.common.collect.Maps;
-
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -191,7 +189,7 @@ public class MVColumnItem {
             if (type == null) {
                 throw new DdlException("MVColumnItem type is null");
             }
-            result = new Column(name, type, isKey, aggregationType, null, "", Maps.newHashMap());
+            result = new Column(name, type, isKey, aggregationType, null, "", null);
             if (defineExpr != null) {
                 result.setIsAllowNull(defineExpr.isNullable());
             }

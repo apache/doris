@@ -38,7 +38,6 @@ import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import com.google.protobuf.ByteString;
@@ -170,7 +169,7 @@ public class Column implements GsonPostProcessable {
     }
 
     public Column(String name, PrimitiveType dataType) {
-        this(name, ScalarType.createType(dataType), false, null, false, null, "", Maps.newHashMap());
+        this(name, ScalarType.createType(dataType), false, null, false, null, "", null);
     }
 
     public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
@@ -182,11 +181,11 @@ public class Column implements GsonPostProcessable {
     }
 
     public Column(String name, Type type, boolean isAllowNull) {
-        this(name, type, false, null, isAllowNull, null, "", Maps.newHashMap());
+        this(name, type, false, null, isAllowNull, null, "", null);
     }
 
     public Column(String name, Type type, boolean isAllowNull, String comment) {
-        this(name, type, false, null, isAllowNull, null, comment, Maps.newHashMap());
+        this(name, type, false, null, isAllowNull, null, comment, null);
     }
 
     public Column(String name, Type type) {

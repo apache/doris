@@ -2320,6 +2320,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 .withExtraParams(stmt)
                 .build();
         olapTable.setComment(stmt.getComment());
+
         // set base index id
         long baseIndexId = idGeneratorBuffer.getNextId();
         olapTable.setBaseIndexId(baseIndexId);
