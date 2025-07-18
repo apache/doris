@@ -71,6 +71,7 @@ public class MTMVPartitionUtil {
                     // for example: if `MTMVRelatedPartitionDescOnePartitionColGenerator` not generate `PartitionDesc`,
                     // `MTMVRelatedPartitionDescRollUpGenerator` will not have parameter
                     new MTMVRelatedPartitionDescInitGenerator(),
+                    new MTMVRelatedPartitionDescFilterGenerator(),
                     new MTMVRelatedPartitionDescSyncLimitGenerator(),
                     new MTMVRelatedPartitionDescOnePartitionColGenerator(),
                     new MTMVRelatedPartitionDescRollUpGenerator()
@@ -117,7 +118,7 @@ public class MTMVPartitionUtil {
      */
     public static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartition(MTMV mtmv) throws AnalysisException {
         Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
-        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
+        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv, mtmv.getMvPartitionInfo(),
                 mtmv.getMvProperties()).keySet();
         List<String> partitionsToDrop = new ArrayList<>();
         List<PartitionKeyDesc> partitionsToAdd = new ArrayList<>();
@@ -145,12 +146,12 @@ public class MTMVPartitionUtil {
      * @return
      * @throws AnalysisException
      */
-    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(
-            Map<String, String> tableProperties, MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties)
+    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMV mtmv, Map<String, String> tableProperties,
+                MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties)
             throws AnalysisException {
         List<AllPartitionDesc> res = Lists.newArrayList();
         HashMap<String, String> partitionProperties = Maps.newHashMap();
-        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mvPartitionInfo, mvProperties)
+        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv, mvPartitionInfo, mvProperties)
                 .keySet();
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
@@ -163,27 +164,18 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    public static Map<PartitionKeyDesc, Set<String>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
-            Map<String, String> mvProperties) throws AnalysisException {
+    public static Map<PartitionKeyDesc, Set<String>> generateRelatedPartitionDescs(MTMV mtmv,
+            MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties) throws AnalysisException {
         long start = System.currentTimeMillis();
         RelatedPartitionDescResult result = new RelatedPartitionDescResult();
         for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
-            service.apply(mvPartitionInfo, mvProperties, result);
+            service.apply(mtmv, mvPartitionInfo, mvProperties, result);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
                     System.currentTimeMillis() - start, mvPartitionInfo);
         }
         return result.getDescs();
-    }
-
-    public static List<Long> getPartitionsIdsByNames(MTMV mtmv, List<String> partitions) throws AnalysisException {
-        List<Long> res = Lists.newArrayList();
-        for (String partitionName : partitions) {
-            Partition partition = mtmv.getPartitionOrAnalysisException(partitionName);
-            res.add(partition.getId());
-        }
-        return res;
     }
 
     /**
