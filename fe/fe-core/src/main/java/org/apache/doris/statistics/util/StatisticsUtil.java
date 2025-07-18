@@ -1291,7 +1291,7 @@ public class StatisticsUtil {
                             new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
                                     oneRowSplit[0].replaceAll("\\\\:", ":")
                                             .replaceAll("\\\\;", ";"));
-                    DataType dataType = DataType.legacyTypeToNereidsType().get(type);
+                    DataType dataType = DataType.legacyTypeToNereidsType().get(type.getPrimitiveType());
                     if (dataType != null) {
                         try {
                             Literal hotValue = (Literal) stringLiteral.checkedCastTo(dataType);
