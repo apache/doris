@@ -3068,7 +3068,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 lock_info.clear_initiators();
                 std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
                 std::string key1 = mow_tablet_job_key(
-                        {instance_id, table_id + 1, std::numeric_limits<int64_t>::max()});
+                        {instance_id, table_id, std::numeric_limits<int64_t>::max()});
                 txn->remove(key0, key1);
                 LOG(INFO) << "remove mow tablet job kv, begin=" << hex(key0) << " end=" << hex(key1)
                           << " table_id=" << table_id;
