@@ -35,6 +35,38 @@ public class DataProperty implements GsonPostProcessable {
 
     public static final DataProperty DEFAULT_HDD_DATA_PROPERTY = new DataProperty(TStorageMedium.HDD);
 
+    public enum AllocationPolicy {
+        STRICT("strict"),
+        ADAPTIVE("adaptive");
+
+        private final String value;
+
+        AllocationPolicy(String value) {
+            this.value = value;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public static AllocationPolicy fromString(String value) {
+            for (AllocationPolicy policy : values()) {
+                if (policy.value.equalsIgnoreCase(value)) {
+                    return policy;
+                }
+            }
+            throw new IllegalArgumentException("Invalid allocation_policy values: " + value);
+        }
+
+        public boolean isStrict() {
+            return this == STRICT;
+        }
+
+        public boolean isAdaptive() {
+            return this == ADAPTIVE;
+        }
+    }
+
     @SerializedName(value = "storageMedium")
     private TStorageMedium storageMedium;
     @SerializedName(value = "cooldownTimeMs")
@@ -43,7 +75,8 @@ public class DataProperty implements GsonPostProcessable {
     private String storagePolicy;
     @SerializedName(value = "isMutable")
     private boolean isMutable = true;
-    private boolean storageMediumSpecified;
+    @SerializedName(value = "allocationPolicy")
+    private AllocationPolicy allocationPolicy = AllocationPolicy.ADAPTIVE;
 
     private DataProperty() {
         // for persist
@@ -53,6 +86,7 @@ public class DataProperty implements GsonPostProcessable {
         this.storageMedium = medium;
         this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         this.storagePolicy = "";
+        this.allocationPolicy = AllocationPolicy.ADAPTIVE;
     }
 
     public DataProperty(DataProperty other) {
@@ -60,6 +94,7 @@ public class DataProperty implements GsonPostProcessable {
         this.cooldownTimeMs = other.cooldownTimeMs;
         this.storagePolicy = other.storagePolicy;
         this.isMutable = other.isMutable;
+        this.allocationPolicy = other.allocationPolicy;
     }
 
     /**
@@ -70,14 +105,16 @@ public class DataProperty implements GsonPostProcessable {
      * @param storagePolicy remote storage policy for remote storage
      */
     public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy) {
-        this(medium, cooldown, storagePolicy, true);
+        this(medium, cooldown, storagePolicy, true, AllocationPolicy.ADAPTIVE);
     }
 
-    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy, boolean isMutable) {
+    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy, boolean isMutable,
+            AllocationPolicy allocationPolicy) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
         this.storagePolicy = storagePolicy;
         this.isMutable = isMutable;
+        this.allocationPolicy = allocationPolicy;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -96,8 +133,12 @@ public class DataProperty implements GsonPostProcessable {
         this.storagePolicy = storagePolicy;
     }
 
-    public boolean isStorageMediumSpecified() {
-        return storageMediumSpecified;
+    public AllocationPolicy getAllocationPolicy() {
+        return allocationPolicy;
+    }
+
+    public void setAllocationPolicy(AllocationPolicy allocationPolicy) {
+        this.allocationPolicy = allocationPolicy;
     }
 
     public boolean isMutable() {
@@ -108,17 +149,13 @@ public class DataProperty implements GsonPostProcessable {
         isMutable = mutable;
     }
 
-    public void setStorageMediumSpecified(boolean isSpecified) {
-        storageMediumSpecified = isSpecified;
-    }
-
     public void setStorageMedium(TStorageMedium medium) {
         this.storageMedium = medium;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(storageMedium, cooldownTimeMs, storagePolicy);
+        return Objects.hash(storageMedium, cooldownTimeMs, storagePolicy, allocationPolicy);
     }
 
     @Override
@@ -136,7 +173,8 @@ public class DataProperty implements GsonPostProcessable {
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
                 && Strings.nullToEmpty(this.storagePolicy).equals(Strings.nullToEmpty(other.storagePolicy))
-                && this.isMutable == other.isMutable;
+                && this.isMutable == other.isMutable
+                && this.allocationPolicy == other.allocationPolicy;
     }
 
     @Override
@@ -145,6 +183,7 @@ public class DataProperty implements GsonPostProcessable {
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
         sb.append("remote storage policy[").append(this.storagePolicy).append("]. ");
+        sb.append("allocation policy[").append(this.allocationPolicy).append("]. ");
         return sb.toString();
     }
 
@@ -152,6 +191,8 @@ public class DataProperty implements GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         // storagePolicy is a newly added field, it may be null when replaying from old version.
         this.storagePolicy = Strings.nullToEmpty(this.storagePolicy);
+        if (this.allocationPolicy == null) {
+            this.allocationPolicy = AllocationPolicy.ADAPTIVE;
+        }
     }
-
 }
