@@ -161,7 +161,13 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     // Test 9: Rename table
     String renamed_table_name = "iceberg_ddl_test_renamed"
     sql """ drop table if exists ${renamed_table_name} """
+    // before rename
+    qt_before_rename_show_tables_old """show tables like '${table_name}'"""
+    qt_before_rename_show_tables_new """show tables like '${renamed_table_name}'"""
     sql """ ALTER TABLE ${table_name} RENAME ${renamed_table_name} """
+    qt_after_rename_show_tables_old """show tables like '${table_name}'"""
+    qt_after_rename_show_tables_new """show tables like '${renamed_table_name}'"""
+
     // Verify table renamed
     qt_rename_table_1 """ DESC ${renamed_table_name} """
     qt_rename_table_2 """ SELECT * FROM ${renamed_table_name} ORDER BY id """
@@ -172,7 +178,6 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     sql """ ALTER TABLE ${renamed_table_name} RENAME ${table_name} """
     qt_rename_table_back_1 """ SELECT * FROM ${table_name} ORDER BY id """
     
-
     // Test partitioned table schema change
     sql """ drop table if exists ${partition_table_name} """
     sql """ CREATE TABLE ${partition_table_name} (

@@ -150,6 +150,16 @@ address	struct<city:text,country:text>	Yes	true	\N
 5	26	\N	\N	91.3	223-345-132	eve@example.com	{"city":"New York", "country":"USA"}
 6	\N	\N	\N	100.0	123-456-7890	user6@example.com	{"city":"Los Angeles", "country":"USA"}
 
+-- !before_rename_show_tables_old --
+iceberg_ddl_test
+
+-- !before_rename_show_tables_new --
+
+-- !after_rename_show_tables_old --
+
+-- !after_rename_show_tables_new --
+iceberg_ddl_test_renamed
+
 -- !rename_table_1 --
 id	int	Yes	true	\N	
 age	bigint	Yes	true	\N	
