@@ -38,12 +38,6 @@ namespace doris::vectorized {
 struct NameCast {
     static constexpr auto name = "CAST";
 };
-
-struct PrecisionScaleArg {
-    UInt32 precision;
-    UInt32 scale;
-};
-
 namespace CastUtil {
 // `static_cast_set` is introduced to wrap `static_cast` and handle special cases.
 // Doris uses `uint8` to represent boolean values internally.
