@@ -80,15 +80,22 @@ public class StructType extends Type {
     }
 
     @Override
-    public String toSql(int depth) {
+    public String toSql(int depth, EncodingTree encodingTree) {
         if (depth >= MAX_NESTING_DEPTH) {
             return "struct<...>";
         }
         ArrayList<String> fieldsSql = Lists.newArrayList();
-        for (StructField f : fields) {
-            fieldsSql.add(f.toSql(depth + 1));
+        for (int i = 0; i < fields.size(); i++) {
+            StructField f = fields.get(i);
+            EncodingTree child = encodingTree == null ? null : encodingTree.child(i);
+            fieldsSql.add(f.toSql(depth + 1, child));
         }
         return String.format("struct<%s>", Joiner.on(",").join(fieldsSql));
+    }
+
+    @Override
+    public String toSql(int depth) {
+        return toSql(depth, null);
     }
 
     @Override

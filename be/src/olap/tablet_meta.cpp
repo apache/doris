@@ -201,6 +201,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TCompressionType::ZSTD:
         schema->set_compression_type(segment_v2::ZSTD);
         break;
+    case TCompressionType::LZ4HC:
+        schema->set_compression_type(segment_v2::LZ4HC);
+        break;
     default:
         schema->set_compression_type(segment_v2::LZ4F);
         break;
@@ -407,6 +410,19 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     string data_type;
     EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
     column->set_type(data_type);
+    if (tcolumn.__isset.encoding_type) {
+        auto encoding_type_num = tcolumn.encoding_type;
+        if (!segment_v2::EncodingTypePB_IsValid(encoding_type_num)) {
+            column->set_encoding(segment_v2::DEFAULT_ENCODING);
+        } else {
+            auto encoding_type_pb = (segment_v2::EncodingTypePB)encoding_type_num;
+            if (encoding_type_pb == segment_v2::UNKNOWN_ENCODING) {
+                column->set_encoding(segment_v2::DEFAULT_ENCODING);
+            } else {
+                column->set_encoding(encoding_type_pb);
+            }
+        }
+    }
 
     uint32_t length = TabletColumn::get_field_length_by_type(tcolumn.column_type.type,
                                                              tcolumn.column_type.len);
