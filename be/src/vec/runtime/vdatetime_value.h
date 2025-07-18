@@ -442,6 +442,12 @@ public:
         return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;
     }
 
+    void reset_time_part() {
+        _hour = 0;
+        _minute = 0;
+        _second = 0;
+    }
+
     bool check_loss_accuracy_cast_to_date() {
         auto loss_accuracy = _hour != 0 || _minute != 0 || _second != 0;
         cast_to_date();
@@ -932,6 +938,15 @@ public:
 
     int64_t time_part_to_seconds() const {
         return hour() * SECOND_PER_HOUR + minute() * SECOND_PER_MINUTE + second();
+    }
+
+    void reset_time_part() {
+        if constexpr (is_datetime) {
+            date_v2_value_.hour_ = 0;
+            date_v2_value_.minute_ = 0;
+            date_v2_value_.second_ = 0;
+            date_v2_value_.microsecond_ = 0;
+        }
     }
 
     int64_t time_part_to_microsecond() const {
