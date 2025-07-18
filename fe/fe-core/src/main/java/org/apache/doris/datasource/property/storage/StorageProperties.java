@@ -64,6 +64,7 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     public abstract Map<String, String> getBackendConfigProperties();
     
+    @Getter
     public Configuration hadoopStorageConfig;
 
     @Getter

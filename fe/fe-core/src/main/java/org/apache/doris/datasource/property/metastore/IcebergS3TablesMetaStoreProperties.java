@@ -1,20 +1,29 @@
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.s3tables.CustomAwsCredentialsProvider;
 import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 import software.amazon.s3tables.iceberg.S3TablesCatalog;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergProperties {
 
     private S3Properties s3Properties;
 
-    protected IcebergS3TablesMetaStoreProperties(Map<String, String> props) {
+    public IcebergS3TablesMetaStoreProperties(Map<String, String> props) {
         super(props);
+    }
+
+    @Override
+    public String getIcebergCatalogType() {
+        return IcebergExternalCatalog.ICEBERG_S3_TABLES;
     }
 
     @Override
@@ -25,16 +34,39 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     }
 
     @Override
-    protected Catalog initCatalog() {
-        S3TablesCatalog s3TablesCatalog = new S3TablesCatalog();
-        Map<String, String> s3TablesCatalogProperties = new HashMap<>();
-        s3TablesCatalogProperties.put("client.credentials-provider", CustomAwsCredentialsProvider.class.getName());
-        s3TablesCatalogProperties.put("client.credentials-provider.s3.access-key-id", s3Properties.getAccessKey());
-        s3TablesCatalogProperties.put("client.credentials-provider.s3.secret-access-key", s3Properties.getSecretKey());
-        s3TablesCatalogProperties.put("client.credentials-provider.s3.session-token", s3Properties.getSessionToken());
-        s3TablesCatalogProperties.put("client.region", s3Properties.getRegion());
-        s3TablesCatalog.initialize(origProps.getOrDefault(EXTERNAL_CATALOG_NAME, ""), s3TablesCatalogProperties);
+    protected Catalog initCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+        checkInitialized();
 
-        return s3TablesCatalog;
+        Map<String, String> props = buildS3CatalogProperties();
+
+        S3TablesCatalog catalog = new S3TablesCatalog();
+        try {
+            catalog.initialize(catalogName, props);
+            return catalog;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize S3TablesCatalog for Iceberg. " +
+                    "CatalogName=" + catalogName + ", region=" + s3Properties.getRegion(), e);
+        }
+    }
+
+    private Map<String, String> buildS3CatalogProperties() {
+        Map<String, String> props = new HashMap<>();
+        props.put("client.credentials-provider", CustomAwsCredentialsProvider.class.getName());
+        props.put("client.credentials-provider.s3.access-key-id", s3Properties.getAccessKey());
+        props.put("client.credentials-provider.s3.secret-access-key", s3Properties.getSecretKey());
+        props.put("client.credentials-provider.s3.session-token", s3Properties.getSessionToken());
+        props.put("client.region", s3Properties.getRegion());
+
+        if (StringUtils.isNotBlank(warehouse)) {
+            props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
+        }
+
+        return props;
+    }
+
+    private void checkInitialized() {
+        if (s3Properties == null) {
+            throw new IllegalStateException("S3Properties not initialized. Please call initNormalizeAndCheckProps() before using.");
+        }
     }
 }

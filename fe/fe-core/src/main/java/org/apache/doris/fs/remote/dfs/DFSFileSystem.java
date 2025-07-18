@@ -143,7 +143,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
                 if (dfsFileSystem == null) {
                     Configuration conf = hdfsProperties.getHadoopConfiguration();
-                    authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
+                    authenticator = hdfsProperties.getHadoopAuthenticator();
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
                             try {

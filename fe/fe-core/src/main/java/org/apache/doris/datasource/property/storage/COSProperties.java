@@ -23,6 +23,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 import java.util.Objects;
@@ -92,4 +93,19 @@ public class COSProperties extends AbstractS3CompatibleProperties {
         return ENDPOINT_PATTERN;
     }
 
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig.set("fs.cos.impl", "org.apache.hadoop.fs.CosFileSystem");
+        hadoopStorageConfig.set("fs.cosn.impl", "org.apache.hadoop.fs.CosFileSystem");
+        hadoopStorageConfig.set("fs.AbstractFileSystem.cos.impl", "org.apache.hadoop.fs.Cos");
+        hadoopStorageConfig.set("fs.cos.secretId", accessKey);
+        hadoopStorageConfig.set("fs.cos.secretKey", secretKey);
+        hadoopStorageConfig.set("fs.cos.region", region);
+        hadoopStorageConfig.set("fs.cos.endpoint", endpoint);
+        hadoopStorageConfig.set("fs.cos.connection.timeout", connectionTimeoutS);
+        hadoopStorageConfig.set("fs.cos.connection.request.timeout", requestTimeoutS);
+        hadoopStorageConfig.set("fs.cos.connection.maximum", maxConnections);
+        hadoopStorageConfig.set("fs.cos.use.path.style", usePathStyle);
+    }
 }

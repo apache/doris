@@ -64,6 +64,9 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
         if (ugi == null) {
             subject = getSubject(config.getKerberosKeytab(), config.getKerberosPrincipal(), config.isPrintDebugLog());
             ugi = Objects.requireNonNull(login(subject), "login result is null");
+            LOG.warn("Kerberos authentication is enabled, " +
+                    "please ensure that the keytab and principal are configured correctly.");
+            LOG.warn("subject principals: {}", subject.getPrincipals());
             return ugi;
         }
         if (nextRefreshTime < System.currentTimeMillis()) {

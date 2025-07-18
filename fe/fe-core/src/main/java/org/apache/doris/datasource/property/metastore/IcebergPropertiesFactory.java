@@ -1,5 +1,7 @@
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -13,7 +15,7 @@ public class IcebergPropertiesFactory implements MetastorePropertiesFactory{
         register("glue", IcebergGlueMetaStoreProperties::new);
         //register("rest", HMSProperties::new);
         register("hms", IcebergHMSMetaStoreProperties::new);
-        register("filesystem", IcebergFileSystemMetaStoreProperties::new);
+        register("hadoop", IcebergFileSystemMetaStoreProperties::new);
         register("s3tables", IcebergS3TablesMetaStoreProperties::new);
     }
 
@@ -23,9 +25,12 @@ public class IcebergPropertiesFactory implements MetastorePropertiesFactory{
 
     @Override
     public MetastoreProperties create(Map<String, String> props) {
-        String subType = props.getOrDefault("iceberg.catalog.type", "default").toLowerCase(Locale.ROOT);
+        String subType = props.get("iceberg.catalog.type").toLowerCase(Locale.ROOT);
+        if(StringUtils.isBlank(subType)) {
+           throw new IllegalArgumentException("iceberg.catalog.type is empty");
+        }
         Function<Map<String, String>, MetastoreProperties> constructor =
-                REGISTERED_SUBTYPES.getOrDefault(subType, REGISTERED_SUBTYPES.get("default"));
+                REGISTERED_SUBTYPES.get(subType);
         MetastoreProperties instance = constructor.apply(props);
         instance.initNormalizeAndCheckProps();
         return instance;

@@ -1,20 +1,21 @@
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
-
-    
-   
     public AWSGlueMetaStoreBaseProperties glueProperties;
-    
     public S3Properties s3Properties;
 
     public IcebergGlueMetaStoreProperties(Map<String, String> props) {
@@ -22,44 +23,52 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     }
 
     @Override
+    public String getIcebergCatalogType() {
+        return IcebergExternalCatalog.ICEBERG_GLUE;
+    }
+
+    @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        //System.setProperty("aws.region", "ap-northeast-1");
         glueProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
         glueProperties.checkAndInit();
         s3Properties = S3Properties.of(origProps);
         s3Properties.initNormalizeAndCheckProps();
     }
-    
-    
-    private void initS3Param(Map<String,String> props) {
-         //S3FileIo
+
+    @Override
+    protected Catalog initCatalog(String catalogName, List<StorageProperties> storageProperties) {
+        Map<String, String> props = prepareBaseCatalogProps();
+        appendS3Props(props);
+        appendGlueProps(props);
+
+        props.put("client.region", glueProperties.glueRegion);
+        if (StringUtils.isNotBlank(warehouse)) {
+            props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
+        }
+
+        GlueCatalog catalog = new GlueCatalog();
+        catalog.initialize(catalogName, props);
+        return catalog;
+    }
+
+    private Map<String, String> prepareBaseCatalogProps() {
+        return new HashMap<>(origProps);
+    }
+
+    private void appendS3Props(Map<String, String> props) {
         props.put(S3FileIOProperties.ACCESS_KEY_ID, s3Properties.getAccessKey());
         props.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Properties.getSecretKey());
         props.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
         props.put(S3FileIOProperties.PATH_STYLE_ACCESS, s3Properties.getUsePathStyle());
         props.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
     }
-    
-    private void initGlueParam(Map<String,String> props) {
-       props.put(AwsProperties.GLUE_CATALOG_ENDPOINT, glueProperties.glueEndpoint);
+
+    private void appendGlueProps(Map<String, String> props) {
+        props.put(AwsProperties.GLUE_CATALOG_ENDPOINT, glueProperties.glueEndpoint);
         props.put("client.credentials-provider", "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
         props.put("client.credentials-provider.glue.access_key", glueProperties.glueAccessKey);
         props.put("client.credentials-provider.glue.secret_key", glueProperties.glueSecretKey);
         props.put("aws.catalog.credentials.provider.factory.class", "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory");
-
-
-    }
-
-    @Override
-    protected Catalog initCatalog() {
-        GlueCatalog catalog = new GlueCatalog();
-        Map<String,String> props = new HashMap<>();
-        initS3Param(props);
-        initGlueParam(props);
-        //props.put("iceberg.catalog.glue.client.region", glueProperties.glueRegion);
-        props.put("client.region", glueProperties.glueRegion);
-        catalog.initialize("glue", props);
-        return catalog;
     }
 }

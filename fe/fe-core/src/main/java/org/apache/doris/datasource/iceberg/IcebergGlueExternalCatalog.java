@@ -22,49 +22,26 @@ import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.doris.datasource.property.metastore.IcebergGlueMetaStoreProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
     // As a default placeholder. The path just use for 'create table', query stmt will not use it.
     private static final String CHECKED_WAREHOUSE = "s3://doris";
-    
-    private IcebergGlueMetaStoreProperties glueProperties;
 
     public IcebergGlueExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
         super(catalogId, name, comment);
-        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
-    }
-
-    @Override
-    protected void initCatalog() {
-        icebergCatalogType = ICEBERG_GLUE;
-        IcebergGlueMetaStoreProperties properties = new IcebergGlueMetaStoreProperties(getCatalogProperty().getProperties());
-        properties.initNormalizeAndCheckProps();
-        properties.initialize();
-        /*GlueCatalog glueCatalog = new GlueCatalog();
-        Configuration conf = getConfiguration();
-        initS3Param(conf);
-        glueCatalog.setConf(conf);
-        // initialize glue catalog
-        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        String warehouse = catalogProperty.getOrDefault(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
-        catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        // read from converted s3 endpoint or default by BE s3 endpoint
-        String endpoint = catalogProperties.getOrDefault(Constants.ENDPOINT,
-                catalogProperties.get(S3Properties.Env.ENDPOINT));
-        catalogProperties.putIfAbsent(S3FileIOProperties.ENDPOINT, endpoint);
-
-        glueCatalog.initialize(getName(), catalogProperties);*/
-        
-        catalog = properties.getCatalog();
     }
 }

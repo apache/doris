@@ -18,6 +18,8 @@
 package org.apache.doris.common.security.authentication;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.Callable;
 
@@ -31,7 +33,7 @@ import java.util.concurrent.Callable;
  * (such as Kerberos). Otherwise, it will execute tasks normally.
  */
 public class PreExecutionAuthenticator {
-
+    private static final Logger LOG = LogManager.getLogger(PreExecutionAuthenticator.class);
     private HadoopAuthenticator hadoopAuthenticator;
 
     /**
@@ -70,7 +72,9 @@ public class PreExecutionAuthenticator {
      * @throws Exception If an exception occurs during task execution
      */
     public <T> T execute(Callable<T> task) throws Exception {
+        LOG.warn("execute task");
         if (hadoopAuthenticator != null) {
+            LOG.warn("execute task with hadoopAuthenticator"+hadoopAuthenticator.getClass().getName());
             // Adapts Callable to PrivilegedExceptionAction for use with Hadoop authentication
             return hadoopAuthenticator.doAs(task::call);
         } else {
@@ -81,6 +85,7 @@ public class PreExecutionAuthenticator {
 
     public void execute(Runnable task) throws Exception {
         if (hadoopAuthenticator != null) {
+            LOG.warn("execute task with hadoopAuthenticator"+hadoopAuthenticator.getClass().getName());
             // Adapts Runnable to PrivilegedExceptionAction for use with Hadoop authentication
             hadoopAuthenticator.doAs(() -> {
                 task.run();
