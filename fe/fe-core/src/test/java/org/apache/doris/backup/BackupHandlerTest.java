@@ -284,10 +284,10 @@ public class BackupHandlerTest {
         List<TableRefInfo> tableRefInfos2 = Lists.newArrayList();
         tableRefInfos2.add(new TableRefInfo(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
                 CatalogMocker.TEST_TBL_NAME), null, null, null, null, null, null, null));
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put("backup_timestamp", "2018-08-08-08-08-08");
-        boolean isExclude = false;
-        RestoreCommand restoreCommand = new RestoreCommand(new LabelNameInfo(CatalogMocker.TEST_DB_NAME, "ss2"), "repo", tableRefInfos2, properties, isExclude);
+        Map<String, String> properties02 = Maps.newHashMap();
+        properties02.put("backup_timestamp", "2018-08-08-08-08-08");
+        boolean isExclude02 = false;
+        RestoreCommand restoreCommand = new RestoreCommand(new LabelNameInfo(CatalogMocker.TEST_DB_NAME, "ss2"), "repo", tableRefInfos2, properties02, isExclude02);
         restoreCommand.analyzeProperties();
         handler.process(restoreCommand);
 
