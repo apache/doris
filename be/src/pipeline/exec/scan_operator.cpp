@@ -469,8 +469,10 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
             // the type of predicate not match the slot's type
             return false;
         }
-    } else if (child_contains_slot->data_type()->get_primitive_type() ==
-                       PrimitiveType::TYPE_DATETIME &&
+    } else if ((child_contains_slot->data_type()->get_primitive_type() ==
+                        PrimitiveType::TYPE_DATETIME ||
+                child_contains_slot->data_type()->get_primitive_type() ==
+                        PrimitiveType::TYPE_DATETIMEV2) &&
                child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
         // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
         // push down.

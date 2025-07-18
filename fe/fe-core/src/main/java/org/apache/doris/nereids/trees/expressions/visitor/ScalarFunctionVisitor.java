@@ -266,16 +266,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractI
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractLargeint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParse;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToInvalid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnull;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullable;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToNull;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
@@ -1500,43 +1492,11 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonbParse, context);
     }
 
-    default R visitJsonbParseErrorToInvalid(JsonbParseErrorToInvalid function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
     default R visitJsonbParseErrorToNull(JsonbParseErrorToNull function, C context) {
         return visitScalarFunction(function, context);
     }
 
     default R visitJsonbParseErrorToValue(JsonbParseErrorToValue function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNotnull(JsonbParseNotnull jsonbParseNotnull, C context) {
-        return visitScalarFunction(jsonbParseNotnull, context);
-    }
-
-    default R visitJsonbParseNotnullErrorToInvalid(JsonbParseNotnullErrorToInvalid function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNotnullErrorToValue(JsonbParseNotnullErrorToValue function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNullable(JsonbParseNullable jsonbParseNullable, C context) {
-        return visitScalarFunction(jsonbParseNullable, context);
-    }
-
-    default R visitJsonbParseNullableErrorToInvalid(JsonbParseNullableErrorToInvalid function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNullableErrorToNull(JsonbParseNullableErrorToNull function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNullableErrorToValue(JsonbParseNullableErrorToValue function, C context) {
         return visitScalarFunction(function, context);
     }
 
