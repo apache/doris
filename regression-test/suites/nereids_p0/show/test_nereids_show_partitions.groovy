@@ -142,6 +142,7 @@ suite("test_nereids_show_partitions") {
 
     // state
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl where state = 'NORMAL'")
+    checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl where state like '%NORMAL%'")
 
    def res1 = sql """show partitions from test_show_partitions.test_show_partitions_tbl"""
    assertEquals(3, res1.size())
@@ -196,6 +197,8 @@ suite("test_nereids_show_partitions") {
     // test for state
     def res24 = sql """show partitions from test_show_partitions.test_show_partitions_tbl where state = 'NORMAL'"""
     assertEquals(3, res24.size())
+    def res25 = sql """show partitions from test_show_partitions.test_show_partitions_tbl where state like '%NORMAL%'"""
+    assertEquals(3, res25.size())
 
    assertThrows(Exception.class, {
       sql """show partitions from test_show_partitions.test_show_partitions_tbl where VisibleVersion = 1"""

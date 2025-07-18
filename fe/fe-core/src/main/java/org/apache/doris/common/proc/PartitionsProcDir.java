@@ -247,7 +247,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 return !filterSubExpression(subExpr, element);
             }
         } else {
-            return like((String) element, ((StringLikeLiteral) subExpr.child(1)).getStringValue());
+            return like(element.toString(), ((StringLikeLiteral) subExpr.child(1)).getStringValue());
         }
         return false;
     }
