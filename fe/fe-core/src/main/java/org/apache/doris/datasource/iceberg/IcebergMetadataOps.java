@@ -32,7 +32,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
@@ -374,11 +373,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void afterRenameTable(String dbName) {
-        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
-        if (db != null) {
-            db.setUnInitialized();
+    public void afterRenameTable(String dbNamem, String oldName, String newName) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            db.get().resetMetaCacheNames();
         }
+        LOG.info("after rename table {}.{}.{} to {}, is db exists: {}",
+                dorisCatalog.getName(), dbName, oldName, newName, db.isPresent());
     }
 
     @Override

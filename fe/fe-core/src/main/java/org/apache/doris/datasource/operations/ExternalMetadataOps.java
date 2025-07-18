@@ -124,14 +124,14 @@ public interface ExternalMetadataOps {
      */
     default void renameTable(String dbName, String oldName, String newName) throws DdlException {
         renameTableImpl(dbName, oldName, newName);
-        afterRenameTable(dbName);
+        afterRenameTable(dbName, oldName, newName);
     }
 
     default void renameTableImpl(String dbName, String oldName, String newName) throws DdlException {
         throw new UnsupportedOperationException("Rename table operation is not supported for this table type.");
     }
 
-    default void afterRenameTable(String dbName) {
+    default void afterRenameTable(String dbName, String oldName, String newName) {
         throw new UnsupportedOperationException("After rename table operation is not supported for this table type.");
     }
 
