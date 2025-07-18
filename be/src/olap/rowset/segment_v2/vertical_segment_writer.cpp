@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -116,7 +117,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
     for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
         _key_coders.push_back(get_key_coder(column.type()));
-        _key_index_size.push_back(static_cast<uint16_t>(column.index_length()));
+        _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
     }
     // encode the sequence id into the primary key index
     if (_is_mow()) {
@@ -137,7 +138,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
             for (auto cid : _tablet_schema->cluster_key_uids()) {
                 const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
-                _key_index_size.push_back(static_cast<uint16_t>(column.index_length()));
+                _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
             }
         }
     }
@@ -151,7 +152,7 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
                                               const TabletColumn& column) {
     meta->set_column_id(column_id);
     meta->set_type(int(column.type()));
-    meta->set_length(static_cast<int32_t>(column.length()));
+    meta->set_length(cast_set<int32_t>(column.length()));
     meta->set_encoding(DEFAULT_ENCODING);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
@@ -205,8 +206,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
             return Status::NotSupported("Do not support ngram bloom filter for bf_size: ",
                                         gram_bf_size);
         }
-        opts.gram_size = static_cast<uint8_t>(gram_size);
-        opts.gram_bf_size = static_cast<uint16_t>(gram_bf_size);
+        opts.gram_size = cast_set<uint8_t>(gram_size);
+        opts.gram_bf_size = cast_set<uint16_t>(gram_bf_size);
     }
 
     opts.need_bitmap_index = column.has_bitmap_index();
@@ -355,7 +356,7 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
                                                        _tablet_schema->row_columns_uids().end());
             vectorized::JsonbSerializeUtil::block_to_jsonb(
                     *_tablet_schema, block, *row_store_column,
-                    static_cast<int>(_tablet_schema->num_columns()), serdes, row_store_cids_set);
+                    cast_set<int>(_tablet_schema->num_columns()), serdes, row_store_cids_set);
             break;
         }
     }
@@ -377,7 +378,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     RowsetSharedPtr rowset;
     auto st = _tablet->lookup_row_key(
             key, _tablet_schema.get(), have_input_seq_column, specified_rowsets, &loc,
-            static_cast<uint32_t>(_mow_context->max_version), segment_caches, &rowset);
+            cast_set<uint32_t>(_mow_context->max_version), segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
         if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
@@ -420,7 +421,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
         // for this row, we need to ensure that each column is aligned
         _mow_context->delete_bitmap->add(
                 {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                static_cast<uint32_t>(segment_pos));
+                cast_set<uint32_t>(segment_pos));
         ++stats.num_rows_deleted;
     } else {
         _mow_context->delete_bitmap->add(
@@ -565,7 +566,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             return _opts.rowset_ctx->partial_update_info->handle_new_key(
                     *_tablet_schema, [&]() -> std::string {
                         return data.block->dump_one_line(block_pos,
-                                                         static_cast<int>(_num_sort_key_columns));
+                                                         cast_set<int>(_num_sort_key_columns));
                     });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
@@ -737,7 +738,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                 full_block.get_by_position(cid), data.row_pos, data.num_rows,
-                static_cast<uint32_t>(cid)));
+                cast_set<uint32_t>(cid)));
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
         if (!status.ok()) {
             return status;
@@ -782,7 +783,7 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
                                                                   std::string* encoded_value) {
     const auto& seq_column = tablet_schema.column(tablet_schema.sequence_col_idx());
     auto block = tablet_schema.create_block_by_cids(
-            {static_cast<uint32_t>(tablet_schema.sequence_col_idx())});
+            {cast_set<uint32_t>(tablet_schema.sequence_col_idx())});
     if (seq_column.has_default_value()) {
         auto idx = tablet_schema.sequence_col_idx() - tablet_schema.num_key_columns();
         const auto& default_value = info.default_values[idx];
@@ -844,7 +845,7 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
                     *_tablet_schema,
                     [&]() -> std::string {
                         return data.block->dump_one_line(block_pos,
-                                                         static_cast<int>(_num_sort_key_columns));
+                                                         cast_set<int>(_num_sort_key_columns));
                     },
                     &skip_bitmap);
         };
@@ -943,7 +944,7 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
                 continue;
             }
             CHECK(entry->data.is_finalized());
-            uint32_t current_column_id = static_cast<uint32_t>(column_id++);
+            uint32_t current_column_id = cast_set<uint32_t>(column_id++);
             TabletColumn tablet_column = generate_column_info(entry);
             vectorized::schema_util::inherit_column_attributes(*parent_column, tablet_column,
                                                                _flush_schema);
@@ -1438,7 +1439,7 @@ Status VerticalSegmentWriter::_write_footer() {
 
     faststring fixed_buf;
     // footer's size
-    put_fixed32_le(&fixed_buf, static_cast<uint32_t>(footer_buf.size()));
+    put_fixed32_le(&fixed_buf, cast_set<uint32_t>(footer_buf.size()));
     // footer's checksum
     uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
