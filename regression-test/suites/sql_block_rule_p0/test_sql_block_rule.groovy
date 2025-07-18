@@ -272,4 +272,17 @@ suite("test_sql_block_rule", "nonConcurrent") {
         """
     }
 
+    multi_sql """
+        drop SQL_BLOCK_RULE if exists rule_drop_r;
+
+        CREATE SQL_BLOCK_RULE rule_drop
+        PROPERTIES(
+        "sql"="select \\* from order_analysis",
+        "global"="true",
+        "enable"="true");
+
+        ALTER SQL_BLOCK_RULE rule_drop PROPERTIES("global"="true");
+
+        select NULL;
+    """
 }
