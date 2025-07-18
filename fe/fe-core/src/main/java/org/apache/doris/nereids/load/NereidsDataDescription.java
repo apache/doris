@@ -1158,7 +1158,7 @@ public class NereidsDataDescription {
     }
 
     /**
-     * this method con convert NereidsDataDescription to DataDescription
+     * this method can convert NereidsDataDescription to DataDescription
      */
     public DataDescription toDataDescription(ConnectContext ctx) throws AnalysisException {
         // we should get all member variables from NereidsDataDescription object,
