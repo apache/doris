@@ -224,8 +224,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
     if (is_int_or_bool(data_type->get_primitive_type()) ||
         is_string_type(data_type->get_primitive_type()) ||
         is_float_or_double(data_type->get_primitive_type())) {
-        DCHECK(data_type->get_size_of_value_in_memory() <= std::numeric_limits<int32_t>::max());
-        column.set_length(static_cast<int32_t>(data_type->get_size_of_value_in_memory()));
+        column.set_length(cast_set<int32_t>(data_type->get_size_of_value_in_memory()));
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
