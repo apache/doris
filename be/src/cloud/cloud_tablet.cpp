@@ -561,10 +561,9 @@ void CloudTablet::remove_unused_rowsets() {
         }
     }
 
-    LOG(INFO) << "tablet_id=" << tablet_id()
-                << ", unused_rowset size=" << _unused_rowsets.size()
-                << ", removed_rowsets_num=" << removed_rowsets.size()
-                << ", cost(us)=" << watch.get_elapse_time_us();
+    LOG(INFO) << "tablet_id=" << tablet_id() << ", unused_rowset size=" << _unused_rowsets.size()
+              << ", removed_rowsets_num=" << removed_rowsets.size()
+              << ", cost(us)=" << watch.get_elapse_time_us();
 }
 
 void CloudTablet::update_base_size(const Rowset& rs) {
