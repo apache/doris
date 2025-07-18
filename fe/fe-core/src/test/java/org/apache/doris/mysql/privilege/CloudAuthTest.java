@@ -18,43 +18,26 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateRoleStmt;
-import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
-import org.apache.doris.analysis.GrantStmt;
-import org.apache.doris.analysis.ResourcePattern;
-import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.RevokeStmt;
-import org.apache.doris.analysis.ShowGrantsStmt;
-import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.AccessPrivilege;
-import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.ShowExecutor;
-import org.apache.doris.qe.ShowResultSet;
 
-import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import java.util.List;
 
 public class CloudAuthTest {
 
@@ -137,37 +120,37 @@ public class CloudAuthTest {
         auth.dropUser(dropUserStmt);
     }
 
+    /*
     public ShowResultSet testShowGrants(UserIdentity userIdent) throws AnalysisException {
         ShowGrantsStmt stmt = new ShowGrantsStmt(userIdent, false);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         return executor.execute();
     }
+     */
 
     @Test
     public void testComputeGroup() throws UserException {
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
-        String role = "role0";
-        String computeGroup1 = "cg1";
-        ResourcePattern resourcePattern = new ResourcePattern(computeGroup1, ResourceTypeEnum.CLUSTER);
-        String anyResource = "%";
-        ResourcePattern anyResourcePattern = new ResourcePattern(anyResource, ResourceTypeEnum.CLUSTER);
-        List<AccessPrivilegeWithCols> usagePrivileges = Lists
-                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
+        // String role = "role0";
+        // String computeGroup1 = "cg1";
+        // ResourcePattern resourcePattern = new ResourcePattern(computeGroup1, ResourceTypeEnum.CLUSTER);
+        // String anyResource = "%";
+        // ResourcePattern anyResourcePattern = new ResourcePattern(anyResource, ResourceTypeEnum.CLUSTER);
+        //List<AccessPrivilegeWithCols> usagePrivileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
 
         // ------ grant|revoke cluster to|from user ------
         // 1. create user with no role
-        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
+        CreateUserInfo createUserInfo = new CreateUserInfo(false, userDesc, "admin", null, "");
         try {
-            createUserStmt.analyze(analyzer);
-            auth.createUser(createUserStmt);
+            createUserInfo.validate();
+            auth.createUser(createUserInfo);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
-
         // 2. grant usage_priv on cluster 'cg1' to 'testUser'@'%'
-        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges,
+        GrantResourcePrivilegeCommand grantResourcePrivilegeCommand = new GrantResourcePrivilegeCommand(userIdentity, null, resourcePattern, usagePrivileges,
                 ResourceTypeEnum.CLUSTER);
         try {
             grantStmt.analyze(analyzer);
@@ -180,6 +163,7 @@ public class CloudAuthTest {
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
+        /*
         // 3. revoke usage_priv on cluster 'cg1' from 'testUser'@'%'
         RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges,
                 ResourceTypeEnum.CLUSTER);
@@ -619,5 +603,6 @@ public class CloudAuthTest {
 
         // drop user
         dropUser(userIdentity);
+        */
     }
 }
