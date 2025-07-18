@@ -767,7 +767,7 @@ public class SessionVariable implements Serializable, Writable {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().hotValueThreshold;
         } else {
-            return 0.5;
+            return Double.parseDouble(VariableMgr.getDefaultValue(HOT_VALUE_THRESHOLD));
         }
     }
 
@@ -5032,7 +5032,11 @@ public class SessionVariable implements Serializable, Writable {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
     }
 
-    public boolean enableStrictCast() {
-        return enableStrictCast;
+    public static boolean enableStrictCast() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().enableStrictCast;
+        } else {
+            return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
+        }
     }
 }

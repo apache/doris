@@ -569,7 +569,7 @@ class StatisticsUtilTest {
 
     @Test
     void testGetHotValues() {
-        String value1 = "1234 :0.33 ;222 :0.22";
+        String value1 = "1234 :0.35 ;222 :0.34";
         Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
         Assertions.assertEquals(2, hotValues.size());
 
@@ -577,11 +577,11 @@ class StatisticsUtilTest {
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
             if (i == 0) {
                 Assertions.assertEquals("1234", entry.getKey().getStringValue());
-                Assertions.assertEquals("0.33", entry.getValue().toString());
+                Assertions.assertEquals("0.35", entry.getValue().toString());
                 i++;
             } else {
                 Assertions.assertEquals("222", entry.getKey().getStringValue());
-                Assertions.assertEquals("0.22", entry.getValue().toString());
+                Assertions.assertEquals("0.34", entry.getValue().toString());
             }
         }
 
@@ -594,19 +594,12 @@ class StatisticsUtilTest {
             Assertions.assertEquals("0.33", entry.getValue().toString());
         }
 
-        String value3 = "aabbcc\\:\\; :0.33 ; dd :0.22";
+        String value3 = "aabbcc\\:\\; :0.34 ; dd :0.22";
         hotValues = StatisticsUtil.getHotValues(value3, Type.STRING);
-        Assertions.assertEquals(2, hotValues.size());
-        i = 0;
+        Assertions.assertEquals(1, hotValues.size());
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
-            if (i == 0) {
-                Assertions.assertEquals("aabbcc:;", entry.getKey().getStringValue());
-                Assertions.assertEquals("0.33", entry.getValue().toString());
-                i++;
-            } else {
-                Assertions.assertEquals(" dd", entry.getKey().getStringValue());
-                Assertions.assertEquals("0.22", entry.getValue().toString());
-            }
+            Assertions.assertEquals("aabbcc:;", entry.getKey().getStringValue());
+            Assertions.assertEquals("0.34", entry.getValue().toString());
         }
     }
 }
