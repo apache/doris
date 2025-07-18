@@ -506,6 +506,7 @@ Status PipelineTask::execute(bool* done) {
 
             bool eos = false;
             RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, &eos));
+            RETURN_IF_ERROR(block->check_type_and_column());
             _eos = eos;
         }
 
@@ -565,6 +566,7 @@ Status PipelineTask::execute(bool* done) {
                     }
                 }
             });
+            RETURN_IF_ERROR(block->check_type_and_column());
             status = _sink->sink(_state, block, _eos);
 
             if (status.is<ErrorCode::END_OF_FILE>()) {

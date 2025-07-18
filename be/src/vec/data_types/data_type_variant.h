@@ -63,6 +63,9 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
     }
     MutableColumnPtr create_column() const override { return ColumnVariant::create(is_nullable); }
+    Status check_column(const IColumn& column) const override {
+        return check_column_non_nested_type<ColumnVariant>(column);
+    }
     bool equals(const IDataType& rhs) const override;
     bool have_subtypes() const override { return true; };
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
