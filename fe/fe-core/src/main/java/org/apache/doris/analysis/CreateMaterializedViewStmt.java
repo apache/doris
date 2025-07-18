@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
