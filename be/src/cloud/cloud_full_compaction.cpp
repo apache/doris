@@ -366,7 +366,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
                         std::make_pair(rowset_ptr->rowset_id(), rowset_ptr->num_segments()));
             }
         }
-        _tablet->tablet_meta()->delete_bitmap().subset_and_agg(
+        _tablet->tablet_meta()->delete_bitmap().subset(
                 pre_rowset_ids_to_segment_num, _input_rowsets.front()->start_version(),
                 _input_rowsets.back()->end_version(), delete_bitmap.get());
     }

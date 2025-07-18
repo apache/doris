@@ -1127,7 +1127,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
                 }
             }
         }
-        tablet_meta()->delete_bitmap().subset_and_agg(
+        tablet_meta()->delete_bitmap().subset(
                 pre_rowsets_to_segment_num, output_rowset->start_version(),
                 output_rowset->end_version(), output_rowset_delete_bitmap.get());
     }
