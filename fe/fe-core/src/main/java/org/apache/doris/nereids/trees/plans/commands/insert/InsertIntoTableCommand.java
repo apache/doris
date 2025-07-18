@@ -98,18 +98,26 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private long jobId;
     private final Optional<InsertCommandContext> insertCtx;
     private final Optional<LogicalPlan> cte;
+    private final boolean needNormalizePlan;
+
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+            Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
+        this(logicalQuery, labelName, insertCtx, cte, true);
+    }
 
     /**
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
+                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
+                                  boolean needNormalizePlan) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.originLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.logicalQuery = Optional.empty();
         this.insertCtx = insertCtx;
         this.cte = cte;
+        this.needNormalizePlan = needNormalizePlan;
     }
 
     public LogicalPlan getLogicalQuery() {
@@ -235,9 +243,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
             );
             // process inline table (default values, empty values)
-            this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
-                    originLogicalQuery, targetTableIf, analyzeContext, insertCtx
-            ));
+            if (needNormalizePlan) {
+                this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
+                        originLogicalQuery, targetTableIf, analyzeContext, insertCtx
+                ));
+            } else {
+                this.logicalQuery = Optional.of(originLogicalQuery);
+            }
             if (cte.isPresent()) {
                 this.logicalQuery = Optional.of((LogicalPlan) cte.get().withChildren(logicalQuery.get()));
             }
