@@ -127,6 +127,37 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }
 
+Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
+        const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
+        int64_t query_freshness_tolerance_ms) {
+    Versions version_path;
+    std::shared_lock rlock(_meta_lock);
+    // find a versin path where every edge(rowset) has been warmuped
+    auto validator = [&](int64_t start_version, int64_t end_version) -> bool {
+        if (start_version < end_version) {
+            return false;
+        }
+        Version version {start_version, end_version};
+        auto it = _rs_version_map.find(version);
+        if (it == _rs_version_map.end()) {
+            it = _stale_rs_version_map.find(version);
+            if (it == _stale_rs_version_map.end()) {
+                return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
+                        "fail to find Rowset in stale_rs_version for version. tablet={}, "
+                        "version={}-{}",
+                        tablet_id(), version.first, version.second);
+            }
+        }
+        const auto& rs = it->second;
+        return rs->has_been_warmuped();
+    };
+    RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
+            spec_version, version_path, validator));
+    int64_t path_max_version = version_path.back().second;
+
+    return Status::OK();
+}
+
 Status CloudTablet::merge_rowsets_schema() {
     // Find the rowset with the max version
     auto max_version_rowset =
