@@ -103,6 +103,7 @@ import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
+import org.apache.doris.nereids.DorisParser.ExpressionWithEofContext;
 import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
@@ -548,6 +549,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitSingleStatement(SingleStatementContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(ctx.statement()));
+    }
+
+    @Override
+    public Expression visitExpressionWithEof(ExpressionWithEofContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> typedVisit(ctx.expression()));
     }
 
     @Override
