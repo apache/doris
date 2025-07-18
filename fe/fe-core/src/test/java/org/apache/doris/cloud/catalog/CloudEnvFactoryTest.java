@@ -47,7 +47,7 @@ public class CloudEnvFactoryTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "100");
         PropertyAnalyzer.getInstance().rewriteOlapProperties(
-                "catalog_not_exist", "db_not_exist", properties);
+                "catalog_not_exist", "db_not_exist", properties, 0);
         Assert.assertEquals("1", properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
     }
 
