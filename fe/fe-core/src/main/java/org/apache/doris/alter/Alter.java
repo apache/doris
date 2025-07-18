@@ -198,7 +198,7 @@ public class Alter {
     }
 
     private boolean processAlterOlapTableInternal(List<AlterClause> alterClauses, OlapTable olapTable,
-            Database db, String sql) throws UserException {
+                                          Database db, String sql) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
             throw new UserException("z-order table can not support schema change!");
@@ -263,8 +263,8 @@ public class Alter {
             // must check here whether you can set the policy, otherwise there will be inconsistent metadata
             if (enableUniqueKeyMergeOnWrite && !Strings.isNullOrEmpty(currentStoragePolicy)) {
                 throw new UserException(
-                        "Can not set UNIQUE KEY table that enables Merge-On-write"
-                                + " with storage policy(" + currentStoragePolicy + ")");
+                    "Can not set UNIQUE KEY table that enables Merge-On-write"
+                        + " with storage policy(" + currentStoragePolicy + ")");
             }
             olapTable.setStoragePolicy(currentStoragePolicy);
             needProcessOutsideTableLock = true;
@@ -581,7 +581,7 @@ public class Alter {
     }
 
     private void processModifyEngineInternal(Database db, Table externalTable,
-            Map<String, String> prop, boolean isReplay) {
+                                             Map<String, String> prop, boolean isReplay) {
         MysqlTable mysqlTable = (MysqlTable) externalTable;
         Map<String, String> newProp = Maps.newHashMap(prop);
         newProp.put(OdbcTable.ODBC_HOST, mysqlTable.getHost());
@@ -802,7 +802,7 @@ public class Alter {
     }
 
     public void processReplaceTable(Database db, OlapTable origTable, String newTblName,
-            boolean swapTable, boolean isForce)
+                                    boolean swapTable, boolean isForce)
             throws UserException {
         db.writeLockOrDdlException();
         try {
@@ -873,7 +873,7 @@ public class Alter {
      * 1.2 rename B to A, drop old A, and add new A to database.
      */
     private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable,
-            boolean isReplay, boolean isForce)
+                                      boolean isReplay, boolean isForce)
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
@@ -928,7 +928,7 @@ public class Alter {
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
-            List<Column> newFullSchema, String comment) throws DdlException {
+                               List<Column> newFullSchema, String comment) throws DdlException {
         db.writeLockOrDdlException();
         try {
             view.writeLockOrDdlException();
@@ -1033,10 +1033,10 @@ public class Alter {
      * caller should hold the table lock
      */
     public void modifyPartitionsProperty(Database db,
-            OlapTable olapTable,
-            List<String> partitionNames,
-            Map<String, String> properties,
-            boolean isTempPartition)
+                                         OlapTable olapTable,
+                                         List<String> partitionNames,
+                                         Map<String, String> properties,
+                                         boolean isTempPartition)
             throws DdlException, AnalysisException {
         checkNoForceProperty(properties);
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
@@ -1160,9 +1160,9 @@ public class Alter {
     }
 
     public void setReplicasToDrop(Partition partition,
-            ReplicaAllocation oldReplicaAlloc,
-            ReplicaAllocation newReplicaAlloc,
-            Map<Long, Long> tableBeToReplicaNumMap) {
+                                 ReplicaAllocation oldReplicaAlloc,
+                                 ReplicaAllocation newReplicaAlloc,
+                                 Map<Long, Long> tableBeToReplicaNumMap) {
         if (newReplicaAlloc.getAllocMap().entrySet().stream().noneMatch(
                 entry -> entry.getValue() < oldReplicaAlloc.getReplicaNumByTag(entry.getKey()))) {
             return;
@@ -1176,9 +1176,9 @@ public class Alter {
     }
 
     private void processReplicasInPartition(Partition partition,
-            Map<Long, Long> tableBeToReplicaNumMap, SystemInfoService systemInfoService,
-            ReplicaAllocation oldReplicaAlloc, ReplicaAllocation newReplicaAlloc,
-            List<Long> aliveBes) {
+                                            Map<Long, Long> tableBeToReplicaNumMap, SystemInfoService systemInfoService,
+                                            ReplicaAllocation oldReplicaAlloc, ReplicaAllocation newReplicaAlloc,
+                                            List<Long> aliveBes) {
         List<Tag> changeTags = newReplicaAlloc.getAllocMap().entrySet().stream()
                 .filter(entry -> entry.getValue() < oldReplicaAlloc.getReplicaNumByTag(entry.getKey()))
                 .map(Map.Entry::getKey).collect(Collectors.toList());
@@ -1205,8 +1205,8 @@ public class Alter {
     }
 
     private boolean isTabletHealthy(Tablet tablet, SystemInfoService systemInfoService,
-            Partition partition, ReplicaAllocation oldReplicaAlloc,
-            List<Long> aliveBes) {
+                                    Partition partition, ReplicaAllocation oldReplicaAlloc,
+                                    List<Long> aliveBes) {
         return tablet.getHealth(systemInfoService, partition.getVisibleVersion(), oldReplicaAlloc, aliveBes)
                      .status == Tablet.TabletStatus.HEALTHY;
     }
@@ -1214,12 +1214,12 @@ public class Alter {
     private Map<Tag, List<Replica>> getReplicasWithTag(Tablet tablet) {
         return tablet.getReplicas().stream()
                 .collect(Collectors.groupingBy(replica -> Env.getCurrentSystemInfo()
-                        .getBackend(replica.getBackendIdWithoutException()).getLocationTag()));
+                .getBackend(replica.getBackendIdWithoutException()).getLocationTag()));
     }
 
     private void sortReplicasByBackendCount(List<Replica> replicas,
-            Map<Long, Long> tableBeToReplicaNumMap,
-            Map<Long, Long> partitionBeToReplicaNumMap) {
+                                            Map<Long, Long> tableBeToReplicaNumMap,
+                                            Map<Long, Long> partitionBeToReplicaNumMap) {
         replicas.sort((Replica r1, Replica r2) -> {
             long countPartition1 = partitionBeToReplicaNumMap.getOrDefault(r1.getBackendIdWithoutException(), 0L);
             long countPartition2 = partitionBeToReplicaNumMap.getOrDefault(r2.getBackendIdWithoutException(), 0L);
