@@ -24,10 +24,10 @@
 #include <thread>
 #include <tuple>
 
+#include "common/compile_check_begin.h"
 #include "io/fs/err_utils.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
-
 namespace doris::io {
 
 HdfsFileHandle::~HdfsFileHandle() {
@@ -148,7 +148,8 @@ Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fna
                                         FileHandleCache::Accessor* accessor, bool* cache_hit) {
     DCHECK_GE(mtime, 0);
     // Hash the key and get appropriate partition
-    int index = HashUtil::hash(fname.data(), fname.size(), 0) % _cache_partitions.size();
+    int index = HashUtil::hash(fname.data(), static_cast<int>(fname.size()), 0) %
+                _cache_partitions.size();
     FileHandleCachePartition& p = _cache_partitions[index];
 
     auto cache_key = std::make_pair(fname, mtime);
@@ -202,3 +203,4 @@ void FileHandleCache::_evict_handles_loop() {
 }
 
 } // namespace doris::io
+#include "common/compile_check_end.h"

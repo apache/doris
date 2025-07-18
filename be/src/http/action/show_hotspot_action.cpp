@@ -21,6 +21,7 @@
 #include <string>
 
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/compile_check_begin.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 
@@ -37,13 +38,13 @@ enum class Metrics {
     UNKNOWN = 100000,
 };
 
-Status check_param(HttpRequest* req, int& top_n, Metrics& metrics) {
+Status check_param(HttpRequest* req, size_t& top_n, Metrics& metrics) {
     const std::string TOPN_PARAM = "topn";
 
     auto& topn_str = req->param(TOPN_PARAM);
     if (!topn_str.empty()) {
         try {
-            top_n = std::stoi(topn_str);
+            top_n = std::stoul(topn_str);
         } catch (const std::exception& e) {
             return Status::InternalError("convert topn failed, {}", e.what());
         }
@@ -90,7 +91,7 @@ using MinHeap = std::priority_queue<TabletCounter, std::vector<TabletCounter>, C
 } // namespace
 
 void ShowHotspotAction::handle(HttpRequest* req) {
-    int topn = 0;
+    size_t topn = 0;
     Metrics metrics {Metrics::UNKNOWN};
     auto st = check_param(req, topn, metrics);
     if (!st.ok()) [[unlikely]] {
@@ -168,3 +169,4 @@ void ShowHotspotAction::handle(HttpRequest* req) {
 }
 
 } // namespace doris
+#include "common/compile_check_end.h"

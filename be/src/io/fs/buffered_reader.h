@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/compile_check_begin.h"
 #include "common/status.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
@@ -38,7 +39,6 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/common/typeid_cast.h"
-
 namespace doris {
 namespace io {
 
@@ -552,7 +552,7 @@ private:
     void reset_all_buffer(size_t position) {
         for (int64_t i = 0; i < _pre_buffers.size(); i++) {
             int64_t cur_pos = position + i * s_max_pre_buffer_size;
-            int cur_buf_pos = get_buffer_pos(cur_pos);
+            size_t cur_buf_pos = get_buffer_pos(cur_pos);
             // reset would do all the prefetch work
             _pre_buffers[cur_buf_pos]->reset_offset(get_buffer_offset(cur_pos));
         }
@@ -666,3 +666,4 @@ private:
 
 } // namespace io
 } // namespace doris
+#include "common/compile_check_end.h"

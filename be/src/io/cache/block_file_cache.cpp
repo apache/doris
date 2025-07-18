@@ -38,6 +38,7 @@
 #include <mutex>
 #include <ranges>
 
+#include "common/compile_check_begin.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -51,7 +52,6 @@
 #include "util/time.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/uint128.h"
-
 namespace doris::io {
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
@@ -584,7 +584,7 @@ std::string BlockFileCache::clear_file_cache_async() {
         std::vector<FileBlockCell*> deleting_cells;
         for (auto& [_, offset_to_cell] : _files) {
             ++num_files_all;
-            for (auto& [_, cell] : offset_to_cell) {
+            for (auto& [_1, cell] : offset_to_cell) {
                 ++num_cells_all;
                 deleting_cells.push_back(&cell);
             }
@@ -1676,11 +1676,11 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
     // nonroot_total = stat.f_blocks - stat.f_bfree + stat.f_bavail
     uintmax_t u100 = (stat.f_blocks - stat.f_bfree) * 100;
     uintmax_t nonroot_total = stat.f_blocks - stat.f_bfree + stat.f_bavail;
-    int capacity_percentage = u100 / nonroot_total + (u100 % nonroot_total != 0);
+    int capacity_percentage = int(u100 / nonroot_total + (u100 % nonroot_total != 0));
 
     unsigned long long inode_free = stat.f_ffree;
     unsigned long long inode_total = stat.f_files;
-    int inode_percentage = int(inode_free * 1.0 / inode_total * 100);
+    int inode_percentage = int((double)inode_free / (double)inode_total * 100);
     percent->first = capacity_percentage;
     percent->second = 100 - inode_percentage;
 
@@ -1832,7 +1832,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
     }
     if (is_insufficient(space_percentage) || is_insufficient(inode_percentage) ||
-        is_insufficient(size_percentage)) {
+        is_insufficient(static_cast<int>(size_percentage))) {
         _need_evict_cache_in_advance = true;
         _need_evict_cache_in_advance_metrics->set_value(1);
     } else if (_need_evict_cache_in_advance &&
@@ -1847,7 +1847,8 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
                      << " inode_percent=" << inode_percentage << " size_percent=" << size_percentage
                      << " is_space_insufficient=" << is_insufficient(space_percentage)
                      << " is_inode_insufficient=" << is_insufficient(inode_percentage)
-                     << " is_size_insufficient=" << is_insufficient(size_percentage)
+                     << " is_size_insufficient="
+                     << is_insufficient(static_cast<int>(size_percentage))
                      << " need evict cache in advance";
     }
 }
@@ -1897,15 +1898,15 @@ void BlockFileCache::run_background_monitor() {
 
             if (_num_read_blocks->get_value() > 0) {
                 _hit_ratio->set_value((double)_num_hit_blocks->get_value() /
-                                      _num_read_blocks->get_value());
+                                      (double)_num_read_blocks->get_value());
             }
             if (_num_read_blocks_5m->get_value() > 0) {
                 _hit_ratio_5m->set_value((double)_num_hit_blocks_5m->get_value() /
-                                         _num_read_blocks_5m->get_value());
+                                         (double)_num_read_blocks_5m->get_value());
             }
             if (_num_read_blocks_1h->get_value() > 0) {
                 _hit_ratio_1h->set_value((double)_num_hit_blocks_1h->get_value() /
-                                         _num_read_blocks_1h->get_value());
+                                         (double)_num_read_blocks_1h->get_value());
             }
         }
     }
@@ -2357,3 +2358,4 @@ template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
                                      std::lock_guard<std::mutex>& block_lock, bool sync);
 } // namespace doris::io
+#include "common/compile_check_end.h"
