@@ -1535,7 +1535,7 @@ DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 // p0, daily, rqg, external
-DEFINE_String(fuzzy_test_type, "")
+DEFINE_String(fuzzy_test_type, "");
 
 DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
 
