@@ -109,6 +109,11 @@ public:
         return nullptr;
     }
 
+    // Similar to datatype::get_primitive_type(), but note that the current data type and column are not one-to-one relationship.
+    // For example, the columns of json and string are both ColumnStrings.
+    // If column is some data type without mapping, INVALID_TYPE will be returned.
+    virtual PrimitiveType get_primitive_type() const = 0;
+
     // shrink the end zeros for ColumnStr(also for who has it nested). so nest column will call it for all nested.
     // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
     virtual void shrink_padding_chars() {}

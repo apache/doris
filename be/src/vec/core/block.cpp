@@ -40,6 +40,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "runtime/primitive_type.h"
 #include "runtime/thread_context.h"
 #include "util/block_compression.h"
 #include "util/faststring.h"
@@ -463,6 +464,55 @@ size_t Block::allocated_bytes() const {
     }
 
     return res;
+}
+
+Status Block::check_type_and_column() const {
+    for (const auto& elem : data) {
+        if (!elem.column) {
+            continue;
+        }
+        if (!elem.type) {
+            continue;
+        }
+
+        const auto& type = elem.type;
+        const auto& column = elem.column;
+
+        auto report_error = [&]() -> Status {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "column type not match, column name={}, data type={}, column type ={}",
+                    elem.name, type->get_name(), column->get_name());
+        };
+
+        auto column_nullable = [&]() {
+            if (column->is_nullable()) {
+                return true;
+            }
+            if (const auto* column_const = check_and_get_column<ColumnConst>(*column)) {
+                if (column_const->get_data_column().is_nullable()) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        auto datatype_nullable = [&]() { return type->is_nullable(); };
+
+        if (datatype_nullable() != column_nullable()) {
+            return report_error();
+        }
+
+        if (auto col_type = column->get_primitive_type(); col_type != PrimitiveType::INVALID_TYPE) {
+            const bool all_string_type =
+                    is_string_type(col_type) && is_string_type(type->get_primitive_type());
+            const bool type_equal = col_type == type->get_primitive_type();
+
+            if (!(all_string_type || type_equal)) {
+                return report_error();
+            }
+        }
+    }
+    return Status::OK();
 }
 
 std::string Block::dump_names() const {
