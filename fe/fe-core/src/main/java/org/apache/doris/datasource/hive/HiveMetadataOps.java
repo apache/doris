@@ -126,7 +126,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterCreateDb() {
-        catalog.onRefreshCache(true);
+        catalog.resetMetaCacheNames();
     }
 
     @Override
@@ -167,7 +167,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropDb(String dbName) {
-        catalog.onRefreshCache(true);
+        catalog.unregisterDatabase(dbName);
     }
 
     @Override
@@ -289,8 +289,10 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public void afterCreateTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().setUnInitialized(true);
+            db.get().resetMetaCacheNames();
         }
+        LOG.info("after create table {}.{}.{}, is db exists: {}",
+                getCatalog().getName(), dbName, tblName, db.isPresent());
     }
 
     @Override
@@ -319,8 +321,10 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public void afterDropTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().setUnInitialized(true);
+            db.get().unregisterTable(tblName);
         }
+        LOG.info("after drop table {}.{}.{}, is db exists: {}",
+                getCatalog().getName(), dbName, tblName, db.isPresent());
     }
 
     @Override
@@ -339,12 +343,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             // Invalidate cache.
             Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
             if (db.isPresent()) {
-                Optional dorisTable = db.get().getTableForReplay(tblName);
-                if (dorisTable.isPresent()) {
-                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) dorisTable.get());
+                Optional tbl = db.get().getTableForReplay(tblName);
+                if (tbl.isPresent()) {
+                    Env.getCurrentEnv().getRefreshManager()
+                            .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), 0);
                 }
-                db.get().setLastUpdateTime(System.currentTimeMillis());
-                db.get().setUnInitialized(true);
             }
         } catch (Exception e) {
             LOG.warn("exception when calling afterTruncateTable for db: {}, table: {}, error: {}",

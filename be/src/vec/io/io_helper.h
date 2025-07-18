@@ -41,12 +41,6 @@
 
 namespace doris::vectorized {
 
-// Define in the namespace and avoid defining global macros,
-// because it maybe conflicts with other libs
-static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
-static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
-static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
-
 inline std::string int128_to_string(int128_t value) {
     return fmt::format(FMT_COMPILE("{}"), value);
 }
@@ -96,154 +90,6 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
         ostr.write(str_fractional.data(), scale);
     }
 }
-/// Methods for output in binary format.
-
-/// Write POD-type in native format. It's recommended to use only with packed (dense) data types.
-template <typename Type>
-void write_pod_binary(const Type& x, BufferWritable& buf) {
-    buf.write(reinterpret_cast<const char*>(&x), sizeof(x));
-}
-
-template <typename Type>
-void write_int_binary(const Type& x, BufferWritable& buf) {
-    write_pod_binary(x, buf);
-}
-
-template <typename Type>
-void write_float_binary(const Type& x, BufferWritable& buf) {
-    write_pod_binary(x, buf);
-}
-
-inline void write_string_binary(const std::string& s, BufferWritable& buf) {
-    write_var_uint(s.size(), buf);
-    buf.write(s.data(), s.size());
-}
-
-inline void write_string_binary(const StringRef& s, BufferWritable& buf) {
-    write_var_uint(s.size, buf);
-    buf.write(s.data, s.size);
-}
-
-inline void write_string_binary(const char* s, BufferWritable& buf) {
-    write_string_binary(StringRef {std::string(s)}, buf);
-}
-
-inline void write_json_binary(const JsonbField& s, BufferWritable& buf) {
-    write_string_binary(StringRef {s.get_value(), s.get_size()}, buf);
-}
-
-template <typename Type>
-void write_vector_binary(const std::vector<Type>& v, BufferWritable& buf) {
-    write_var_uint(v.size(), buf);
-
-    for (typename std::vector<Type>::const_iterator it = v.begin(); it != v.end(); ++it) {
-        write_binary(*it, buf);
-    }
-}
-
-inline void write_binary(const String& x, BufferWritable& buf) {
-    write_string_binary(x, buf);
-}
-
-inline void write_binary(const StringRef& x, BufferWritable& buf) {
-    write_string_binary(x, buf);
-}
-
-template <typename Type>
-void write_binary(const Type& x, BufferWritable& buf) {
-    write_pod_binary(x, buf);
-}
-
-/// Read POD-type in native format
-template <typename Type>
-void read_pod_binary(Type& x, BufferReadable& buf) {
-    buf.read(reinterpret_cast<char*>(&x), sizeof(x));
-}
-
-template <typename Type>
-void read_int_binary(Type& x, BufferReadable& buf) {
-    read_pod_binary(x, buf);
-}
-
-template <typename Type>
-void read_float_binary(Type& x, BufferReadable& buf) {
-    read_pod_binary(x, buf);
-}
-
-template <typename Type>
-    requires(std::is_same_v<Type, String> || std::is_same_v<Type, PaddedPODArray<UInt8>>)
-inline void read_string_binary(Type& s, BufferReadable& buf,
-                               size_t MAX_STRING_SIZE = DEFAULT_MAX_STRING_SIZE) {
-    UInt64 size = 0;
-    read_var_uint(size, buf);
-
-    if (size > MAX_STRING_SIZE) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
-    }
-
-    s.resize(size);
-    buf.read((char*)s.data(), size);
-}
-
-inline void read_string_binary(StringRef& s, BufferReadable& buf,
-                               size_t MAX_STRING_SIZE = DEFAULT_MAX_STRING_SIZE) {
-    UInt64 size = 0;
-    read_var_uint(size, buf);
-
-    if (size > MAX_STRING_SIZE) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
-    }
-
-    s = buf.read(size);
-}
-
-inline StringRef read_string_binary_into(Arena& arena, BufferReadable& buf) {
-    UInt64 size = 0;
-    read_var_uint(size, buf);
-
-    char* data = arena.alloc(size);
-    buf.read(data, size);
-
-    return {data, size};
-}
-
-inline void read_json_binary(JsonbField& val, BufferReadable& buf,
-                             size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
-    StringRef result;
-    read_string_binary(result, buf);
-    val = JsonbField(result.data, result.size);
-}
-
-template <typename Type>
-void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
-                        size_t MAX_VECTOR_SIZE = DEFAULT_MAX_STRING_SIZE) {
-    UInt64 size = 0;
-    read_var_uint(size, buf);
-
-    if (size > MAX_VECTOR_SIZE) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large vector size.");
-    }
-
-    v.resize(size);
-    for (size_t i = 0; i < size; ++i) {
-        read_binary(v[i], buf);
-    }
-}
-
-template <typename Type>
-    requires(std::is_same_v<Type, String> || std::is_same_v<Type, PaddedPODArray<UInt8>>)
-inline void read_binary(Type& x, BufferReadable& buf) {
-    read_string_binary(x, buf);
-}
-
-inline void read_binary(StringRef& x, BufferReadable& buf) {
-    read_string_binary(x, buf);
-}
-
-template <typename Type>
-void read_binary(Type& x, BufferReadable& buf) {
-    read_pod_binary(x, buf);
-}
 
 template <typename T>
 bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
@@ -255,8 +101,7 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     StringParser::ParseResult result;
     x = StringParser::string_to_float<T>(in.position(), in.count(), &result);
 
-    // to support nan and inf
-    if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(x) || std::isinf(x))) {
+    if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
         return false;
     }
 
@@ -265,10 +110,10 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     return true;
 }
 
-template <typename T>
+template <typename T, bool enable_strict_mode = false>
 bool read_int_text_impl(T& x, ReadBuffer& buf) {
     StringParser::ParseResult result;
-    x = StringParser::string_to_int<T>(buf.position(), buf.count(), &result);
+    x = StringParser::string_to_int<T, enable_strict_mode>(buf.position(), buf.count(), &result);
 
     if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
         return false;
@@ -426,10 +271,6 @@ StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 p
 
 template <typename T>
 bool try_read_bool_text(T& x, ReadBuffer& buf) {
-    if (read_int_text_impl<T>(x, buf)) {
-        return x == 0 || x == 1;
-    }
-
     StringParser::ParseResult result;
     x = StringParser::string_to_bool(buf.position(), buf.count(), &result);
     if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
@@ -441,9 +282,9 @@ bool try_read_bool_text(T& x, ReadBuffer& buf) {
     return true;
 }
 
-template <typename T>
+template <typename T, bool enable_strict_mode = false>
 bool try_read_int_text(T& x, ReadBuffer& buf) {
-    return read_int_text_impl<T>(x, buf);
+    return read_int_text_impl<T, enable_strict_mode>(x, buf);
 }
 
 template <typename T>
@@ -505,4 +346,15 @@ bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& loca
                                UInt32 scale) {
     return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
+
+#include "common/compile_check_begin.h"
+
+bool inline try_read_bool_text(UInt8& x, StringRef& buf) {
+    StringParser::ParseResult result;
+    x = StringParser::string_to_bool(buf.data, buf.size, &result);
+    return result == StringParser::PARSE_SUCCESS;
+}
+
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

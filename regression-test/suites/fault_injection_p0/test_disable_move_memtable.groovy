@@ -248,9 +248,9 @@ suite("test_disable_move_memtable", "nonConcurrent") {
             try {
                 GetDebugPoint().enableDebugPointForAllBEs(injection)
                 if (enableHdfs()) {
-                    brokerName = getBrokerName()
-                    hdfsUser = getHdfsUser()
-                    hdfsPasswd = getHdfsPasswd()
+                    def brokerName = getBrokerName()
+                    def hdfsUser = getHdfsUser()
+                    def hdfsPasswd = getHdfsPasswd()
                     def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/broker_load_with_properties.json"
                     def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
                     load_from_hdfs_norm.call(tableName, test_load_label, hdfs_csv_file_path, "json",

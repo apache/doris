@@ -353,7 +353,6 @@ DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
 DECLARE_Int32(doris_scanner_thread_pool_queue_size);
 // default thrift client connect timeout(in seconds)
 DECLARE_mInt32(thrift_connect_timeout_seconds);
-DECLARE_mInt32(fetch_rpc_timeout_seconds);
 // default thrift client retry interval (in milliseconds)
 DECLARE_mInt64(thrift_client_retry_interval_ms);
 // max message size of thrift request
@@ -1087,14 +1086,13 @@ DECLARE_Int32(segcompaction_task_max_rows);
 // Max total file size allowed in a single segcompaction task.
 DECLARE_Int64(segcompaction_task_max_bytes);
 
+DECLARE_Int32(segcompaction_wait_for_dbm_task_timeout_s);
+
 // Global segcompaction thread pool size.
 DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
-
-// enable prefetch tablets before opening
-DECLARE_mBool(enable_prefetch_tablet);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
@@ -1593,6 +1591,11 @@ DECLARE_mInt32(load_trigger_compaction_version_percent);
 DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
 DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
+DECLARE_mBool(enable_quorum_success_write);
+DECLARE_mDouble(quorum_success_max_wait_multiplier);
+DECLARE_mInt64(quorum_success_min_wait_seconds);
+DECLARE_mInt32(quorum_success_remaining_timeout_seconds);
+
 DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
@@ -1602,6 +1605,10 @@ DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
+
+DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
+
+DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 
 #ifdef BE_TEST
 // test s3

@@ -275,7 +275,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
 }
 
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                    Arena* mem_pool, int32_t col_id,
+                                                    Arena& mem_pool, int32_t col_id,
                                                     int64_t row_num) const {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
@@ -409,5 +409,23 @@ Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
+                                          const FormatOptions& options) const {
+    auto& col = assert_cast<ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    Status st = nested_serde->from_string(str, nested_col, options);
+    if (!st.ok()) {
+        // default is null
+        col.insert_default();
+    }
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                      const FormatOptions& options) const {
+    auto& col = assert_cast<ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    return nested_serde->from_string_strict_mode(str, nested_col, options);
+}
 } // namespace vectorized
 } // namespace doris

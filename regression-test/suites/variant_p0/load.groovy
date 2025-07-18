@@ -238,7 +238,7 @@ suite("regression_test_variant", "p0"){
 
         // 12. jsonb values
         table_name = "jsonb_values"
-        create_table table_name
+        create_table.call(table_name, "DUPLICATE", "1")
         sql """insert into ${table_name} values (1, '{"a" : ["123", 123, [123]]}')"""
         // FIXME array -> jsonb will parse error
         // sql """insert into ${table_name} values (2, '{"a" : ["123"]}')"""
@@ -251,6 +251,8 @@ suite("regression_test_variant", "p0"){
         // sql """insert into ${table_name} values (8, '{"a" : [123, 111........]}')"""
         sql """insert into ${table_name} values (9, '{"a" : [123, {"a" : 1}]}')"""
         sql """insert into ${table_name} values (10, '{"a" : [{"a" : 1}, 123]}')"""
+        sql "select v['a'] from ${table_name} order by k"
+        trigger_and_wait_compaction(table_name, "full")
         qt_sql_29 "select cast(v['a'] as string) from ${table_name} order by k"
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
         qt_sql_30 "select v['b']['e'], v['a'], v['b'], v['b']['c'] from jsonb_values where cast(v['b']['e'] as double) > 1;"
@@ -260,11 +262,11 @@ suite("regression_test_variant", "p0"){
         create_table table_name
         sql """insert into  sparse_columns select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        qt_sql_30 """ select v from sparse_columns where json_extract(v, "\$") != "{}" order by cast(v as string) limit 10"""
+        qt_sql_30 """ select v from sparse_columns where json_extract_string(v, "\$") != "{}" order by cast(v as string) limit 10"""
         sql "truncate table sparse_columns"
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        qt_sql_31 """ select v from sparse_columns where json_extract(v, "\$") != "{}" order by cast(v as string) limit 10"""
+        qt_sql_31 """ select v from sparse_columns where json_extract_string(v, "\$") != "{}" order by cast(v as string) limit 10"""
         sql "truncate table sparse_columns"
 
         table_name = "github_events"

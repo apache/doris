@@ -29,15 +29,11 @@ public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
     private final String comment;
 
     public AlterViewStmt(TableName tbl, String comment) {
-        this(tbl, null, null, comment);
+        this(tbl, null, comment);
     }
 
-    public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt) {
-        this(tbl, cols, queryStmt, null);
-    }
-
-    public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt, String comment) {
-        super(tbl, cols, queryStmt);
+    public AlterViewStmt(TableName tbl, List<ColWithComment> cols, String comment) {
+        super(tbl, cols);
         this.comment = comment;
     }
 
@@ -63,22 +59,7 @@ public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
 
     @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("ALTER VIEW ");
-        sb.append(tableName.toSql()).append("\n");
-        if (cols != null) {
-            sb.append("(\n");
-            for (int i = 0; i < cols.size(); i++) {
-                if (i != 0) {
-                    sb.append(",\n");
-                }
-                sb.append("  ").append(cols.get(i).getColName());
-            }
-            sb.append("\n)");
-        }
-        sb.append("\n");
-        sb.append("AS ").append(viewDefStmt.toSql()).append("\n");
-        return sb.toString();
+        return "";
     }
 
     @Override

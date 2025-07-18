@@ -158,7 +158,6 @@ public abstract class ExternalCatalog
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
-    protected boolean invalidCacheInInit = true;
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
 
@@ -300,10 +299,15 @@ public abstract class ExternalCatalog
      * So you have to make sure the client of third system is initialized before any method was called.
      */
     public final synchronized void makeSureInitialized() {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("start to init catalog {}:{}", name, id);
+        }
         if (isInitializing) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("catalog {}:{} is initializing, skip make sure initialized.", name, id, new Exception());
+            }
             return;
         }
-        isInitializing = true;
         try {
             initLocalObjects();
             if (!initialized) {
@@ -334,6 +338,9 @@ public abstract class ExternalCatalog
 
     protected final void initLocalObjects() {
         if (!objectCreated) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("start to init local objects of catalog {}:{}", getName(), id, new Exception());
+            }
             initLocalObjectsImpl();
             objectCreated = true;
         }
@@ -345,6 +352,9 @@ public abstract class ExternalCatalog
 
     private void buildMetaCache() {
         if (metaCache == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
+            }
             metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
@@ -354,7 +364,7 @@ public abstract class ExternalCatalog
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
+                    (key, value, cause) -> value.ifPresent(v -> v.resetToUninitialized()));
         }
     }
 
@@ -569,8 +579,9 @@ public abstract class ExternalCatalog
         refreshOnlyCatalogCache(invalidCache);
     }
 
-    public void onRefreshCache(boolean invalidCache) {
-        refreshOnlyCatalogCache(invalidCache);
+    // Only for hms event handling.
+    public void onRefreshCache() {
+        refreshOnlyCatalogCache(true);
     }
 
     private void refreshOnlyCatalogCache(boolean invalidCache) {
@@ -580,11 +591,10 @@ public abstract class ExternalCatalog
             } else if (!useMetaCache.get()) {
                 this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-                    db.setUnInitialized(invalidCache);
+                    db.resetToUninitialized();
                 }
             }
         }
-        this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
@@ -788,7 +798,7 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getAccessManager().removeAccessController(name);
     }
 
-    public void replayInitCatalog(InitCatalogLog log) {
+    public synchronized void replayInitCatalog(InitCatalogLog log) {
         // If the remote name is missing during upgrade, or
         // the refresh db's remote name is empty,
         // all databases in the Map will be reinitialized.
@@ -880,6 +890,10 @@ public abstract class ExternalCatalog
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(String dbName) {
         Preconditions.checkState(useMetaCache.isPresent(), name);
         if (useMetaCache.get()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getDbForReplay from metacache, db: {}.{}, catalog id: {}, is catalog init: {}",
+                        this.name, dbName, this.id, isInitialized());
+            }
             if (!isInitialized()) {
                 return Optional.empty();
             }
@@ -1103,6 +1117,7 @@ public abstract class ExternalCatalog
                 // we should get the table stored in Doris, and use local name in edit log.
                 CreateTableInfo info = new CreateTableInfo(getName(), stmt.getDbName(), stmt.getTableName());
                 Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                LOG.info("finished to create table {}.{}.{}", getName(), stmt.getDbName(), stmt.getTableName());
             }
             return res;
         } catch (Exception e) {
@@ -1152,8 +1167,29 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Unregisters a database from the catalog.
+     * Internally, remove the database meta from cache
+     *
+     * @param dbName
+     */
     public void unregisterDatabase(String dbName) {
-        throw new NotImplementedException("unregisterDatabase not implemented");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("unregister database [{}]", dbName);
+        }
+        if (useMetaCache.get()) {
+            if (isInitialized()) {
+                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
+            }
+        } else {
+            Long dbId = dbNameToId.remove(dbName);
+            if (dbId == null) {
+                LOG.warn("unregister database {}.{} failed, not find in map. ignore.", this.name, dbName);
+            } else {
+                idToDb.remove(dbId);
+            }
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1306,10 +1342,6 @@ public abstract class ExternalCatalog
         }
     }
 
-    public ThreadPoolExecutor getThreadPoolExecutor() {
-        return threadPoolWithPreAuth;
-    }
-
     public CatalogProperty getCatalogProperty() {
         return catalogProperty;
     }
@@ -1426,6 +1458,18 @@ public abstract class ExternalCatalog
             LOG.warn("Failed to drop tag for table {}.{} in catalog {}",
                     externalTable.getDbName(), externalTable.getName(), getName(), e);
             throw e;
+        }
+    }
+
+    /**
+     * Resets the name list in meta cache.
+     * Usually used after creating database in catalog, so that user can see newly created db immediately.
+     */
+    public void resetMetaCacheNames() {
+        if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
+            metaCache.resetNames();
+        } else {
+            resetToUninitialized(true);
         }
     }
 }

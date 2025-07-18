@@ -68,8 +68,8 @@ struct HeapSorterTest : public testing::Test {
 
     VSortExecExprs sort_exec_exprs;
 
-    std::vector<bool> is_asc_order {true};
-    std::vector<bool> nulls_first {false};
+    std::vector<bool> is_asc_order {true, true};
+    std::vector<bool> nulls_first {false, false};
 };
 
 TEST_F(HeapSorterTest, test_topn_sorter1) {

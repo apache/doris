@@ -23,8 +23,10 @@
 #include "common/logging.h"
 #include "common/stats.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "meta_service.h"
 
 namespace doris::cloud {
@@ -461,6 +463,11 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         return;
     }
 
+    CommitPartitionLogPB commit_partition_log;
+    commit_partition_log.set_db_id(request->db_id());
+    commit_partition_log.set_table_id(request->table_id());
+    commit_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
+
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -505,14 +512,51 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         }
         LOG_INFO("remove recycle partition").tag("key", hex(key));
         txn->remove(key);
+
+        // Save the partition meta/index keys
+        if (request->has_db_id() && is_version_write_enabled(instance_id)) {
+            int64_t db_id = request->db_id();
+            int64_t table_id = request->table_id();
+            std::string part_meta_key = versioned::meta_partition_key({instance_id, part_id});
+            std::string part_index_key = versioned::partition_index_key({instance_id, part_id});
+            std::string part_inverted_index_key = versioned::partition_inverted_index_key(
+                    {instance_id, db_id, table_id, part_id});
+            PartitionIndexPB part_index_pb;
+            part_index_pb.set_db_id(db_id);
+            part_index_pb.set_table_id(table_id);
+            LOG(INFO) << part_index_pb.DebugString();
+            std::string part_index_value;
+            if (!part_index_pb.SerializeToString(&part_index_value)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format("failed to serialize PartitionIndexPB");
+                LOG_WARNING(msg).tag("part_id", part_id);
+                return;
+            }
+            versioned_put(txn.get(), part_meta_key, "");
+            txn->put(part_inverted_index_key, "");
+            txn->put(part_index_key, part_index_value);
+
+            commit_partition_log.add_partition_ids(part_id);
+        }
     }
 
     // update table versions
     if (request->has_db_id()) {
-        std::string ver_key =
-                table_version_key({instance_id, request->db_id(), request->table_id()});
-        txn->atomic_add(ver_key, 1);
-        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
+        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+    }
+
+    if (commit_partition_log.partition_ids_size() > 0 && is_version_write_enabled(instance_id)) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_commit_partition()->Swap(&commit_partition_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 
     err = txn->commit();
@@ -632,6 +676,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
         stats.get_counter += txn->num_get_keys();
     };
     auto& [keys, hint, key_func] = get_check_info(request);
@@ -653,6 +698,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
             *msg = "prepare and commit rpc not match, recycle key remained";
             return;
         } else if (err == TxnErrorCode::TXN_TOO_OLD) {
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             //  separate it to several txn for rubustness
             txn.reset();

@@ -196,12 +196,10 @@ struct HashTableCell {
     void set_mapped(const value_type& /*value*/) {}
 
     /// Serialization, in binary and text form.
-    void write(doris::vectorized::BufferWritable& wb) const {
-        doris::vectorized::write_binary(key, wb);
-    }
+    void write(doris::vectorized::BufferWritable& wb) const { wb.write_binary(key); }
 
     /// Deserialization, in binary and text form.
-    void read(doris::vectorized::BufferReadable& rb) { doris::vectorized::read_binary(key, rb); }
+    void read(doris::vectorized::BufferReadable& rb) { rb.read_binary(key); }
 };
 
 template <typename Key, typename Hash, typename State>
@@ -948,7 +946,7 @@ public:
 
     void write(doris::vectorized::BufferWritable& wb) const {
         Cell::State::write(wb);
-        doris::vectorized::write_var_uint(m_size, wb);
+        wb.write_var_uint(m_size);
 
         if (this->get_has_zero()) this->zero_value()->write(wb);
 
@@ -964,7 +962,7 @@ public:
         m_size = 0;
 
         doris::vectorized::UInt64 new_size = 0;
-        doris::vectorized::read_var_uint(new_size, rb);
+        rb.read_var_uint(new_size);
 
         free();
         Grower new_grower = grower;

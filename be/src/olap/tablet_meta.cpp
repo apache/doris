@@ -345,6 +345,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.storage_page_size) {
         schema->set_storage_page_size(tablet_schema.storage_page_size);
     }
+    if (tablet_schema.__isset.storage_dict_page_size) {
+        schema->set_storage_dict_page_size(tablet_schema.storage_dict_page_size);
+    }
     if (tablet_schema.__isset.skip_write_index_on_load) {
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
@@ -401,6 +404,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     column->set_name(tcolumn.column_name);
     column->set_has_bitmap_index(tcolumn.has_bitmap_index);
     column->set_is_auto_increment(tcolumn.is_auto_increment);
+    if (tcolumn.__isset.is_on_update_current_timestamp) {
+        column->set_is_on_update_current_timestamp(tcolumn.is_on_update_current_timestamp);
+    }
     string data_type;
     EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
     column->set_type(data_type);

@@ -63,8 +63,9 @@ public:
     const std::string get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
+    using SerDeType = DataTypeDateV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDateV2SerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 
     Field get_field(const TExprNode& node) const override {
@@ -139,8 +140,9 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(UInt64 int_val) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    using SerDeType = DataTypeDateTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDateTimeV2SerDe>(_scale, nesting_level);
+        return std::make_shared<SerDeType>(_scale, nesting_level);
     };
 
     Field get_field(const TExprNode& node) const override {

@@ -36,6 +36,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 // A regex to match any regex pattern is equivalent to a substring search.
 static const RE2 SUBSTRING_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
 
@@ -184,7 +185,6 @@ struct VectorEndsWithSearchState : public VectorPatternSearchState {
 };
 
 Status LikeSearchState::clone(LikeSearchState& cloned) {
-    cloned.escape_char = escape_char;
     cloned.set_search_string(search_string);
 
     std::string re_pattern;
@@ -383,7 +383,8 @@ Status FunctionLikeBase::vector_substring_fn(const ColumnString& vals,
 Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                   const StringRef& pattern, unsigned char* result) {
     if (state->hs_database) { // use hyperscan
-        auto ret = hs_scan(state->hs_database.get(), val.data, val.size, 0, state->hs_scratch.get(),
+        auto ret = hs_scan(state->hs_database.get(), val.data, (int)val.size, 0,
+                           state->hs_scratch.get(),
                            doris::vectorized::LikeSearchState::hs_match_handler, (void*)result);
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
@@ -417,7 +418,7 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
     if (state->hs_database) { // use hyperscan
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
-            auto ret = hs_scan(state->hs_database.get(), str_ref.data, str_ref.size, 0,
+            auto ret = hs_scan(state->hs_database.get(), str_ref.data, (int)str_ref.size, 0,
                                state->hs_scratch.get(),
                                doris::vectorized::LikeSearchState::hs_match_handler,
                                (void*)(result.data() + i));
@@ -446,7 +447,7 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& v
         auto sz = val.size();
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
-            auto ret = hs_scan(database, str_ref.data, str_ref.size, 0, scratch,
+            auto ret = hs_scan(database, str_ref.data, (int)str_ref.size, 0, scratch,
                                doris::vectorized::LikeSearchState::hs_match_handler,
                                (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
@@ -728,40 +729,36 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
         re_pattern->append("^");
     }
 
-    bool is_escaped = false;
-    // expect % and _, all chars should keep it literal means.
-    for (char i : pattern) {
-        if (is_escaped) { // last is \, this should be escape
-            if (i == '[' || i == ']' || i == '(' || i == ')' || i == '{' || i == '}' || i == '-' ||
-                i == '*' || i == '+' || i == '\\' || i == '|' || i == '/' || i == ':' || i == '^' ||
-                i == '.' || i == '$' || i == '?') {
-                re_pattern->append(1, '\\');
-            } else if (i != '%' && i != '_') {
-                re_pattern->append(2, '\\');
+    // expect % and _, all chars should keep it literal mean.
+    for (size_t i = 0; i < pattern.size(); i++) {
+        char c = pattern[i];
+        if (c == '\\' && i + 1 < pattern.size()) {
+            char next_c = pattern[i + 1];
+            if (next_c == '%' || next_c == '_') {
+                // convert "\%" and "\_" to literal "%" and "_"
+                re_pattern->append(1, next_c);
+                i++;
+                continue;
+            } else if (next_c == '\\') {
+                // keep valid escape "\\"
+                re_pattern->append("\\\\");
+                i++;
+                continue;
             }
-            re_pattern->append(1, i);
-            is_escaped = false;
+        }
+
+        if (c == '%') {
+            re_pattern->append(".*");
+        } else if (c == '_') {
+            re_pattern->append(".");
         } else {
-            switch (i) {
-            case '%':
-                re_pattern->append(".*");
-                break;
-            case '_':
-                re_pattern->append(".");
-                break;
-            default:
-                is_escaped = i == state->escape_char;
-                if (!is_escaped) {
-                    // special for hyperscan: [, ], (, ), {, }, -, *, +, \, |, /, :, ^, ., $, ?
-                    if (i == '[' || i == ']' || i == '(' || i == ')' || i == '{' || i == '}' ||
-                        i == '-' || i == '*' || i == '+' || i == '\\' || i == '|' || i == '/' ||
-                        i == ':' || i == '^' || i == '.' || i == '$' || i == '?') {
-                        re_pattern->append(1, '\\');
-                    }
-                    re_pattern->append(1, i);
-                }
-                break;
+            // special for hyperscan: [, ], (, ), {, }, -, *, +, \, |, /, :, ^, ., $, ?
+            if (c == '[' || c == ']' || c == '(' || c == ')' || c == '{' || c == '}' || c == '-' ||
+                c == '*' || c == '+' || c == '\\' || c == '|' || c == '/' || c == ':' || c == '^' ||
+                c == '.' || c == '$' || c == '?') {
+                re_pattern->append(1, '\\');
             }
+            re_pattern->append(1, c);
         }
     }
 
@@ -774,7 +771,9 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
 void FunctionLike::remove_escape_character(std::string* search_string) {
     std::string tmp_search_string;
     tmp_search_string.swap(*search_string);
-    int len = tmp_search_string.length();
+    int64_t len = tmp_search_string.length();
+    // sometime 'like' may allowed converted to 'equals/start_with/end_with/sub_with'
+    // so we need to remove escape from pattern to construct search string and use to do 'equals/start_with/end_with/sub_with'
     for (int i = 0; i < len;) {
         if (tmp_search_string[i] == '\\' && i + 1 < len &&
             (tmp_search_string[i + 1] == '%' || tmp_search_string[i + 1] == '_' ||
@@ -804,7 +803,7 @@ bool re2_full_match(const std::string& str, const RE2& re, std::vector<std::stri
         arguments_ptrs[i] = &arguments[i];
     }
 
-    return RE2::FullMatchN(str, re, arguments_ptrs.data(), args_count);
+    return RE2::FullMatchN(str, re, arguments_ptrs.data(), (int)args_count);
 }
 
 void verbose_log_match(const std::string& str, const std::string& pattern_name, const RE2& re) {
@@ -1024,5 +1023,5 @@ void register_function_regexp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexpLike>();
     factory.register_alias(FunctionRegexpLike::name, FunctionRegexpLike::alias);
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

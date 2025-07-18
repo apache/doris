@@ -81,7 +81,7 @@ suite("agg_cse") {
             select count(distinct k2,k3),count(*), sum(k2+k3), avg(k2+k3) from 
             nereids_test_query_db.baseall group by k1
             """
-        contains("final projections: k1[#1], k2[#2], k3[#3], (k2[#2] + k3[#3])")
+        contains("final projections: k1[#1], k2[#2], k3[#3], (CAST(k2[#2] AS bigint) + CAST(k3[#3] AS bigint))")
     //  expect plan: final projections: k1[#1], k2[#2], k3[#3], (k2[#2] + k3[#3])
     //
     //  0:VOlapScanNode(147)

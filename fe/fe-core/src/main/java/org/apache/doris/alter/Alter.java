@@ -28,7 +28,6 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateOrReplaceBranchClause;
 import org.apache.doris.analysis.CreateOrReplaceTagClause;
 import org.apache.doris.analysis.DropBranchClause;
-import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTagClause;
@@ -77,7 +76,9 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
@@ -155,14 +156,15 @@ public class Alter {
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(command, db, olapTable);
     }
 
-    public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        TableName tableName = stmt.getTableName();
+    public void processDropMaterializedView(DropMaterializedViewCommand command)
+            throws DdlException, MetaNotFoundException {
+        TableNameInfo tableName = command.getTableName();
         String dbName = tableName.getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         String name = tableName.getTbl();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
-        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
+        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(command, db, olapTable);
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -871,6 +873,18 @@ public class Alter {
                 Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable, isReplay);
             }
         }
+    }
+
+    public void processAlterView(AlterViewCommand command, ConnectContext ctx) throws UserException {
+        org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo alterViewInfo = command.getAlterViewInfo();
+        TableNameInfo tableNameInfo = alterViewInfo.getViewName();
+        String dbName = tableNameInfo.getDb();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        String tableName = tableNameInfo.getTbl();
+        View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
+        modifyViewDef(db, view, alterViewInfo.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(),
+                alterViewInfo.getColumns(), alterViewInfo.getComment());
     }
 
     public void processAlterView(AlterViewStmt stmt, ConnectContext ctx) throws UserException {
