@@ -26,6 +26,7 @@
 #include <string>
 #include <string_view>
 
+#include "common/status.h"
 #include "gutil/ref_counted.h"
 
 namespace doris {
@@ -78,6 +79,8 @@ public:
     void stop();
 
     void submit_task(const TAgentTaskRequest& task);
+
+    Status submit_high_prior_and_cancel_low(const TAgentTaskRequest& task);
 
 private:
     void normal_loop();
