@@ -73,22 +73,19 @@ public:
         EngineOptions options;
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
-        auto engine = std::make_unique<StorageEngine>(options);
-        _data_dir = new DataDir(*engine, _engine_data_path, 1000000000);
+        k_engine = std::make_unique<StorageEngine>(options);
+        _data_dir = new DataDir(*k_engine, _engine_data_path, 1000000000);
         static_cast<void>(_data_dir->init());
-        _tablet_mgr = engine->tablet_manager();
-        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(std::move(engine));
+        _tablet_mgr = k_engine->tablet_manager();
     }
 
     virtual void TearDown() {
         SAFE_DELETE(_data_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
         _tablet_mgr = nullptr;
-        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_memtable_memory_limiter(nullptr);
-        exec_env->set_storage_engine(nullptr);
+        config::compaction_num_per_round = 1;
     }
+    std::unique_ptr<StorageEngine> k_engine;
 
 private:
     DataDir* _data_dir = nullptr;
@@ -399,14 +396,13 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
                 TabletMetaManager::get_meta(_data_dir, tablet_id, 3333, new_tablet_meta);
         ASSERT_TRUE(check_meta_st.ok()) << check_meta_st;
         // insert into rowset
-        auto create_rowset = [=](int64_t start, int64_t end) {
+        auto create_rowset = [=, this](int64_t start, int64_t end) {
             auto rowset_meta = std::make_shared<RowsetMeta>();
             Version version(start, end);
             rowset_meta->set_version(version);
             rowset_meta->set_tablet_id(tablet->tablet_id());
             rowset_meta->set_tablet_uid(tablet->tablet_uid());
-            rowset_meta->set_rowset_id(
-                    ExecEnv::GetInstance()->storage_engine().to_local().next_rowset_id());
+            rowset_meta->set_rowset_id(k_engine->next_rowset_id());
             return std::make_shared<BetaRowset>(tablet->tablet_schema(), std::move(rowset_meta),
                                                 tablet->tablet_path());
         };
@@ -474,6 +470,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     }
 
     {
+        config::compaction_num_per_round = 10;
         for (int64_t i = 1; i <= 100; ++i) {
             create_tablet(10000 + i, false, i);
         }
@@ -481,13 +478,14 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
                 CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
                 cumulative_compaction_policies);
-        ASSERT_EQ(compact_tablets.size(), 1);
+        ASSERT_EQ(compact_tablets.size(), 10);
         int index = 0;
         for (auto t : compact_tablets) {
             ASSERT_EQ(t->tablet_id(), 10100 - index);
             ASSERT_EQ(t->calc_compaction_score(), 100 - index);
             index++;
         }
+        config::compaction_num_per_round = 1;
         // drop all tablets
         for (int64_t id = 10001; id <= 10100; ++id) {
             Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
@@ -496,7 +494,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     }
 
     {
-        ExecEnv::GetInstance()->storage_engine().to_local()._compaction_num_per_round = 2;
+        config::compaction_num_per_round = 10;
         for (int64_t i = 1; i <= 100; ++i) {
             create_tablet(20000 + i, false, i);
         }
@@ -505,15 +503,15 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
                 CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
                 cumulative_compaction_policies);
-        ASSERT_EQ(compact_tablets.size(), 3);
-        for (int i = 0; i < 2; ++i) {
+        ASSERT_EQ(compact_tablets.size(), 11);
+        for (int i = 0; i < 10; ++i) {
             ASSERT_EQ(compact_tablets[i]->tablet_id(), 20100 - i);
             ASSERT_EQ(compact_tablets[i]->calc_compaction_score(), 100 - i);
         }
-        ASSERT_EQ(compact_tablets[2]->tablet_id(), 20102);
-        ASSERT_EQ(compact_tablets[2]->calc_compaction_score(), 200);
+        ASSERT_EQ(compact_tablets[10]->tablet_id(), 20102);
+        ASSERT_EQ(compact_tablets[10]->calc_compaction_score(), 200);
 
-        ExecEnv::GetInstance()->storage_engine().to_local()._compaction_num_per_round = 1;
+        config::compaction_num_per_round = 1;
         // drop all tablets
         for (int64_t id = 20001; id <= 20100; ++id) {
             Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
@@ -525,7 +523,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     }
 
     {
-        ExecEnv::GetInstance()->storage_engine().to_local()._compaction_num_per_round = 16;
+        config::compaction_num_per_round = 10;
         for (int64_t i = 1; i <= 5; ++i) {
             create_tablet(30000 + i, false, i + 5);
         }
@@ -539,7 +537,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             ASSERT_EQ(compact_tablets[i]->calc_compaction_score(), 10 - i);
         }
 
-        ExecEnv::GetInstance()->storage_engine().to_local()._compaction_num_per_round = 1;
+        config::compaction_num_per_round = 1;
         // drop all tablets
         for (int64_t id = 30001; id <= 30005; ++id) {
             Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
@@ -576,11 +574,9 @@ TEST_F(TabletMgrTest, LoadTabletFromMeta) {
     data_dirs.push_back(_data_dir);
     RuntimeProfile profile("CreateTablet");
     Status create_st =
-            ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->create_tablet(
-                    create_tablet_req, data_dirs, &profile);
+            k_engine->tablet_manager()->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
-    TabletSharedPtr tablet =
-            ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->get_tablet(111);
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
 
     std::string serialized_tablet_meta;

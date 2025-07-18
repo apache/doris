@@ -688,19 +688,17 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                     (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                             ? _cumu_compaction_thread_pool
                             : _base_compaction_thread_pool;
-            // If all tasks in the thread pool queue are executed,
-            // double the number of tasks generated each time,
-            // with a maximum of 64 tasks per generation.
-            if (thread_pool->get_queue_size() == 0) {
-                if (_compaction_num_per_round < 64) {
+            if (config::compaction_num_per_round != 0) {
+                _compaction_num_per_round = config::compaction_num_per_round;
+            } else if (thread_pool->get_queue_size() == 0) {
+                // If all tasks in the thread pool queue are executed,
+                // double the number of tasks generated each time,
+                // with a maximum of config::max_automatic_compaction_num_per_round tasks per generation.
+                if (_compaction_num_per_round < config::max_automatic_compaction_num_per_round) {
                     _compaction_num_per_round *= 2;
                     LOG_INFO("update compaction_num_per_round.")
                             .tag("new compaction_num_per_round", _compaction_num_per_round);
                 }
-            } else {
-                // Clear the thread pool and ensure that only the
-                // top-N tasks with the highest scores are submitted each time.
-                thread_pool->clear();
             }
             std::vector<TabletSharedPtr> tablets_compaction =
                     _generate_compaction_tasks(compaction_type, data_dirs, check_score);
