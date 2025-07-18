@@ -1299,6 +1299,32 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
     }
 }
 
+void DeleteBitmap::subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
+                          int64_t start_version, int64_t end_version,
+                          DeleteBitmap* subset_delete_map) const {
+    DCHECK(start_version <= end_version);
+    for (auto& [rowset_id, _] : rowset_ids) {
+        BitmapKey start {rowset_id, 0, 0};
+        BitmapKey end {rowset_id, UINT32_MAX, end_version + 1};
+        std::shared_lock l(lock);
+        for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+            auto& [k, bm] = *it;
+            if (k >= end) {
+                break;
+            }
+            auto version = std::get<2>(k);
+            if (version >= start_version && version <= end_version) {
+                subset_delete_map->merge(k, bm);
+                VLOG_DEBUG << "subset delete bitmap, tablet=" << _tablet_id << ", version=["
+                           << start_version << ", " << end_version
+                           << "]. rowset=" << std::get<0>(k).to_string()
+                           << ", segment=" << std::get<1>(k) << ", version=" << version
+                           << ", cardinality=" << bm.cardinality();
+            }
+        }
+    }
+}
+
 void DeleteBitmap::subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
                                   int64_t start_version, int64_t end_version,
                                   DeleteBitmap* subset_delete_map) const {
