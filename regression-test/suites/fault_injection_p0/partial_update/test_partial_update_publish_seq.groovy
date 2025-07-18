@@ -146,8 +146,8 @@ suite("test_partial_update_publish_seq") {
     sql "sync;"
     // with delete sign and without seq col val, >/=/< conflicting seq val
 
-    def txn7 = load_data("k1,c1,c2", "1,20,55")
-    def txn8 = load_data("k1,c1,__DORIS_DELETE_SIGN__", "1,100,1\n2,100,1\n3,100,1\n")
+    def txn7 = load_data("k1,c1,c2", "1,20,55\n2,100,55\n3,120,55\n")
+    def txn8 = load_data("k1,c4,__DORIS_DELETE_SIGN__", "1,100,1\n2,100,1\n3,100,1\n")
     do_streamload_2pc_commit(txn7)
     wait_for_publish(txn7, 10)
     do_streamload_2pc_commit(txn8)
