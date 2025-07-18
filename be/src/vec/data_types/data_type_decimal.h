@@ -29,6 +29,7 @@
 #include <string>
 #include <type_traits>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/logging.h"
@@ -60,6 +61,7 @@ class ReadBuffer;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 constexpr size_t default_decimal_scale() {
@@ -195,7 +197,8 @@ public:
         if constexpr (T == TYPE_DECIMALV2) {
             DecimalV2Value value;
             if (value.parse_from_str(node.decimal_literal.value.c_str(),
-                                     node.decimal_literal.value.size()) == E_DEC_OK) {
+                                     cast_set<int>(node.decimal_literal.value.size())) ==
+                E_DEC_OK) {
                 return Field::create_field<TYPE_DECIMALV2>(
                         DecimalField<FieldType>(value.value(), value.scale()));
             } else {
@@ -461,9 +464,10 @@ void convert_int_to_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from
                     }
                 }
             }
-            dst[i].value = tmp.value;
+            dst[i].value = static_cast<typename RealTo::NativeType>(tmp.value);
         } else {
-            dst[i].value = multiplier.value * static_cast<MaxFieldType>(src[i]).value;
+            dst[i].value = static_cast<typename RealTo::NativeType>(
+                    multiplier.value * static_cast<MaxFieldType>(src[i]).value);
         }
     }
 
@@ -519,7 +523,7 @@ Status convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 precicion_
                     }
                 }
             }
-            dst[i] = tmp;
+            dst[i] = static_cast<RealTo>(tmp);
         }
     }
     return Status::OK();
@@ -674,11 +678,11 @@ Status convert_from_decimal(typename ToDataType::FieldType* dst,
             auto multiplier = FromDataType::get_scale_multiplier(scale);
             for (size_t i = 0; i < size; ++i) {
                 if constexpr (IsDataTypeDecimal256<FromDataType>) {
-                    dst[i] = static_cast<long double>(src[i].value) /
-                             static_cast<long double>(multiplier.value);
+                    dst[i] = static_cast<ToFieldType>(src[i].value) /
+                             static_cast<ToFieldType>(multiplier.value);
                 } else {
-                    dst[i] = static_cast<double>(src[i].value) /
-                             static_cast<double>(multiplier.value);
+                    dst[i] = static_cast<ToFieldType>(src[i].value) /
+                             static_cast<ToFieldType>(multiplier.value);
                 }
             }
         }
@@ -717,7 +721,7 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
                                         "to decimal");
                     }
                 }
-                FromFieldType tmp = src[i] * multiplier;
+                FromFieldType tmp = src[i] * static_cast<FromFieldType>(multiplier);
                 if (tmp <= FromFieldType(min_result) || tmp >= FromFieldType(max_result)) {
                     if constexpr (result_is_nullable) {
                         null_map[i] = 1;
@@ -740,7 +744,7 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
             using DoubleType =
                     std::conditional_t<IsDataTypeDecimal256<ToDataType>, long double, double>;
             dst[i].value = typename ToDataType::FieldType::NativeType(
-                    static_cast<double>(src[i] * static_cast<DoubleType>(multiplier.value) +
+                    static_cast<double>(src[i] * static_cast<FromFieldType>(multiplier.value) +
                                         ((src[i] >= 0) ? 0.5 : -0.5)));
         }
     } else {
@@ -772,4 +776,5 @@ typename PrimitiveTypeTraits<T>::CppNativeType min_decimal_value(UInt32 precisio
                    (UInt32)(max_decimal_precision<T>() - precision))
                    .value;
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
