@@ -571,7 +571,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Aggregate method must be specified for value column: " + modColumn.getName());
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (null != modColumn.getAggregationType()) {
+            if (null != modColumn.getAggregationType() && modColumn.isKey()) {
                 throw new DdlException("Can not assign aggregation method" + " on column in Unique data model table: "
                         + modColumn.getName());
             }
@@ -583,7 +583,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } else {
-            if (null != modColumn.getAggregationType()) {
+            if (null != modColumn.getAggregationType() && modColumn.isKey()) {
                 throw new DdlException(
                         "Can not assign aggregation method" + " on column in Duplicate data model table: "
                                 + modColumn.getName());
@@ -976,7 +976,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (newColumn.getAggregationType() != null) {
+            if (newColumn.getAggregationType() != null && newColumn.isKey()) {
                 throw new DdlException(
                         "Can not assign aggregation method" + " on column in Unique data model table: " + newColName);
             }
@@ -988,7 +988,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } else {
-            if (newColumn.getAggregationType() != null) {
+            if (newColumn.getAggregationType() != null && newColumn.isKey()) {
                 throw new DdlException(
                         "Can not assign aggregation method" + " on column in Duplicate data model table: "
                                 + newColName);
