@@ -2440,8 +2440,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DETAIL_SHAPE_NODES = "detail_shape_nodes";
 
-    public static final String ENABLE_PROJECT_SHAPE_POSITION_ORDER = "enable_project_shape_position_order";
-
     public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
 
     public Set<String> getIgnoreShapePlanNodes() {
@@ -2473,11 +2471,6 @@ public class SessionVariable implements Serializable, Writable {
                 .collect(ImmutableSet.toImmutableSet());
         this.detailShapePlanNodes = detailShapePlanNodes;
     }
-
-    @VariableMgr.VarAttr(name = ENABLE_PROJECT_SHAPE_POSITION_ORDER, needForward = true,
-            description = {"'explain shape plan' 命令中 project 节点是否按照位置顺序输出显示",
-                    "project print output expressions in position order in 'explain shape plan' command"})
-    public boolean enableProjectShapePositionOrder = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
             "Set to true to enable Decimal256 type" }, affectQueryResult = true)

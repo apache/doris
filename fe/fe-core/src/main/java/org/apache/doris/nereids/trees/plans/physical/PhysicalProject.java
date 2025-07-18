@@ -54,7 +54,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Physical project plan.
@@ -122,13 +121,9 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
             StringBuilder builder = new StringBuilder();
             builder.append(getClass().getSimpleName());
-            Stream<String> projectStream = projects.stream().map(Expression::shapeInfo);
-            if (!context.getSessionVariable().enableProjectShapePositionOrder) {
-                // the internal project list's order may be unstable, especial for join tables,
-                // so sort the projects to make it stable
-                projectStream = projectStream.sorted();
-            }
-            builder.append(projectStream
+            // the internal project list's order may be unstable, especial for join tables,
+            // so sort the projects to make it stable
+            builder.append(projects.stream().map(Expression::shapeInfo).sorted()
                     .collect(Collectors.joining(", ", "[", "]")));
             return builder.toString();
         } else {

@@ -32,7 +32,6 @@ suite('constant_propagation') {
         SET disable_nereids_rules='PRUNE_EMPTY_PARTITION';
         SET detail_shape_nodes='PhysicalProject,PhysicalHashAggregate,PhysicalQuickSort';
         SET ignore_shape_nodes='PhysicalDistribute';
-        SET enable_project_shape_position_order=true;
         SET runtime_filter_type=2;
         """
 
