@@ -28,6 +28,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
@@ -69,6 +70,8 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
     @SerializedName(value = "idx", alternate = {"indexes"})
     private List<Index> indexes;
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
 
     private Expr whereClause;
     private Map<String, Column> nameToColumn;
@@ -81,14 +84,15 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
 
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
-            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
+            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt,
+            Map<String, String> sessionVariables) {
         this(indexId, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType, keysType,
-                defineStmt, null, null); // indexes is null by default
+                defineStmt, null, null, sessionVariables); // indexes is null by default
     }
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt,
-            List<Index> indexes, String dbName) {
+            List<Index> indexes, String dbName, Map<String, String> sessionVariables) {
         this.indexId = indexId;
         Preconditions.checkState(schema != null);
         Preconditions.checkState(schema.size() != 0);
@@ -104,6 +108,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         this.indexes = indexes != null ? indexes : Lists.newArrayList();
         initColumnNameMap();
         this.dbName = dbName;
+        this.sessionVariables = sessionVariables;
     }
 
     public void setWhereClause(Expr whereClause) {
@@ -358,7 +363,9 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
                         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
                     }
                 }
-                command.validate(ctx);
+                try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx, sessionVariables)) {
+                    command.validate(ctx);
+                }
             } finally {
                 if (tmpCreate) {
                     ctx.cleanup();

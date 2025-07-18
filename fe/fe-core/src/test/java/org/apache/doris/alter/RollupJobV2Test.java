@@ -55,6 +55,7 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.After;
@@ -316,7 +317,7 @@ public class RollupJobV2Test {
                 "", 1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
                 KeysType.AGG_KEYS, keysCount,
                 new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
-                        0));
+                        0), Maps.newHashMap());
         rollupJobV2.setStorageFormat(TStorageFormat.V2);
 
         // write rollup job

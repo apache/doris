@@ -220,7 +220,8 @@ public class MaterializedViewHandler extends AlterHandler {
                     createMaterializedViewJob(addMVClause.toSql(), mvIndexName, baseIndexName, mvColumns,
                             addMVClause.getWhereClauseItemExpr(olapTable),
                             addMVClause.getProperties(), olapTable, db, baseIndexId,
-                            addMVClause.getMVKeysType(), addMVClause.getOrigStmt());
+                            addMVClause.getMVKeysType(), addMVClause.getOrigStmt(),
+                            ConnectContext.get().getSessionVariable().getAffectQueryResultVariables());
 
             addAlterJobV2(rollupJobV2);
 
@@ -279,7 +280,8 @@ public class MaterializedViewHandler extends AlterHandler {
                     createMaterializedViewJob(null, mvIndexName, baseIndexName, mvColumns,
                             createMvCommand.getWhereClauseItemColumn(olapTable),
                             createMvCommand.getProperties(), olapTable, db, baseIndexId,
-                            createMvCommand.getMVKeysType(), createMvCommand.getOriginStatement());
+                            createMvCommand.getMVKeysType(), createMvCommand.getOriginStatement(),
+                            ConnectContext.get().getSessionVariable().getAffectQueryResultVariables());
 
             addAlterJobV2(rollupJobV2);
 
@@ -358,10 +360,11 @@ public class MaterializedViewHandler extends AlterHandler {
                         addRollupClause, olapTable, baseIndexId, changeStorageFormat);
 
                 // step 3 create rollup job
+                // origStmt is null , so not need real session variable
                 RollupJobV2 alterJobV2 =
                         createMaterializedViewJob(rawSql, rollupIndexName, baseIndexName, rollupSchema, null,
                                 addRollupClause.getProperties(), olapTable, db, baseIndexId, olapTable.getKeysType(),
-                                null);
+                                null, Maps.newHashMap());
 
                 rollupNameJobMap.put(addRollupClause.getRollupName(), alterJobV2);
                 logJobIdSet.add(alterJobV2.getJobId());
@@ -414,7 +417,7 @@ public class MaterializedViewHandler extends AlterHandler {
     private RollupJobV2 createMaterializedViewJob(String rawSql, String mvName, String baseIndexName,
             List<Column> mvColumns, Column whereColumn, Map<String, String> properties,
             OlapTable olapTable, Database db, long baseIndexId, KeysType mvKeysType,
-            OriginStatement origStmt) throws DdlException, AnalysisException {
+            OriginStatement origStmt, Map<String, String> sessionVariables) throws DdlException, AnalysisException {
         if (mvKeysType == null) {
             // assign rollup index's key type, same as base index's
             mvKeysType = olapTable.getKeysType();
@@ -444,7 +447,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 rawSql, jobId, dbId, tableId, olapTable.getName(), timeoutMs,
                 baseIndexId, mvIndexId, baseIndexName, mvName,
                 mvColumns, whereColumn, baseSchemaHash, mvSchemaHash,
-                mvKeysType, mvShortKeyColumnCount, origStmt);
+                mvKeysType, mvShortKeyColumnCount, origStmt, sessionVariables);
         String newStorageFormatIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
         if (mvName.equals(newStorageFormatIndexName)) {
             mvJob.setStorageFormat(TStorageFormat.V2);

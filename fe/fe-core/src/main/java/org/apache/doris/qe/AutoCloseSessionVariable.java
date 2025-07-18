@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 import java.util.Objects;
 
@@ -37,12 +39,12 @@ public class AutoCloseSessionVariable implements AutoCloseable {
 
     public AutoCloseSessionVariable(ConnectContext connectContext, Map<String, String> affectQueryResultVariables) {
         Objects.requireNonNull(connectContext, "require connectContext object");
-        Objects.requireNonNull(affectQueryResultVariables, "require affectQueryResultVariables object");
         this.changed = true;
         this.connectContext = connectContext;
         this.previousVariable = connectContext.getSessionVariable();
         sessionVariable = new SessionVariable();
-        sessionVariable.setAffectQueryResultSessionVariables(affectQueryResultVariables);
+        sessionVariable.setAffectQueryResultSessionVariables(
+                affectQueryResultVariables == null ? Maps.newHashMap() : affectQueryResultVariables);
         connectContext.setSessionVariable(sessionVariable);
     }
 

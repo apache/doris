@@ -27,6 +27,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
 
 public class AlterJobV2Factory {
     private static final Logger LOG = LogManager.getLogger(AlterJobV2Factory.class);
@@ -46,15 +47,17 @@ public class AlterJobV2Factory {
             Column whereColumn,
             int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
             short rollupShortKeyColumnCount,
-            OriginStatement origStmt) throws AnalysisException {
+            OriginStatement origStmt, Map<String, String> sessionVariables) throws AnalysisException {
         if (Config.isCloudMode()) {
             return new CloudRollupJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                     rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
-                    baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
+                    baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt,
+                    sessionVariables);
         } else {
             return new RollupJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                     rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
-                    baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
+                    baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt,
+                    sessionVariables);
         }
     }
 }
