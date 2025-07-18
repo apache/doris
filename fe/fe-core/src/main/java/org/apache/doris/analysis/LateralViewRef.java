@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 
@@ -75,7 +76,7 @@ public class LateralViewRef extends TableRef {
         // Create a fake catalog table for the lateral view
         List<Column> columnList = Lists.newArrayList();
         columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(), false, null,
-                fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, ""));
+                fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, "", Maps.newHashMap()));
         view = new InlineView(viewName, columnList);
 
         // Create the non-materialized tuple and set the fake table in it.

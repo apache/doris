@@ -21,6 +21,8 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.StatementContext;
 
+import java.util.Map;
+
 public class ConnectContextUtil {
 
     // Sometimes it's necessary to parse SQL, but not in a user thread where no ConnectContext exists.
@@ -38,5 +40,12 @@ public class ConnectContextUtil {
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
         return ctx;
+    }
+
+    public static Map<String, String> getAffectQueryResultSessionVariables(ConnectContext ctx) {
+        if (ctx == null || ctx.getSessionVariable() == null) {
+            return null;
+        }
+        return ctx.getSessionVariable().getAffectQueryResultVariables();
     }
 }

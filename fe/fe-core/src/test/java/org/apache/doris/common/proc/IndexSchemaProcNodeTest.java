@@ -37,8 +37,9 @@ public class IndexSchemaProcNodeTest {
     @Test
     public void testFetchResult() throws AnalysisException {
         List<Column> columnList = Lists.newArrayList();
-        Column column1 = new Column("k1", Type.INT, true, null, true, "", "");
-        Column column2 = new Column("mv_bitmap_union_v1", Type.BITMAP, false, AggregateType.BITMAP_UNION, true, "", "");
+        Column column1 = new Column("k1", Type.INT, true, null, true, "", "", null);
+        Column column2 = new Column("mv_bitmap_union_v1", Type.BITMAP, false, AggregateType.BITMAP_UNION, true, "", "",
+                null);
         TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db1", "t1");
         SlotRef slotRef = new SlotRef(tableName, "v1");
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("to_bitmap", Lists.newArrayList(slotRef));

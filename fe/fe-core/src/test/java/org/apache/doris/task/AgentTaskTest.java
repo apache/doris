@@ -97,8 +97,9 @@ public class AgentTaskTest {
         agentBatchTask = new AgentBatchTask();
 
         columns = new LinkedList<Column>();
-        columns.add(new Column("k1", ScalarType.createType(PrimitiveType.INT), false, null, "1", ""));
-        columns.add(new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "1", ""));
+        columns.add(new Column("k1", ScalarType.createType(PrimitiveType.INT), false, null, "1", "", null));
+        columns.add(
+                new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "1", "", null));
 
         PartitionKey pk1 = PartitionKey.createInfinityPartitionKey(Arrays.asList(columns.get(0)), false);
         PartitionKey pk2 = PartitionKey.createPartitionKey(
@@ -114,7 +115,8 @@ public class AgentTaskTest {
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
-                TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
+                TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool,
+                rowStorePageSize, false,
                 storagePageSize, storageDictPageSize);
 
         // drop
@@ -157,7 +159,7 @@ public class AgentTaskTest {
     @Test
     public void toThriftTest() throws Exception {
         Class<? extends AgentBatchTask> agentBatchTaskClass = agentBatchTask.getClass();
-        Class[] typeParams = new Class[] { AgentTask.class };
+        Class[] typeParams = new Class[] {AgentTask.class};
         Method toAgentTaskRequest = agentBatchTaskClass.getDeclaredMethod("toAgentTaskRequest", typeParams);
         toAgentTaskRequest.setAccessible(true);
 

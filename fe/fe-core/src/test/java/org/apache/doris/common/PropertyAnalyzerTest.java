@@ -59,9 +59,9 @@ public class PropertyAnalyzerTest {
         columns.add(new Column("k1", PrimitiveType.INT));
         columns.add(new Column("k2", PrimitiveType.TINYINT));
         columns.add(new Column("v1",
-                        ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
+                ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", "", null));
         columns.add(new Column("v2",
-                        ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
+                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", "", null));
         columns.get(0).setIsKey(true);
         columns.get(1).setIsKey(true);
 
@@ -79,8 +79,9 @@ public class PropertyAnalyzerTest {
         columns.add(new Column("k2", PrimitiveType.TINYINT));
         columns.add(new Column("k3", PrimitiveType.BOOLEAN));
         columns.add(new Column("v1",
-                        ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("v2", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
+                ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", "", null));
+        columns.add(
+                new Column("v2", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", "", null));
         columns.get(0).setIsKey(true);
         columns.get(1).setIsKey(true);
 
@@ -152,7 +153,8 @@ public class PropertyAnalyzerTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, tomorrowTimeStr);
-        DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
+        DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties,
+                new DataProperty(TStorageMedium.SSD));
         // avoid UT fail because time zone different
         DateLiteral dateLiteral = new DateLiteral(tomorrowTimeStr, Type.DATETIME);
         Assert.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getTimeZone()), dataProperty.getCooldownTimeMs());

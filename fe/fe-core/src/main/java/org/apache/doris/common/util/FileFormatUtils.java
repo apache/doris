@@ -79,9 +79,9 @@ public class FileFormatUtils {
                     int precision = Integer.parseInt(matcher.group(1));
                     int scale = Integer.parseInt(matcher.group(2));
                     column = new Column(name, ScalarType.createDecimalV3Type(precision, scale), false, null, true, null,
-                            "");
+                            "", null);
                 } else if (type.equals("date")) {
-                    column = new Column(name, ScalarType.createDateType(), false, null, true, null, "");
+                    column = new Column(name, ScalarType.createDateType(), false, null, true, null, "", null);
                 } else if (type.startsWith("datetime")) {
                     int scale = 0;
                     if (!type.equals("datetime")) {
@@ -92,7 +92,8 @@ public class FileFormatUtils {
                         }
                         scale = Integer.parseInt(matcher.group(1));
                     }
-                    column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "");
+                    column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "",
+                            null);
                 } else if (type.equals("string")) {
                     column = new Column(name, PrimitiveType.STRING, true);
                 } else if (type.equals("boolean")) {

@@ -47,30 +47,30 @@ public class PlanConstructor {
 
     static {
         student = new OlapTable(0L, "student",
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("gender", Type.INT, false, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                        new Column("age", Type.INT, true, AggregateType.NONE, "", "")),
+                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", "", null),
+                        new Column("gender", Type.INT, false, AggregateType.NONE, "0", "", null),
+                        new Column("name", Type.STRING, true, AggregateType.NONE, "", "", null),
+                        new Column("age", Type.INT, true, AggregateType.NONE, "", "", null)),
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
         score = new OlapTable(1L, "score",
-                ImmutableList.of(new Column("sid", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("cid", Type.INT, true, AggregateType.NONE, "", ""),
-                        new Column("grade", Type.DOUBLE, true, AggregateType.NONE, "", "")),
+                ImmutableList.of(new Column("sid", Type.INT, true, AggregateType.NONE, "0", "", null),
+                        new Column("cid", Type.INT, true, AggregateType.NONE, "", "", null),
+                        new Column("grade", Type.DOUBLE, true, AggregateType.NONE, "", "", null)),
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
         course = new OlapTable(2L, "course",
-                ImmutableList.of(new Column("cid", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                        new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")),
+                ImmutableList.of(new Column("cid", Type.INT, true, AggregateType.NONE, "0", "", null),
+                        new Column("name", Type.STRING, true, AggregateType.NONE, "", "", null),
+                        new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "", null)),
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
         salary = new OlapTable(3L, "salary",
                 ImmutableList.of(
-                        new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
+                        new Column("id", Type.INT, true, AggregateType.NONE, "0", "", null),
+                        new Column("name", Type.STRING, true, AggregateType.NONE, "", "", null),
                         new Column("salary",
                                 ScalarType.createDecimalType(PrimitiveType.DECIMAL128,
                                         ScalarType.MAX_DECIMAL128_PRECISION, 2),
-                                false, AggregateType.NONE, "", ""),
-                        new Column("age", Type.BIGINT, false, AggregateType.NONE, "", "")),
+                                false, AggregateType.NONE, "", "", null),
+                        new Column("age", Type.BIGINT, false, AggregateType.NONE, "", "", null)),
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
 
         student.setIndexMeta(-1,
@@ -105,8 +105,8 @@ public class PlanConstructor {
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn, KeysType keysType) {
         List<Column> columns = ImmutableList.of(
-                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""));
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", "", null),
+                new Column("name", Type.STRING, true, AggregateType.NONE, "", "", null));
 
         HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(3,
                 ImmutableList.of(columns.get(hashColumn)));

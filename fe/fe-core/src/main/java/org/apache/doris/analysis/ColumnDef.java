@@ -32,6 +32,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -703,7 +705,8 @@ public class ColumnDef {
         Type type = typeDef.getType();
         return new Column(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue.value, comment,
                 visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
-                clusterKeyId, generatedColumnInfo.orElse(null), generatedColumnsThatReferToThis);
+                clusterKeyId, generatedColumnInfo.orElse(null), generatedColumnsThatReferToThis,
+                ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
     }
 
     @Override

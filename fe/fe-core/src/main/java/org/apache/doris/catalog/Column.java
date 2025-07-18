@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import com.google.protobuf.ByteString;
@@ -77,7 +78,7 @@ public class Column implements GsonPostProcessable {
     private static final String COLUMN_MAP_VALUE = "value";
 
     public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, -1,
-            null, "invalid", true, null, -1, null);
+            null, "invalid", true, null, -1, null, null);
 
     @SerializedName(value = "name")
     private String name;
@@ -115,7 +116,7 @@ public class Column implements GsonPostProcessable {
      * This is similar as `defaultValue`. Differences are:
      * 1. `realDefaultValue` indicates the **default underlying literal**.
      * 2. Instead, `defaultValue` indicates the **original expression** which is specified by users.
-     *
+     * <p>
      * For example, if user create a table with (columnA, DATETIME, DEFAULT CURRENT_TIMESTAMP)
      * `realDefaultValue` here is current date time while `defaultValue` is `CURRENT_TIMESTAMP`.
      */
@@ -152,6 +153,9 @@ public class Column implements GsonPostProcessable {
     @SerializedName(value = "gctt")
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
 
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -162,10 +166,11 @@ public class Column implements GsonPostProcessable {
         this.defineExpr = null;
         this.children = new ArrayList<>();
         this.uniqueId = -1;
+        this.sessionVariables = null;
     }
 
     public Column(String name, PrimitiveType dataType) {
-        this(name, ScalarType.createType(dataType), false, null, false, null, "");
+        this(name, ScalarType.createType(dataType), false, null, false, null, "", Maps.newHashMap());
     }
 
     public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
@@ -177,60 +182,64 @@ public class Column implements GsonPostProcessable {
     }
 
     public Column(String name, Type type, boolean isAllowNull) {
-        this(name, type, false, null, isAllowNull, null, "");
+        this(name, type, false, null, isAllowNull, null, "", Maps.newHashMap());
     }
 
     public Column(String name, Type type, boolean isAllowNull, String comment) {
-        this(name, type, false, null, isAllowNull, null, comment);
+        this(name, type, false, null, isAllowNull, null, comment, Maps.newHashMap());
     }
 
     public Column(String name, Type type) {
-        this(name, type, false, null, false, null, "");
+        this(name, type, false, null, false, null, "", null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, String defaultValue,
-            String comment) {
-        this(name, type, isKey, aggregateType, false, defaultValue, comment);
+            String comment, Map<String, String> sessionVariables) {
+        this(name, type, isKey, aggregateType, false, defaultValue, comment, sessionVariables);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-            String defaultValue, String comment) {
+            String defaultValue, String comment, Map<String, String> sessionVariables) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, true, null,
                 COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue, false, null, null,
-                Sets.newHashSet());
+                Sets.newHashSet(), sessionVariables);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String comment, boolean visible, int colUniqueId) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, null, comment, visible, null, colUniqueId, null,
-                false, null, null,  Sets.newHashSet());
+                false, null, null, Sets.newHashSet(), null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-                  String defaultValue, String comment, boolean visible, int colUniqueId) {
+            String defaultValue, String comment, boolean visible, int colUniqueId,
+            Map<String, String> sessionVariables) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, visible, null, colUniqueId, null,
-                false, null, null, Sets.newHashSet());
+                false, null, null, Sets.newHashSet(), sessionVariables);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
-            int colUniqueId, String realDefaultValue) {
+            int colUniqueId, String realDefaultValue, Map<String, String> sessionVariables) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, visible, defaultValueExprDef,
-                colUniqueId, realDefaultValue, false, null, null,  Sets.newHashSet());
+                colUniqueId, realDefaultValue, false, null, null, Sets.newHashSet(), sessionVariables);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             long autoIncInitValue, String defaultValue, String comment, boolean visible,
-            DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue) {
+            DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
+            Map<String, String> sessionVariables) {
         this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, visible,
-                defaultValueExprDef, colUniqueId, realDefaultValue, false, null, null, Sets.newHashSet());
+                defaultValueExprDef, colUniqueId, realDefaultValue, false, null, null, Sets.newHashSet(),
+                sessionVariables);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             long autoIncInitValue, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
             boolean hasOnUpdateDefaultValue, DefaultValueExprDef onUpdateDefaultValueExprDef,
-            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis) {
+            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis,
+            Map<String, String> sessionVariables) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -271,6 +280,9 @@ public class Column implements GsonPostProcessable {
             this.isAllowNull = false;
             this.aggregationType = AggregateType.GENERIC;
         }
+        if (hasDefaultValue() || hasGenerateColumn()) {
+            this.sessionVariables = sessionVariables;
+        }
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType,
@@ -278,21 +290,23 @@ public class Column implements GsonPostProcessable {
             boolean visible, DefaultValueExprDef defaultValueExprDef, int colUniqueId,
             String realDefaultValue, boolean hasOnUpdateDefaultValue,
             DefaultValueExprDef onUpdateDefaultValueExprDef, int clusterKeyId,
-            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis) {
+            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis,
+            Map<String, String> sessionVariables) {
         this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment,
                 visible, defaultValueExprDef, colUniqueId, realDefaultValue,
                 hasOnUpdateDefaultValue, onUpdateDefaultValueExprDef, generatedColumnInfo,
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis, sessionVariables);
         this.clusterKeyId = clusterKeyId;
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             long autoIncInitValue, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue, int clusterKeyId,
-            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis) {
+            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis,
+            Map<String, String> sessionVariables) {
         this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, visible,
                 defaultValueExprDef, colUniqueId, realDefaultValue, false, null, generatedColumnInfo,
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis, sessionVariables);
         this.clusterKeyId = clusterKeyId;
     }
 
@@ -319,6 +333,7 @@ public class Column implements GsonPostProcessable {
         this.onUpdateDefaultValueExprDef = column.onUpdateDefaultValueExprDef;
         this.clusterKeyId = column.getClusterKeyId();
         this.generatedColumnInfo = column.generatedColumnInfo;
+        this.sessionVariables = column.sessionVariables;
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -465,7 +480,7 @@ public class Column implements GsonPostProcessable {
     // ipv4/ipv6
     public boolean isSupportBloomFilter() {
         PrimitiveType pType = getDataType();
-        return (pType ==  PrimitiveType.SMALLINT || pType == PrimitiveType.INT
+        return (pType == PrimitiveType.SMALLINT || pType == PrimitiveType.INT
                 || pType == PrimitiveType.BIGINT || pType == PrimitiveType.LARGEINT)
                 || pType.isCharFamily() || pType.isDateType() || pType.isVariantType()
                 || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType();
@@ -1177,6 +1192,10 @@ public class Column implements GsonPostProcessable {
         return defaultValue != null || realDefaultValue != null || defaultValueExprDef != null;
     }
 
+    public boolean hasGenerateColumn() {
+        return generatedColumnInfo != null;
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
         // This just for bugfix. Because when user upgrade from 0.x to 1.1.x,
@@ -1206,6 +1225,10 @@ public class Column implements GsonPostProcessable {
         this.defaultValue = refColumn.defaultValue;
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
+        this.sessionVariables = refColumn.sessionVariables;
     }
 
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
 }

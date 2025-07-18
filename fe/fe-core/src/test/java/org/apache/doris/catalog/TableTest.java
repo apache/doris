@@ -42,7 +42,7 @@ public class TableTest {
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
         List<Column> columns = ImmutableList.of(
-                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""));
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", "", null));
 
         return newOlapTable(tableId, tableName, hashColumn, columns);
     }
@@ -131,18 +131,23 @@ public class TableTest {
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         Column column2 = new Column("column2",
-                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "", null);
         ImmutableList<Column> columns = ImmutableList.<Column>builder()
                 .add(column2)
-                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""))
-                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column8", ScalarType.createChar(10), true, null, "", ""))
-                .add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""))
-                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""))
-                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""))
+                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "",
+                        "", null))
+                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "",
+                        "", null))
+                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE,
+                        "", "", null))
+                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "",
+                        "", null))
+                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE,
+                        "", "", null))
+                .add(new Column("column8", ScalarType.createChar(10), true, null, "", "", null))
+                .add(new Column("column9", ScalarType.createVarchar(10), true, null, "", "", null))
+                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", "", null))
+                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", "", null))
                 .build();
 
         OlapTable table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,

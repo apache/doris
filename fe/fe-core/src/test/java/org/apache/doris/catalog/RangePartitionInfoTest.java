@@ -60,7 +60,7 @@ public class RangePartitionInfoTest {
 
     @Test(expected = DdlException.class)
     public void testTinyInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.TINYINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.TINYINT), true, null, "", "", null);
         partitionColumns.add(k1);
 
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
@@ -77,7 +77,7 @@ public class RangePartitionInfoTest {
 
     @Test(expected = DdlException.class)
     public void testSmallInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.SMALLINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.SMALLINT), true, null, "", "", null);
         partitionColumns.add(k1);
 
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
@@ -93,7 +93,7 @@ public class RangePartitionInfoTest {
 
     @Test(expected = DdlException.class)
     public void testInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
         partitionColumns.add(k1);
 
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
@@ -109,7 +109,7 @@ public class RangePartitionInfoTest {
 
     @Test(expected = DdlException.class)
     public void testBigInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.BIGINT), true, null, "", "", null);
         partitionColumns.add(k1);
 
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", PartitionKeyDesc.createLessThan(Lists
@@ -131,7 +131,7 @@ public class RangePartitionInfoTest {
 
     @Test
     public void testBigIntNormal() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.BIGINT), true, null, "", "", null);
         partitionColumns.add(k1);
 
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", PartitionKeyDesc.createLessThan(Lists
@@ -152,23 +152,23 @@ public class RangePartitionInfoTest {
     }
 
     /**
-     *    PARTITION BY RANGE(`k1`, `k2`) (
-     *       PARTITION p0 VALUES  [("20190101", "100"),("20190101", "200")),
-     *       PARTITION p1 VALUES  [("20190105", "10"),("20190107", "10")),
-     *       PARTITION p2 VALUES  [("20181231", "10"),("20190101", "100")),
-     *       PARTITION p3 VALUES  [("20190105", "100"),("20190120", MAXVALUE))
-     *   )
+     * PARTITION BY RANGE(`k1`, `k2`) (
+     * PARTITION p0 VALUES  [("20190101", "100"),("20190101", "200")),
+     * PARTITION p1 VALUES  [("20190105", "10"),("20190107", "10")),
+     * PARTITION p2 VALUES  [("20181231", "10"),("20190101", "100")),
+     * PARTITION p3 VALUES  [("20190105", "100"),("20190120", MAXVALUE))
+     * )
      */
     @Test
     public void testFixedRange() throws DdlException, AnalysisException {
-        //add columns
+        // add columns
         int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
+        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "", null);
         partitionColumns.add(k1);
         partitionColumns.add(k2);
 
-        //add RangePartitionDescs
+        // add RangePartitionDescs
         PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("100")),
                 Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("200")));
@@ -197,27 +197,29 @@ public class RangePartitionInfoTest {
 
     /**
      * 失败用例 less than && fixed
-     *    partition by range(k1,k2,k3) (
-     *       partition p1 values less than("2019-02-01", "100", "200"),
-     *       partition p2 values [("2020-02-01", "100", "200"), (MAXVALUE)),
-     *       partition p3 values less than("2021-02-01")
+     * partition by range(k1,k2,k3) (
+     * partition p1 values less than("2019-02-01", "100", "200"),
+     * partition p2 values [("2020-02-01", "100", "200"), (MAXVALUE)),
+     * partition p3 values less than("2021-02-01")
      * )
      */
     @Test(expected = AnalysisException.class)
     public void testFixedRange1() throws DdlException, AnalysisException {
-        //add columns
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATE), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k3 = new Column("k3", new ScalarType(PrimitiveType.INT), true, null, "", "");
+        // add columns
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATE), true, null, "", "", null);
+        Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
+        Column k3 = new Column("k3", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
         partitionColumns.add(k1);
         partitionColumns.add(k2);
         partitionColumns.add(k3);
 
-        //add RangePartitionDescs
+        // add RangePartitionDescs
         PartitionKeyDesc p1 = PartitionKeyDesc.createLessThan(
-                Lists.newArrayList(new PartitionValue("2019-02-01"), new PartitionValue("100"), new PartitionValue("200")));
+                Lists.newArrayList(new PartitionValue("2019-02-01"), new PartitionValue("100"),
+                        new PartitionValue("200")));
         PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("2020-02-01"), new PartitionValue("100"), new PartitionValue("200")),
+                Lists.newArrayList(new PartitionValue("2020-02-01"), new PartitionValue("100"),
+                        new PartitionValue("200")),
                 Lists.newArrayList(new PartitionValue("2020-03-01")));
         PartitionKeyDesc p3 = PartitionKeyDesc.createLessThan(
                 Lists.newArrayList(new PartitionValue("2021-02-01")));
@@ -240,20 +242,20 @@ public class RangePartitionInfoTest {
     }
 
     /**
-     *    PARTITION BY RANGE(`k1`, `k2`) (
-     *     PARTITION p1 VALUES  [(), ("20190301", "400"))
+     * PARTITION BY RANGE(`k1`, `k2`) (
+     * PARTITION p1 VALUES  [(), ("20190301", "400"))
      * )
      */
     @Test
     public void testFixedRange2() throws DdlException, AnalysisException {
-        //add columns
+        // add columns
         int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
+        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "", null);
         partitionColumns.add(k1);
         partitionColumns.add(k2);
 
-        //add RangePartitionDescs
+        // add RangePartitionDescs
         PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(new ArrayList<>(),
                 Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("200")));
 
@@ -269,20 +271,20 @@ public class RangePartitionInfoTest {
 
     /**
      * 失败用例
-     *    PARTITION BY RANGE(`k1`, `k2`) (
-     *     PARTITION p1 VALUES  [("20190301", "400"), ())
+     * PARTITION BY RANGE(`k1`, `k2`) (
+     * PARTITION p1 VALUES  [("20190301", "400"), ())
      * )
      */
-    @Test (expected = AnalysisException.class)
+    @Test(expected = AnalysisException.class)
     public void testFixedRange3() throws DdlException, AnalysisException {
-        //add columns
+        // add columns
         int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
+        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "", null);
         partitionColumns.add(k1);
         partitionColumns.add(k2);
 
-        //add RangePartitionDescs
+        // add RangePartitionDescs
         PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("200")),
                 new ArrayList<>());
@@ -298,20 +300,20 @@ public class RangePartitionInfoTest {
     }
 
     /**
-     *    PARTITION BY RANGE(`k1`, `k2`) (
-     *       PARTITION p0 VALUES  [("20190101", "100"),("20190201"))
-     *   )
+     * PARTITION BY RANGE(`k1`, `k2`) (
+     * PARTITION p0 VALUES  [("20190101", "100"),("20190201"))
+     * )
      */
     @Test
     public void testFixedRange4() throws DdlException, AnalysisException {
-        //add columns
+        // add columns
         int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
+        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "", null);
         partitionColumns.add(k1);
         partitionColumns.add(k2);
 
-        //add RangePartitionDescs
+        // add RangePartitionDescs
         PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("100")),
                 Lists.newArrayList(new PartitionValue("20190201")));
@@ -328,20 +330,20 @@ public class RangePartitionInfoTest {
 
     /**
      * 失败用例
-     *    PARTITION BY RANGE(`k1`, `k2`) (
-     *       PARTITION p0 VALUES  [("20190101", "100"),("20190101", "100"))
-     *   )
+     * PARTITION BY RANGE(`k1`, `k2`) (
+     * PARTITION p0 VALUES  [("20190101", "100"),("20190101", "100"))
+     * )
      */
-    @Test (expected = DdlException.class)
+    @Test(expected = DdlException.class)
     public void testFixedRange5() throws DdlException, AnalysisException {
-        //add columns
+        // add columns
         int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
+        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "", null);
         partitionColumns.add(k1);
         partitionColumns.add(k2);
 
-        //add RangePartitionDescs
+        // add RangePartitionDescs
         PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("100")),
                 Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("100")));
@@ -357,14 +359,14 @@ public class RangePartitionInfoTest {
     }
 
 
-    @Test (expected = DdlException.class)
+    @Test(expected = DdlException.class)
     public void testFixedRange6() throws DdlException, AnalysisException {
-        //add columns
+        // add columns
         int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATE), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATE), true, null, "", "", null);
         partitionColumns.add(k1);
 
-        //add RangePartitionDescs
+        // add RangePartitionDescs
         PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue("2021-06-01")),
                 Lists.newArrayList(new PartitionValue("2021-06-02")));
@@ -391,19 +393,19 @@ public class RangePartitionInfoTest {
 
     @Test(expected = AnalysisException.class)
     public void testFixedRange7() throws DdlException, AnalysisException {
-        //add columns
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k3 = new Column("k3", new ScalarType(PrimitiveType.INT), true, null, "", "");
+        // add columns
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "", null);
+        Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
+        Column k3 = new Column("k3", new ScalarType(PrimitiveType.INT), true, null, "", "", null);
         partitionColumns.add(k1);
         partitionColumns.add(k2);
         partitionColumns.add(k3);
 
-        //add RangePartitionDescs
+        // add RangePartitionDescs
         PartitionKeyDesc p1 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("2019-02-01"),
                 new PartitionValue("100"), new PartitionValue("200")));
         PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(Lists.newArrayList(new PartitionValue("2020-02-01"),
-                new PartitionValue("100"), new PartitionValue("200")),
+                        new PartitionValue("100"), new PartitionValue("200")),
                 Lists.newArrayList(new PartitionValue("2020-03-01")));
         PartitionKeyDesc p3 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("2021-02-01")));
 
@@ -424,14 +426,14 @@ public class RangePartitionInfoTest {
         }
     }
 
-    @Test (expected = DdlException.class)
+    @Test(expected = DdlException.class)
     public void testFixedRange8() throws DdlException, AnalysisException {
-        //add columns
+        // add columns
         int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "", null);
         partitionColumns.add(k1);
 
-        //add RangePartitionDescs
+        // add RangePartitionDescs
         PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue("2021-06-01")),
                 Lists.newArrayList(new PartitionValue("2021-06-02")));
@@ -482,7 +484,7 @@ public class RangePartitionInfoTest {
 
     @Test
     public void testAutotoSql() throws AnalysisException, DdlException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "", null);
         partitionColumns.add(k1);
 
         ArrayList<Expr> params = new ArrayList<>();

@@ -189,7 +189,7 @@ public class OlapTableTest {
         schema1.add(col1);
         schema1.add(col2);
         MaterializedIndexMeta meta1 = new MaterializedIndexMeta(1L, schema1, 1, 1, (short) 1,
-                TStorageType.COLUMN, KeysType.DUP_KEYS, null);
+                TStorageType.COLUMN, KeysType.DUP_KEYS, null, null);
         table.addIndexIdToMetaForUnitTest(1, meta1);
         table.addIndexNameToIdForUnitTest("index1", 1L);
 
@@ -197,7 +197,7 @@ public class OlapTableTest {
         schema2.add(col3);
         schema2.add(col4);
         MaterializedIndexMeta meta2 = new MaterializedIndexMeta(2L, schema2, 1, 1, (short) 1,
-                TStorageType.COLUMN, KeysType.DUP_KEYS, null);
+                TStorageType.COLUMN, KeysType.DUP_KEYS, null, null);
         table.addIndexIdToMetaForUnitTest(1, meta1);
         table.addIndexIdToMetaForUnitTest(2, meta2);
         table.addIndexNameToIdForUnitTest("index2", 2L);

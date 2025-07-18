@@ -63,6 +63,7 @@ import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -221,7 +222,7 @@ public class MaterializedViewHandler extends AlterHandler {
                             addMVClause.getWhereClauseItemExpr(olapTable),
                             addMVClause.getProperties(), olapTable, db, baseIndexId,
                             addMVClause.getMVKeysType(), addMVClause.getOrigStmt(),
-                            ConnectContext.get().getSessionVariable().getAffectQueryResultVariables());
+                            ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
 
             addAlterJobV2(rollupJobV2);
 
@@ -281,7 +282,7 @@ public class MaterializedViewHandler extends AlterHandler {
                             createMvCommand.getWhereClauseItemColumn(olapTable),
                             createMvCommand.getProperties(), olapTable, db, baseIndexId,
                             createMvCommand.getMVKeysType(), createMvCommand.getOriginStatement(),
-                            ConnectContext.get().getSessionVariable().getAffectQueryResultVariables());
+                            ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
 
             addAlterJobV2(rollupJobV2);
 

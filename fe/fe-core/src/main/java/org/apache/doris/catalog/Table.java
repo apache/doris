@@ -472,14 +472,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return isTemporary;
     }
 
-    public Map<String, String> getSessionVariables() {
-        return sessionVariables;
-    }
-
-    public void setSessionVariables(Map<String, String> sessionVariables) {
-        this.sessionVariables = sessionVariables;
-    }
-
     public TTableDescriptor toThrift() {
         return null;
     }

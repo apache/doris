@@ -141,7 +141,8 @@ public class CatalogTestUtil {
                         || masterPartition.getNextVersion() != slavePartition.getNextVersion()) {
                     return false;
                 }
-                List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices(IndexExtState.ALL);
+                List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices(
+                        IndexExtState.ALL);
                 for (MaterializedIndex masterIndex : allMaterializedIndices) {
                     MaterializedIndex slaveIndex = slavePartition.getIndex(masterIndex.getId());
                     if (slaveIndex == null) {
@@ -156,7 +157,8 @@ public class CatalogTestUtil {
                         List<Replica> allReplicas = masterTablet.getReplicas();
                         for (Replica masterReplica : allReplicas) {
                             Replica slaveReplica = slaveTablet.getReplicaById(masterReplica.getId());
-                            if (slaveReplica.getBackendIdWithoutException() != masterReplica.getBackendIdWithoutException()
+                            if (slaveReplica.getBackendIdWithoutException()
+                                    != masterReplica.getBackendIdWithoutException()
                                     || slaveReplica.getVersion() != masterReplica.getVersion()
                                     || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
                                     || slaveReplica.getLastSuccessVersion() != masterReplica.getLastSuccessVersion()) {
@@ -217,7 +219,8 @@ public class CatalogTestUtil {
         temp = new Column("k2", PrimitiveType.INT);
         temp.setIsKey(true);
         columns.add(temp);
-        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        columns.add(
+                new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", "", null));
 
         List<Column> keysColumn = new ArrayList<Column>();
         temp = new Column("k1", PrimitiveType.INT);
@@ -292,8 +295,10 @@ public class CatalogTestUtil {
         temp = new Column("k2", PrimitiveType.INT);
         temp.setIsKey(true);
         columns.add(temp);
-        columns.add(new Column("v1", ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.NONE, "0", ""));
-        columns.add(new Column("v2", ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.NONE, "0", ""));
+        columns.add(new Column("v1", ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.NONE, "0", "",
+                null));
+        columns.add(new Column("v2", ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.NONE, "0", "",
+                null));
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();

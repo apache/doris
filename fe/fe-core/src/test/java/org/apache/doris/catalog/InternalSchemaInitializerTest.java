@@ -39,14 +39,14 @@ class InternalSchemaInitializerTest {
     public void testGetModifyColumn() throws AnalysisException {
         InternalSchemaInitializer initializer = new InternalSchemaInitializer();
         OlapTable table = Mockito.mock(OlapTable.class);
-        Column key1 = new Column("key1", ScalarType.createVarcharType(100), true, null, false, null, "");
-        Column key2 = new Column("key2", ScalarType.createVarcharType(100), true, null, true, null, "");
-        Column key3 = new Column("key3", ScalarType.createVarcharType(1024), true, null, null, "");
-        Column key4 = new Column("key4", ScalarType.createVarcharType(1025), true, null, null, "");
-        Column key5 = new Column("key5", ScalarType.INT, true, null, null, "");
-        Column value1 = new Column("value1", ScalarType.INT, false, null, null, "");
-        Column value2 = new Column("value2", ScalarType.createVarcharType(100), false, null, null, "");
-        Column value3 = new Column("hot_value", ScalarType.createVarcharType(100), false, null, null, "");
+        Column key1 = new Column("key1", ScalarType.createVarcharType(100), true, null, false, null, "", null);
+        Column key2 = new Column("key2", ScalarType.createVarcharType(100), true, null, true, null, "", null);
+        Column key3 = new Column("key3", ScalarType.createVarcharType(1024), true, null, null, "", null);
+        Column key4 = new Column("key4", ScalarType.createVarcharType(1025), true, null, null, "", null);
+        Column key5 = new Column("key5", ScalarType.INT, true, null, null, "", null);
+        Column value1 = new Column("value1", ScalarType.INT, false, null, null, "", null);
+        Column value2 = new Column("value2", ScalarType.createVarcharType(100), false, null, null, "", null);
+        Column value3 = new Column("hot_value", ScalarType.createVarcharType(100), false, null, null, "", null);
         List<Column> schema = Lists.newArrayList();
         schema.add(key1);
         schema.add(key2);
@@ -137,8 +137,10 @@ class InternalSchemaInitializerTest {
             }
         }
 
-        Assertions.assertNotNull(localStorageDef, "The scan_bytes_from_local_storage column should exist in AUDIT_SCHEMA");
-        Assertions.assertNotNull(remoteStorageDef, "The scan_bytes_from_remote_storage column should exist in AUDIT_SCHEMA");
+        Assertions.assertNotNull(localStorageDef,
+                "The scan_bytes_from_local_storage column should exist in AUDIT_SCHEMA");
+        Assertions.assertNotNull(remoteStorageDef,
+                "The scan_bytes_from_remote_storage column should exist in AUDIT_SCHEMA");
 
         // Simulate column position logic in InternalSchemaInitializer
         // Note: Based on test failure, the system uses FIRST position rather than after a specific column
@@ -172,24 +174,26 @@ class InternalSchemaInitializerTest {
     public void testDoesNotModifyExistingColumns() throws Exception {
         // Create a mock audit table with storage-related columns but with inconsistent types (VARCHAR instead of BIGINT)
         List<Column> initialSchema = Lists.newArrayList(
-                new Column("query_id", ScalarType.createVarcharType(48), true, null, false, null, ""),
-                new Column("time", ScalarType.createDatetimeV2Type(3), true, null, false, null, ""),
-                new Column("client_ip", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("user", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("catalog", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("db", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("state", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("error_code", ScalarType.INT, true, null, false, null, ""),
-                new Column("error_message", ScalarType.STRING, true, null, false, null, ""),
-                new Column("query_time", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("scan_bytes", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("scan_rows", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("return_rows", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("shuffle_send_rows", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("shuffle_send_bytes", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("query_id", ScalarType.createVarcharType(48), true, null, false, null, "", null),
+                new Column("time", ScalarType.createDatetimeV2Type(3), true, null, false, null, "", null),
+                new Column("client_ip", ScalarType.createVarcharType(128), true, null, false, null, "", null),
+                new Column("user", ScalarType.createVarcharType(128), true, null, false, null, "", null),
+                new Column("catalog", ScalarType.createVarcharType(128), true, null, false, null, "", null),
+                new Column("db", ScalarType.createVarcharType(128), true, null, false, null, "", null),
+                new Column("state", ScalarType.createVarcharType(128), true, null, false, null, "", null),
+                new Column("error_code", ScalarType.INT, true, null, false, null, "", null),
+                new Column("error_message", ScalarType.STRING, true, null, false, null, "", null),
+                new Column("query_time", ScalarType.BIGINT, true, null, false, null, "", null),
+                new Column("scan_bytes", ScalarType.BIGINT, true, null, false, null, "", null),
+                new Column("scan_rows", ScalarType.BIGINT, true, null, false, null, "", null),
+                new Column("return_rows", ScalarType.BIGINT, true, null, false, null, "", null),
+                new Column("shuffle_send_rows", ScalarType.BIGINT, true, null, false, null, "", null),
+                new Column("shuffle_send_bytes", ScalarType.BIGINT, true, null, false, null, "", null),
                 // Intentionally use inconsistent types (VARCHAR instead of BIGINT)
-                new Column("scan_bytes_from_local_storage", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("scan_bytes_from_remote_storage", ScalarType.createVarcharType(128), true, null, false, null, "")
+                new Column("scan_bytes_from_local_storage", ScalarType.createVarcharType(128), true, null, false, null,
+                        "", null),
+                new Column("scan_bytes_from_remote_storage", ScalarType.createVarcharType(128), true, null, false, null,
+                        "", null)
         );
 
         // Use the correct constructor to create OlapTable to ensure nameToColumn is properly initialized
@@ -200,8 +204,10 @@ class InternalSchemaInitializerTest {
         Column localStorageCol = auditTable.getColumn("scan_bytes_from_local_storage");
         Column remoteStorageCol = auditTable.getColumn("scan_bytes_from_remote_storage");
 
-        Assertions.assertNotNull(localStorageCol, "The scan_bytes_from_local_storage column should exist in auditTable");
-        Assertions.assertNotNull(remoteStorageCol, "The scan_bytes_from_remote_storage column should exist in auditTable");
+        Assertions.assertNotNull(localStorageCol,
+                "The scan_bytes_from_local_storage column should exist in auditTable");
+        Assertions.assertNotNull(remoteStorageCol,
+                "The scan_bytes_from_remote_storage column should exist in auditTable");
         Assertions.assertTrue(localStorageCol.getType().isVarchar(),
                 "The scan_bytes_from_local_storage column type should be VARCHAR");
         Assertions.assertTrue(remoteStorageCol.getType().isVarchar(),
