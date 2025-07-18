@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
+import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
@@ -112,7 +114,19 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new EliminateDistinctConstant(),
                     new ProjectWithDistinctToAggregate(),
                     new ReplaceExpressionByChildOutput(),
-                    new OneRowRelationExtractAggregate()
+                    new OneRowRelationExtractAggregate(),
+
+                    // ProjectToGlobalAggregate may generate an aggregate with empty group by expressions.
+                    // for sort / having, need to adjust their agg functions' nullable.
+                    // for example: select sum(a) from t having sum(b) > 10 order by sum(c),
+                    // then will have:
+                    // sort(sum(c))                    sort(sum(c))
+                    //     |                                |
+                    // having(sum(b) > 10)       ==>   having(sum(b) > 10)
+                    //     |                                |
+                    // project(sum(a))                 agg(sum(a))
+                    // then need to adjust SORT and HAVING's sum to nullable.
+                    new AdjustAggregateNullableForEmptySet()
             ),
             topDown(
                     new FillUpMissingSlots(),
@@ -121,7 +135,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                     new NormalizeRepeat()
             ),
-            bottomUp(new AdjustAggregateNullableForEmptySet()),
             // consider sql with user defined var @t_zone
             // set @t_zone='GMT';
             // SELECT
@@ -147,15 +160,18 @@ public class Analyzer extends AbstractBatchJobExecutor {
             ),
             topDown(new LeadingJoin()),
             bottomUp(new NormalizeGenerate()),
-            bottomUp(new SubqueryToApply())
-        /*
-         * Notice, MergeProjects rule should NOT be placed after SubqueryToApply in analyze phase.
-         * because in SubqueryToApply, we may add assert_true function with subquery output slot in projects list.
-         * on the other hand, the assert_true function should be not be in final output.
-         * in order to keep the plan unchanged, we add a new project node to prune the extra assert_true slot.
-         * but MergeProjects rule will merge the two projects and keep assert_true anyway.
-         * so we move MergeProjects from analyze to rewrite phase.
-         */
+            /*
+             * Notice, MergeProjects rule should NOT be placed after SubqueryToApply in analyze phase.
+             * because in SubqueryToApply, we may add assert_true function with subquery output slot in projects list.
+             * on the other hand, the assert_true function should be not be in final output.
+             * in order to keep the plan unchanged, we add a new project node to prune the extra assert_true slot.
+             * but MergeProjects rule will merge the two projects and keep assert_true anyway.
+             * so we move MergeProjects from analyze to rewrite phase.
+             */
+            bottomUp(new SubqueryToApply()),
+            // for cte: analyze producer -> analyze consumer -> rewrite consumer -> rewrite producer,
+            // in order to ensure cte consumer had right nullable attribute, need adjust nullable at analyze phase.
+            custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(true))
         );
     }
 }

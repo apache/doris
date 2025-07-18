@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
@@ -330,6 +331,7 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 oneRowRelation, cascadesContext, ImmutableList.of(), true, true);
         List<NamedExpression> projects = analyzer.analyzeToList(oneRowRelation.getProjects());
+        projects = adjustProjectionAggNullable(projects);
         return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
     }
 
@@ -618,7 +620,7 @@ public class BindExpression implements AnalysisRuleFactory {
         Supplier<Set<NamedExpression>> boundExcepts = Suppliers.memoize(
                 () -> analyzer.analyzeToSet(project.getExcepts()));
 
-        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
+        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
@@ -640,7 +642,28 @@ public class BindExpression implements AnalysisRuleFactory {
                 });
             }
         }
-        return project.withProjects(boundProjections.build());
+        List<NamedExpression> projects = adjustProjectionAggNullable(boundProjectionsBuilder.build());
+        return project.withProjects(projects);
+    }
+
+    private List<NamedExpression> adjustProjectionAggNullable(List<NamedExpression> expressions) {
+        boolean hasAggregation = expressions.stream()
+                .anyMatch(expr -> expr.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
+        if (!hasAggregation) {
+            return expressions;
+        }
+        Builder<NamedExpression> newExpressionsBuilder = ImmutableList.builderWithExpectedSize(expressions.size());
+        for (NamedExpression expr : expressions) {
+            expr = (NamedExpression) expr.rewriteDownShortCircuit(e -> {
+                // for `select sum(a) from t`, sum(a) is nullable
+                if (e instanceof NullableAggregateFunction) {
+                    return ((NullableAggregateFunction) e).withAlwaysNullable(true);
+                }
+                return e;
+            });
+            newExpressionsBuilder.add(expr);
+        }
+        return newExpressionsBuilder.build();
     }
 
     private Plan bindFilter(MatchingContext<LogicalFilter<Plan>> ctx) {
