@@ -170,6 +170,8 @@ import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
 import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
+import org.apache.doris.thrift.TCheckCurrentUserPrivilegeRequest
+import org.apache.doris.thrift.TCheckCurrentUserPrivilegeResult;
 import org.apache.doris.thrift.TGetColumnInfoRequest;
 import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
