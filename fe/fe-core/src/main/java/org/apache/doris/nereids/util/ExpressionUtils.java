@@ -1091,13 +1091,13 @@ public class ExpressionUtils {
     }
 
     /** check constant value the expression */
-    public static Optional<Literal> checkConstantExpr(Expression expr, ExpressionRewriteContext context) {
+    public static Optional<Literal> checkConstantExpr(Expression expr, Optional<ExpressionRewriteContext> context) {
         if (expr instanceof Literal) {
             return Optional.of((Literal) expr);
         } else if (expr instanceof Alias) {
             return checkConstantExpr(((Alias) expr).child(), context);
-        } else if (expr.isConstant()) {
-            Expression evalExpr = FoldConstantRule.evaluate(expr, context);
+        } else if (expr.isConstant() && context.isPresent()) {
+            Expression evalExpr = FoldConstantRule.evaluate(expr, context.get());
             if (evalExpr instanceof Literal) {
                 return Optional.of((Literal) evalExpr);
             }
