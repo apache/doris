@@ -261,7 +261,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new UserException("Not support rename column operation");
     }
 
-    default void updateColumn(TableIf table, Column column, ColumnPosition columnPosition) throws UserException {
+    default void modifyColumn(TableIf table, Column column, ColumnPosition columnPosition) throws UserException {
         throw new UserException("Not support update column operation");
     }
 

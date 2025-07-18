@@ -609,9 +609,9 @@ public class IcebergUtils {
     }
 
     public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
-        DorisTypeToIcebergType vistor = type.isStructType() ? new DorisTypeToIcebergType((StructType) type)
+        DorisTypeToIcebergType visitor = type.isStructType() ? new DorisTypeToIcebergType((StructType) type)
                 : new DorisTypeToIcebergType();
-        return DorisTypeToIcebergType.visit(type, vistor);
+        return DorisTypeToIcebergType.visit(type, visitor);
     }
 
     public static Literal<?> parseIcebergLiteral(String value, org.apache.iceberg.types.Type type) {

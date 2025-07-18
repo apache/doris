@@ -1573,18 +1573,18 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void updateColumn(TableIf dorisTable, Column column, ColumnPosition columnPosition) throws UserException {
+    public void modifyColumn(TableIf dorisTable, Column column, ColumnPosition columnPosition) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
         ExternalTable externalTable = (ExternalTable) dorisTable;
         if (metadataOps == null) {
-            throw new DdlException("Update column operation is not supported for catalog: " + getName());
+            throw new DdlException("Modify column operation is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.updateColumn(externalTable, column, columnPosition);
+            metadataOps.modifyColumn(externalTable, column, columnPosition);
             logRefreshExternalTable(externalTable);
         } catch (Exception e) {
-            LOG.warn("Failed to update column {} in table {}.{} in catalog {}",
+            LOG.warn("Failed to modify column {} in table {}.{} in catalog {}",
                     column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
             throw e;
         }

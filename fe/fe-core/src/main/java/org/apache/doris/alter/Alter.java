@@ -430,7 +430,7 @@ public class Alter {
                         table, columnRename.getColName(), columnRename.getNewColName());
             } else if (alterClause instanceof ModifyColumnClause) {
                 ModifyColumnClause modifyColumn = (ModifyColumnClause) alterClause;
-                table.getCatalog().updateColumn(table, modifyColumn.getColumn(), modifyColumn.getColPos());
+                table.getCatalog().modifyColumn(table, modifyColumn.getColumn(), modifyColumn.getColPos());
             } else if (alterClause instanceof ReorderColumnsClause) {
                 ReorderColumnsClause reorderColumns = (ReorderColumnsClause) alterClause;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());

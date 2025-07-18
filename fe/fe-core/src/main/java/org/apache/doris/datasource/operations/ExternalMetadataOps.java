@@ -274,9 +274,9 @@ public interface ExternalMetadataOps {
      * @param position
      * @throws UserException
      */
-    default void updateColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+    default void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
             throws UserException {
-        throw new UnsupportedOperationException("Update column operation is not supported for this table type.");
+        throw new UnsupportedOperationException("Modify column operation is not supported for this table type.");
     }
 
     /**

@@ -55,6 +55,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -570,6 +571,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
             throws UserException {
+        validateCommonColumnInfo(column);
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdateSchema updateSchema = icebergTable.updateSchema();
         addOneColumn(updateSchema, column);
@@ -590,6 +592,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdateSchema updateSchema = icebergTable.updateSchema();
         for (Column column : columns) {
+            validateCommonColumnInfo(column);
             addOneColumn(updateSchema, column);
         }
         try {
@@ -630,13 +633,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void updateColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+    public void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
             throws UserException {
-        org.apache.iceberg.types.Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
-        if (!icebergType.isPrimitiveType()) {
-            throw new UserException("Update column type to non-primitive type is not supported: " + column.getType());
-        }
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateForModifyColumn(column, icebergTable);
+        Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.updateColumn(column.getName(), icebergType.asPrimitiveType(), column.getComment());
         if (column.isAllowNull()) {
@@ -650,10 +651,38 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try {
             preExecutionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
-            throw new UserException("Failed to update column: " + column.getName() + " in table: "
+            throw new UserException("Failed to modify column: " + column.getName() + " in table: "
                     + icebergTable.name() + ", error message is: " + e.getMessage(), e);
         }
         refreshTable(dorisTable);
+    }
+
+    private void validateForModifyColumn(Column column, Table icebergTable) throws UserException {
+        validateCommonColumnInfo(column);
+        // check complex type
+        if (column.getType().isComplexType()) {
+            throw new UserException("Modify column type to non-primitive type is not supported: " + column.getType());
+        }
+        // check exist
+        NestedField currentCol = icebergTable.schema().findField(column.getName());
+        if (currentCol == null) {
+            throw new UserException("Column " + column.getName() + " does not exist");
+        }
+        // check nullable
+        if (currentCol.isOptional() && !column.isAllowNull()) {
+            throw new UserException("Can not change nullable column " + column.getName() + " to not null");
+        }
+    }
+
+    private void validateCommonColumnInfo(Column column) throws UserException {
+        // check aggregation method
+        if (column.isAggregated()) {
+            throw new UserException("Can not specify aggregation method for iceberg table column");
+        }
+        // check auto inc
+        if (column.isAutoInc()) {
+            throw new UserException("Can not specify auto incremental iceberg table column");
+        }
     }
 
     @Override
