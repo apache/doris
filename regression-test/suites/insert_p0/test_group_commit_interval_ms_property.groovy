@@ -75,11 +75,13 @@ suite("test_group_commit_interval_ms_property") {
 
             def msg1 = group_commit_insert """insert into ${test_table} values(1,1); """, 1
 
-            Thread.sleep(8000);
+            Thread.sleep(4000);
 
             def msg2 = group_commit_insert """insert into ${test_table} values(2,2) """, 1
 
             assertEquals(msg1.substring(msg1.indexOf("group_commit")+11, msg1.indexOf("group_commit")+43), msg2.substring(msg2.indexOf("group_commit")+11, msg2.indexOf("group_commit")+43));
+
+            Thread.sleep(8000);
 
             sql "ALTER table ${test_table} SET (\"group_commit_interval_ms\"=\"1000\"); "
 
