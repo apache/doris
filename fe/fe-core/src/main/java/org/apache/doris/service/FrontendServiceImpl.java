@@ -2347,6 +2347,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
+    @Override
+    public TCheckCurrentUserPrivilegeResult checkCurrentUserPrivilege(TCheckCurrentUserPrivilegeRequest request)
+            throws TException {
+        TCheckCurrentUserPrivilegeResult result;
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(
+                ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN)) {
+            result.setCheckRes(false);
+        }
+        result.setCheckRes(true);
+        return result;
+    }
+
     private TNetworkAddress getClientAddr() {
         ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
         // For NonBlockingServer, we can not get client ip.
