@@ -147,8 +147,8 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
             res->clear_partition_ids();
             res->clear_versions();
         }
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " response=" << res->ShortDebugString();
+        LOG_INFO("finish ") << func_name << " remote caller: " << ctrl->remote_side()
+                            << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetRowsetResponse>) {
         if (res->status().code() != MetaServiceCode::OK) {
             res->clear_rowset_meta();
@@ -170,27 +170,27 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
             res->clear_versions();
             res->clear_segment_delete_bitmaps();
         }
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " status=" << res->status().ShortDebugString()
-                  << " tablet=" << res->tablet_id()
-                  << " delete_bitmap_count=" << res->segment_delete_bitmaps_size();
+        LOG_INFO("finish ") << func_name << " remote caller: " << ctrl->remote_side()
+                            << " status=" << res->status().ShortDebugString()
+                            << " tablet=" << res->tablet_id()
+                            << " delete_bitmap_count=" << res->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapUpdateLockResponse>) {
         if (res->status().code() != MetaServiceCode::OK) {
             res->clear_base_compaction_cnts();
             res->clear_cumulative_compaction_cnts();
             res->clear_cumulative_points();
         }
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " status=" << res->status().ShortDebugString();
+        LOG_INFO("finish ") << func_name << " remote caller: " << ctrl->remote_side()
+                            << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse>) {
         std::string debug_string = encryt_sk(res->DebugString());
         TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " response=" << debug_string;
+        LOG_INFO("finish ") << func_name << " remote caller: " << ctrl->remote_side()
+                            << " response=" << debug_string;
     } else {
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " response=" << res->ShortDebugString();
+        LOG_INFO("finish ") << func_name << " remote caller: " << ctrl->remote_side()
+                            << " response=" << res->ShortDebugString();
     }
 }
 
@@ -262,6 +262,9 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
 // `func1` used by RPC1, RPC2 and RPC3 judge it or just give func1 a pointer
 #define RPC_PREPROCESS(func_name, ...)                                                        \
     StopWatch sw;                                                                             \
+    [[maybe_unused]] std::string instance_id;                                                 \
+    AnnotateTag tag_log_id("log_id", get_log_id(controller));                                 \
+    AnnotateTag tag_instance_id("instance_id", instance_id);                                  \
     auto ctrl = static_cast<brpc::Controller*>(controller);                                   \
     begin_rpc(#func_name, ctrl, request);                                                     \
     brpc::ClosureGuard closure_guard(done);                                                   \
@@ -269,7 +272,6 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                              \
     [[maybe_unused]] std::unique_ptr<Transaction> txn;                                        \
     [[maybe_unused]] std::string msg;                                                         \
-    [[maybe_unused]] std::string instance_id;                                                 \
     [[maybe_unused]] bool drop_request = false;                                               \
     [[maybe_unused]] KVStats stats;                                                           \
     DORIS_CLOUD_DEFER {                                                                       \
