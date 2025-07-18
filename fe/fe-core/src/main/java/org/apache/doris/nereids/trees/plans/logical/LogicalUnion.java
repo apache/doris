@@ -218,14 +218,9 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
-        if (ConnectContext.get() == null) {
-            // CascadesContext require not null statement context, so if can not get a statement context,
-            // we don't update the uniform
-            return;
-        }
-        CascadesContext tempCascadeContext = CascadesContext.initContext(
-                ConnectContext.get().getStatementContext(), this, PhysicalProperties.ANY);
-        ExpressionRewriteContext context = new ExpressionRewriteContext(tempCascadeContext);
+        final Optional<ExpressionRewriteContext> context = ConnectContext.get() == null ? Optional.empty()
+                : Optional.of(new ExpressionRewriteContext(CascadesContext.initContext(
+                        ConnectContext.get().getStatementContext(), this, PhysicalProperties.ANY)));
         for (int i = 0; i < getOutputs().size(); i++) {
             Optional<Literal> value = Optional.empty();
             if (!constantExprsList.isEmpty()) {
@@ -251,18 +246,14 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                     value = Optional.empty();
                     break;
                 }
-                Expression childExpr = childValue.get();
-                if (!childExpr.isLiteral()) {
-                    childExpr = FoldConstantRule.evaluate(childExpr, context);
-                    if (!childExpr.isLiteral()) {
-                        value = Optional.empty();
-                        break;
-                    }
+                Optional<Literal> constExprOpt = ExpressionUtils.checkConstantExpr(childValue.get(), context);
+                if (!constExprOpt.isPresent()) {
+                    value = Optional.empty();
+                    break;
                 }
-                Literal childLiteral = (Literal) childExpr;
                 if (!value.isPresent()) {
-                    value = Optional.of(childLiteral);
-                } else if (!value.get().equals(childLiteral)) {
+                    value = constExprOpt;
+                } else if (!value.equals(constExprOpt)) {
                     value = Optional.empty();
                     break;
                 }
