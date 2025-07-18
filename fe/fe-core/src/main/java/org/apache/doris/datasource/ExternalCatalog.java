@@ -1143,7 +1143,8 @@ public abstract class ExternalCatalog
         try {
             metadataOps.renameTable(dbName, oldTableName, newTableName);
             Env.getCurrentEnv().getEditLog()
-                    .logRefreshExternalDb(ExternalObjectLog.createForRefreshDb(getId(), dbName));
+                    .logRefreshExternalTable(
+                            ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
         } catch (Exception e) {
             LOG.warn("Failed to rename table {} in database {}.", oldTableName, dbName, e);
             throw e;
