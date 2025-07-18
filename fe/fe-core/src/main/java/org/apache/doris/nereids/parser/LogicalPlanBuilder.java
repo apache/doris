@@ -1631,14 +1631,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ctx.identifierOrText() == null) {
                 if (expression instanceof NamedExpression) {
                     return (NamedExpression) expression;
-                } else if (expression instanceof Literal) {
-                    return new Alias(expression);
                 } else {
                     int start = ctx.expression().start.getStartIndex();
                     int stop = ctx.expression().stop.getStopIndex();
                     String alias = ctx.start.getInputStream()
                             .getText(new org.antlr.v4.runtime.misc.Interval(start, stop));
                     if (expression instanceof Literal) {
+                        if (expression instanceof StringLikeLiteral) {
+                            alias = LogicalPlanBuilderAssistant.getStringLiteralAlias((
+                                    (StringLikeLiteral) expression).getStringValue());
+                        }
                         return new Alias(expression, alias, true);
                     } else {
                         return new UnboundAlias(expression, alias, true);
