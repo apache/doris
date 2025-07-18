@@ -610,7 +610,7 @@ private:
                             0)]; // NOLINT(clang-analyzer-core.UndefinedBinaryOperatorResult)
             CompilerUInt128 c = a * b;
             integer<Bits, Signed> res;
-            res.items[little(0)] = c;
+            res.items[little(0)] = static_cast<base_type>(c);
             res.items[little(1)] = c >> 64;
             return res;
         } else {
@@ -852,11 +852,11 @@ public:
             CompilerUInt128 c = a / b; // NOLINT
 
             integer<Bits, Signed> res;
-            res.items[little(0)] = c;
+            res.items[little(0)] = static_cast<base_type>(c);
             res.items[little(1)] = c >> 64;
 
             CompilerUInt128 remainder = a - b * c;
-            numerator.items[little(0)] = remainder;
+            numerator.items[little(0)] = static_cast<base_type>(remainder);
             numerator.items[little(1)] = remainder >> 64;
 
             return res;
