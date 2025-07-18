@@ -61,6 +61,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qt_sql """select * from  ${tableName} order by 1, 2, 3"""
         sql "set global max_prepared_stmt_count = 10000"
         sql "set enable_fallback_to_original_planner = false"
+        sql """set global enable_server_side_prepared_statement = true"""
 
         def stmt_read = prepareStatement "select * from ${tableName} where k1 = ? order by k1"
         assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
