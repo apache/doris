@@ -56,8 +56,7 @@ void TimestampedVersionTracker::construct_versioned_tracker(
 }
 
 void TimestampedVersionTracker::construct_versioned_tracker(
-        const RowsetMetaMapContainer& rs_metas,
-        const RowsetMetaMapContainer& stale_metas) {
+        const RowsetMetaMapContainer& rs_metas, const RowsetMetaMapContainer& stale_metas) {
     if (rs_metas.empty()) {
         VLOG_NOTICE << "there is no version in the header.";
         return;
@@ -71,8 +70,7 @@ void TimestampedVersionTracker::construct_versioned_tracker(
 }
 
 void TimestampedVersionTracker::_init_stale_version_path_map(
-        const RowsetMetaMapContainer& rs_metas,
-        const RowsetMetaMapContainer& stale_metas) {
+        const RowsetMetaMapContainer& rs_metas, const RowsetMetaMapContainer& stale_metas) {
     if (stale_metas.empty()) {
         return;
     }
@@ -451,9 +449,8 @@ std::vector<TimestampedVersionSharedPtr>& TimestampedVersionPathContainer::times
     return _timestamped_versions_container;
 }
 
-void VersionGraph::construct_version_graph(
-        const RowsetMetaMapContainer& rs_metas,
-        int64_t* max_version) {
+void VersionGraph::construct_version_graph(const RowsetMetaMapContainer& rs_metas,
+                                           int64_t* max_version) {
     if (rs_metas.empty()) {
         VLOG_NOTICE << "there is no version in the header.";
         return;
@@ -504,9 +501,8 @@ void VersionGraph::construct_version_graph(
     }
 }
 
-void VersionGraph::reconstruct_version_graph(
-        const RowsetMetaMapContainer& rs_metas,
-        int64_t* max_version) {
+void VersionGraph::reconstruct_version_graph(const RowsetMetaMapContainer& rs_metas,
+                                             int64_t* max_version) {
     _version_graph.clear();
     _vertex_index_map.clear();
 
