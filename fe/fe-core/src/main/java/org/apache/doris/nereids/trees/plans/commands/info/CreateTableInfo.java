@@ -140,6 +140,8 @@ public class CreateTableInfo {
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
     private PartitionTableInfo partitionTableInfo; // get when validate
+    private PartitionDesc partitionDesc;
+    private DistributionDesc distributionDesc;
 
     /**
      * constructor for create table
@@ -242,6 +244,10 @@ public class CreateTableInfo {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     /**
@@ -715,6 +721,7 @@ public class CreateTableInfo {
             }
         }
         generatedColumnCheck(ctx);
+        analyzeEngine();
     }
 
     private void paddingEngineName(String ctlName, ConnectContext ctx) {
@@ -964,6 +971,32 @@ public class CreateTableInfo {
                 comment, addRollups, null);
     }
 
+    /**
+     * analyzeEngine
+     */
+    public void analyzeEngine() {
+        this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
+        this.distributionDesc =
+            distribution != null ? distribution.translateToCatalogStyle() : null;
+
+        if (engineName.equals(ENGINE_ELASTICSEARCH)) {
+            try {
+                EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+        } else if (!engineName.equals(ENGINE_OLAP)) {
+            if (!engineName.equals(ENGINE_HIVE) && distributionDesc != null) {
+                throw new AnalysisException("Create " + engineName
+                    + " table should not contain distribution desc");
+            }
+            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG) && partitionDesc != null) {
+                throw new AnalysisException("Create " + engineName
+                    + " table should not contain partition desc");
+            }
+        }
+    }
+
     public void setIsExternal(boolean isExternal) {
         this.isExternal = isExternal;
     }
@@ -1182,5 +1215,50 @@ public class CreateTableInfo {
     public boolean isTemp() {
         return isTemp;
     }
-}
 
+    public PartitionDesc getPartitionDesc() {
+        return partitionDesc;
+    }
+
+    public List<Column> getColumns() {
+        return columns.stream()
+            .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public DistributionDesc getDistributionDesc() {
+        return distributionDesc;
+    }
+
+    public boolean isExternal() {
+        return isExternal;
+    }
+
+    public Map<String, String> getExtProperties() {
+        return extProperties;
+    }
+
+    public List<Index> getIndexes() {
+        return indexes.stream().map(IndexDefinition::translateToCatalogStyle)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * getRollupAlterClauseList
+     */
+    public List<AlterClause> getRollupAlterClauseList() {
+        List<AlterClause> addRollups = Lists.newArrayList();
+        if (!rollups.isEmpty()) {
+            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
+                    .collect(Collectors.toList()));
+        }
+        return addRollups;
+    }
+
+    public KeysDesc getKeysDesc() {
+        return new KeysDesc(keysType, keys, clusterKeysColumnNames);
+    }
+}
