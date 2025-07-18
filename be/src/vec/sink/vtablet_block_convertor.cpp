@@ -48,6 +48,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer_to_string.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -349,10 +350,11 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                 bool invalid = false;                                                             \
                 if (dec_val > max_decimal || dec_val < min_decimal) {                             \
                     fmt::format_to(error_msg, "{}", "decimal value is not valid for definition"); \
-                    fmt::format_to(error_msg, ", value={}", dec_val);                             \
+                    fmt::format_to(error_msg, ", value={}", dec_val.value);                       \
                     fmt::format_to(error_msg, ", precision={}, scale={}", type->get_precision(),  \
                                    type->get_scale());                                            \
-                    fmt::format_to(error_msg, ", min={}, max={}; ", min_decimal, max_decimal);    \
+                    fmt::format_to(error_msg, ", min={}, max={}; ", min_decimal.value,            \
+                                   max_decimal.value);                                            \
                     invalid = true;                                                               \
                 }                                                                                 \
                 if (invalid) {                                                                    \

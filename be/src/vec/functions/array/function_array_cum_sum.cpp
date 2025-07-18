@@ -219,6 +219,9 @@ private:
     template <PrimitiveType Element, PrimitiveType Result>
     bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
+        if constexpr (Element == TYPE_DECIMAL256 && Result != TYPE_DECIMAL256) {
+            return false;
+        }
         using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
         using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
 
@@ -259,6 +262,7 @@ private:
                           const ColumnArray::Offsets64& src_offsets,
                           const NullMapType& src_null_map,
                           PaddedPODArray<Result>& res_datas) const {
+                            /*
         size_t prev_offset = 0;
         for (auto cur_offset : src_offsets) {
             // [1, null, 2, 3] -> [1, null, 3, 6]
@@ -278,6 +282,7 @@ private:
 
             prev_offset = cur_offset;
         }
+            */
     }
 };
 

@@ -149,4 +149,26 @@ suite("test_conditional_function") {
     qt_sql "select date_add('9999-08-01 00:00:00',1);"
 
     sql "DROP TABLE ${tbName};"
+
+    sql "set enable_decimal256=true"
+    sql """ drop table if exists t1; """
+    sql """ create table t1(
+        k1 int,
+        k2 date,
+        k22 date,
+        k3 datetime,
+        k33 datetime,
+        k4 decimalv3(76, 6),
+        k44 decimalv3(76, 6)
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
+    sql """
+    insert into t1 values
+    (1, null, '2023-01-02', '2023-01-01 00:00:00', '2023-01-02 00:00:00',2222222222222222222222222222222222222222222222222222222222222222222222,3333333333333333333333333333333333333333333333333333333333333333333333),(2, '2023-02-01', null, '2023-02-01 00:00:00', '2023-02-02 00:00:00', null,5555555555555555555555555555555555555555555555555555555555555555555555),(3, '2023-03-01', '2023-03-02', null, '2023-03-02 00:00:00', null,666666666666666666666666666666666666666666666666)
+    """
+    qt_test "select k1, coalesce(k2, k22),coalesce(k3, k33) from t1 order by k1"
+    // fix after disable decimal256 disable implicit conversion to int128
+    // qt_test "select k1, coalesce(k2, k22),coalesce(k4, k44) from t1 order by k1"
+
 }
