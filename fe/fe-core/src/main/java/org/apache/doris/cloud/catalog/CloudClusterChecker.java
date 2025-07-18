@@ -217,7 +217,8 @@ public class CloudClusterChecker extends MasterDaemon {
                 ? node.getPublicEndpoint()
                 : remoteClusterPb.getPublicEndpoint();
         String localPublicEndpoint = be.getTagMap().get(Tag.PUBLIC_ENDPOINT);
-        if (localPublicEndpoint != null && !localPublicEndpoint.equals(remotePublicEndpoint)) {
+        if ((localPublicEndpoint == null && !Strings.isNullOrEmpty(remotePublicEndpoint))
+                || (localPublicEndpoint != null && !localPublicEndpoint.equals(remotePublicEndpoint))) {
             LOG.info("be {} has changed public_endpoint from {} to {}",
                     be, localPublicEndpoint, remotePublicEndpoint);
             be.getTagMap().put(Tag.PUBLIC_ENDPOINT, remotePublicEndpoint);
@@ -228,7 +229,8 @@ public class CloudClusterChecker extends MasterDaemon {
                 ? node.getPrivateEndpoint()
                 : remoteClusterPb.getPrivateEndpoint();
         String localPrivateEndpoint = be.getTagMap().get(Tag.PRIVATE_ENDPOINT);
-        if (localPrivateEndpoint != null && !localPrivateEndpoint.equals(remotePrivateEndpoint)) {
+        if (localPrivateEndpoint == null && !Strings.isNullOrEmpty(remotePrivateEndpoint)
+                || (localPrivateEndpoint != null && !localPrivateEndpoint.equals(remotePrivateEndpoint))) {
             LOG.info("be {} has changed private_endpoint from {} to {}",
                     be, localPrivateEndpoint, remotePrivateEndpoint);
             be.getTagMap().put(Tag.PRIVATE_ENDPOINT, remotePrivateEndpoint);
