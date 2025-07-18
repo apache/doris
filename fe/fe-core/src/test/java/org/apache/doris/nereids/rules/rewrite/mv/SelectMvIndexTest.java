@@ -78,6 +78,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         useDatabase(HR_DB_NAME);
         connectContext.getSessionVariable().enableNereidsTimeout = false;
         connectContext.getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
+        connectContext.getSessionVariable().feDebug = false;
     }
 
     @BeforeEach
