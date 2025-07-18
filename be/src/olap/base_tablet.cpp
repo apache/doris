@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema_cache.h"
