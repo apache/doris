@@ -280,3 +280,12 @@ icebergS3TablesCatalog = ""
 enableExternalHudiTest = false
 // The properties string of hudi catalog
 hudiEmrCatalog = ""
+
+
+enableLdapTest = true
+ldapHost = "127.0.0.1"
+ldapPort = 3892
+ldapUser = "cn=admin,dc=example,dc=com"
+ldapPassword = "123456"
+ldapBaseDn = "dc=example,dc=com"
+ldapFilter = "(&(objectClass=person)(uid=test))"
