@@ -43,6 +43,9 @@
 #include "util/thread.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 using namespace ErrorCode;
 
 static const uint32_t MAX_SHARD_NUM = 1024;
@@ -290,10 +293,13 @@ void LoadPathMgr::clean_error_log() {
     time_t now = time(nullptr);
     bool exists = true;
     std::vector<io::FileInfo> sub_dirs;
-    Status status = io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs, &exists);
-    if (!status.ok()) {
-        LOG(WARNING) << "scan error_log dir failed: " << status;
-        return;
+    {
+        Status status =
+                io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs, &exists);
+        if (!status.ok()) {
+            LOG(WARNING) << "scan error_log dir failed: " << status;
+            return;
+        }
     }
 
     for (auto& sub_dir : sub_dirs) {
@@ -322,5 +328,7 @@ void LoadPathMgr::clean_error_log() {
         }
     }
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
