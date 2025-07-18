@@ -201,7 +201,7 @@ enum class JsonbType : char {
     NUM_TYPES,
 };
 
-inline PrimitiveType get_primitive_type_from_json_type(JsonbType json_type) {
+constexpr PrimitiveType get_primitive_type_from_json_type(JsonbType json_type) {
     switch (json_type) {
     case JsonbType::T_Null:
         return TYPE_NULL;
@@ -241,6 +241,48 @@ inline PrimitiveType get_primitive_type_from_json_type(JsonbType json_type) {
     default:
         throw Exception(ErrorCode::INTERNAL_ERROR, "Unsupported JsonbType: {}",
                         static_cast<int>(json_type));
+    }
+}
+
+constexpr JsonbType get_json_type_from_primitive_type(PrimitiveType primitive_type) {
+    switch (primitive_type) {
+    case TYPE_NULL:
+        return JsonbType::T_Null;
+    case TYPE_BOOLEAN:
+        return JsonbType::T_True; // or T_False, but we don't use it
+    case TYPE_TINYINT:
+        return JsonbType::T_Int8;
+    case TYPE_SMALLINT:
+        return JsonbType::T_Int16;
+    case TYPE_INT:
+        return JsonbType::T_Int32;
+    case TYPE_BIGINT:
+        return JsonbType::T_Int64;
+    case TYPE_DOUBLE:
+        return JsonbType::T_Double;
+    case TYPE_STRING:
+        return JsonbType::T_String;
+    case TYPE_BINARY:
+        return JsonbType::T_Binary;
+    case TYPE_STRUCT:
+        return JsonbType::T_Object;
+    case TYPE_ARRAY:
+        return JsonbType::T_Array;
+    case TYPE_LARGEINT:
+        return JsonbType::T_Int128;
+    case TYPE_FLOAT:
+        return JsonbType::T_Float;
+    case TYPE_DECIMAL32:
+        return JsonbType::T_Decimal32;
+    case TYPE_DECIMAL64:
+        return JsonbType::T_Decimal64;
+    case TYPE_DECIMAL128I:
+        return JsonbType::T_Decimal128;
+    case TYPE_DECIMAL256:
+        return JsonbType::T_Decimal256;
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Unsupported PrimitiveType: {}",
+                        static_cast<int>(primitive_type));
     }
 }
 
