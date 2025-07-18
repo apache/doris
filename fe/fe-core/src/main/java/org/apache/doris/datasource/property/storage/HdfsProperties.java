@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
@@ -119,6 +120,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         extractUserOverriddenHdfsConfig(origProps);
         initHadoopConfiguration();
         initBackendConfigProperties();
+        hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(configuration);
     }
 
     private void extractUserOverriddenHdfsConfig(Map<String, String> origProps) {
@@ -210,5 +212,10 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     @Override
     public String getStorageName() {
         return "HDFS";
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = configuration;
     }
 }

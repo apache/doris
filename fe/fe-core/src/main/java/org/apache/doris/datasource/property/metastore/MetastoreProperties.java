@@ -45,6 +45,7 @@ public class MetastoreProperties extends ConnectionProperties {
 
     public enum Type {
         HMS("hms"),
+        ICEBERG("iceberg"),
         GLUE("glue"),
         DLF("dlf"),
         ICEBERG_REST("rest"),
@@ -82,6 +83,7 @@ public class MetastoreProperties extends ConnectionProperties {
     static {
         //subclasses should be registered here
         register(Type.HMS, new HMSPropertiesFactory());
+        register(Type.ICEBERG, new IcebergPropertiesFactory());
         register(Type.ICEBERG_REST, props -> {
             IcebergRestProperties inst = new IcebergRestProperties(props);
             inst.initNormalizeAndCheckProps();

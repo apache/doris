@@ -23,6 +23,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 import java.util.Objects;
@@ -66,7 +67,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * - <a href="http://oss-cn-shenzhen-internal.aliyuncs.com">...</a> => region = cn-shenzhen
      * <p>
      * Group(1) captures the region name (e.g., cn-hangzhou).
-     *<p>
+     * <p>
      * Support S3 compatible endpoints:<a href="https://help.aliyun.com/zh/oss/developer-reference/
      * use-amazon-s3-sdks-to-access-oss">...</a>
      * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
@@ -104,4 +105,18 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         return ENDPOINT_PATTERN;
     }
 
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
+        hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
+        hadoopStorageConfig.set("fs.oss.region", region);
+        hadoopStorageConfig.set("fs.oss.accessKeyId", accessKey);
+        hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
+        hadoopStorageConfig.set("fs.oss.connection.timeout", connectionTimeoutS);
+        hadoopStorageConfig.set("fs.oss.connection.max", maxConnections);
+        hadoopStorageConfig.set("fs.oss.connection.request.timeout", requestTimeoutS);
+        hadoopStorageConfig.set("fs.oss.use.path.style.access", usePathStyle);
+    }
 }

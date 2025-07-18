@@ -23,6 +23,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 import java.util.Objects;
@@ -97,4 +98,16 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
         return ENDPOINT_PATTERN;
     }
 
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig.set("fs.obs.impl", "com.obs.services.hadoop.fs.OBSFileSystem");
+        hadoopStorageConfig.set("fs.obs.access.key", accessKey);
+        hadoopStorageConfig.set("fs.obs.secret.key", secretKey);
+        hadoopStorageConfig.set("fs.obs.endpoint", endpoint);
+        hadoopStorageConfig.set("fs.obs.connection.timeout", connectionTimeoutS);
+        hadoopStorageConfig.set("fs.obs.request.timeout", requestTimeoutS);
+        hadoopStorageConfig.set("fs.obs.connection.max", maxConnections);
+    }
 }

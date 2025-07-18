@@ -103,18 +103,6 @@ public class HMSPropertiesTest {
         return (HMSProperties) MetastoreProperties.create(params);
     }
 
-    private void testHmsToPaimonOptions(HMSProperties hmsProperties) {
-        Options paimonOptions = new Options();
-        hmsProperties.toPaimonOptionsAndConf(paimonOptions);
-        Assertions.assertEquals("thrift://127.0.0.1:9083", paimonOptions.get("uri"));
-    }
-
-    private void testHmsToIcebergHiveCatalog(HMSProperties hmsProperties) {
-        Map<String, String> icebergMSParams = new HashMap<>();
-        hmsProperties.toIcebergHiveCatalogProperties(icebergMSParams);
-        Assertions.assertEquals("thrift://127.0.0.1:9083", icebergMSParams.get("uri"));
-    }
-
     @Test
     public void testRefreshParams() throws UserException {
         Map<String, String> params = createBaseParams();
