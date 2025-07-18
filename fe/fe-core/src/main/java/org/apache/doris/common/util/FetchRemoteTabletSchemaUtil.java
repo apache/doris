@@ -33,6 +33,7 @@ import org.apache.doris.proto.InternalService.PTabletsLocation;
 import org.apache.doris.proto.OlapFile.ColumnPB;
 import org.apache.doris.proto.OlapFile.TabletSchemaPB;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -219,7 +220,8 @@ public class FetchRemoteTabletSchemaUtil {
                 }
             } while (false);
             return new Column(columnName, type, isKey, aggType, isNullable,
-                                                    defaultValue, "remote schema");
+                    defaultValue, "remote schema",
+                    ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
         } catch (Exception e) {
             throw new AnalysisException("default value to string failed");
         }

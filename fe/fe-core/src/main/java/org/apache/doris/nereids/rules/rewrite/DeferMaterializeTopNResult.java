@@ -265,7 +265,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
             return null;
         }
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
-        Column rowId = new Column(Column.ROWID_COL, Type.STRING, false, null, false, "", "rowid column");
+        Column rowId = new Column(Column.ROWID_COL, Type.STRING, false, null, false, "", "rowid column", null);
         SlotReference columnId = SlotReference.fromColumn(
                 exprIdGenerator.getNextId(), logicalOlapScan.getTable(), rowId, logicalOlapScan.getQualifier());
         Set<Slot> orderKeys = Sets.newHashSet();

@@ -80,15 +80,16 @@ public class CloudRollupJobV2 extends RollupJobV2 {
 
     // Don't call it directly, use AlterJobV2Factory to replace
     public CloudRollupJobV2(String rawSql, long jobId, long dbId, long tableId, String tableName, long timeoutMs,
-                       long baseIndexId,
-                       long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
-                       Column whereColumn,
-                       int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
-                       short rollupShortKeyColumnCount,
-                       OriginStatement origStmt) throws AnalysisException {
+            long baseIndexId,
+            long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
+            Column whereColumn,
+            int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
+            short rollupShortKeyColumnCount,
+            OriginStatement origStmt, Map<String, String> sessionVariables) throws AnalysisException {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                 rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
-                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
+                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt,
+                sessionVariables);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             String clusterName = "";

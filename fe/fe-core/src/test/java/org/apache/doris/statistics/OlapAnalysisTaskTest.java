@@ -107,7 +107,8 @@ public class OlapAnalysisTaskTest {
     }
 
     @Test
-    public void testKeyColumnUseLimitAndNot(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked OlapTable tableIf) {
+    public void testKeyColumnUseLimitAndNot(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf,
+            @Mocked OlapTable tableIf) {
 
         new Expectations() {
             {
@@ -134,14 +135,15 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            void getSampleParams(Map<String, String> params, long tableRowCount) {}
+            void getSampleParams(Map<String, String> params, long tableRowCount) {
+            }
 
             @Mock
             boolean useLinearAnalyzeTemplate() {
                 return true;
             }
 
-                @Mock
+            @Mock
             public void runQuery(String sql) {
                 Assertions.assertEquals("WITH cte1 AS (SELECT `null` FROM `catalogName`.`${dbName}`.`null`  "
                         + "${sampleHints} ${limit} ), cte2 AS (SELECT CONCAT(30001, '-', -1, '-', 'null') AS `id`, "
@@ -162,7 +164,7 @@ public class OlapAnalysisTaskTest {
 
         OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
         olapAnalysisTask.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.INT),
-            true, null, null, null);
+                true, null, null, null, null);
         olapAnalysisTask.tbl = tableIf;
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
         analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
@@ -200,7 +202,8 @@ public class OlapAnalysisTaskTest {
     }
 
     @Test
-    public void testNeedLimitFalse(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked OlapTable tableIf)
+    public void testNeedLimitFalse(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf,
+            @Mocked OlapTable tableIf)
             throws Exception {
 
         new MockUp<OlapTable>() {
@@ -219,12 +222,12 @@ public class OlapAnalysisTaskTest {
 
         OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
         olapAnalysisTask.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.STRING),
-            true, null, null, null);
+                true, null, null, null, null);
         olapAnalysisTask.tbl = tableIf;
         Assertions.assertFalse(olapAnalysisTask.needLimit());
 
         olapAnalysisTask.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.STRING),
-            false, null, null, null);
+                false, null, null, null, null);
         Assertions.assertFalse(olapAnalysisTask.needLimit());
     }
 
@@ -244,11 +247,11 @@ public class OlapAnalysisTaskTest {
         OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
         olapAnalysisTask.tbl = tableIf;
         olapAnalysisTask.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.STRING),
-            false, null, null, null);
+                false, null, null, null, null);
         Assertions.assertTrue(olapAnalysisTask.needLimit());
 
         olapAnalysisTask.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.STRING),
-            true, null, null, null);
+                true, null, null, null, null);
         olapAnalysisTask.setKeyColumnSampleTooManyRows(true);
         Assertions.assertTrue(olapAnalysisTask.needLimit());
     }
@@ -367,7 +370,7 @@ public class OlapAnalysisTaskTest {
                 return KeysType.DUP_KEYS;
             }
         };
-        task.col = new Column("testColumn", Type.INT, true, null, null, "");
+        task.col = new Column("testColumn", Type.INT, true, null, null, "", null);
         task.setTable(new OlapTable());
         task.getSampleParams(params, 10);
         Assertions.assertTrue(task.scanFullTable());
@@ -384,12 +387,14 @@ public class OlapAnalysisTaskTest {
             }
         };
         task = new OlapAnalysisTask();
-        task.col = new Column("testColumn", Type.INT, false, null, null, "");
+        task.col = new Column("testColumn", Type.INT, false, null, null, "", null);
         task.setTable(new OlapTable());
         task.getSampleParams(params, 1000);
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
-        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(`t1`.`col_value`) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) + SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) * SUM(`t1`.`count`) / 1000)", params.get("ndvFunction"));
+        Assertions.assertEquals(
+                "SUM(`t1`.`count`) * COUNT(`t1`.`col_value`) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) + SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) * SUM(`t1`.`count`) / 1000)",
+                params.get("ndvFunction"));
         Assertions.assertEquals("SUM(t1.count) * 4", params.get("dataSizeFunction"));
         Assertions.assertEquals("`${colName}`", params.get("subStringColName"));
         Assertions.assertEquals("/*+PREAGGOPEN*/", params.get("preAggHint"));
@@ -407,7 +412,7 @@ public class OlapAnalysisTaskTest {
             }
         };
         task = new OlapAnalysisTask();
-        task.col = new Column("testColumn", Type.INT, false, null, null, "");
+        task.col = new Column("testColumn", Type.INT, false, null, null, "", null);
         task.setTable(new OlapTable());
         task.getSampleParams(params, 1000);
         Assertions.assertEquals("/*+PREAGGOPEN*/", params.get("preAggHint"));
@@ -420,7 +425,7 @@ public class OlapAnalysisTaskTest {
             }
         };
         task = new OlapAnalysisTask();
-        task.col = new Column("testColumn", Type.INT, false, null, null, "");
+        task.col = new Column("testColumn", Type.INT, false, null, null, "", null);
         task.setTable(new OlapTable());
         task.getSampleParams(params, 1000);
         Assertions.assertNull(params.get("preAggHint"));
@@ -485,7 +490,7 @@ public class OlapAnalysisTaskTest {
 
         task = new OlapAnalysisTask();
         task.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.INT),
-            true, null, null, null);
+                true, null, null, null, null);
         task.setKeyColumnSampleTooManyRows(true);
         task.setTable(new OlapTable());
         task.getSampleParams(params, 2000000000);
@@ -577,7 +582,7 @@ public class OlapAnalysisTaskTest {
         List<PartitionValue> highKey = Lists.newArrayList();
         highKey.add(new PartitionValue("2025-01-02"));
         Range<PartitionKey> range1 = Range.closedOpen(PartitionKey.createPartitionKey(lowKey, columns),
-                    PartitionKey.createPartitionKey(highKey, columns));
+                PartitionKey.createPartitionKey(highKey, columns));
         RangePartitionItem item1 = new RangePartitionItem(range1);
 
         lowKey.clear();

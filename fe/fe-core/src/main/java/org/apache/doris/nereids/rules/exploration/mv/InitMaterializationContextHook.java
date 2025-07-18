@@ -261,7 +261,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                             continue;
                         }
                         ConnectContext basicMvContext = MTMVPlanUtil.createBasicMvContext(
-                                cascadesContext.getConnectContext());
+                                cascadesContext.getConnectContext(), meta.getSessionVariables());
                         basicMvContext.setDatabase(meta.getDbName());
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
                                 basicMvContext, true,

@@ -3008,7 +3008,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             LOG.debug("inject slot {}", slotDesc);
         }
         String name = Column.ROWID_COL;
-        Column col = new Column(name, Type.STRING, false, null, false, "", "rowid column");
+        Column col = new Column(name, Type.STRING, false, null, false, "", "rowid column", null);
         slotDesc.setType(Type.STRING);
         slotDesc.setColumn(col);
         slotDesc.setIsNullable(false);

@@ -53,6 +53,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
@@ -131,6 +132,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     protected short rollupShortKeyColumnCount;
     @SerializedName(value = "origStmt")
     protected OriginStatement origStmt;
+    @SerializedName(value = "sv")
+    protected Map<String, String> sessionVariables;
 
     // optional
     @SerializedName(value = "storageFormat")
@@ -152,7 +155,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                        Column whereColumn,
                        int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
                        short rollupShortKeyColumnCount,
-                       OriginStatement origStmt) throws AnalysisException {
+                       OriginStatement origStmt, Map<String, String> sessionVariables) throws AnalysisException {
         super(rawSql, jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
@@ -169,6 +172,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
 
         this.origStmt = origStmt;
+        this.sessionVariables = sessionVariables;
         initAnalyzer();
     }
 
@@ -200,6 +204,14 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     public String getBaseIndexName() {
         return baseIndexName;
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 
     protected void initAnalyzer() throws AnalysisException {
@@ -379,7 +391,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
-                rollupKeysType, origStmt, analyzer != null ? new Analyzer(analyzer) : analyzer, null);
+                rollupKeysType, origStmt, analyzer != null ? new Analyzer(analyzer) : analyzer, null, sessionVariables);
         tbl.rebuildFullSchema();
     }
 
@@ -941,7 +953,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
                     origStmt.originStmt);
             ConnectContext ctx = ConnectContextUtil.getDummyCtx(db.getFullName());
-            try {
+            try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx, sessionVariables)) {
                 command.validate(ctx);
             } finally {
                 ctx.cleanup();

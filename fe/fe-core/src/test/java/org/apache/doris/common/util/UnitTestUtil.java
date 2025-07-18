@@ -60,7 +60,7 @@ public class UnitTestUtil {
     public static final int SCHEMA_HASH = 0;
 
     public static Database createDb(long dbId, long tableId, long partitionId, long indexId,
-                                    long tabletId, long backendId, long version) {
+            long tabletId, long backendId, long version) {
         // Catalog.getCurrentInvertedIndex().clear();
 
         // replica
@@ -93,7 +93,8 @@ public class UnitTestUtil {
         temp = new Column("k2", PrimitiveType.INT);
         temp.setIsKey(true);
         columns.add(temp);
-        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        columns.add(
+                new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", "", null));
 
         List<Column> keysColumn = new ArrayList<Column>();
         temp = new Column("k1", PrimitiveType.INT);
@@ -111,7 +112,7 @@ public class UnitTestUtil {
         partitionInfo.setIsMutable(partitionId, true);
         partitionInfo.setTabletType(partitionId, TTabletType.TABLET_TYPE_DISK);
         OlapTable table = new OlapTable(tableId, TABLE_NAME, columns,
-                                        KeysType.AGG_KEYS, partitionInfo, distributionInfo);
+                KeysType.AGG_KEYS, partitionInfo, distributionInfo);
         Deencapsulation.setField(table, "baseIndexId", indexId);
         table.addPartition(partition);
         table.setIndexMeta(indexId, TABLE_NAME, columns, 0, SCHEMA_HASH, (short) 1, TStorageType.COLUMN,
@@ -130,7 +131,7 @@ public class UnitTestUtil {
     }
 
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort,
-                                        long totalCapacityB, long availableCapacityB) {
+            long totalCapacityB, long availableCapacityB) {
         Backend backend = createBackend(id, host, heartPort, bePort, httpPort);
         Map<String, TDisk> backendDisks = new HashMap<String, TDisk>();
         String rootPath = "root_path";

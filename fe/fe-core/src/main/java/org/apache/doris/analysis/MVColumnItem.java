@@ -189,7 +189,7 @@ public class MVColumnItem {
             if (type == null) {
                 throw new DdlException("MVColumnItem type is null");
             }
-            result = new Column(name, type, isKey, aggregationType, null, "");
+            result = new Column(name, type, isKey, aggregationType, null, "", null);
             if (defineExpr != null) {
                 result.setIsAllowNull(defineExpr.isNullable());
             }

@@ -57,6 +57,8 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -681,7 +683,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             String columnName = hudiAvroField.name().toLowerCase(Locale.ROOT);
             Column column = new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
                     true, null, true, null, "", true, null,
-                    -1, null);
+                    -1, null, null);
             HudiUtils.updateHudiColumnUniqueId(column, hudiInternalfield);
             tmpSchema.add(column);
 
@@ -713,7 +715,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
             columns.add(new Column(fieldName,
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                    true, defaultValue, field.getComment(), true, -1));
+                    true, defaultValue, field.getComment(), true, -1,
+                    ConnectContextUtil.getAffectQueryResultSessionVariables(
+                            ConnectContext.get())));
         }
         List<Column> partitionColumns = initPartitionColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));

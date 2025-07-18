@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -32,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Table metadata representing a catalog view or a local view from a WITH clause.
@@ -65,8 +67,12 @@ public class View extends Table implements GsonPostProcessable {
     private String inlineViewDef;
 
     // for persist
+    // Replaced by sessionVariables
+    @Deprecated
     @SerializedName("sm")
     private long sqlMode = 0L;
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
 
     // Set if this View is from a WITH clause and not persisted in the catalog.
     private boolean isLocalView;
@@ -82,9 +88,10 @@ public class View extends Table implements GsonPostProcessable {
         isLocalView = false;
     }
 
-    public void setInlineViewDefWithSqlMode(String inlineViewDef, long sqlMode) {
+    public void setInlineViewDefWithSqlMode(String inlineViewDef, long sqlMode, Map<String, String> sessionVariables) {
         this.inlineViewDef = inlineViewDef;
         this.sqlMode = sqlMode;
+        this.sessionVariables = sessionVariables;
     }
 
     public void setSqlMode(long sqlMode) {
@@ -97,6 +104,17 @@ public class View extends Table implements GsonPostProcessable {
 
     public String getInlineViewDef() {
         return inlineViewDef;
+    }
+
+    public Map<String, String> getSessionVariables() {
+        if (!sessionVariables.containsKey(SessionVariable.SQL_MODE)) {
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(sqlMode));
+        }
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 
     // Get the md5 of signature string of this view.
@@ -133,6 +151,7 @@ public class View extends Table implements GsonPostProcessable {
             return null;
         }
         copied.setSqlMode(this.sqlMode);
+        copied.setSessionVariables(this.sessionVariables);
         return copied;
     }
 

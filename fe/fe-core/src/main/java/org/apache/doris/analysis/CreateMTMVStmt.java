@@ -33,11 +33,13 @@ public class CreateMTMVStmt extends CreateTableStmt {
     private Map<String, String> mvProperties;
     private MTMVPartitionInfo mvPartitionInfo;
     private MTMVRelation relation;
+    private Map<String, String> sessionVariables;
 
     public CreateMTMVStmt(boolean ifNotExists, TableName mvName, List<Column> columns,
             MTMVRefreshInfo refreshInfo, KeysDesc keyDesc, DistributionDesc distributionDesc,
             Map<String, String> properties, Map<String, String> mvProperties, String querySql, String comment,
-            PartitionDesc partitionDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelation relation) {
+            PartitionDesc partitionDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelation relation,
+            Map<String, String> sessionVariables) {
         super(ifNotExists, false, false, mvName, columns, new ArrayList<Index>(), DEFAULT_ENGINE_NAME, keyDesc,
                 partitionDesc, distributionDesc, properties, null, comment, null, null);
         this.refreshInfo = refreshInfo;
@@ -45,6 +47,7 @@ public class CreateMTMVStmt extends CreateTableStmt {
         this.mvProperties = mvProperties;
         this.mvPartitionInfo = mvPartitionInfo;
         this.relation = relation;
+        this.sessionVariables = sessionVariables;
     }
 
     public MTMVRefreshInfo getRefreshInfo() {
@@ -65,5 +68,9 @@ public class CreateMTMVStmt extends CreateTableStmt {
 
     public MTMVRelation getRelation() {
         return relation;
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 }

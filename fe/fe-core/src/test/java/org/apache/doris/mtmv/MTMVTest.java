@@ -123,7 +123,7 @@ public class MTMVTest {
 
     private Map<PartitionKeyDesc, Set<String>> mockRelatedPartitionDescs() throws AnalysisException {
         Map<PartitionKeyDesc, Set<String>> res = Maps.newHashMap();
-        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1");
+        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1", null);
         PartitionKey rangeP1Lower = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("1")),
                 Lists.newArrayList(k1));
         PartitionKey rangeP1Upper = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
@@ -136,7 +136,7 @@ public class MTMVTest {
 
     private Map<String, PartitionItem> mockMvPartitionItems() throws AnalysisException {
         Map<String, PartitionItem> res = Maps.newHashMap();
-        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1");
+        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1", null);
         PartitionKey rangeP1Lower = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("1")),
                 Lists.newArrayList(k1));
         PartitionKey rangeP1Upper = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),

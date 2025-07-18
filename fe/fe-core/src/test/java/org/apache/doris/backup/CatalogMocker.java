@@ -147,14 +147,14 @@ public class CatalogMocker {
     public static List<Column> TEST_ROLLUP_SCHEMA = Lists.newArrayList();
 
     static {
-        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1");
-        Column k2 = new Column("k2", ScalarType.createType(PrimitiveType.SMALLINT), true, null, "", "key2");
-        Column k3 = new Column("k3", ScalarType.createType(PrimitiveType.INT), true, null, "", "key3");
-        Column k4 = new Column("k4", ScalarType.createType(PrimitiveType.BIGINT), true, null, "", "key4");
-        Column k5 = new Column("k5", ScalarType.createType(PrimitiveType.LARGEINT), true, null, "", "key5");
-        Column k6 = new Column("k6", ScalarType.createType(PrimitiveType.DATE), true, null, "", "key6");
-        Column k7 = new Column("k7", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", "key7");
-        Column k8 = new Column("k8", ScalarType.createDecimalType(10, 3), true, null, "", "key8");
+        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1", null);
+        Column k2 = new Column("k2", ScalarType.createType(PrimitiveType.SMALLINT), true, null, "", "key2", null);
+        Column k3 = new Column("k3", ScalarType.createType(PrimitiveType.INT), true, null, "", "key3", null);
+        Column k4 = new Column("k4", ScalarType.createType(PrimitiveType.BIGINT), true, null, "", "key4", null);
+        Column k5 = new Column("k5", ScalarType.createType(PrimitiveType.LARGEINT), true, null, "", "key5", null);
+        Column k6 = new Column("k6", ScalarType.createType(PrimitiveType.DATE), true, null, "", "key6", null);
+        Column k7 = new Column("k7", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", "key7", null);
+        Column k8 = new Column("k8", ScalarType.createDecimalType(10, 3), true, null, "", "key8", null);
         k1.setIsKey(true);
         k2.setIsKey(true);
         k3.setIsKey(true);
@@ -165,13 +165,13 @@ public class CatalogMocker {
         k8.setIsKey(true);
 
         Column v1 = new Column("v1",
-                ScalarType.createChar(10), false, AggregateType.REPLACE, "none", " value1");
+                ScalarType.createChar(10), false, AggregateType.REPLACE, "none", " value1", null);
         Column v2 = new Column("v2",
-                ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.MAX, "none", " value2");
+                ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.MAX, "none", " value2", null);
         Column v3 = new Column("v3",
-                ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.MIN, "none", " value3");
+                ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.MIN, "none", " value3", null);
         Column v4 = new Column("v4",
-                ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "", " value4");
+                ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "", " value4", null);
 
         TEST_TBL_BASE_SCHEMA.add(k1);
         TEST_TBL_BASE_SCHEMA.add(k2);
@@ -244,12 +244,12 @@ public class CatalogMocker {
         DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
         partitionInfo.setDataProperty(TEST_SINGLE_PARTITION_ID, dataProperty);
         OlapTable olapTable = new OlapTable(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA,
-                                            KeysType.AGG_KEYS, partitionInfo, distributionInfo);
+                KeysType.AGG_KEYS, partitionInfo, distributionInfo);
         Deencapsulation.setField(olapTable, "baseIndexId", TEST_TBL_ID);
 
         Tablet tablet0 = new Tablet(TEST_TABLET0_ID);
         TabletMeta tabletMeta = new TabletMeta(TEST_DB_ID, TEST_TBL_ID, TEST_SINGLE_PARTITION_ID,
-                                               TEST_TBL_ID, SCHEMA_HASH, TStorageMedium.HDD);
+                TEST_TBL_ID, SCHEMA_HASH, TStorageMedium.HDD);
         baseIndex.addTablet(tablet0, tabletMeta);
         Replica replica0 = new Replica(TEST_REPLICA0_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica1 = new Replica(TEST_REPLICA1_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
@@ -295,7 +295,7 @@ public class CatalogMocker {
                 PartitionKey.createInfinityPartitionKey(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)), false);
         PartitionKey rangeP1Upper =
                 PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
-                                                Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
+                        Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP1 = Range.closedOpen(rangeP1Lower, rangeP1Upper);
         PartitionItem item1 = new RangePartitionItem(rangeP1);
         rangePartitionInfo.setItem(TEST_PARTITION1_ID, false, item1);
@@ -323,7 +323,7 @@ public class CatalogMocker {
 
         Tablet baseTabletP1 = new Tablet(TEST_BASE_TABLET_P1_ID);
         TabletMeta tabletMetaBaseTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
-                                                           TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
+                TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
         baseIndexP1.addTablet(baseTabletP1, tabletMetaBaseTabletP1);
         Replica replica3 = new Replica(TEST_REPLICA3_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica4 = new Replica(TEST_REPLICA4_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
@@ -335,7 +335,7 @@ public class CatalogMocker {
 
         Tablet baseTabletP2 = new Tablet(TEST_BASE_TABLET_P2_ID);
         TabletMeta tabletMetaBaseTabletP2 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION2_ID,
-                                                           TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
+                TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
         baseIndexP2.addTablet(baseTabletP2, tabletMetaBaseTabletP2);
         Replica replica6 = new Replica(TEST_REPLICA6_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica7 = new Replica(TEST_REPLICA7_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
@@ -355,8 +355,8 @@ public class CatalogMocker {
         MaterializedIndex rollupIndexP1 = new MaterializedIndex(TEST_ROLLUP_ID, IndexState.NORMAL);
         Tablet rollupTabletP1 = new Tablet(TEST_ROLLUP_TABLET_P1_ID);
         TabletMeta tabletMetaRollupTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
-                                                             TEST_ROLLUP_TABLET_P1_ID, ROLLUP_SCHEMA_HASH,
-                                                             TStorageMedium.HDD);
+                TEST_ROLLUP_TABLET_P1_ID, ROLLUP_SCHEMA_HASH,
+                TStorageMedium.HDD);
         rollupIndexP1.addTablet(rollupTabletP1, tabletMetaRollupTabletP1);
         Replica replica9 = new Replica(TEST_REPLICA9_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica10 = new Replica(TEST_REPLICA10_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
@@ -372,8 +372,8 @@ public class CatalogMocker {
         MaterializedIndex rollupIndexP2 = new MaterializedIndex(TEST_ROLLUP_ID, IndexState.NORMAL);
         Tablet rollupTabletP2 = new Tablet(TEST_ROLLUP_TABLET_P2_ID);
         TabletMeta tabletMetaRollupTabletP2 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
-                                                             TEST_ROLLUP_TABLET_P2_ID, ROLLUP_SCHEMA_HASH,
-                                                             TStorageMedium.HDD);
+                TEST_ROLLUP_TABLET_P2_ID, ROLLUP_SCHEMA_HASH,
+                TStorageMedium.HDD);
         rollupIndexP2.addTablet(rollupTabletP2, tabletMetaRollupTabletP2);
         Replica replica12 = new Replica(TEST_REPLICA12_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica13 = new Replica(TEST_REPLICA13_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
@@ -385,7 +385,7 @@ public class CatalogMocker {
         partition2.createRollupIndex(rollupIndexP2);
 
         olapTable2.setIndexMeta(TEST_ROLLUP_ID, TEST_ROLLUP_NAME, TEST_ROLLUP_SCHEMA, 0, ROLLUP_SCHEMA_HASH,
-                                      (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS);
+                (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS);
         db.registerTable(olapTable2);
 
         return db;

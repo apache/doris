@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
@@ -405,7 +406,7 @@ public class CreateMTMVInfo {
     /**
      * translate to catalog CreateMultiTableMaterializedViewStmt
      */
-    public CreateMTMVStmt translateToLegacyStmt() {
+    public CreateMTMVStmt translateToLegacyStmt(ConnectContext ctx) {
         TableName tableName = mvName.transferToTableName();
         KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, keys);
         List<Column> catalogColumns = columns.stream()
@@ -413,7 +414,7 @@ public class CreateMTMVInfo {
                 .collect(Collectors.toList());
         return new CreateMTMVStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
                 distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment,
-                partitionDesc, mvPartitionInfo, relation);
+                partitionDesc, mvPartitionInfo, relation, ConnectContextUtil.getAffectQueryResultSessionVariables(ctx));
     }
 
 }

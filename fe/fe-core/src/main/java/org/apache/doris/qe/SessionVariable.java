@@ -53,6 +53,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1762,7 +1763,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true, affectQueryResult = true)
     public boolean enableUnicodeNameSupport = false;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN, affectQueryResult = true)
@@ -2432,8 +2433,9 @@ public class SessionVariable implements Serializable, Writable {
         this.detailShapePlanNodes = detailShapePlanNodes;
     }
 
-    @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
-            "Set to true to enable Decimal256 type" }, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = {
+            "控制是否在计算过程中使用Decimal256类型",
+            "Set to true to enable Decimal256 type"}, affectQueryResult = true)
     public boolean enableDecimal256 = false;
 
     @VariableMgr.VarAttr(name = FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
@@ -2604,9 +2606,9 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableInvertedIndexQueryCache = true;
 
     @VariableMgr.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
-        "in条件value数量大于这个threshold后将不会走fast_execute",
-        "When the number of values in the IN condition exceeds this threshold,"
-                + " fast_execute will not be used."
+            "in条件value数量大于这个threshold后将不会走fast_execute",
+            "When the number of values in the IN condition exceeds this threshold,"
+                    + " fast_execute will not be used."
     }, affectQueryResult = true)
     public int inListValueCountThreshold = 10;
 
@@ -4436,6 +4438,52 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public Map<String, String> getAffectQueryResultVariables() {
+        HashMap<String, String> map = new HashMap<String, String>();
+        try {
+            Field[] fields = SessionVariable.class.getDeclaredFields();
+            for (Field f : fields) {
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !varAttr.affectQueryResult() || VariableAnnotation.DEPRECATED.equals(
+                        varAttr.varType()) || VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                map.put(varAttr.name(), String.valueOf(f.get(this)));
+            }
+        } catch (IllegalAccessException e) {
+            LOG.error("failed to get affect query result variables", e);
+        }
+        return map;
+    }
+
+    public void setAffectQueryResultSessionVariables(Map<String, String> variables) {
+        if (MapUtils.isEmpty(variables)) {
+            return;
+        }
+        try {
+            Field[] fields = SessionVariable.class.getDeclaredFields();
+            for (Field f : fields) {
+                f.setAccessible(true);
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !varAttr.affectQueryResult() || VariableAnnotation.DEPRECATED.equals(
+                        varAttr.varType()) || VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                String val = variables.get(varAttr.name());
+                if (val == null) {
+                    continue;
+                }
+
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set affect query result variable: {} = {}", varAttr.name(), val);
+                }
+                VariableMgr.setValue(this, val, f, varAttr.name());
+            }
+        } catch (Throwable e) {
+            LOG.error("failed to set forward variables", e);
+        }
+    }
+
     /**
      * Get all variables which need to forward along with statement.
      **/
@@ -4478,30 +4526,9 @@ public class SessionVariable implements Serializable, Writable {
                 }
 
                 // set config field
-                switch (f.getType().getSimpleName()) {
-                    case "short":
-                        f.setShort(this, Short.parseShort(val));
-                        break;
-                    case "int":
-                        f.setInt(this, Integer.parseInt(val));
-                        break;
-                    case "long":
-                        f.setLong(this, Long.parseLong(val));
-                        break;
-                    case "double":
-                        f.setDouble(this, Double.parseDouble(val));
-                        break;
-                    case "boolean":
-                        f.setBoolean(this, Boolean.parseBoolean(val));
-                        break;
-                    case "String":
-                        f.set(this, val);
-                        break;
-                    default:
-                        throw new IllegalArgumentException("Unknown field type: " + f.getType().getSimpleName());
-                }
+                VariableMgr.setValue(this, val, f, varAttr.name());
             }
-        } catch (IllegalAccessException e) {
+        } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }
     }

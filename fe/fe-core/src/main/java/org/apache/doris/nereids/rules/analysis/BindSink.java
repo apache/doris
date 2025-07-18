@@ -87,6 +87,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
@@ -446,19 +447,22 @@ public class BindSink implements AnalysisRuleFactory {
                                                 column.getName()));
                             }
                         } else {
-                            Expression unboundDefaultValue = new NereidsParser().parseExpression(
-                                    column.getDefaultValueExpr().toSqlWithoutTbl());
-                            Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
-                                    boundSink, ctx.cascadesContext, unboundDefaultValue);
-                            if (defualtValueExpression instanceof Alias) {
-                                defualtValueExpression = ((Alias) defualtValueExpression).child();
+                            try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
+                                    Maps.newConcurrentMap())) {
+                                Expression unboundDefaultValue = new NereidsParser().parseExpression(
+                                        column.getDefaultValueExpr().toSqlWithoutTbl());
+                                Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
+                                        boundSink, ctx.cascadesContext, unboundDefaultValue);
+                                if (defualtValueExpression instanceof Alias) {
+                                    defualtValueExpression = ((Alias) defualtValueExpression).child();
+                                }
+                                Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
+                                        defualtValueExpression, DataType.fromCatalogType(column.getType()))),
+                                        column.getName());
+                                columnToOutput.put(column.getName(), output);
+                                columnToReplaced.put(column.getName(), output.toSlot());
+                                replaceMap.put(output.toSlot(), output.child());
                             }
-                            Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
-                                    defualtValueExpression, DataType.fromCatalogType(column.getType()))),
-                                    column.getName());
-                            columnToOutput.put(column.getName(), output);
-                            columnToReplaced.put(column.getName(), output.toSlot());
-                            replaceMap.put(output.toSlot(), output.child());
                         }
                     } catch (Exception e) {
                         throw new AnalysisException(e.getMessage(), e.getCause());
@@ -470,19 +474,24 @@ public class BindSink implements AnalysisRuleFactory {
         // if processed in upper for loop, will lead to not found slot error
         // It's the same reason for moving the processing of materialized columns down.
         for (Column column : generatedColumns) {
-            GeneratedColumnInfo info = column.getGeneratedColumnInfo();
-            Expression parsedExpression = new NereidsParser().parseExpression(info.getExpr().toSqlWithoutTbl());
-            Expression boundExpression = new CustomExpressionAnalyzer(boundSink, ctx.cascadesContext, columnToReplaced)
-                    .analyze(parsedExpression);
-            if (boundExpression instanceof Alias) {
-                boundExpression = ((Alias) boundExpression).child();
+            try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
+                    column.getSessionVariables())) {
+                GeneratedColumnInfo info = column.getGeneratedColumnInfo();
+                Expression parsedExpression = new NereidsParser().parseExpression(info.getExpr().toSqlWithoutTbl());
+                Expression boundExpression = new CustomExpressionAnalyzer(boundSink, ctx.cascadesContext,
+                        columnToReplaced)
+                        .analyze(parsedExpression);
+                if (boundExpression instanceof Alias) {
+                    boundExpression = ((Alias) boundExpression).child();
+                }
+                boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
+                Alias output = new Alias(boundExpression, info.getExprSql());
+                columnToOutput.put(column.getName(), output);
+                columnToReplaced.put(column.getName(), output.toSlot());
+                replaceMap.put(output.toSlot(), output.child());
             }
-            boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
-            Alias output = new Alias(boundExpression, info.getExprSql());
-            columnToOutput.put(column.getName(), output);
-            columnToReplaced.put(column.getName(), output.toSlot());
-            replaceMap.put(output.toSlot(), output.child());
         }
+
         for (Column column : materializedViewColumn) {
             if (column.isMaterializedViewColumn()) {
                 List<SlotRef> refs = column.getRefColumns();

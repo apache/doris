@@ -70,7 +70,7 @@ public class ColumnGsonSerializationTest {
         Files.createFile(path);
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
-        Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc");
+        Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc", null);
 
         String c1Json = GsonUtils.GSON.toJson(c1);
         Text.writeString(out, c1Json);
@@ -94,9 +94,11 @@ public class ColumnGsonSerializationTest {
         Files.createFile(path);
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
-        Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc");
-        Column c2 = new Column("c2", ScalarType.createType(PrimitiveType.VARCHAR, 32, -1, -1), true, null, true, "cmy", "");
-        Column c3 = new Column("c3", ScalarType.createDecimalType(27, 9), false, AggregateType.SUM, false, "1.1", "decimalv2");
+        Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc", null);
+        Column c2 = new Column("c2", ScalarType.createType(PrimitiveType.VARCHAR, 32, -1, -1), true, null, true, "cmy",
+                "", null);
+        Column c3 = new Column("c3", ScalarType.createDecimalType(27, 9), false, AggregateType.SUM, false, "1.1",
+                "decimalv2", null);
 
         ColumnList columnList = new ColumnList();
         columnList.columns.add(c1);

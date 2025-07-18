@@ -71,20 +71,20 @@ class StatisticsUtilTest {
     @Test
     void testConvertToDouble() {
         try {
-            //test DATE
+            // test DATE
             double date1 = StatisticsUtil.convertToDouble(Type.DATE, "1990-01-01");
             double date2 = StatisticsUtil.convertToDouble(Type.DATE, "1990-01-02");
             double date3 = StatisticsUtil.convertToDouble(Type.DATE, "1990-01-03");
             Assertions.assertTrue(date2 > date1);
             Assertions.assertTrue(date3 > date2);
-            //test DATEV2
+            // test DATEV2
             date1 = StatisticsUtil.convertToDouble(Type.DATEV2, "1990-01-01");
             date2 = StatisticsUtil.convertToDouble(Type.DATEV2, "1990-01-02");
             date3 = StatisticsUtil.convertToDouble(Type.DATEV2, "1990-01-03");
             Assertions.assertTrue(date2 > date1);
             Assertions.assertTrue(date3 > date2);
 
-            //test CHAR
+            // test CHAR
             double str1 = StatisticsUtil.convertToDouble(Type.CHAR, "aaa");
             double str2 = StatisticsUtil.convertToDouble(Type.CHAR, "aab");
             double str3 = StatisticsUtil.convertToDouble(Type.CHAR, "abb");
@@ -93,9 +93,9 @@ class StatisticsUtilTest {
             double str4 = StatisticsUtil.convertToDouble(Type.CHAR, "abbccdde");
             double str5 = StatisticsUtil.convertToDouble(Type.CHAR, "abbccddee");
             Assertions.assertTrue(str4 > str3);
-            //we only count first 8 char, tailing chars are ignored
+            // we only count first 8 char, tailing chars are ignored
             Assertions.assertEquals(str4, str5);
-            //test VARCHAR
+            // test VARCHAR
             str1 = StatisticsUtil.convertToDouble(Type.VARCHAR, "aaa");
             str2 = StatisticsUtil.convertToDouble(Type.VARCHAR, "aab");
             str3 = StatisticsUtil.convertToDouble(Type.VARCHAR, "abb");
@@ -104,7 +104,7 @@ class StatisticsUtilTest {
             str4 = StatisticsUtil.convertToDouble(Type.VARCHAR, "abbccdde");
             str5 = StatisticsUtil.convertToDouble(Type.VARCHAR, "abbccddee");
             Assertions.assertTrue(str4 > str3);
-            //we only count first 8 char, tailing chars are ignored
+            // we only count first 8 char, tailing chars are ignored
             Assertions.assertEquals(str4, str5);
 
         } catch (AnalysisException e) {
@@ -258,8 +258,10 @@ class StatisticsUtilTest {
         };
         // Test not supported external table type.
         JdbcExternalCatalog jdbcExternalCatalog = new JdbcExternalCatalog(1, "name", "resource", new HashMap<>(), "");
-        JdbcExternalDatabase jdbcExternalDatabase = new JdbcExternalDatabase(jdbcExternalCatalog, 1, "jdbcdb", "jdbcdb");
-        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbctable", jdbcExternalCatalog, jdbcExternalDatabase);
+        JdbcExternalDatabase jdbcExternalDatabase = new JdbcExternalDatabase(jdbcExternalCatalog, 1, "jdbcdb",
+                "jdbcdb");
+        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbctable", jdbcExternalCatalog,
+                jdbcExternalDatabase);
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(externalTable, Pair.of("index", column.getName())));
 
         // Test hms external table not hive type.
@@ -269,7 +271,8 @@ class StatisticsUtilTest {
                 return DLAType.ICEBERG;
             }
         };
-        ExternalTable hmsExternalTable = new HMSExternalTable(1, "hmsTable", "hmsTable", externalCatalog, externalDatabase);
+        ExternalTable hmsExternalTable = new HMSExternalTable(1, "hmsTable", "hmsTable", externalCatalog,
+                externalDatabase);
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsExternalTable, Pair.of("index", column.getName())));
 
         // Test partition first load.
@@ -515,7 +518,7 @@ class StatisticsUtilTest {
 
     @Test
     void testCanCollectColumn() {
-        Column column = new Column("testColumn", Type.INT, true, null, null, "");
+        Column column = new Column("testColumn", Type.INT, true, null, null, "", null);
         List<Column> schema = new ArrayList<>();
         schema.add(column);
         OlapTable table = new OlapTable(200, "testTable", schema, KeysType.AGG_KEYS, null, null);
@@ -533,7 +536,8 @@ class StatisticsUtilTest {
         Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, hmsTable, true, 1));
 
         // Test agg key return true;
-        MaterializedIndexMeta meta = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+        MaterializedIndexMeta meta = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN,
+                KeysType.AGG_KEYS, null, null);
         new MockUp<OlapTable>() {
             @Mock
             public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
@@ -543,11 +547,12 @@ class StatisticsUtilTest {
         Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
 
         // Test agg value return false
-        column = new Column("testColumn", Type.INT, false, null, null, "");
+        column = new Column("testColumn", Type.INT, false, null, null, "", null);
         Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
 
         // Test unique mor value column return false
-        MaterializedIndexMeta meta1 = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.UNIQUE_KEYS, null);
+        MaterializedIndexMeta meta1 = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN,
+                KeysType.UNIQUE_KEYS, null, null);
         new MockUp<OlapTable>() {
             @Mock
             public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
@@ -562,7 +567,7 @@ class StatisticsUtilTest {
         Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
 
         // Test unique mor key column return true
-        column = new Column("testColumn", Type.INT, true, null, null, "");
+        column = new Column("testColumn", Type.INT, true, null, null, "", null);
         Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
 
     }

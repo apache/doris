@@ -29,6 +29,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Maps;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -211,7 +212,7 @@ public class CreateViewTest {
     public void testResetViewDefForRestore() {
         View view = new View();
         view.setInlineViewDefWithSqlMode("SELECT `internal`.`test`.`test`.`k2` AS `k1`, "
-                + "FROM `internal`.`test`.`test`;", 1);
+                + "FROM `internal`.`test`.`test`;", 1, Maps.newHashMap());
         view.resetViewDefForRestore("test", "test1");
         Assert.assertEquals("SELECT `internal`.`test1`.`test`.`k2` AS `k1`, "
                 + "FROM `internal`.`test1`.`test`;", view.getInlineViewDef());

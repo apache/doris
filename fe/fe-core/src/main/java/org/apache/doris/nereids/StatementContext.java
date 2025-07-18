@@ -198,8 +198,8 @@ public class StatementContext implements Closeable {
     private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
-    // save view's def and sql mode to avoid them change before lock
-    private final Map<List<String>, Pair<String, Long>> viewInfos = Maps.newHashMap();
+    // save view's def and session variables to avoid them change before lock
+    private final Map<List<String>, Pair<String, Map<String, String>>> viewInfos = Maps.newHashMap();
     // save insert into schema to avoid schema changed between two read locks
     private final List<Column> insertTargetSchema = new ArrayList<>();
 
@@ -303,18 +303,18 @@ public class StatementContext implements Closeable {
      *
      * @return view info, first is view's def sql, second is view's sql mode
      */
-    public Pair<String, Long> getAndCacheViewInfo(List<String> qualifiedViewName, View view) {
+    public Pair<String, Map<String, String>> getAndCacheViewInfo(List<String> qualifiedViewName, View view) {
         return viewInfos.computeIfAbsent(qualifiedViewName, k -> {
             String viewDef;
-            long sqlMode;
+            Map<String, String> sessionVariables;
             view.readLock();
             try {
                 viewDef = view.getInlineViewDef();
-                sqlMode = view.getSqlMode();
+                sessionVariables = view.getSessionVariables();
             } finally {
                 view.readUnlock();
             }
-            return Pair.of(viewDef, sqlMode);
+            return Pair.of(viewDef, sessionVariables);
         });
     }
 

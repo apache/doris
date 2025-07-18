@@ -54,10 +54,10 @@ public class ColumnTest {
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         Column column1 = new Column("user",
-                                ScalarType.createChar(20), false, AggregateType.SUM, "", "");
+                ScalarType.createChar(20), false, AggregateType.SUM, "", "", null);
         Text.writeString(dos, GsonUtils.GSON.toJson(column1));
         Column column2 = new Column("age",
-                                ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20", "");
+                ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20", "", null);
         Text.writeString(dos, GsonUtils.GSON.toJson(column2));
 
         Column column3 = new Column("name", PrimitiveType.BIGINT);
@@ -65,8 +65,8 @@ public class ColumnTest {
         Text.writeString(dos, GsonUtils.GSON.toJson(column3));
 
         Column column4 = new Column("age",
-                                ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20",
-                                    "");
+                ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20",
+                "", null);
         Text.writeString(dos, GsonUtils.GSON.toJson(column4));
 
         dos.flush();
@@ -107,48 +107,57 @@ public class ColumnTest {
 
     @Test(expected = DdlException.class)
     public void testSchemaChangeAllowed() throws DdlException {
-        Column oldColumn = new Column("user", ScalarType.createType(PrimitiveType.INT), true, null, true, "0", "");
-        Column newColumn = new Column("user", ScalarType.createType(PrimitiveType.INT), true, null, false, "0", "");
+        Column oldColumn = new Column("user", ScalarType.createType(PrimitiveType.INT), true, null, true, "0", "",
+                null);
+        Column newColumn = new Column("user", ScalarType.createType(PrimitiveType.INT), true, null, false, "0", "",
+                null);
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = DdlException.class)
     public void testSchemaChangeIntToVarchar() throws DdlException {
-        Column oldColumn = new Column("a", ScalarType.createType(PrimitiveType.INT), false, null, true, "0", "");
-        Column newColumn = new Column("a", ScalarType.createType(PrimitiveType.VARCHAR, 1, 0, 0), false, null, true, "0", "");
+        Column oldColumn = new Column("a", ScalarType.createType(PrimitiveType.INT), false, null, true, "0", "", null);
+        Column newColumn = new Column("a", ScalarType.createType(PrimitiveType.VARCHAR, 1, 0, 0), false, null, true,
+                "0", "", null);
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = DdlException.class)
     public void testSchemaChangeFloatToVarchar() throws DdlException {
-        Column oldColumn = new Column("b", ScalarType.createType(PrimitiveType.FLOAT), false, null, true, "0", "");
-        Column newColumn = new Column("b", ScalarType.createType(PrimitiveType.VARCHAR, 23, 0, 0), false, null, true, "0", "");
+        Column oldColumn = new Column("b", ScalarType.createType(PrimitiveType.FLOAT), false, null, true, "0", "",
+                null);
+        Column newColumn = new Column("b", ScalarType.createType(PrimitiveType.VARCHAR, 23, 0, 0), false, null, true,
+                "0", "", null);
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = DdlException.class)
     public void testSchemaChangeDecimalToVarchar() throws DdlException {
-        Column oldColumn = new Column("a", ScalarType.createType(PrimitiveType.DECIMALV2, 13, 13, 3), false, null, true, "0", "");
-        Column newColumn = new Column("a", ScalarType.createType(PrimitiveType.VARCHAR, 14, 0, 0), false, null, true, "0", "");
+        Column oldColumn = new Column("a", ScalarType.createType(PrimitiveType.DECIMALV2, 13, 13, 3), false, null, true,
+                "0", "", null);
+        Column newColumn = new Column("a", ScalarType.createType(PrimitiveType.VARCHAR, 14, 0, 0), false, null, true,
+                "0", "", null);
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = DdlException.class)
     public void testSchemaChangeDoubleToVarchar() throws DdlException {
-        Column oldColumn = new Column("c", ScalarType.createType(PrimitiveType.DOUBLE), false, null, true, "0", "");
-        Column newColumn = new Column("c", ScalarType.createType(PrimitiveType.VARCHAR, 31,  0, 0), false, null, true, "0", "");
+        Column oldColumn = new Column("c", ScalarType.createType(PrimitiveType.DOUBLE), false, null, true, "0", "",
+                null);
+        Column newColumn = new Column("c", ScalarType.createType(PrimitiveType.VARCHAR, 31, 0, 0), false, null, true,
+                "0", "", null);
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = DdlException.class)
     public void testSchemaChangeArrayToArray() throws DdlException {
-        Column oldColumn = new Column("a", ArrayType.create(Type.TINYINT, true), false, null, true, "0", "");
-        Column newColumn = new Column("a", ArrayType.create(Type.INT, true), false, null, true, "0", "");
+        Column oldColumn = new Column("a", ArrayType.create(Type.TINYINT, true), false, null, true, "0", "", null);
+        Column newColumn = new Column("a", ArrayType.create(Type.INT, true), false, null, true, "0", "", null);
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }

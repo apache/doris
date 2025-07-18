@@ -67,25 +67,30 @@ public class CreateTableInfoTest {
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         Column column2 = new Column("column2",
-                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "", null);
         ImmutableList<Column> columns = ImmutableList.<Column>builder()
                 .add(column2)
-                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""))
-                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column8", ScalarType.createChar(10), true, null, "", ""))
-                .add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""))
-                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""))
-                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""))
+                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "",
+                        "", null))
+                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "",
+                        "", null))
+                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE,
+                        "", "", null))
+                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "",
+                        "", null))
+                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE,
+                        "", "", null))
+                .add(new Column("column8", ScalarType.createChar(10), true, null, "", "", null))
+                .add(new Column("column9", ScalarType.createVarchar(10), true, null, "", "", null))
+                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", "", null))
+                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", "", null))
                 .build();
 
         MaterializedIndex index = new MaterializedIndex(1, IndexState.NORMAL);
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
         Partition partition = new Partition(20000L, "table", index, distributionInfo);
         OlapTable table = new OlapTable(1000L, "table", columns, KeysType.AGG_KEYS,
-                                        new SinglePartitionInfo(), distributionInfo);
+                new SinglePartitionInfo(), distributionInfo);
         short shortKeyColumnCount = 1;
         table.setIndexMeta(1000, "group1", columns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
 
