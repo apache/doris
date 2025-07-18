@@ -2466,6 +2466,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
     std::string cluster_id = request->has_cluster_id() ? request->cluster_id() : "";
     std::string cluster_name = request->has_cluster_name() ? request->cluster_name() : "";
     std::string mysql_user_name = request->has_mysql_user_name() ? request->mysql_user_name() : "";
+    AnnotateTag tag_cluster_id("cluster_id", cluster_id);
 
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3047,6 +3048,7 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg = "OK";
     std::string instance_id;
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     bool drop_request = false;
     DORIS_CLOUD_DEFER {
         response->mutable_status()->set_code(code);
@@ -3889,6 +3891,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
 
     auto get_clusters_info = [this, &request, &response,
                               &has_filter](const std::string& instance_id) {
+        AnnotateTag tag_instance_id("instance_id", instance_id);
         InstanceKeyInfo key_info {instance_id};
         std::string key;
         std::string val;

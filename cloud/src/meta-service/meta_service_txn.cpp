@@ -608,8 +608,6 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
                                                 const GetRLTaskCommitAttachRequest* request,
                                                 GetRLTaskCommitAttachResponse* response,
                                                 ::google::protobuf::Closure* done) {
-    int64_t job_id {-1}, db_id {-1};
-    AnnotateTag tag_txn_id("job_id", job_id), tag_db_id("db_id", db_id);
     RPC_PREPROCESS(get_rl_task_commit_attach, get);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
@@ -636,8 +634,8 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
         return;
     }
 
-    db_id = request->db_id();
-    job_id = request->job_id();
+    int64_t db_id = request->db_id();
+    int64_t job_id = request->job_id();
     std::string rl_progress_key;
     std::string rl_progress_val;
     RLJobProgressKeyInfo rl_progress_key_info {instance_id, db_id, job_id};
@@ -707,6 +705,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
 
     int64_t db_id = request->db_id();
     int64_t job_id = request->job_id();
+    AnnotateTag tag_db_id("db_id", db_id), tag_job_id("job_id", job_id);
     std::string rl_progress_key;
     std::string rl_progress_val;
     RLJobProgressKeyInfo rl_progress_key_info {instance_id, db_id, job_id};

@@ -120,6 +120,8 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
     int64_t index_id = request->job().idx().index_id();
     int64_t partition_id = request->job().idx().partition_id();
     int64_t tablet_id = request->job().idx().tablet_id();
+    AnnotateTag tag_table_id("table_id", table_id), tag_index_id("index_id", index_id),
+            tag_part_id("partition_id", partition_id);
     std::string stats_key =
             stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     std::string stats_val;
@@ -299,6 +301,8 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
     int64_t index_id = request->job().idx().index_id();
     int64_t partition_id = request->job().idx().partition_id();
     int64_t tablet_id = request->job().idx().tablet_id();
+    AnnotateTag tag_table_id("table_id", table_id), tag_index_id("index_id", index_id),
+            tag_part_id("partition_id", partition_id);
     if (new_tablet_id == tablet_id) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "not allow new_tablet_id same with base_tablet_id";
@@ -403,6 +407,8 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
                                        const StartTabletJobRequest* request,
                                        StartTabletJobResponse* response,
                                        ::google::protobuf::Closure* done) {
+    int64_t tablet_id;
+    AnnotateTag tag_tablet_id("tablet_id", tablet_id);
     RPC_PREPROCESS(start_tablet_job, get, put);
     std::string cloud_unique_id = request->cloud_unique_id();
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
@@ -429,7 +435,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
         return;
     }
 
-    int64_t tablet_id = request->job().idx().tablet_id();
+    tablet_id = request->job().idx().tablet_id();
     if (tablet_id <= 0) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "no valid tablet_id given";

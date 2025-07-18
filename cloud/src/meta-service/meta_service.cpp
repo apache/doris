@@ -2264,6 +2264,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     uint64_t fdb_txn_size = 0;
     auto table_id = request->table_id();
     auto tablet_id = request->tablet_id();
+    AnnotateTag tag_table_id("table_id", table_id), tag_tablet_id("tablet_id", tablet_id);
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -2530,7 +2531,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     // remove pre rowset delete bitmap
     if (request->has_pre_rowset_agg_start_version() && request->has_pre_rowset_agg_end_version() &&
         request->pre_rowset_agg_start_version() < request->pre_rowset_agg_end_version()) {
-        std::string pre_rowset_id = "";
+        std::string pre_rowset_id;
         for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
             if (request->rowset_ids(i) == pre_rowset_id) {
                 continue;
@@ -2587,7 +2588,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             .tag("total_txn_put_keys", total_txn_put_keys)
             .tag("total_txn_put_bytes", total_txn_put_bytes)
             .tag("total_txn_size", total_txn_size)
-            .tag(" total_txn_count", total_txn_count)
+            .tag("total_txn_count", total_txn_count)
             .tag("instance_id", instance_id)
             .tag("use_version", use_version);
 }
@@ -2648,9 +2649,11 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
-        MetaDeleteBitmapInfo start_key_info {instance_id, tablet_id, rowset_ids[i],
-                                             begin_versions[i], 0};
-        MetaDeleteBitmapInfo end_key_info {instance_id, tablet_id, rowset_ids[i], end_versions[i],
+        auto rowset_id = rowset_ids[i];
+        AnnotateTag tag_rowset_id("rowset_id", rowset_id);
+        MetaDeleteBitmapInfo start_key_info {instance_id, tablet_id, rowset_id, begin_versions[i],
+                                             0};
+        MetaDeleteBitmapInfo end_key_info {instance_id, tablet_id, rowset_id, end_versions[i],
                                            INT64_MAX};
         std::string start_key;
         std::string end_key;
@@ -2719,7 +2722,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 // FIXME: Don't expose the implementation details of splitting large value.
                 // merge splitted large values (>90*1000)
                 if (ver != last_ver || seg_id != last_seg_id) {
-                    response->add_rowset_ids(rowset_ids[i]);
+                    response->add_rowset_ids(rowset_id);
                     response->add_segment_ids(seg_id);
                     response->add_versions(ver);
                     response->add_segment_delete_bitmaps(std::string(v));
@@ -2752,7 +2755,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             start_key = it->next_begin_key(); // Update to next smallest key for iteration
         } while (it->more());
         LOG_INFO("get delete bitmap for tablet={}", tablet_id)
-                .tag("rowset", rowset_ids[i])
+                .tag("rowset", rowset_id)
                 .tag("start version", begin_versions[i])
                 .tag("end version", end_versions[i])
                 .tag("internal round", round)

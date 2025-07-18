@@ -612,6 +612,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     }
     bool need_commit = false;
     for (auto part_id : request->partition_ids()) {
+        AnnotateTag tag_partition_id("partition_id", part_id);
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
         err = txn->get(key, &val);
@@ -631,7 +632,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         if (!pb.ParseFromString(val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = "malformed recycle partition value";
-            LOG_WARNING(msg).tag("partition_id", part_id);
+            LOG_WARNING(msg);
             return;
         }
         switch (pb.state()) {
