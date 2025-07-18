@@ -406,6 +406,10 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         this.maxColUniqueId = maxColUniqueId;
     }
 
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
     public void initSchemaColumnUniqueId() {
         maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
         this.schema.forEach(column -> {

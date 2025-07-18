@@ -53,6 +53,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -4448,6 +4449,9 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setAffectQueryResultSessionVariables(Map<String, String> variables) {
+        if (MapUtils.isEmpty(variables)) {
+            return;
+        }
         try {
             Field[] fields = SessionVariable.class.getDeclaredFields();
             for (Field f : fields) {

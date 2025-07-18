@@ -70,7 +70,7 @@ import javax.annotation.Nullable;
 public class MTMVPlanUtil {
 
     public static ConnectContext createMTMVContext(MTMV mtmv) {
-        ConnectContext ctx = createBasicMvContext(null);
+        ConnectContext ctx = createBasicMvContext(null, mtmv.getSessionVariables());
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
@@ -82,13 +82,15 @@ public class MTMVPlanUtil {
         return ctx;
     }
 
-    public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext) {
+    public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
+            Map<String, String> sessionVariables) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.getState().setInternal(true);
         ctx.setThreadLocalInfo();
+        ctx.getSessionVariable().setAffectQueryResultSessionVariables(sessionVariables);
         // Debug session variable should be disabled when refreshed
         ctx.getSessionVariable().skipDeletePredicate = false;
         ctx.getSessionVariable().skipDeleteBitmap = false;
@@ -278,6 +280,7 @@ public class MTMVPlanUtil {
 
     /**
      * generate DataType by Slot
+     *
      * @param s
      * @param i
      * @param ctx

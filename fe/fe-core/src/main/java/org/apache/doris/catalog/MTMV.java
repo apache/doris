@@ -82,6 +82,8 @@ public class MTMV extends OlapTable {
     private MTMVPartitionInfo mvPartitionInfo;
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot;
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
     // Should update after every fresh, not persist
     private MTMVCache cache;
 
@@ -110,6 +112,7 @@ public class MTMV extends OlapTable {
         this.relation = params.relation;
         this.refreshSnapshot = new MTMVRefreshSnapshot();
         this.envInfo = new EnvInfo(-1L, -1L);
+        this.sessionVariables = params.sessionVariables;
         mvRwLock = new ReentrantReadWriteLock(true);
     }
 
@@ -476,6 +479,10 @@ public class MTMV extends OlapTable {
 
     public boolean canBeCandidate() {
         return getStatus().canBeCandidate();
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 
     public void readMvLock() {
