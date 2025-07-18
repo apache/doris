@@ -585,24 +585,6 @@ public class HyperGraph {
                 Pair<BitSet, Long> rightEdgeNodes) {
             long left = LongBitmap.newBitmapIntersect(allNodes, leftEdgeNodes.second);
             long right = LongBitmap.newBitmapIntersect(allNodes, rightEdgeNodes.second);
-            if (left == 0) {
-                Preconditions.checkArgument(leftEdgeNodes.first.cardinality() > 0,
-                        "the number of the table which expression reference is less 2");
-                Pair<BitSet, Long> llEdgesNodes = joinEdges.get(leftEdgeNodes.first.nextSetBit(0)).getLeftEdgeNodes(
-                        joinEdges);
-                Pair<BitSet, Long> lrEdgesNodes = joinEdges.get(leftEdgeNodes.first.nextSetBit(0)).getRightEdgeNodes(
-                        joinEdges);
-                return calculateEnds(allNodes, llEdgesNodes, lrEdgesNodes);
-            }
-            if (right == 0) {
-                Preconditions.checkArgument(rightEdgeNodes.first.cardinality() > 0,
-                        "the number of the table which expression reference is less 2");
-                Pair<BitSet, Long> rlEdgesNodes = joinEdges.get(rightEdgeNodes.first.nextSetBit(0)).getLeftEdgeNodes(
-                        joinEdges);
-                Pair<BitSet, Long> rrEdgesNodes = joinEdges.get(rightEdgeNodes.first.nextSetBit(0)).getRightEdgeNodes(
-                        joinEdges);
-                return calculateEnds(allNodes, rlEdgesNodes, rrEdgesNodes);
-            }
             return Pair.of(left, right);
         }
     }
