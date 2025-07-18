@@ -1281,29 +1281,32 @@ public class StatisticsUtil {
         if (stringValues == null) {
             return null;
         }
-
-        LinkedHashMap<Literal, Float> ret = Maps.newLinkedHashMap();
-        for (String oneRow : stringValues.split(" ;")) {
-            String[] oneRowSplit = oneRow.split(" :");
-            float value = Float.parseFloat(oneRowSplit[1]);
-            if (value > SessionVariable.getHotValueThreshold()) {
-                org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
-                        new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
-                                oneRowSplit[0].replaceAll("\\\\:", ":")
-                                        .replaceAll("\\\\;", ";"));
-                DataType dataType = DataType.legacyTypeToNereidsType().get(type);
-                if (dataType != null) {
-                    try {
-                        Literal hotValue = (Literal) stringLiteral.checkedCastTo(dataType);
-                        ret.put(hotValue, value);
-                    } catch (Exception e) {
-                        LOG.info("Failed to parse hot value [{}]. {}", oneRowSplit[0], e.getMessage());
+        try {
+            LinkedHashMap<Literal, Float> ret = Maps.newLinkedHashMap();
+            for (String oneRow : stringValues.split(" ;")) {
+                String[] oneRowSplit = oneRow.split(" :");
+                float value = Float.parseFloat(oneRowSplit[1]);
+                if (value > SessionVariable.getHotValueThreshold()) {
+                    org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
+                            new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
+                                    oneRowSplit[0].replaceAll("\\\\:", ":")
+                                            .replaceAll("\\\\;", ";"));
+                    DataType dataType = DataType.legacyTypeToNereidsType().get(type);
+                    if (dataType != null) {
+                        try {
+                            Literal hotValue = (Literal) stringLiteral.checkedCastTo(dataType);
+                            ret.put(hotValue, value);
+                        } catch (Exception e) {
+                            LOG.info("Failed to parse hot value [{}]. {}", oneRowSplit[0], e.getMessage());
+                        }
                     }
                 }
             }
-        }
-        if (!ret.isEmpty()) {
-            return ret;
+            if (!ret.isEmpty()) {
+                return ret;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to parse hot values [{}]. {}", stringValues, e.getMessage());
         }
         return null;
     }

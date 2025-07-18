@@ -42,9 +42,9 @@ public class StatsMockUtil {
                 // 11
                 add("11");
                 add("12");
-                add(null);
                 add(String.valueOf(System.currentTimeMillis()));
-            }};
+                add(null); // hot values
+        }};
         return new ResultRow(vals);
     }
 }
