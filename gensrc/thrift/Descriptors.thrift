@@ -50,6 +50,7 @@ struct TColumn {
     20: optional i32 be_exec_version = -1
     21: optional TPatternType pattern_type
     22: optional bool variant_enable_typed_paths_to_sparse = false;
+    23: optional bool is_on_update_current_timestamp = false
 }
 
 struct TSlotDescriptor {
