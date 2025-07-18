@@ -518,6 +518,8 @@ public:
      */
     void subset(const BitmapKey& start, const BitmapKey& end,
                 DeleteBitmap* subset_delete_map) const;
+    void subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids, int64_t start_version,
+                int64_t end_version, DeleteBitmap* subset_delete_map) const;
 
     /**
      * Gets subset of delete_bitmap of the input rowsets
