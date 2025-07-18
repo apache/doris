@@ -322,7 +322,11 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         StringRef str_ref(values[0].data, values[0].size); // "apple"
 
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+        auto query_status = str_reader->query(context, field_name, &str_ref,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -335,9 +339,8 @@ public:
         std::string not_exist = "orange";
         StringRef not_exist_ref(not_exist.c_str(), not_exist.length());
 
-        query_status =
-                str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &not_exist_ref,
-                                  InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+        query_status = str_reader->query(context, field_name, &not_exist_ref,
+                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
         EXPECT_EQ(bitmap->cardinality(), 0) << "Should not find any document matching 'orange'";
@@ -366,9 +369,14 @@ public:
         auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
         EXPECT_NE(str_reader, nullptr);
 
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         // Read NULL bitmap
         InvertedIndexQueryCacheHandle cache_handle;
-        status = str_reader->read_null_bitmap(&io_ctx, &stats, &cache_handle, nullptr);
+        status = str_reader->read_null_bitmap(context, &cache_handle, nullptr);
         EXPECT_TRUE(status.ok()) << status;
 
         // Get NULL bitmap
@@ -419,9 +427,13 @@ public:
         int32_t query_value = 42;
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
 
-        auto query_status =
-                bkd_reader->query(&io_ctx, &stats, &runtime_state, field_name, &query_value,
-                                  InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = bkd_reader->query(context, field_name, &query_value,
+                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
         EXPECT_EQ(bitmap->cardinality(), 2) << "Should find 2 documents matching value 42";
@@ -432,9 +444,8 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         int32_t less_than_value = 100;
 
-        query_status =
-                bkd_reader->query(&io_ctx, &stats, &runtime_state, field_name, &less_than_value,
-                                  InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
+        query_status = bkd_reader->query(context, field_name, &less_than_value,
+                                         InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
         EXPECT_EQ(bitmap->cardinality(), 2) << "Should find 2 documents with values less than 100";
@@ -445,9 +456,8 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         int32_t greater_than_value = 100;
 
-        query_status =
-                bkd_reader->query(&io_ctx, &stats, &runtime_state, field_name, &greater_than_value,
-                                  InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
+        query_status = bkd_reader->query(context, field_name, &greater_than_value,
+                                         InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
         EXPECT_EQ(bitmap->cardinality(), 2)
@@ -500,7 +510,12 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap1 = std::make_shared<roaring::Roaring>();
         StringRef str_ref(values[0].data, values[0].size); // "apple"
 
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = str_reader->query(context, field_name, &str_ref,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -510,7 +525,7 @@ public:
         // Second query with same value, should be cache hit
         std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
 
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        query_status = str_reader->query(context, field_name, &str_ref,
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -563,7 +578,12 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap1 = std::make_shared<roaring::Roaring>();
         StringRef str_ref(values[0].data, values[0].size); // "apple"
 
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = str_reader->query(context, field_name, &str_ref,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -574,7 +594,7 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
         StringRef str_ref2(values[1].data, values[1].size); // "banana"
 
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref2,
+        query_status = str_reader->query(context, field_name, &str_ref2,
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -646,7 +666,12 @@ public:
         std::string query_term = "common";
         StringRef str_ref(query_term.c_str(), query_term.length());
 
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = str_reader->query(context, field_name, &str_ref,
                                               InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -661,7 +686,7 @@ public:
         query_term = "apple";
         StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
+        query_status = str_reader->query(context, field_name, &str_ref_a,
                                          InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -736,8 +761,13 @@ public:
             std::string query_term = "common_term";
             StringRef str_ref(query_term.c_str(), query_term.length());
 
+            auto context = std::make_shared<segment_v2::IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+
             auto query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+                    str_reader->query(context, field_name, &str_ref,
                                       InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -753,9 +783,8 @@ public:
             query_term = "term_a";
             StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
-                                      InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+            query_status = str_reader->query(context, field_name, &str_ref_a,
+                                             InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 200)
@@ -770,9 +799,8 @@ public:
             query_term = "noexist";
             StringRef str_ref_no_term(query_term.c_str(), query_term.length());
 
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_no_term,
-                                      InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
+            query_status = str_reader->query(context, field_name, &str_ref_no_term,
+                                             InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
         }
@@ -815,9 +843,13 @@ public:
             std::string query_term = "common_term";
             StringRef str_ref(query_term.c_str(), query_term.length());
 
-            auto query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto context = std::make_shared<segment_v2::IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+
+            auto query_status = str_reader->query(context, field_name, &str_ref,
+                                                  InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 600)
@@ -832,9 +864,8 @@ public:
             query_term = "term_a";
             StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            query_status = str_reader->query(context, field_name, &str_ref_a,
+                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 200)
@@ -849,9 +880,8 @@ public:
             query_term = "noexist";
             StringRef str_ref_no_term(query_term.c_str(), query_term.length());
 
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_no_term,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            query_status = str_reader->query(context, field_name, &str_ref_no_term,
+                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
         }
@@ -912,9 +942,13 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         StringRef str_ref(query_term.c_str(), query_term.length());
 
-        auto query_status =
-                index_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                    InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = index_reader->query(context, field_name, &str_ref,
+                                                InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         ASSERT_TRUE(query_status.ok()) << "Query failed for term '" << query_term << "' in file "
                                        << index_file << ": " << query_status.to_string();

@@ -65,6 +65,8 @@ public:
         column_ids.insert(_column_id);
     }
 
+    std::string column_name() const { return _column_name; }
+
 private:
     int _slot_id;
     int _column_id;

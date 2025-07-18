@@ -58,7 +58,9 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
                 physicalOlapScan.getOperativeSlots(),
                 physicalOlapScan.getVirtualColumns(),
                 physicalOlapScan.getAnnOrderKeys(),
-                physicalOlapScan.getAnnLimit()
+                physicalOlapScan.getAnnLimit(),
+                physicalOlapScan.getScoreOrderKeys(),
+                physicalOlapScan.getScoreLimit()
         );
         this.scan = physicalOlapScan;
         this.rowId = rowId;
