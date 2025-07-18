@@ -65,6 +65,7 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -1142,7 +1143,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         LOG.info("finished to prepare meta. {}", this);
 
-        if (jobInfo.content == null || jobInfo.content == BackupContent.ALL) {
+        if (jobInfo.content == null || jobInfo.content == BackupCommand.BackupContent.ALL) {
             prepareAndSendSnapshotTaskForOlapTable(db);
         }
 
