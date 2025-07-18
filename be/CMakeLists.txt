@@ -230,7 +230,7 @@ target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
 target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
+    ${CONTRIB_PATH}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
 
 install(DIRECTORY
