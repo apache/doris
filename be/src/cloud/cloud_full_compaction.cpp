@@ -360,8 +360,8 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     if (config::delete_bitmap_store_version == 2) {
         std::vector<std::pair<RowsetId, int64_t>> pre_rowset_ids_to_segment_num;
         for (const auto& [rowset_version, rowset_ptr] : cloud_tablet()->rowset_map()) {
-            if (rowset_version.second < _output_rowset->start_version() /*||
-                rowset_version.first > _output_rowset->end_version()*/) {
+            if (rowset_version.second < _output_rowset->start_version() ||
+                rowset_version.first > _output_rowset->end_version()) {
                 pre_rowset_ids_to_segment_num.emplace_back(
                         std::make_pair(rowset_ptr->rowset_id(), rowset_ptr->num_segments()));
             }

@@ -1120,8 +1120,8 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
         {
             std::shared_lock rlock(get_header_lock());
             for (const auto& [rowset_version, rowset_ptr] : rowset_map()) {
-                if (rowset_version.second < output_rowset->start_version() /*||
-                    rowset_version.first > output_rowset->end_version()*/) {
+                if (rowset_version.second < output_rowset->start_version() ||
+                    rowset_version.first > output_rowset->end_version()) {
                     pre_rowsets_to_segment_num.emplace_back(
                             std::make_pair(rowset_ptr->rowset_id(), rowset_ptr->num_segments()));
                 }
