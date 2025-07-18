@@ -82,15 +82,17 @@ private:
         ColumnPtr column_result = nullptr;
 
         auto res = Impl::ColumnType::create(1);
-        res->get_element(0) = Impl::apply(column_left_ptr->template get_value<typename Impl::Arg>(),
-                                          column_right_ptr->template get_value<typename Impl::Arg>());
+        res->get_element(0) =
+                Impl::apply(column_left_ptr->template get_value<typename Impl::Arg>(),
+                            column_right_ptr->template get_value<typename Impl::Arg>());
         column_result = std::move(res);
         return ColumnConst::create(std::move(column_result), column_left->size());
     }
 
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
-        const auto* column_left_ptr = assert_cast<const typename Impl::ColumnType*>(column_left.get());
+        const auto* column_left_ptr =
+                assert_cast<const typename Impl::ColumnType*>(column_left.get());
         auto column_result = Impl::ColumnType::create(column_left->size());
 
         auto& a = column_left_ptr->get_data();
@@ -105,7 +107,8 @@ private:
     ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
 
-        const auto* column_right_ptr = assert_cast<const typename Impl::ColumnType*>(column_right.get());
+        const auto* column_right_ptr =
+                assert_cast<const typename Impl::ColumnType*>(column_right.get());
         auto column_result = Impl::ColumnType::create(column_right->size());
 
         auto& b = column_right_ptr->get_data();
