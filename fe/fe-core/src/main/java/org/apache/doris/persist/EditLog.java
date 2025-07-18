@@ -126,15 +126,18 @@ public class EditLog {
 
     // Helper class to hold log edit requests
     private static class EditLogItem {
+        static AtomicLong nextUid = new AtomicLong(0);
         final short op;
         final Writable writable;
         final Object lock = new Object();
         boolean finished = false;
         long logId = -1;
+        long uid = -1;
 
         EditLogItem(short op, Writable writable) {
             this.op = op;
             this.writable = writable;
+            uid = nextUid.getAndIncrement();
         }
     }
 
@@ -190,6 +193,9 @@ public class EditLog {
             // Array to record pairs of logId and num
             List<long[]> logIdNumPairs = new ArrayList<>();
             for (EditLogItem req : batch) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("try to flush editLog request: uid={}, op={}", req.uid, req.op);
+                }
                 journalBatch.addJournal(req.op, req.writable);
                 if (journalBatch.shouldFlush()) {
                     long logId = journal.write(journalBatch);
@@ -211,6 +217,9 @@ public class EditLog {
                 int num = (int) pair[1];
                 for (int i = 0; i < num && reqIndex < batch.size(); i++, reqIndex++) {
                     EditLogItem req = batch.get(reqIndex);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("notify editLog request: uid={}, op={}", req.uid, req.op);
+                    }
                     req.logId = logId + i;
                     synchronized (req.lock) {
                         req.finished = true;
@@ -1472,6 +1481,9 @@ public class EditLog {
      */
     public long logEditWithQueue(short op, Writable writable) {
         EditLogItem req = new EditLogItem(op, writable);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("logEditWithQueue: op = {}, uid = {}", op, req.uid);
+        }
         while (true) {
             try {
                 logEditQueue.put(req);

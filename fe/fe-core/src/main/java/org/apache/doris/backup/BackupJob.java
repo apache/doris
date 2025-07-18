@@ -478,7 +478,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     @Override
-    public synchronized boolean isDone() {
+    public boolean isDone() {
         return state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED;
     }
 
