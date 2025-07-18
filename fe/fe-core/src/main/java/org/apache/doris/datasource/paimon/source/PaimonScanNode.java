@@ -231,8 +231,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             DeletionFile deletionFile = optDeletionFile.get();
             TPaimonDeletionFileDesc tDeletionFile = new TPaimonDeletionFileDesc();
             // convert the deletion file uri to make sure FileReader can read it in be
-            LocationPath locationPath = new LocationPath(deletionFile.path(),
-                    source.getCatalog().getProperties());
+            LocationPath locationPath = LocationPath.of(deletionFile.path(),
+                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
             String path = locationPath.toStorageLocation().toString();
             tDeletionFile.setPath(path);
             tDeletionFile.setOffset(deletionFile.offset());
@@ -291,8 +291,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 List<RawFile> rawFiles = optRawFiles.get();
                 for (int i = 0; i < rawFiles.size(); i++) {
                     RawFile file = rawFiles.get(i);
-                    LocationPath locationPath = new LocationPath(file.path(),
-                            source.getCatalog().getProperties());
+                    LocationPath locationPath = LocationPath.of(file.path(),
+                            source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
                     try {
                         List<Split> dorisSplits = FileSplitter.splitFile(
                                 locationPath,

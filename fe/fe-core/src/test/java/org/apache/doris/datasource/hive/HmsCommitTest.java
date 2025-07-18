@@ -106,7 +106,7 @@ public class HmsCommitTest {
                 return localDFSFileSystem;
             }
         };
-        fs = new SwitchingFileSystem(null, null, Maps.newHashMap());
+        fs = new SwitchingFileSystem(null, null);
 
         if (hasRealHmsService) {
             // If you have a real HMS service, then you can use this client to create real connections for testing
