@@ -1186,10 +1186,6 @@ stmt ::=
     {: RESULT = stmt; :}
     | sync_stmt : stmt
     {: RESULT = stmt; :}
-    | backup_stmt : stmt
-    {: RESULT = stmt; :}
-    | restore_stmt : stmt
-    {: RESULT = stmt; :}
     | transaction_stmt : stmt
     {: RESULT = stmt; :}
     | unsupported_stmt : stmt
