@@ -30,8 +30,6 @@ insert into tdate values(1,'2023-10-01','2023-10-01 01:00:00'),
 (2,'2023-10-02','2023-10-02 01:00:00'),
 (3,'2023-10-03','2023-10-03 01:00:00');
 """
-    sql "set disable_nereids_expression_rules='SIMPLIFY_COMPARISON_PREDICATE';"
-
     qt_test "select k1,kdate,kdatetime from tdate where cast(cast(kdatetime as date) as datetime)='2023-10-01';"
     qt_test "select k1,kdate,kdatetime from tdate where kdatetime='2023-10-01';"
 }
