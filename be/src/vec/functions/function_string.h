@@ -3185,7 +3185,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
 static inline StringRef do_format_round(FunctionContext* context, const string& value,
-                                 Int32 decimal_places) {
+                                        Int32 decimal_places) {
     bool is_positive = (value[0] != '-');
     int32_t result_len =
             value.size() +
