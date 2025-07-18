@@ -18,6 +18,7 @@
 #include "conjunction_query.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 ConjunctionQuery::ConjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                                    const TQueryOptions& query_options, const io::IOContext* io_ctx)
@@ -155,4 +156,5 @@ int32_t ConjunctionQuery::do_next(int32_t doc) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2
