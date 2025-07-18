@@ -27,6 +27,7 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -44,10 +45,13 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Optional;
@@ -694,6 +698,62 @@ public class NereidsParserTest extends ParserTestBase {
             stmtExecutor.checkSqlBlocked(logicalPlan.getClass());
         } catch (Exception ex) {
             Assertions.fail(ex);
+        }
+    }
+
+    @Test
+    public void testNoBackSlashEscapes() {
+        testNoBackSlashEscapes("''", "", "");
+        testNoBackSlashEscapes("\"\"", "", "");
+
+        testNoBackSlashEscapes("''''", "'", "'");
+        testNoBackSlashEscapes("\"\"\"\"", "\"", "\"");
+
+        testNoBackSlashEscapes("\"\\\\n\"", "\\\\n", "\\n");
+        testNoBackSlashEscapes("\"\\t\"", "\\t", "\t");
+
+        testNoBackSlashEscapes("'\\'''", "\\'", null);
+        testNoBackSlashEscapes("'\\''", null, "'");
+        testNoBackSlashEscapes("'\\\\''", null, null);
+
+        testNoBackSlashEscapes("'\\\"\"'", "\\\"\"", "\"\"");
+        testNoBackSlashEscapes("'\\\"'", "\\\"", "\"");
+        testNoBackSlashEscapes("'\\\\\"'", "\\\\\"", "\\\"");
+
+        testNoBackSlashEscapes("\"\\''\"", "\\''", "''");
+        testNoBackSlashEscapes("\"\\'\"", "\\'", "'");
+        testNoBackSlashEscapes("\"\\\\'\"", "\\\\'", "\\'");
+
+        testNoBackSlashEscapes("\"\\\"\"\"", "\\\"", null);
+        testNoBackSlashEscapes("\"\\\"\"", null, "\"");
+        testNoBackSlashEscapes("\"\\\\\"\"", null, null);
+    }
+
+    private void testNoBackSlashEscapes(String sql, String onResult, String offResult) {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // test on
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(true);
+            if (onResult == null) {
+                Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseExpression(sql),
+                        "should failed when NO_BACKSLASH_ESCAPES = 1: " + sql);
+            } else {
+                Assertions.assertEquals(onResult,
+                        ((StringLikeLiteral) nereidsParser.parseExpression(sql)).getStringValue());
+            }
+        }
+
+        // test off
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+            if (offResult == null) {
+                Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseExpression(sql),
+                        "should failed when NO_BACKSLASH_ESCAPES = 0: " + sql);
+            } else {
+                Assertions.assertEquals(offResult,
+                        ((StringLikeLiteral) nereidsParser.parseExpression(sql)).getStringValue());
+            }
         }
     }
 }

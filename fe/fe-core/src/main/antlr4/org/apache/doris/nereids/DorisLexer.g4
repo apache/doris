@@ -24,6 +24,7 @@ lexer grammar DorisLexer;
    * When true, parser should throw ParseExcetion for unclosed bracketed comment.
    */
   public boolean has_unclosed_bracketed_comment = false;
+  public boolean isNoBackslashEscapes = false;
 
   /**
    * Verify whether current token is a valid decimal token (which contains dot).
@@ -609,10 +610,10 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    : '\'' ('\\'. | '\'\'' | ~('\'' | '\\'))* '\''
-    | '"' ( '\\'. | '""' | ~('"'| '\\') )* '"'
-    | 'R\'' (~'\'')* '\''
-    | 'R"'(~'"')* '"'
+    : {!isNoBackslashEscapes}? '\'' ('\\'. | '\'\'' | ~('\'' | '\\'))* '\''
+    | {isNoBackslashEscapes}? '\'' ('\'\'' | ~('\''))* '\''
+    | {!isNoBackslashEscapes}?'"' ( '\\'. | '""' | ~('"'| '\\'))* '"'
+    | {isNoBackslashEscapes}?'"' ('""' | ~('"'))* '"'
     ;
 
 LEADING_STRING
