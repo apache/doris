@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
 
@@ -44,7 +45,7 @@ public:
     // Returns the number of (logical) disks on the system
     static int num_disks() {
         DCHECK(_s_initialized);
-        return static_cast<int>(_s_disks.size());
+        return cast_set<int>(_s_disks.size());
     }
 
     // Returns the 0-based disk index for 'path' (path must be a FS path, not

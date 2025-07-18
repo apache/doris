@@ -36,6 +36,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "io/fs/local_file_system.h"
 
 namespace doris {
@@ -89,7 +90,7 @@ void DiskInfo::get_device_names() {
 
         if (it == _s_disk_name_to_disk_id.end()) {
             // First time seeing this disk
-            disk_id = static_cast<int>(_s_disks.size());
+            disk_id = cast_set<int>(_s_disks.size());
             _s_disks.push_back(Disk(name, disk_id));
             _s_disk_name_to_disk_id[name] = disk_id;
         } else {
