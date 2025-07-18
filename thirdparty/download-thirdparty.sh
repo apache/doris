@@ -515,7 +515,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GRPC " ]]; then
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/grpc-1.54.3.patch"
             if [[ "$(uname -s)" == "Darwin" ]]; then
-                patch -p1 <"${TP_PATCH_DIR}/grpc_mac_compile_fix.patch"
+                patch -p1 <"${TP_PATCH_DIR}/grpc-mac-compile-fix.patch"
             fi 
             touch "${PATCHED_MARK}"
         fi
