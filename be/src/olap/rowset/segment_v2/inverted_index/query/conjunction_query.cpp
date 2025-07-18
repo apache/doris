@@ -30,12 +30,6 @@ ConjunctionQuery::ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr co
             _context->runtime_state->query_options().inverted_index_conjunction_opt_threshold;
 }
 
-ConjunctionQuery::ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context,
-                                   bool is_similarity)
-        : ConjunctionQuery(std::move(searcher), std::move(context)) {
-    _is_similarity = is_similarity;
-}
-
 void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
@@ -65,19 +59,20 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
         }
     }
 
-    if (_index_version == IndexVersion::kV1 && _iterators.size() >= 2) {
-        int32_t little = _iterators[0]->doc_freq();
-        int32_t big = _iterators[_iterators.size() - 1]->doc_freq();
-        if (little == 0 || (big / little) > _conjunction_ratio) {
-            _use_skip = true;
-        }
-    }
-
-    if (_is_similarity && _context->collection_similarity) {
+    if (_context->collection_similarity && query_info.is_similarity_score) {
+        _use_skip = true;
         for (const auto& iter : _iterators) {
             auto similarity = std::make_unique<BM25Similarity>();
             similarity->for_one_term(_context, query_info.field_name, iter->term());
             _similarities.emplace_back(std::move(similarity));
+        }
+    } else {
+        if (_index_version == IndexVersion::kV1 && _iterators.size() >= 2) {
+            int32_t little = _iterators[0]->doc_freq();
+            int32_t big = _iterators[_iterators.size() - 1]->doc_freq();
+            if (little == 0 || (big / little) > _conjunction_ratio) {
+                _use_skip = true;
+            }
         }
     }
 }
@@ -97,24 +92,14 @@ void ConjunctionQuery::search(roaring::Roaring& roaring) {
 
 void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
     // can get a term of all doc_id
-    auto func = [this, &roaring](size_t i, const TermIterPtr& iter, bool first) {
+    auto func = [&roaring](const TermIterPtr& iter, bool first) {
         roaring::Roaring result;
         DocRange doc_range;
         while (iter->read_range(&doc_range)) {
             if (doc_range.type_ == DocRangeType::kMany) {
                 result.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
-
-                if (_is_similarity && _context->collection_similarity) {
-                    QueryHelper::collect_many(_context, _similarities[i], doc_range, roaring,
-                                              first);
-                }
             } else {
                 result.addRange(doc_range.doc_range.first, doc_range.doc_range.second);
-
-                if (_is_similarity && _context->collection_similarity) {
-                    QueryHelper::collect_range(_context, _similarities[i], doc_range, roaring,
-                                               first);
-                }
             }
         }
         if (first) {
@@ -125,7 +110,7 @@ void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
     };
 
     for (size_t i = 0; i < _iterators.size(); i++) {
-        func(i, _iterators[i], i == 0);
+        func(_iterators[i], i == 0);
     }
 }
 
@@ -134,13 +119,8 @@ void ConjunctionQuery::search_by_skiplist(roaring::Roaring& roaring) {
     while ((doc = do_next(_lead1->next_doc())) != INT32_MAX) {
         roaring.add(doc);
 
-        if (_is_similarity && _context->collection_similarity) {
-            for (size_t i = 0; i < _iterators.size(); i++) {
-                auto freq = _iterators[i]->freq();
-                auto doc_length = _iterators[i]->norm();
-                auto score = _similarities[i]->score(freq, doc_length);
-                _context->collection_similarity->collect(doc, score);
-            }
+        if (!_similarities.empty()) {
+            QueryHelper::collect(_context, _similarities, _iterators, doc);
         }
     }
 }

@@ -370,6 +370,7 @@ private:
     void _init_virtual_columns(vectorized::Block* block);
 
     Status _materialization_of_virtual_column(vectorized::Block* block);
+    void _prepare_score_column_materialization();
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;

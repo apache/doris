@@ -25,7 +25,7 @@ namespace doris::segment_v2 {
 PhrasePrefixQuery::PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)),
           _context(std::move(context)),
-          _phrase_query(_searcher, _context, true),
+          _phrase_query(_searcher, _context),
           _prefix_query(_searcher, _context) {
     _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
 }
@@ -61,6 +61,7 @@ void PhrasePrefixQuery::add(const InvertedIndexQueryInfo& query_info) {
             new_query_info.term_infos[i].position = query_info.term_infos[i].position;
         }
     }
+    new_query_info.is_similarity_score = query_info.is_similarity_score;
 
     if (_term_size == 1) {
         _prefix_query.add(new_query_info);

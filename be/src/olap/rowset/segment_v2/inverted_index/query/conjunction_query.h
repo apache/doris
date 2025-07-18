@@ -27,7 +27,6 @@ namespace doris::segment_v2 {
 class ConjunctionQuery : public Query {
 public:
     ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context);
-    ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context, bool is_similarity);
     ~ConjunctionQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
@@ -52,7 +51,6 @@ public:
     std::vector<TermIterPtr> _others;
     std::vector<TermIterPtr> _iterators;
 
-    bool _is_similarity = true;
     std::vector<SimilarityPtr> _similarities;
 };
 

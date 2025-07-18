@@ -23,6 +23,7 @@
 
 #include "CLucene/index/Terms.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/util/term_position_iterator.h"
 
@@ -32,11 +33,6 @@ PhraseQuery::PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)),
           _context(std::move(context)),
           _disjunction_query(_searcher, _context) {}
-
-PhraseQuery::PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context, bool is_similarity)
-        : PhraseQuery(std::move(searcher), std::move(context)) {
-    _is_similarity = is_similarity;
-}
 
 void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
@@ -68,7 +64,7 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
         _others.emplace_back(&_iterators[i]);
     }
 
-    init_similarities(query_info.field_name);
+    init_similarities(query_info.field_name, query_info.is_similarity_score);
 }
 
 void PhraseQuery::init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
@@ -133,7 +129,7 @@ void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInf
     _matchers.emplace_back(std::move(single_matcher));
 }
 
-void PhraseQuery::init_similarities(const std::wstring& field_name) {
+void PhraseQuery::init_similarities(const std::wstring& field_name, bool is_similarity_score) {
     // TODO: Current implementation - computes BM25 scores separately for each term
     // Note: This approach is suitable for TermQuery but does not conform to BM25 specification for PhraseQuery
     // BM25 phrase query specification requires:
@@ -146,7 +142,7 @@ void PhraseQuery::init_similarities(const std::wstring& field_name) {
     //   2. Use phrase frequency instead of individual term frequencies
     //   3. Maintain document length normalization
     //   4. Refactor to create a single Similarity object handling the entire phrase
-    if (_is_similarity && _context->collection_similarity) {
+    if (_context->collection_similarity && is_similarity_score) {
         _similarities.resize(_iterators.size());
         for (size_t i = 0; i < _iterators.size(); i++) {
             const auto& iter = _iterators[i];
@@ -177,17 +173,8 @@ void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
         }
         roaring.add(doc);
 
-        if (_is_similarity && _context->collection_similarity) {
-            for (size_t i = 0; i < _iterators.size(); i++) {
-                const auto& iter = _iterators[i];
-                if (std::holds_alternative<TermPositionsIterPtr>(iter)) {
-                    const auto& term_iter = std::get<TermPositionsIterPtr>(iter);
-                    auto freq = term_iter->freq();
-                    auto norm = term_iter->norm();
-                    auto score = _similarities[i]->score(freq, norm);
-                    _context->collection_similarity->collect(doc, score);
-                }
-            }
+        if (!_similarities.empty()) {
+            QueryHelper::collect(_context, _similarities, _iterators, doc);
         }
     }
 }

@@ -39,7 +39,6 @@ using Matcher = std::variant<ExactPhraseMatcher, SloppyPhraseMatcher, OrderedSlo
 class PhraseQuery : public Query {
 public:
     PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context);
-    PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context, bool is_similarity);
     ~PhraseQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
@@ -56,7 +55,7 @@ private:
     void init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info);
     void init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info);
 
-    void init_similarities(const std::wstring& field_name);
+    void init_similarities(const std::wstring& field_name, bool is_similarity_score);
 
 public:
     static void parser_slop(std::string& query, InvertedIndexQueryInfo& query_info);
@@ -77,7 +76,6 @@ private:
 
     std::vector<Matcher> _matchers;
 
-    bool _is_similarity = true;
     std::vector<SimilarityPtr> _similarities;
 };
 

@@ -24,7 +24,6 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
-#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -33,20 +32,43 @@
 
 namespace doris {
 
-using namespace segment_v2::inverted_index;
-using namespace segment_v2;
-
 Status CollectionStatistics::collect(
         const std::vector<RowSetSplits>& rs_splits, const TabletSchemaSPtr& tablet_schema,
         const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down) {
-    class CollectInfo {
-    public:
-        std::vector<TermInfo> term_infos;
-        const TabletIndex* index_meta = nullptr;
-    };
-
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    RETURN_IF_ERROR(
+            extract_collect_info(common_expr_ctxs_push_down, tablet_schema, &collect_infos));
 
+    for (const auto& rs_split : rs_splits) {
+        const auto& rs_reader = rs_split.rs_reader;
+        auto rowset = rs_reader->rowset();
+        auto rowset_meta = rowset->rowset_meta();
+
+        auto num_segments = rowset->num_segments();
+        for (int32_t seg_id = 0; seg_id < num_segments; ++seg_id) {
+            auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
+            RETURN_IF_ERROR(process_segment(seg_path, rowset_meta->fs(), tablet_schema.get(),
+                                            collect_infos));
+        }
+    }
+
+    LOG(ERROR) << "term_num_docs: " << _total_num_docs;
+    for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
+        LOG(ERROR) << "field_name: " << StringHelper::to_string(ws_field_name)
+                   << ", num_tokens: " << num_tokens;
+        for (const auto& [term, doc_freq] : _term_doc_freqs.at(ws_field_name)) {
+            LOG(ERROR) << "term: " << StringHelper::to_string(term) << ", doc_freq: " << doc_freq;
+        }
+    }
+    LOG(ERROR) << "--------------------------------";
+
+    return Status::OK();
+}
+
+Status CollectionStatistics::extract_collect_info(
+        const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
+        const TabletSchemaSPtr& tablet_schema,
+        std::unordered_map<std::wstring, CollectInfo>* collect_infos) {
     for (const auto& root_expr_ctx : common_expr_ctxs_push_down) {
         const auto& root_expr = root_expr_ctx->root();
         if (root_expr == nullptr) {
@@ -68,21 +90,19 @@ Status CollectionStatistics::collect(
                 auto column = tablet_schema->column(column_idx);
                 const auto* index_meta = tablet_schema->inverted_index(column);
 
+                auto term_infos = InvertedIndexAnalyzer::get_analyse_result(
+                        right_slot_ref->value(), index_meta->properties());
+
                 std::string field_name = std::to_string(column.unique_id());
                 std::wstring ws_field_name = StringHelper::to_wstring(field_name);
-                auto iter = collect_infos.find(ws_field_name);
-                if (iter == collect_infos.end()) {
+                auto iter = collect_infos->find(ws_field_name);
+                if (iter == collect_infos->end()) {
                     CollectInfo collect_info;
-                    collect_info.term_infos = InvertedIndexAnalyzer::get_analyse_result(
-                            right_slot_ref->value(), index_meta->properties());
+                    collect_info.term_infos.insert(term_infos.begin(), term_infos.end());
                     collect_info.index_meta = index_meta;
-                    collect_infos[ws_field_name] = std::move(collect_info);
+                    (*collect_infos)[ws_field_name] = std::move(collect_info);
                 } else {
-                    auto term_infos = InvertedIndexAnalyzer::get_analyse_result(
-                            right_slot_ref->value(), index_meta->properties());
-                    iter->second.term_infos.insert(iter->second.term_infos.end(),
-                                                   std::make_move_iterator(term_infos.begin()),
-                                                   std::make_move_iterator(term_infos.end()));
+                    iter->second.term_infos.insert(term_infos.begin(), term_infos.end());
                 }
             }
 
@@ -94,64 +114,51 @@ Status CollectionStatistics::collect(
             }
         }
     }
+    return Status::OK();
+}
 
-    for (const auto& rs_split : rs_splits) {
-        const auto& rs_reader = rs_split.rs_reader;
-        auto rowset = rs_reader->rowset();
-        auto rowset_meta = rowset->rowset_meta();
+Status CollectionStatistics::process_segment(
+        const std::string& seg_path, const io::FileSystemSPtr& fs,
+        const TabletSchema* tablet_schema,
+        const std::unordered_map<std::wstring, CollectInfo>& collect_infos) {
+    auto idx_file_reader = std::make_unique<IndexFileReader>(
+            fs, std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
+            tablet_schema->get_inverted_index_storage_format());
+    RETURN_IF_ERROR(idx_file_reader->init());
 
-        auto num_segments = rowset->num_segments();
-        for (int32_t seg_id = 0; seg_id < num_segments; ++seg_id) {
-            auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
-            auto idx_file_reader = std::make_unique<IndexFileReader>(
-                    rowset_meta->fs(),
-                    std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
-                    tablet_schema->get_inverted_index_storage_format());
-            RETURN_IF_ERROR(idx_file_reader->init());
-            for (const auto& [ws_field_name, collect_info] : collect_infos) {
-                auto compound_reader =
-                        DORIS_TRY(idx_file_reader->open(collect_info.index_meta, nullptr));
-                auto* dir = compound_reader.release();
-                lucene::index::IndexReader* reader = nullptr;
-                ErrorContext error_context;
-                try {
-                    reader = lucene::index::IndexReader::open(dir);
+    int32_t total_seg_num_docs = 0;
+    for (const auto& [ws_field_name, collect_info] : collect_infos) {
+        InvertedIndexCacheHandle inverted_index_cache_handle;
+        auto index_file_key = idx_file_reader->get_index_file_cache_key(collect_info.index_meta);
+        InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+        if (!InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
+                                                            &inverted_index_cache_handle)) {
+            auto compound_reader =
+                    DORIS_TRY(idx_file_reader->open(collect_info.index_meta, nullptr));
+            auto* reader = lucene::index::IndexReader::open(compound_reader.get());
+            int32_t reader_size = reader->getTermInfosRAMUsed();
+            auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, true);
+            auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
+                    std::move(index_searcher), reader_size, UnixMillis());
+            InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
+                                                           &inverted_index_cache_handle);
+        }
 
-                    _total_num_docs += reader->maxDoc();
-                    _total_num_tokens[ws_field_name] +=
-                            reader->sumTotalTermFreq(ws_field_name.c_str()).value_or(0);
+        auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
+        auto index_searcher = std::get<FulltextIndexSearcherPtr>(searcher_variant);
+        auto* index_reader = index_searcher->getReader();
 
-                    for (const auto& term_info : collect_info.term_infos) {
-                        auto iter = TermIterator::create(nullptr, reader, ws_field_name,
-                                                         term_info.get_single_term());
-                        _term_doc_freqs[ws_field_name][iter->term()] += iter->doc_freq();
-                    }
+        total_seg_num_docs = std::max(total_seg_num_docs, index_reader->maxDoc());
+        _total_num_tokens[ws_field_name] +=
+                index_reader->sumTotalTermFreq(ws_field_name.c_str()).value_or(0);
 
-                } catch (const CLuceneError& e) {
-                    error_context.eptr = std::current_exception();
-                    error_context.err_msg.append("clucene reader open error: ");
-                    error_context.err_msg.append(e.what());
-                    LOG(ERROR) << error_context.err_msg;
-                }
-                FINALLY({
-                    FINALLY_CLOSE(reader);
-                    _CLLDELETE(reader);
-                    _CLDECDELETE(dir)
-                })
-            }
+        for (const auto& term_info : collect_info.term_infos) {
+            auto iter = TermIterator::create(nullptr, index_reader, ws_field_name,
+                                             term_info.get_single_term());
+            _term_doc_freqs[ws_field_name][iter->term()] += iter->doc_freq();
         }
     }
-
-    LOG(ERROR) << "term_num_docs: " << _total_num_docs;
-    for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
-        LOG(ERROR) << "field_name: " << StringHelper::to_string(ws_field_name)
-                   << ", num_tokens: " << num_tokens;
-        for (const auto& [term, doc_freq] : _term_doc_freqs[ws_field_name]) {
-            LOG(ERROR) << "term: " << StringHelper::to_string(term) << ", doc_freq: " << doc_freq;
-        }
-    }
-    LOG(ERROR) << "--------------------------------";
-
+    _total_num_docs += total_seg_num_docs;
     return Status::OK();
 }
 

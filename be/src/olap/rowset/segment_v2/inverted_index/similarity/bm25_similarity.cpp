@@ -44,13 +44,11 @@ void BM25Similarity::for_one_term(const IndexQueryContextPtr& context,
                                   const std::wstring& field_name, const std::wstring& term) {
     _avgdl = context->collection_statistics->get_or_calculate_avg_dl(field_name);
     _idf = context->collection_statistics->get_or_calculate_idf(field_name, term);
-    _weight = _boost * _idf;
+    _weight = _boost * _idf * (_k1 + 1.0F);
 
     for (int i = 0; i < _cache.size(); i++) {
         _cache[i] = 1.0F / (_k1 * ((1 - _b) + _b * LENGTH_TABLE[i] / _avgdl));
     }
-
-    LOG(ERROR) << "--- 2 ---: " << _avgdl << ", " << _idf << ", " << _weight;
 }
 
 float BM25Similarity::score(float freq, int64_t encoded_norm) {

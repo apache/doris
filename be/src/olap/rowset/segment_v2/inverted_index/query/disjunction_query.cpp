@@ -24,12 +24,6 @@ namespace doris::segment_v2 {
 DisjunctionQuery::DisjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)), _context(std::move(context)) {}
 
-DisjunctionQuery::DisjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context,
-                                   bool is_similarity)
-        : DisjunctionQuery(std::move(searcher), std::move(context)) {
-    _is_similarity = is_similarity;
-}
-
 void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
@@ -52,7 +46,7 @@ void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
         }
     }
 
-    if (_is_similarity && _context->collection_similarity) {
+    if (_context->collection_similarity && query_info.is_similarity_score) {
         for (const auto& iters : _iterators) {
             if (iters.size() > 1) {
                 throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -73,16 +67,14 @@ void DisjunctionQuery::search(roaring::Roaring& roaring) {
             if (doc_range.type_ == DocRangeType::kMany) {
                 result.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
 
-                if (_is_similarity && _context->collection_similarity) {
-                    QueryHelper::collect_many(_context, _similarities[i], doc_range, roaring,
-                                              first);
+                if (!_similarities.empty()) {
+                    QueryHelper::collect_many(_context, _similarities[i], doc_range);
                 }
             } else {
                 result.addRange(doc_range.doc_range.first, doc_range.doc_range.second);
 
-                if (_is_similarity && _context->collection_similarity) {
-                    QueryHelper::collect_range(_context, _similarities[i], doc_range, roaring,
-                                               first);
+                if (!_similarities.empty()) {
+                    QueryHelper::collect_range(_context, _similarities[i], doc_range);
                 }
             }
         }

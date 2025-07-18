@@ -19,32 +19,52 @@
 
 namespace doris::segment_v2 {
 
-void QueryHelper::collect_many(const IndexQueryContextPtr& context, const SimilarityPtr& similarity,
-                               const DocRange& doc_range, const roaring::Roaring& roaring,
-                               bool first) {
-    for (size_t j = 0; j < doc_range.doc_many_size_; j++) {
-        rowid_t row_id = (*doc_range.doc_many)[j];
-        if (first || roaring.contains(row_id)) {
-            auto freq = (*doc_range.freq_many)[j];
-            auto norm = (*doc_range.norm_many)[j];
-            auto score = similarity->score(freq, norm);
-            context->collection_similarity->collect(row_id, score);
+void QueryHelper::collect(const IndexQueryContextPtr& context,
+                          const std::vector<SimilarityPtr>& similarities,
+                          const std::vector<TermIterPtr>& iterators, int32_t doc) {
+    for (size_t i = 0; i < iterators.size(); i++) {
+        auto freq = iterators[i]->freq();
+        auto doc_length = iterators[i]->norm();
+        auto score = similarities[i]->score(freq, doc_length);
+        context->collection_similarity->collect(doc, score);
+    }
+}
+
+void QueryHelper::collect(const IndexQueryContextPtr& context,
+                          const std::vector<SimilarityPtr>& similarities,
+                          const std::vector<DISI>& iterators, int32_t doc) {
+    for (size_t i = 0; i < iterators.size(); i++) {
+        const auto& iter = iterators[i];
+        if (std::holds_alternative<TermPositionsIterPtr>(iter)) {
+            const auto& term_iter = std::get<TermPositionsIterPtr>(iter);
+            auto freq = term_iter->freq();
+            auto norm = term_iter->norm();
+            auto score = similarities[i]->score(freq, norm);
+            context->collection_similarity->collect(doc, score);
         }
     }
 }
 
+void QueryHelper::collect_many(const IndexQueryContextPtr& context, const SimilarityPtr& similarity,
+                               const DocRange& doc_range) {
+    for (size_t j = 0; j < doc_range.doc_many_size_; j++) {
+        rowid_t row_id = (*doc_range.doc_many)[j];
+        auto freq = (*doc_range.freq_many)[j];
+        auto norm = (*doc_range.norm_many)[j];
+        auto score = similarity->score(freq, norm);
+        context->collection_similarity->collect(row_id, score);
+    }
+}
+
 void QueryHelper::collect_range(const IndexQueryContextPtr& context,
-                                const SimilarityPtr& similarity, const DocRange& doc_range,
-                                const roaring::Roaring& roaring, bool first) {
+                                const SimilarityPtr& similarity, const DocRange& doc_range) {
     const uint32_t docs_size = doc_range.doc_range.second - doc_range.doc_range.first;
     for (uint32_t j = 0; j < docs_size; j++) {
         segment_v2::rowid_t row_id = doc_range.doc_range.first + j;
-        if (first || roaring.contains(row_id)) {
-            auto freq = (*doc_range.freq_many)[j];
-            auto norm = (*doc_range.norm_many)[j];
-            auto score = similarity->score(freq, norm);
-            context->collection_similarity->collect(row_id, score);
-        }
+        auto freq = (*doc_range.freq_many)[j];
+        auto norm = (*doc_range.norm_many)[j];
+        auto score = similarity->score(freq, norm);
+        context->collection_similarity->collect(row_id, score);
     }
 }
 

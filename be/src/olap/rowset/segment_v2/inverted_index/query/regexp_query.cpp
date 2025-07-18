@@ -29,7 +29,7 @@ namespace doris::segment_v2 {
 RegexpQuery::RegexpQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)),
           _context(std::move(context)),
-          _query(_searcher, _context, false) {
+          _query(_searcher, _context) {
     _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
 }
 

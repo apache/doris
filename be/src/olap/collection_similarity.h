@@ -23,6 +23,12 @@
 namespace doris {
 
 using ScoreMap = phmap::flat_hash_map<segment_v2::rowid_t, float>;
+using ScoreMapIterator = ScoreMap::const_iterator;
+
+enum class OrderType {
+    ASC,
+    DESC,
+};
 
 class CollectionSimilarity {
 public:
@@ -30,11 +36,18 @@ public:
     ~CollectionSimilarity() = default;
 
     void collect(segment_v2::rowid_t row_id, float score);
-    void get_bm25_scores(const roaring::Roaring& row_bitmap,
-                         vectorized::IColumn::MutablePtr& scores,
+
+    void get_bm25_scores(roaring::Roaring* row_bitmap, vectorized::IColumn::MutablePtr& scores,
                          std::unique_ptr<std::vector<uint64_t>>& row_ids) const;
+    void get_topn_bm25_scores(roaring::Roaring* row_bitmap, vectorized::IColumn::MutablePtr& scores,
+                              std::unique_ptr<std::vector<uint64_t>>& row_ids, OrderType order_type,
+                              int32_t top_k) const;
 
 private:
+    template <typename Compare>
+    void find_top_k_scores(const ScoreMap& all_scores, int32_t top_k, Compare comp,
+                           std::vector<std::pair<uint32_t, float>>& top_k_results) const;
+
     ScoreMap _bm25_scores;
 };
 using CollectionSimilarityPtr = std::shared_ptr<CollectionSimilarity>;

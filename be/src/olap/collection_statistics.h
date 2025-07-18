@@ -21,12 +21,19 @@
 #include <unordered_map>
 
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
+namespace io {
+class FileSystem;
+using FileSystemSPtr = std::shared_ptr<FileSystem>;
+} // namespace io
+
 struct RowSetSplits;
 
+class TabletIndex;
 class TabletSchema;
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
@@ -40,6 +47,25 @@ public:
     float get_or_calculate_avg_dl(const std::wstring& lucene_col_name);
 
 private:
+    struct TermInfoComparer {
+        bool operator()(const segment_v2::TermInfo& lhs, const segment_v2::TermInfo& rhs) const {
+            return lhs.term < rhs.term;
+        }
+    };
+
+    class CollectInfo {
+    public:
+        std::set<segment_v2::TermInfo, TermInfoComparer> term_infos;
+        const TabletIndex* index_meta = nullptr;
+    };
+
+    Status extract_collect_info(const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
+                                const TabletSchemaSPtr& tablet_schema,
+                                std::unordered_map<std::wstring, CollectInfo>* collect_infos);
+    Status process_segment(const std::string& seg_path, const io::FileSystemSPtr& fs,
+                           const TabletSchema* tablet_schema,
+                           const std::unordered_map<std::wstring, CollectInfo>& collect_infos);
+
     uint64_t get_term_doc_freq_by_col(const std::wstring& lucene_col_name,
                                       const std::wstring& term);
     uint64_t get_total_term_cnt_by_col(const std::wstring& lucene_col_name);

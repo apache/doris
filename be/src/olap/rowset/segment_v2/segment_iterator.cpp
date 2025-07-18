@@ -422,20 +422,7 @@ Status SegmentIterator::_lazy_init() {
         _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
     }
 
-    {
-        if (_index_query_context->collection_similarity) {
-            vectorized::IColumn::MutablePtr result_column;
-            auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
-            _index_query_context->collection_similarity->get_bm25_scores(_row_bitmap, result_column,
-                                                                         result_row_ids);
-            const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
-            auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
-            auto* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
-            virtual_column_iter->prepare_materialization(std::move(result_column),
-                                                         std::move(result_row_ids));
-        }
-    }
-
+    _prepare_score_column_materialization();
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
 
     if (_opts.read_orderby_key_reverse) {
@@ -1305,7 +1292,6 @@ Status SegmentIterator::_init_index_iterators() {
 
     if (_score_runtime) {
         _index_query_context->collection_statistics = _opts.collection_statistics;
-
         _index_query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     }
 
@@ -3000,6 +2986,29 @@ Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* bl
     // Remove them to keep consistent with current block.
     block->erase_tail(prev_block_columns);
     return Status::OK();
+}
+
+void SegmentIterator::_prepare_score_column_materialization() {
+    if (_score_runtime == nullptr) {
+        return;
+    }
+
+    vectorized::IColumn::MutablePtr result_column;
+    auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
+    if (_score_runtime->get_limit() > 0 && _common_expr_ctxs_push_down.empty()) {
+        OrderType order_type = _score_runtime->is_asc() ? OrderType::ASC : OrderType::DESC;
+        _index_query_context->collection_similarity->get_topn_bm25_scores(
+                &_row_bitmap, result_column, result_row_ids, order_type,
+                _score_runtime->get_limit());
+    } else {
+        _index_query_context->collection_similarity->get_bm25_scores(&_row_bitmap, result_column,
+                                                                     result_row_ids);
+    }
+    const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
+    auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
+    auto* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
+    virtual_column_iter->prepare_materialization(std::move(result_column),
+                                                 std::move(result_row_ids));
 }
 
 } // namespace segment_v2

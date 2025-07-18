@@ -44,6 +44,7 @@ public:
     std::vector<TermInfo> term_infos;
     int32_t slop = 0;
     bool ordered = false;
+    bool is_similarity_score = false;
 
     std::string generate_tokens_key() const {
         std::string key;

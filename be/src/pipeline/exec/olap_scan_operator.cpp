@@ -623,16 +623,13 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 vectorized::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
     }
 
-    if (!_parent->projections().empty()) {
-        for (auto& projection : _parent->projections()) {
-            auto vir_slot_ref =
-                    std::dynamic_pointer_cast<vectorized::VirtualSlotRef>(projection->root());
-            if (vir_slot_ref == nullptr || !vir_slot_ref->is_score_expr()) {
-                continue;
-            }
-            _score_runtime = vectorized::ScoreRuntime::create_shared(projection);
-            break;
-        }
+    if (olap_scan_node.__isset.score_sort_info && olap_scan_node.__isset.score_sort_limit) {
+        const doris::TExpr& ordering_expr = olap_scan_node.score_sort_info.ordering_exprs.front();
+        const bool asc = olap_scan_node.score_sort_info.is_asc_order[0];
+        const size_t limit = olap_scan_node.score_sort_limit;
+        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        _score_runtime = vectorized::ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
     }
 
     return ScanLocalState<OlapScanLocalState>::init(state, info);
@@ -669,7 +666,7 @@ Status OlapScanLocalState::open(RuntimeState* state) {
     }
 
     if (_score_runtime) {
-        RETURN_IF_ERROR(_score_runtime->prepare(state));
+        RETURN_IF_ERROR(_score_runtime->prepare(state, p.intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));

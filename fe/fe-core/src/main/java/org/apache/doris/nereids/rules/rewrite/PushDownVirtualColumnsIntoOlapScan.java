@@ -113,7 +113,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         extractDistanceFunctions(filter, replaceMap, virtualColumnsBuilder);
 
         // Step 2: Extract score functions
-        extractScoreFunctions(filter, optionalProject, replaceMap, virtualColumnsBuilder);
+        // extractScoreFunctions(filter, optionalProject, replaceMap, virtualColumnsBuilder);
 
         // Step 3: Extract repeated sub-expressions
         extractRepeatedSubExpressions(filter, optionalProject, replaceMap, virtualColumnsBuilder);

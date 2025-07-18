@@ -26,14 +26,18 @@ class ScoreRuntime {
     ENABLE_FACTORY_CREATOR(ScoreRuntime);
 
 public:
-    ScoreRuntime(VExprContextSPtr projection) : _projection(std::move(projection)) {};
+    ScoreRuntime(VExprContextSPtr order_by_expr_ctx, bool asc, size_t limit)
+            : _order_by_expr_ctx(std::move(order_by_expr_ctx)), _asc(asc), _limit(limit) {};
 
-    Status prepare(RuntimeState* state) {
-        auto vir_slot_ref = std::dynamic_pointer_cast<VirtualSlotRef>(_projection->root());
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc) {
+        RETURN_IF_ERROR(_order_by_expr_ctx->prepare(state, row_desc));
+        RETURN_IF_ERROR(_order_by_expr_ctx->open(state));
+        auto vir_slot_ref = std::dynamic_pointer_cast<VirtualSlotRef>(_order_by_expr_ctx->root());
         DCHECK(vir_slot_ref != nullptr);
         if (vir_slot_ref == nullptr) {
-            return Status::InternalError("root of projection must be a VirtualSlotRef, got\n{}",
-                                         _projection->root()->debug_string());
+            return Status::InternalError(
+                    "root of order by expr of score topn must be a VirtualSlotRef, got\n{}",
+                    _order_by_expr_ctx->root()->debug_string());
         }
         DCHECK(vir_slot_ref->column_id() >= 0);
         _dest_column_idx = vir_slot_ref->column_id();
@@ -42,8 +46,13 @@ public:
 
     size_t get_dest_column_idx() const { return _dest_column_idx; }
 
+    bool is_asc() const { return _asc; }
+    size_t get_limit() const { return _limit; }
+
 private:
-    VExprContextSPtr _projection;
+    VExprContextSPtr _order_by_expr_ctx;
+    const bool _asc = false;
+    const size_t _limit = 0;
 
     std::string _name = "score_runtime";
     size_t _dest_column_idx = -1;

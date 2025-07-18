@@ -37,7 +37,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("inverted index bypass");
     });
     if (UNLIKELY(_reader == nullptr)) {
-        throw CLuceneError(CL_ERR_NullPointer, "bkd index reader is null", false);
+        throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "index reader is null");
     }
 
     auto* runtime_state = _context->runtime_state;

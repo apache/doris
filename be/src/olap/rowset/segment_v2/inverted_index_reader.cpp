@@ -256,8 +256,8 @@ Status InvertedIndexReader::handle_searcher_cache(
         size_t reader_size = 0;
         auto index_searcher_builder =
                 DORIS_TRY(IndexSearcherBuilder::create_index_searcher_builder(type()));
-        RETURN_IF_ERROR(create_index_searcher(index_searcher_builder.get(), dir.release(),
-                                              &searcher, reader_size));
+        RETURN_IF_ERROR(create_index_searcher(index_searcher_builder.get(), dir.get(), &searcher,
+                                              reader_size));
         auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher),
                                                                        reader_size, UnixMillis());
         InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
@@ -379,6 +379,10 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
         if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
             return Status::OK();
+        }
+
+        if (is_need_similarity_score(query_type)) {
+            query_info.is_similarity_score = true;
         }
 
         InvertedIndexCacheHandle inverted_index_cache_handle;

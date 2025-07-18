@@ -25,12 +25,17 @@ namespace doris::segment_v2 {
 
 class QueryHelper {
 public:
+    static void collect(const IndexQueryContextPtr& context,
+                        const std::vector<SimilarityPtr>& similarities,
+                        const std::vector<TermIterPtr>& iterators, int32_t doc);
+    static void collect(const IndexQueryContextPtr& context,
+                        const std::vector<SimilarityPtr>& similarities,
+                        const std::vector<DISI>& iterators, int32_t doc);
+
     static void collect_many(const IndexQueryContextPtr& context, const SimilarityPtr& similarity,
-                             const DocRange& doc_range, const roaring::Roaring& roaring,
-                             bool first);
+                             const DocRange& doc_range);
     static void collect_range(const IndexQueryContextPtr& context, const SimilarityPtr& similarity,
-                              const DocRange& doc_range, const roaring::Roaring& roaring,
-                              bool first);
+                              const DocRange& doc_range);
 };
 
 } // namespace doris::segment_v2
