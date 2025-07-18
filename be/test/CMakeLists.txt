@@ -93,7 +93,7 @@ list(APPEND UT_FILES
 )
 
 include_directories(
-  ${CMAKE_BINARY_DIR}/apache-orc/c++/src
+  ${CMAKE_SOURCE_DIR}/../contrib/apache-orc/c++/src
   ${CMAKE_BINARY_DIR}/apache-orc/c++/src
   ${CMAKE_BINARY_DIR}/apache-orc/c++/include
 )
