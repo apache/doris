@@ -169,8 +169,8 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
 }
 
 void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
-        Tablet* tablet, const RowsetMetaMapContainer& all_metas,
-        int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
+        Tablet* tablet, const RowsetMetaMapContainer& all_metas, int64_t current_cumulative_point,
+        int64_t* ret_cumulative_point) {
     *ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
     if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT) {
         // only calculate the point once.
@@ -183,7 +183,7 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
     }
 
     std::list<RowsetMetaSharedPtr> existing_rss;
-    for (const auto& [_,rs] : all_metas) {
+    for (const auto& [_, rs] : all_metas) {
         existing_rss.emplace_back(rs);
     }
 
