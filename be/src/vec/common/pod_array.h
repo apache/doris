@@ -203,9 +203,9 @@ protected:
         //  所以 (((c_end_new - c_res_mem) >> 16) << 16) + (capacity_bytes() >> 3) 一定大于 c_end_new - c_res_mem
         int64_t res_mem_growth = c_end_of_storage - c_res_mem < TrackingGrowthMinSize
                                          ? c_end_of_storage - c_res_mem
-                                         : std::min(c_end_of_storage - c_res_mem,
-                                                    (((c_end_new - c_res_mem) >> 16) << 16) +
-                                                            (capacity_bytes() >> 3));
+                                         : std::min(static_cast<int64_t>(c_end_of_storage - c_res_mem),
+                                                    static_cast<int64_t>((((c_end_new - c_res_mem) >> 16) << 16) +
+                                                            (capacity_bytes() >> 3)));
         DCHECK(res_mem_growth > 0) << ", c_end_new: " << (c_end_new - c_start)
                                    << ", c_res_mem: " << (c_res_mem - c_start)
                                    << ", c_end_of_storage: " << (c_end_of_storage - c_start)
