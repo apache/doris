@@ -176,6 +176,8 @@ import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
 import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
+import org.apache.doris.thrift.TCheckCurrentUserPrivilegeRequest
+import org.apache.doris.thrift.TCheckCurrentUserPrivilegeResult;
 import org.apache.doris.thrift.TGetColumnInfoRequest;
 import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
@@ -2351,6 +2353,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("Failed to fetchSchemaTableData", e);
             return MetadataGenerator.errorResult(e.getMessage());
         }
+    }
+
+    @Override
+    public TCheckCurrentUserPrivilegeResult checkCurrentUserPrivilege(TCheckCurrentUserPrivilegeRequest request)
+            throws TException {
+        TCheckCurrentUserPrivilegeResult result;
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(
+                ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN)) {
+            result.setCheckRes(false);
+        }
+        result.setCheckRes(true);
+        return result;
     }
 
     private TNetworkAddress getClientAddr() {
