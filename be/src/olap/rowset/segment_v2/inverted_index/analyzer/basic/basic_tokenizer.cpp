@@ -20,6 +20,7 @@
 #include <unicode/unistr.h>
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 #define IS_IN_RANGE(c, start, end) ((uint32_t)((c) - (start)) <= ((end) - (start)))
 
@@ -45,7 +46,7 @@ Token* BasicTokenizer::next(Token* token) {
 
     std::string_view& token_text = _tokens_text[_buffer_index++];
     size_t size = std::min(token_text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
-    token->setNoCopy(token_text.data(), 0, size);
+    token->setNoCopy(token_text.data(), 0, static_cast<int32_t>(size));
     return token;
 }
 
@@ -55,18 +56,18 @@ void BasicTokenizer::reset(lucene::util::Reader* reader) {
     _tokens_text.clear();
 
     _buffer.resize(reader->size());
-    int32_t numRead = reader->readCopy(_buffer.data(), 0, _buffer.size());
+    size_t numRead = reader->readCopy(_buffer.data(), 0, static_cast<int32_t>(_buffer.size()));
     (void)numRead;
     assert(_buffer.size() == numRead);
 
     cut();
 
-    _data_len = _tokens_text.size();
+    _data_len = static_cast<int32_t>(_tokens_text.size());
 }
 
 void BasicTokenizer::cut() {
     auto* s = (uint8_t*)_buffer.data();
-    int32_t length = _buffer.size();
+    auto length = static_cast<int32_t>(_buffer.size());
 
     for (int32_t i = 0; i < length;) {
         uint8_t firstByte = s[i];
@@ -104,4 +105,5 @@ void BasicTokenizer::cut() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2
