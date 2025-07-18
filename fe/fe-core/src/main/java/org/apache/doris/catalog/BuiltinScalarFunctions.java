@@ -262,16 +262,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractI
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractLargeint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParse;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToInvalid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnull;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullable;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToNull;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
@@ -745,28 +737,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbExtractIsnull.class, "json_extract_isnull"),
             scalar(JsonbExtractIsnull.class, "jsonb_extract_isnull"),
             scalar(JsonbExtractString.class, "jsonb_extract_string", "json_extract_string", "get_json_string"),
-            scalar(JsonbParse.class, "json_parse"),
-            scalar(JsonbParse.class, "jsonb_parse"),
-            scalar(JsonbParseErrorToInvalid.class, "json_parse_error_to_invalid"),
-            scalar(JsonbParseErrorToInvalid.class, "jsonb_parse_error_to_invalid"),
-            scalar(JsonbParseErrorToNull.class, "json_parse_error_to_null"),
-            scalar(JsonbParseErrorToNull.class, "jsonb_parse_error_to_null"),
-            scalar(JsonbParseErrorToValue.class, "json_parse_error_to_value"),
-            scalar(JsonbParseErrorToValue.class, "jsonb_parse_error_to_value"),
-            scalar(JsonbParseNotnull.class, "json_parse_notnull"),
-            scalar(JsonbParseNotnull.class, "jsonb_parse_notnull"),
-            scalar(JsonbParseNotnullErrorToInvalid.class, "json_parse_notnull_error_to_invalid"),
-            scalar(JsonbParseNotnullErrorToInvalid.class, "jsonb_parse_notnull_error_to_invalid"),
-            scalar(JsonbParseNotnullErrorToValue.class, "json_parse_notnull_error_to_value"),
-            scalar(JsonbParseNotnullErrorToValue.class, "jsonb_parse_notnull_error_to_value"),
-            scalar(JsonbParseNullable.class, "json_parse_nullable"),
-            scalar(JsonbParseNullable.class, "jsonb_parse_nullable"),
-            scalar(JsonbParseNullableErrorToInvalid.class, "json_parse_nullable_error_to_invalid"),
-            scalar(JsonbParseNullableErrorToInvalid.class, "jsonb_parse_nullable_error_to_invalid"),
-            scalar(JsonbParseNullableErrorToNull.class, "json_parse_nullable_error_to_null"),
-            scalar(JsonbParseNullableErrorToNull.class, "jsonb_parse_nullable_error_to_null"),
-            scalar(JsonbParseNullableErrorToValue.class, "json_parse_nullable_error_to_value"),
-            scalar(JsonbParseNullableErrorToValue.class, "jsonb_parse_nullable_error_to_value"),
+            scalar(JsonbParse.class, "jsonb_parse", "json_parse"),
+            scalar(JsonbParseErrorToNull.class, "jsonb_parse_error_to_null", "json_parse_error_to_null"),
+            scalar(JsonbParseErrorToValue.class, "jsonb_parse_error_to_value", "json_parse_error_to_value"),
             scalar(JsonSearch.class, "json_search"),
             scalar(JsonbValid.class, "json_valid"),
             scalar(JsonbValid.class, "jsonb_valid"),
