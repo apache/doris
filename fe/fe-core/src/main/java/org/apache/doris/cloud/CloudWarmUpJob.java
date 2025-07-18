@@ -243,6 +243,14 @@ public class CloudWarmUpJob implements Writable {
         }
     }
 
+    public CloudWarmUpJob(long jobId, String cloudClusterName,
+                          Map<Long, List<List<Long>>> beToTabletIdBatches, JobType jobType,
+                          List<Triple<String, String, String>> tables, boolean force) {
+        this(jobId, null, cloudClusterName, beToTabletIdBatches, jobType);
+        this.tables = tables;
+        this.force = force;
+    }
+
     public void fetchBeToTabletIdBatches() {
         if (FeConstants.runningUnitTest) {
             return;
