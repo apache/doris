@@ -342,6 +342,8 @@ message ColumnPB {
     optional int32 variant_max_subcolumns_count = 25 [default = 0];
     optional PatternTypePB pattern_type = 26;
     optional bool variant_enable_typed_paths_to_sparse = 27 [default = false];
+    // this field is only used during flexible partial update load
+    optional bool is_on_update_current_timestamp = 28 [default = false];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size
