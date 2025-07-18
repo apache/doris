@@ -41,6 +41,7 @@ import java.util.stream.Collectors;
 public class ShortCircuitQueryContext {
     // Cached for better CPU performance, since serialize DescriptorTable and
     // outputExprs are heavy work
+    public final Planner planner;
     public final ByteString serializedDescTable;
     public final ByteString serializedOutputExpr;
     public final ByteString serializedQueryOptions;
@@ -61,13 +62,14 @@ public class ShortCircuitQueryContext {
 
 
     public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery) throws TException {
+        this.planner = planner;
         this.serializedDescTable = ByteString.copyFrom(
                 new TSerializer().serialize(planner.getDescTable().toThrift()));
         TQueryOptions options = planner.getQueryOptions() != null ? planner.getQueryOptions() : new TQueryOptions();
         this.serializedQueryOptions = ByteString.copyFrom(
                 new TSerializer().serialize(options));
         List<TExpr> exprs = new ArrayList<>();
-        OlapScanNode olapScanNode = (OlapScanNode) planner.getFragments().get(1).getPlanRoot();
+        OlapScanNode olapScanNode = (OlapScanNode) planner.getScanNodes().get(0);
         if (olapScanNode.getProjectList() != null) {
             // project on scan node
             exprs.addAll(olapScanNode.getProjectList().stream()
@@ -81,7 +83,7 @@ public class ShortCircuitQueryContext {
         serializedOutputExpr = ByteString.copyFrom(
                 new TSerializer().serialize(exprList));
         this.cacheID = UUID.randomUUID();
-        this.scanNode = ((OlapScanNode) planner.getScanNodes().get(0));
+        this.scanNode = olapScanNode;
         this.tbl = this.scanNode.getOlapTable();
         this.schemaVersion = this.tbl.getBaseSchemaVersion();
         this.analzyedQuery = analzyedQuery;
