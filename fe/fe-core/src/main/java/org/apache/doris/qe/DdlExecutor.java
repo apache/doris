@@ -18,15 +18,12 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterJobStatusStmt;
 import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.AlterWorkloadGroupStmt;
-import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
@@ -61,7 +58,6 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
-import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
@@ -185,8 +181,6 @@ public class DdlExecutor {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().createWorkloadSchedPolicy((CreateWorkloadSchedPolicyStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterWorkloadSchedPolicyStmt) {
-            env.getWorkloadSchedPolicyMgr().alterWorkloadSchedPolicy((AlterWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().dropWorkloadSchedPolicy((DropWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
@@ -199,13 +193,6 @@ public class DdlExecutor {
             RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
             env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),
                     refreshTableStmt.getTblName(), false);
-        } else if (ddlStmt instanceof RefreshDbStmt) {
-            RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
-            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName());
-        } else if (ddlStmt instanceof AlterColocateGroupStmt) {
-            env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
-            env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateIndexPolicyStmt) {
             env.getIndexPolicyMgr().createIndexPolicy((CreateIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropIndexPolicyStmt) {
