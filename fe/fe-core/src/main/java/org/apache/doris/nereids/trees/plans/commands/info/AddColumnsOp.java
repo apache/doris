@@ -74,7 +74,9 @@ public class AddColumnsOp extends AlterTableOp {
             throw new AnalysisException("Columns is empty in add columns clause.");
         }
         for (ColumnDefinition colDef : columnDefs) {
-            AddColumnOp.validateColumnDef(tableName, colDef, null, rollupName);
+            AddColumnOp addColumnOp = new AddColumnOp(colDef, null, rollupName, null);
+            addColumnOp.setTableName(tableName);
+            addColumnOp.validate(ctx);
         }
 
         TableIf table = Env.getCurrentEnv().getCatalogMgr()
