@@ -43,7 +43,6 @@
 #include "vec/functions/function_helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const int RowDescriptor::INVALID_IDX = -1;
 
@@ -398,7 +397,7 @@ RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
         : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
     init_tuple_idx_map();
     init_has_varlen_slots();
-    _num_slots = cast_set<int>(tuple_desc->slots().size());
+    _num_slots = tuple_desc->slots().size();
 }
 
 RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc) {
@@ -668,5 +667,4 @@ std::string DescriptorTbl::debug_string() const {
 
     return out.str();
 }
-#include "common/compile_check_end.h"
 } // namespace doris
