@@ -23,7 +23,6 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
         return
     }
 
-
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -42,9 +41,12 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     );"""
 
     sql """switch ${catalog_name};"""
-    sql """ use test_db;""" 
+    sql """drop database if exists iceberg_schema_change_ddl_db force"""
+    sql """create database iceberg_schema_change_ddl_db"""
+    sql """ use iceberg_schema_change_ddl_db;""" 
 
     sql """ set enable_fallback_to_original_planner=false; """
+    sql """set show_column_comment_in_describe=true;"""
         
     // Test table name
     String table_name = "iceberg_ddl_test"
@@ -90,7 +92,6 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     }
     // Add column with comment and set position after age
     sql """ ALTER TABLE ${table_name} ADD COLUMN phone STRING COMMENT 'User phone number' after age """
-
     // Verify schema after adding column
     qt_add_1 """ DESC ${table_name} """
     
@@ -111,6 +112,16 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     
     qt_add_multi_2 """ SELECT * FROM ${table_name} ORDER BY id """
     qt_add_multi_3 """ SELECT id, address FROM ${table_name} WHERE id = 5 ORDER BY id """
+
+    // Invalid add column
+    test {
+        sql """ALTER TABLE ${table_name} ADD COLUMN invalid_col1 int sum"""
+        exception "Can not specify aggregation method for iceberg table column"
+    }
+    test {
+        sql """ALTER TABLE ${table_name} ADD COLUMN invalid_col1 int AUTO_INCREMENT"""
+        exception "Can not specify auto incremental iceberg table column"
+    }
         
     // Test 4: RENAME COLUMN
     sql """ ALTER TABLE ${table_name} RENAME COLUMN score grade """
@@ -135,6 +146,12 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     qt_add_columns_1 """ DESC ${table_name} """
     qt_add_columns_2 """ SELECT id, col1, col2 FROM ${table_name} ORDER BY id """
 
+    // invalid add columns
+    test {
+        sql """ALTER TABLE ${table_name} ADD COLUMN (col3 FLOAT COMMENT 'User defined column1', col4 int SUM COMMENT 'User defined column2')"""
+        exception "Can not specify aggregation method for iceberg table column"
+    }
+
     // Test 7: modify column type
     sql """ ALTER TABLE ${table_name} MODIFY COLUMN age BIGINT """
     // modify column type and add comment
@@ -151,6 +168,143 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     qt_modify_1 """ DESC ${table_name} """
     qt_modify_2 """ SELECT id, age, col1 FROM ${table_name} ORDER BY id """
     qt_modify_3 """ SELECT * FROM ${table_name} WHERE age > 25 ORDER BY id """
+    // modify age to not null, which is not allowed
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN age bigint not null"""
+        exception "Can not change nullable column age to not null"
+    }
+    // invalid modify
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN age bigint sum"""
+        exception "Can not specify aggregation method for iceberg table column"
+    }
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN age bigint AUTO_INCREMENT"""
+        exception "Can not specify auto incremental iceberg table column"
+    }
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN non_col bigint"""
+        exception "Column non_col does not exist"
+    }
+    // not comment, the comment will be removed
+    qt_before_no_comment "desc ${table_name}" 
+    sql """ ALTER TABLE ${table_name} MODIFY COLUMN col1 DOUBLE"""
+    qt_after_no_comment "desc ${table_name}"
+    sql """ ALTER TABLE ${table_name} MODIFY COLUMN col1 DOUBLE COMMENT 'Updated column1 type'"""
+    qt_after_no_comment "desc ${table_name}"
+
+    // Test 7.1: More positive modify column type cases
+    // Add test columns for type conversion tests
+    sql """ ALTER TABLE ${table_name} ADD COLUMN test_float FLOAT """
+    sql """ ALTER TABLE ${table_name} ADD COLUMN test_decimal DECIMAL(5,2) """
+    sql """ INSERT INTO ${table_name} (id, test_float, test_decimal) VALUES (7, 3.14, 123.45) """
+    
+    // Positive case: float -> double
+    sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_float DOUBLE """
+    
+    // Positive case: decimal precision expansion (scale unchanged)
+    sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_decimal DECIMAL(10,2) """
+    
+    // Verify positive type changes
+    qt_modify_positive_1 """ DESC ${table_name} """
+    qt_modify_positive_2 """ SELECT id, test_float, test_decimal FROM ${table_name} WHERE id = 7 """
+
+    // Test 7.2: Negative modify column type cases (should all fail)
+    
+    // double -> float (precision loss)
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN col1 FLOAT """
+        exception "Cannot change column type"
+    }
+    
+    // bigint -> int (precision loss) - already tested above but added here for completeness
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN age INT """
+        exception "Cannot change column type"
+    }
+    
+    // string -> numeric types
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN email INT """
+        exception "Cannot change column type"
+    }
+    
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN email DOUBLE """
+        exception "Cannot change column type"
+    }
+    
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN email DECIMAL(10,2) """
+        exception "Cannot change column type"
+    }
+    
+    // numeric -> string
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN id STRING """
+        exception "Cannot change column type"
+    }
+    
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_float STRING """
+        exception "Cannot change column type"
+    }
+    
+    // decimal precision reduction
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_decimal DECIMAL(3,2) """
+        exception "Cannot change column type"
+    }
+    
+    // decimal scale change (even if precision increases)
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_decimal DECIMAL(15,3) """
+        exception "Cannot change column type"
+    }
+    
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_decimal DECIMAL(15,1) """
+        exception "Cannot change column type"
+    }
+    
+    // int -> float/double (may lose precision for large integers)
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN id FLOAT """
+        exception "Cannot change column type"
+    }
+    
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN id DOUBLE """
+        exception "Cannot change column type"
+    }
+    
+    // float/double -> decimal
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_float DECIMAL(10,2) """
+        exception "Cannot change column type"
+    }
+    
+    // decimal -> float/double
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_decimal FLOAT """
+        exception "Cannot change column type"
+    }
+    
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_decimal DOUBLE """
+        exception "Cannot change column type"
+    }
+    
+    // struct/complex type changes
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN address STRING """
+        exception "Cannot change column type"
+    }
+    
+    test {
+        sql """ ALTER TABLE ${table_name} MODIFY COLUMN email STRUCT<name: STRING> """
+        exception "Modify column type to non-primitive type is not supported"
+    }
 
     // Test 8: reorder columns
     sql """ ALTER TABLE ${table_name} ORDER BY (id, age, col1, col2, grade, phone, email, address) """
@@ -173,7 +327,7 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     qt_rename_table_2 """ SELECT * FROM ${renamed_table_name} ORDER BY id """
     test {
         sql """ select * from ${table_name} """
-        exception "Table [iceberg_ddl_test] does not exist in database [test_db]"
+        exception "Table [iceberg_ddl_test] does not exist in database [iceberg_schema_change_ddl_db]"
     }
     sql """ ALTER TABLE ${renamed_table_name} RENAME ${table_name} """
     qt_rename_table_back_1 """ SELECT * FROM ${table_name} ORDER BY id """
@@ -213,4 +367,75 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     // Verify column order changed
     qt_partition_reorder_1 """ DESC ${partition_table_name} """
     qt_partition_reorder_2 """ SELECT * FROM ${partition_table_name} ORDER BY id """
+
+    // Test: Modify partition column type (should fail)
+    // The 'name' column is the partition column for this table
+    
+    // Test modifying partition column type
+    // no change, still string
+    sql """ ALTER TABLE ${partition_table_name} MODIFY COLUMN name VARCHAR(100) """
+    qt_partition_alter "desc ${partition_table_name}"
+
+    // no change, still string
+    sql """ ALTER TABLE ${partition_table_name} MODIFY COLUMN name TEXT """
+    qt_partition_alter "desc ${partition_table_name}"
+    
+    test {
+        sql """ ALTER TABLE ${partition_table_name} MODIFY COLUMN name INT """
+        exception "Cannot change column type"
+    }
+    
+    sql """ ALTER TABLE ${partition_table_name} MODIFY COLUMN name STRING FIRST """
+    qt_reorder_partition_col """desc ${partition_table_name}"""
+    
+    // Test modifying partition column comment (might be allowed)
+    sql """ ALTER TABLE ${partition_table_name} MODIFY COLUMN name STRING COMMENT 'Updated partition column comment' """
+    qt_comment_partition_col """desc ${partition_table_name}"""
+    
+    // Create another partitioned table with integer partition column for more tests
+    String int_partition_table_name = "iceberg_ddl_int_partition_test"
+    sql """ drop table if exists ${int_partition_table_name} """
+    sql """ CREATE TABLE ${int_partition_table_name} (
+        id INT,
+        name STRING,
+        age INT,
+        department_id INT
+    ) PARTITION BY LIST (department_id) ();"""
+    
+    // Insert test data
+    sql """ INSERT INTO ${int_partition_table_name} VALUES 
+    (1, 'Alice', 25, 100),
+    (2, 'Bob', 30, 200),
+    (3, 'Charlie', 22, 100) """;
+    
+    // Test modifying integer partition column type
+    sql """ ALTER TABLE ${int_partition_table_name} MODIFY COLUMN department_id BIGINT """
+    qt_desc_partition_bigint "desc ${int_partition_table_name}"
+    sql """ INSERT INTO ${int_partition_table_name} VALUES 
+    (1, 'Alice', 25, 9223372036854775807),
+    (2, 'Bob', 30, 9223372036854775806),
+    (3, 'Charlie', 22, 9223372036854775805) """;
+    order_qt_select_partition_bigint "select * from ${int_partition_table_name}"
+    
+    test {
+        sql """ ALTER TABLE ${int_partition_table_name} MODIFY COLUMN department_id STRING """
+        exception "Cannot change column type"
+    }
+    
+    test {
+        sql """ ALTER TABLE ${int_partition_table_name} MODIFY COLUMN department_id DOUBLE """
+        exception "Cannot change column type"
+    }
+    
+    // Verify that non-partition columns can still be modified in partitioned tables
+    sql """ ALTER TABLE ${int_partition_table_name} MODIFY COLUMN age BIGINT """
+    sql """ ALTER TABLE ${int_partition_table_name} MODIFY COLUMN name VARCHAR(200) COMMENT 'Updated name column' """
+    
+    // Verify the changes
+    qt_partition_modify_1 """ DESC ${int_partition_table_name} """
+    order_qt_partition_modify_2 """ SELECT * FROM ${int_partition_table_name} ORDER BY id """
+    
+    // Clean up
+    sql """ drop table if exists ${int_partition_table_name} """
 }
+
