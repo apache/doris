@@ -20,12 +20,14 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -64,8 +66,8 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
      * Group(1) captures the region name (e.g., cn-hangzhou).
      * FYI: https://console-intl.huaweicloud.com/apiexplorer/#/endpoint/OBS
      */
-    private static final Pattern ENDPOINT_PATTERN = Pattern
-            .compile("^(?:https?://)?obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com$");
+    private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
+            .compile("^(?:https?://)?obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com$"));
 
 
     public OBSProperties(Map<String, String> origProps) {
@@ -91,7 +93,7 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
-    protected Pattern endpointPattern() {
+    protected Set<Pattern> endpointPatterns() {
         return ENDPOINT_PATTERN;
     }
 

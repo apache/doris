@@ -567,10 +567,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return remoteTable.getViewOriginalText();
     }
 
-    public String getMetastoreUri() {
-        return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
-    }
-
     public Map<String, String> getCatalogProperties() {
         return catalog.getProperties();
     }
@@ -580,7 +576,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public Map<String, String> getHadoopProperties() {
-        return catalog.getCatalogProperty().getHadoopProperties();
+        return getStoragePropertiesMap().values().stream()
+                .flatMap(m -> m.getBackendConfigProperties().entrySet().stream())
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (v1, v2) -> v2));
+
     }
 
     public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {
