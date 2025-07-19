@@ -128,6 +128,9 @@ void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v);
 // Remove a versioned document from the transaction by key with versionstamp.
 void versioned_remove(Transaction* txn, std::string_view key_with_versionstamp);
 
+// Remove all versioned documents from the transaction by key.
+void versioned_remove_all(Transaction* txn, std::string_view key);
+
 // Put a versioned value into the transaction with a specific versionstamp.
 void versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value);
 

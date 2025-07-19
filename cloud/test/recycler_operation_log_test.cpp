@@ -260,3 +260,181 @@ TEST(RecycleOperationLogTest, RecycleCommitPartitionLog) {
     remove_instance_info(txn_kv.get());
     ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
 }
+
+TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    update_instance_info(txn_kv.get(), instance);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    uint64_t db_id = 1;
+    uint64_t table_id = 2;
+    uint64_t index_id = 3;
+    uint64_t partition_id = 4;
+    int64_t expiration = ::time(nullptr) + 3600; // 1 hour from now
+
+    {
+        // Update the table version, it will be removed after the drop partition log is recycled
+        std::string ver_key = versioned::table_version_key({instance_id, table_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), ver_key, "");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        Versionstamp table_version;
+        TxnErrorCode err = meta_reader.get_table_version(table_id, &table_version);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Put a drop partition log
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.mutable_min_timestamp()->append(
+                reinterpret_cast<const char*>(versionstamp.data().data()),
+                versionstamp.data().size());
+        auto* drop_partition = operation_log.mutable_drop_partition();
+        drop_partition->set_db_id(db_id);
+        drop_partition->set_table_id(table_id);
+        drop_partition->add_index_ids(index_id);
+        drop_partition->add_partition_ids(partition_id);
+        drop_partition->set_expiration(expiration);
+        drop_partition->set_update_table_version(
+                true); // Update table version to ensure the table version is removed
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs.
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Verify that the recycle partition record is created
+    {
+        std::string recycle_key = recycle_partition_key({instance_id, partition_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RecyclePartitionPB recycle_partition_pb;
+        ASSERT_TRUE(recycle_partition_pb.ParseFromString(value));
+        ASSERT_EQ(recycle_partition_pb.db_id(), db_id);
+        ASSERT_EQ(recycle_partition_pb.table_id(), table_id);
+        ASSERT_EQ(recycle_partition_pb.index_id_size(), 1);
+        ASSERT_EQ(recycle_partition_pb.index_id(0), index_id);
+        ASSERT_EQ(recycle_partition_pb.state(), RecyclePartitionPB::DROPPED);
+        ASSERT_EQ(recycle_partition_pb.expiration(), expiration);
+    }
+
+    // The table version key should be removed because update_table_version is true
+    {
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        Versionstamp table_version;
+        TxnErrorCode err = meta_reader.get_table_version(table_id, &table_version);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    {
+        // Put a new drop partition log without updating table version
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(124, 0);
+        OperationLogPB operation_log;
+        operation_log.mutable_min_timestamp()->append(
+                reinterpret_cast<const char*>(versionstamp.data().data()),
+                versionstamp.data().size());
+        auto* drop_partition = operation_log.mutable_drop_partition();
+        drop_partition->set_db_id(db_id);
+        drop_partition->set_table_id(table_id);
+        drop_partition->add_index_ids(index_id);
+        drop_partition->add_partition_ids(partition_id + 1); // Different partition
+        drop_partition->set_expiration(expiration);
+        drop_partition->set_update_table_version(false); // Don't update table version
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs.
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Verify that the second recycle partition record is created
+    {
+        std::string recycle_key = recycle_partition_key({instance_id, partition_id + 1});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RecyclePartitionPB recycle_partition_pb;
+        ASSERT_TRUE(recycle_partition_pb.ParseFromString(value));
+        ASSERT_EQ(recycle_partition_pb.db_id(), db_id);
+        ASSERT_EQ(recycle_partition_pb.table_id(), table_id);
+        ASSERT_EQ(recycle_partition_pb.index_id_size(), 1);
+        ASSERT_EQ(recycle_partition_pb.index_id(0), index_id);
+        ASSERT_EQ(recycle_partition_pb.state(), RecyclePartitionPB::DROPPED);
+        ASSERT_EQ(recycle_partition_pb.expiration(), expiration);
+    }
+
+    // Scan the operation logs to verify that the drop partition logs are removed.
+    remove_instance_info(txn_kv.get());
+
+    // Verify that the recycle partition records are created and operation logs are removed
+    {
+        // Check that the first recycle partition record exists
+        std::string recycle_key1 = recycle_partition_key({instance_id, partition_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key1, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RecyclePartitionPB recycle_partition_pb;
+        ASSERT_TRUE(recycle_partition_pb.ParseFromString(value));
+        ASSERT_EQ(recycle_partition_pb.db_id(), db_id);
+        ASSERT_EQ(recycle_partition_pb.table_id(), table_id);
+        ASSERT_EQ(recycle_partition_pb.index_id_size(), 1);
+        ASSERT_EQ(recycle_partition_pb.index_id(0), index_id);
+        ASSERT_EQ(recycle_partition_pb.state(), RecyclePartitionPB::DROPPED);
+        ASSERT_EQ(recycle_partition_pb.expiration(), expiration);
+    }
+
+    {
+        // Check that the second recycle partition record exists
+        std::string recycle_key2 = recycle_partition_key({instance_id, partition_id + 1});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key2, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RecyclePartitionPB recycle_partition_pb;
+        ASSERT_TRUE(recycle_partition_pb.ParseFromString(value));
+        ASSERT_EQ(recycle_partition_pb.db_id(), db_id);
+        ASSERT_EQ(recycle_partition_pb.table_id(), table_id);
+        ASSERT_EQ(recycle_partition_pb.index_id_size(), 1);
+        ASSERT_EQ(recycle_partition_pb.index_id(0), index_id);
+        ASSERT_EQ(recycle_partition_pb.state(), RecyclePartitionPB::DROPPED);
+        ASSERT_EQ(recycle_partition_pb.expiration(), expiration);
+    }
+
+    // Verify that operation logs are removed (only recycle partition records should remain)
+    ASSERT_EQ(count_range(txn_kv.get()), 2) << "Should only have 2 recycle partition records";
+}

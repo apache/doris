@@ -45,6 +45,7 @@
 #include "meta-store/blob_message.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "recycler/checker.h"
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
@@ -1301,6 +1302,28 @@ int InstanceRecycler::recycle_partitions() {
                 ret = -1;
             }
         }
+        if (ret == 0 && part_pb.has_db_id()) {
+            // Recycle the versioned keys
+            std::unique_ptr<Transaction> txn;
+            err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to create txn").tag("err", err);
+                return -1;
+            }
+            std::string meta_key = versioned::meta_partition_key({instance_id_, partition_id});
+            std::string index_key = versioned::partition_index_key({instance_id_, partition_id});
+            std::string inverted_index_key = versioned::partition_inverted_index_key(
+                    {instance_id_, part_pb.db_id(), part_pb.table_id(), partition_id});
+            versioned_remove_all(txn.get(), meta_key);
+            txn->remove(index_key);
+            txn->remove(inverted_index_key);
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to commit txn").tag("err", err);
+                return -1;
+            }
+        }
+
         if (ret == 0) {
             ++num_recycled;
             check_recycle_task(instance_id_, task_name, num_scanned, num_recycled, start_time);

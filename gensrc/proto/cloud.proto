@@ -661,9 +661,10 @@ message CommitPartitionLogPB {
 message DropPartitionLogPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
-    optional int64 partition_id = 4;
-    optional RecyclePartitionPB recycle_partition = 5;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+    optional int64 expiration = 5; // expiration timestamp
+    optional bool update_table_version = 6;
 }
 
 message DropIndexLogPB {

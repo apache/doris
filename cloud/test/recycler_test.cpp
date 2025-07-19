@@ -407,6 +407,30 @@ static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int6
     return 0;
 }
 
+static int create_partition_meta_and_index_keys(TxnKv* txn_kv, int64_t db_id, int64_t table_id,
+                                                int64_t partition_id) {
+    std::string meta_key = versioned::meta_partition_key({instance_id, partition_id});
+    std::string meta_index_key = versioned::partition_index_key({instance_id, partition_id});
+    std::string meta_inverted_index_key =
+            versioned::partition_inverted_index_key({instance_id, db_id, table_id, partition_id});
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    std::string val;
+    PartitionIndexPB partition_index_pb;
+    partition_index_pb.set_db_id(db_id);
+    partition_index_pb.set_table_id(table_id);
+    partition_index_pb.SerializeToString(&val);
+    versioned_put(txn.get(), meta_key, "");
+    txn->put(meta_index_key, partition_index_pb.SerializeAsString());
+    txn->put(meta_inverted_index_key, "");
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return 0;
+}
+
 static int create_recycle_partiton(TxnKv* txn_kv, int64_t table_id, int64_t partition_id,
                                    const std::vector<int64_t>& index_ids) {
     std::string key;
@@ -1330,6 +1354,7 @@ TEST(RecyclerTest, recycle_partitions) {
         }
     }
 
+    ASSERT_EQ(create_partition_meta_and_index_keys(txn_kv.get(), db_id, table_id, partition_id), 0);
     ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
 
     create_recycle_partiton(txn_kv.get(), table_id, partition_id, index_ids);
@@ -1378,6 +1403,19 @@ TEST(RecyclerTest, recycle_partitions) {
     end_key = recycle_key_prefix(instance_id + '\xff');
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
+    // meta_partition_key
+    std::string meta_partition_key = versioned::meta_partition_key({instance_id, partition_id});
+    std::string index_key = versioned::partition_index_key({instance_id, partition_id});
+    std::string inverted_index_key =
+            versioned::partition_inverted_index_key({instance_id, db_id, table_id, partition_id});
+    std::string empty_value;
+    Versionstamp versionstamp;
+    ASSERT_EQ(versioned_get(txn.get(), meta_partition_key, &versionstamp, &empty_value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // meta_partition_index_key
+    ASSERT_EQ(txn->get(index_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // meta_partition_inverted_index_key
+    ASSERT_EQ(txn->get(inverted_index_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(RecyclerTest, recycle_versions) {
