@@ -39,8 +39,9 @@ suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_
         "s3.region" = "us-east-1"
     );"""
 
-
-    sql """ use ${catalog_name}.test_db """
+    sql """drop database if exists ${catalog_name}.iceberg_branch_insert_data_db"""
+    sql """create database ${catalog_name}.iceberg_branch_insert_data_db"""
+    sql """ use ${catalog_name}.iceberg_branch_insert_data_db """
 
     String tmp_tb1 = catalog_name + "_tmp_tb1"
     String tmp_tb2 = catalog_name + "_tmp_tb2"
@@ -110,52 +111,52 @@ suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_
         query_all()
 
         sql """ insert overwrite table ${table_name} values (9,'a'),(10,'b') """
-        // 非分区表：9,10 分区表：7,8,9,10
+        // Non-partitioned table: 9,10 Partitioned table: 7,8,9,10
         // 1,2,3,4
         // 1,2,3,4,5,6
         // 1,2,3,4
         query_all()
 
         sql """ insert overwrite table ${table_name}@branch(b1) values (11,'a'), (12,'b') """
-        // 非分区表：9,10 分区表：7,8,9,10
+        // Non-partitioned table: 9,10 Partitioned table: 7,8,9,10
         // 1,2,3,4
         // 11,12
         // 1,2,3,4
         query_all()
 
         sql """ insert into ${table_name}@branch(b1) select * from ${table_name} """
-        // 非分区表：9,10 分区表：7,8,9,10
+        // Non-partitioned table: 9,10 Partitioned table: 7,8,9,10
         // 1,2,3,4
-        // 非分区表：9,10,11,12 分区表：7,8,9,10,11,12
+        // Non-partitioned table: 9,10,11,12 Partitioned table: 7,8,9,10,11,12
         // 1,2,3,4
         query_all()
 
         sql """ insert overwrite table ${table_name}@branch(b2) select * from ${table_name} """
-        // 非分区表：9,10 分区表：7,8,9,10
+        // Non-partitioned table: 9,10 Partitioned table: 7,8,9,10
         // 1,2,3,4
-        // 非分区表：9,10,11,12 分区表：7,8,9,10,11,12
-        // 非分区表：9,10 分区表：7,8,9,10
+        // Non-partitioned table: 9,10,11,12 Partitioned table: 7,8,9,10,11,12
+        // Non-partitioned table: 9,10 Partitioned table: 7,8,9,10
         query_all()
 
         sql """ insert overwrite table ${table_name}@branch(b2) select * from ${table_name}@branch(b1) """
-        // 非分区表：9,10 分区表：7,8,9,10
+        // Non-partitioned table: 9,10 Partitioned table: 7,8,9,10
         // 1,2,3,4
-        // 非分区表：9,10,11,12 分区表：7,8,9,10,11,12
-        // 非分区表：9,10,11,12 分区表：7,8,9,10,11,12
+        // Non-partitioned table: 9,10,11,12 Partitioned table: 7,8,9,10,11,12
+        // Non-partitioned table: 9,10,11,12 Partitioned table: 7,8,9,10,11,12
         query_all()
 
         sql """ insert overwrite table ${table_name} select * from ${table_name}@branch(b1) """
-        // 非分区表：9,10,11,12 分区表：7,8,9,10,11,12
+        // Non-partitioned table: 9,10,11,12 Partitioned table: 7,8,9,10,11,12
         // 1,2,3,4
-        // 非分区表：9,10,11,12 分区表：7,8,9,10,11,12
-        // 非分区表：9,10,11,12 分区表：7,8,9,10,11,12
+        // Non-partitioned table: 9,10,11,12 Partitioned table: 7,8,9,10,11,12
+        // Non-partitioned table: 9,10,11,12 Partitioned table: 7,8,9,10,11,12
         query_all()
 
         sql """ insert overwrite table ${table_name}@branch(b2) select * from ${table_name}@tag(t1) """
-        // 非分区表：9,10,11,12 分区表：7,8,9,10,11,12
+        // Non-partitioned table: 9,10,11,12 Partitioned table: 7,8,9,10,11,12
         // 1,2,3,4
-        // 非分区表：9,10,11,12 分区表：7,8,9,10,11,12
-        // 非分区表：1,2,3,4 分区表：1,2,3,4,7,8
+        // Non-partitioned table: 9,10,11,12 Partitioned table: 7,8,9,10,11,12
+        // Non-partitioned table: 1,2,3,4 Partitioned table: 1,2,3,4,7,8
         query_all()
 
     }
@@ -164,3 +165,4 @@ suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_
     execute(tmp_tb2)
 
 }
+
