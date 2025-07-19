@@ -1966,6 +1966,8 @@ Status set_fuzzy_configs() {
     // if have set enable_fuzzy_mode=true in be.conf, will fuzzy those field and values
     fuzzy_field_and_value["disable_storage_page_cache"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["disable_segment_cache"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_system_metrics"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_set_in_bitmap_value"] =
