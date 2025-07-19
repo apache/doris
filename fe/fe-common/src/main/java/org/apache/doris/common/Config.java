@@ -667,6 +667,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
     public static String yarn_config_dir =  EnvUtils.getDorisHome() + "/lib/yarn-config";
 
+    @ConfField(mutable = true, masterOnly = true, description = {"Ingestion load 的默认超时时间，单位是秒。",
+            "Default timeout for ingestion load job, in seconds."})
+    public static int ingestion_load_default_timeout_second = 86400; // 1 day
+
     @ConfField(mutable = true, masterOnly = true, description = {"Broker Load 的最大等待 job 数量。"
             + "这个值是一个期望值。在某些情况下，比如切换 master，当前等待的 job 数量可能会超过这个值。",
             "Maximal number of waiting jobs for Broker Load. This is a desired number. "

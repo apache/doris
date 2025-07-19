@@ -340,6 +340,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
             case MINI:
                 timeout = Config.stream_load_default_timeout_second;
                 break;
+            case INGESTION:
+                timeout = Config.ingestion_load_default_timeout_second;
+                break;
             default:
                 break;
         }
@@ -869,6 +872,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
             job = new MiniLoadJob();
         } else if (type == EtlJobType.COPY) {
             job = new CopyJob();
+        } else if (type == EtlJobType.INGESTION) {
+            job = new IngestionLoadJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }
