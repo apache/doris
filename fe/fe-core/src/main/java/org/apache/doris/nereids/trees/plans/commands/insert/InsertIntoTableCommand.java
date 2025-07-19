@@ -112,7 +112,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
             Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
-        this(logicalQuery, labelName, insertCtx, cte, true);
+        this(logicalQuery, labelName, insertCtx, cte, true, Optional.empty());
     }
 
     /**
