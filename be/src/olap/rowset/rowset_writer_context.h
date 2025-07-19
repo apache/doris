@@ -86,6 +86,9 @@ struct RowsetWriterContext {
     ReaderType compaction_type = ReaderType::UNKNOWN;
     BaseTabletSPtr tablet = nullptr;
 
+    // limit background io
+    bool is_limit_io = false;
+
     std::shared_ptr<MowContext> mow_context;
     std::shared_ptr<FileWriterCreator> file_writer_creator;
     std::shared_ptr<SegmentCollector> segment_collector;

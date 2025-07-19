@@ -33,6 +33,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/io_common.h"
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
@@ -416,6 +417,7 @@ Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& da
             if (!status.ok()) {
                 return status;
             }
+            // !fix: add rate_limiter
             RETURN_IF_ERROR(_column_writers[current_column_id]->append(
                     column->get_nullmap(), column->get_data(), data.rows()));
             _flush_schema->append_column(tablet_column);
@@ -628,9 +630,32 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             seq_column = converted_result.second;
             have_input_seq_column = true;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
-                                                     converted_result.second->get_data(),
-                                                     num_rows));
+
+        size_t cur_rows = 0;
+        size_t left_rows = num_rows;
+        // !fix : use converted_result.second->ColumnWithTypeAndName->DataTypePtr ->get_size_of_value_in_memory()?
+        size_t row_size = 1; 
+        while (left_rows > 0) {
+            size_t allowed_rows = left_rows; 
+            if (_opts.rowset_ctx->is_limit_io) {
+                size_t left_bytes = left_rows * row_size;
+                size_t allowed_bytes = io::rate_limiter->RequestToken(
+                    left_bytes,
+                    0 /* alignment */,
+                    rocksdb::Env::IOPriority::IO_LOW,
+                    nullptr /* stats */,
+                    rocksdb::RateLimiter::OpType::kWrite);
+                allowed_rows = std::max(static_cast<size_t>(1), std::min(allowed_rows, allowed_bytes / row_size));
+            }
+
+            RETURN_IF_ERROR(_column_writers[cid]->append(
+                converted_result.second->get_nullmap() + cur_rows,
+                (const uint8_t*)converted_result.second->get_data() + cur_rows * row_size,
+                allowed_rows));
+
+            cur_rows += allowed_rows;
+            left_rows -= allowed_rows;
+        }
     }
 
     bool has_default_or_nullable = false;
@@ -714,9 +739,32 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             DCHECK_EQ(seq_column, nullptr);
             seq_column = converted_result.second;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
-                                                     converted_result.second->get_data(),
-                                                     num_rows));
+
+        size_t cur_rows = 0;
+        size_t left_rows = num_rows;
+        // !fix : use converted_result.second->ColumnWithTypeAndName->DataTypePtr ->get_size_of_value_in_memory()?
+        size_t row_size = 1; 
+        while (left_rows > 0) {
+            size_t allowed_rows = left_rows; 
+            if (_opts.rowset_ctx->is_limit_io) {
+                size_t left_bytes = left_rows * row_size;
+                size_t allowed_bytes = io::rate_limiter->RequestToken(
+                    left_bytes,
+                    0 /* alignment */,
+                    rocksdb::Env::IOPriority::IO_LOW,
+                    nullptr /* stats */,
+                    rocksdb::RateLimiter::OpType::kWrite);
+                allowed_rows = std::max(static_cast<size_t>(1), std::min(allowed_rows, allowed_bytes / row_size));
+            }
+
+            RETURN_IF_ERROR(_column_writers[cid]->append(
+                converted_result.second->get_nullmap() + cur_rows,
+                (const uint8_t*)converted_result.second->get_data() + cur_rows * row_size,
+                allowed_rows));
+
+            cur_rows += allowed_rows;
+            left_rows -= allowed_rows;
+        }
     }
     _num_rows_updated += stats.num_rows_updated;
     _num_rows_deleted += stats.num_rows_deleted;
@@ -805,8 +853,32 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                    cid == _tablet_schema->sequence_col_idx()) {
             seq_column = converted_result.second;
         }
-        RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
-                                                    converted_result.second->get_data(), num_rows));
+
+        size_t cur_rows = 0;
+        size_t left_rows = num_rows;
+        // !fix : use converted_result.second->ColumnWithTypeAndName->DataTypePtr ->get_size_of_value_in_memory()?
+        size_t row_size = 1; 
+        while (left_rows > 0) {
+            size_t allowed_rows = left_rows; 
+            if (_opts.rowset_ctx->is_limit_io) {
+                size_t left_bytes = left_rows * row_size;
+                size_t allowed_bytes = io::rate_limiter->RequestToken(
+                    left_bytes,
+                    0 /* alignment */,
+                    rocksdb::Env::IOPriority::IO_LOW,
+                    nullptr /* stats */,
+                    rocksdb::RateLimiter::OpType::kWrite);
+                allowed_rows = std::max(static_cast<size_t>(1), std::min(allowed_rows, allowed_bytes / row_size));
+            }
+
+            RETURN_IF_ERROR(_column_writers[id]->append(
+                converted_result.second->get_nullmap() + cur_rows,
+                (const uint8_t*)converted_result.second->get_data() + cur_rows * row_size,
+                allowed_rows));
+
+            cur_rows += allowed_rows;
+            left_rows -= allowed_rows;
+        }
     }
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
