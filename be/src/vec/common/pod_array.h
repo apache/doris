@@ -109,7 +109,7 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   * TODO Allow greater alignment than alignof(T). Example: array of char aligned to page size.
   */
 static constexpr size_t EmptyPODArraySize = 1024;
-static constexpr size_t PRE_GROWTH_SIZE = (1ULL << 20); // 1M
+static constexpr size_t PRE_GROWTH_SIZE = (1ULL << 21); // 1M
 extern const char empty_pod_array[EmptyPODArraySize];
 
 /** Base class that depend only on size of element, not on element itself.
