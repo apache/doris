@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <iterator>
 #include <ostream>
 #include <set>
@@ -45,14 +46,9 @@
 #include "olap/inverted_index_profile.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
 #include "olap/schema_cache.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/tablet_schema_cache.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -68,7 +64,7 @@
 #include "vec/olap/block_reader.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 using ReadSource = TabletReader::ReadSource;
 
 OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
@@ -345,7 +341,7 @@ Status OlapScanner::_init_tablet_reader_params(
     } else {
         // we need to fetch all key columns to do the right aggregation on storage engine side.
         for (size_t i = 0; i < tablet_schema->num_key_columns(); ++i) {
-            _tablet_reader_params.return_columns.push_back(i);
+            _tablet_reader_params.return_columns.push_back(cast_set<uint32_t>(i));
         }
         for (auto index : _return_columns) {
             if (tablet_schema->column(index).is_key()) {
@@ -502,11 +498,11 @@ doris::TabletStorageType OlapScanner::get_storage_type() {
         // we don't have cold storage in cloud mode, all storage is treated as local
         return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
     }
-    int local_reader = 0;
+    size_t local_reader = 0;
     for (const auto& reader : _tablet_reader_params.rs_splits) {
         local_reader += reader.rs_reader->rowset()->is_local();
     }
-    int total_reader = _tablet_reader_params.rs_splits.size();
+    size_t total_reader = _tablet_reader_params.rs_splits.size();
 
     if (local_reader == total_reader) {
         return doris::TabletStorageType::STORAGE_TYPE_LOCAL;

@@ -42,14 +42,14 @@
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
-#include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 using namespace std::chrono_literals;
 
 ScannerContext::ScannerContext(
@@ -167,8 +167,8 @@ Status ScannerContext::init() {
     const int32_t max_column_reader_num = _state->max_column_reader_num();
 
     if (_max_scan_concurrency != 1 && max_column_reader_num > 0) {
-        int32_t scan_column_num = _output_tuple_desc->slots().size();
-        int32_t current_column_num = scan_column_num * _max_scan_concurrency;
+        size_t scan_column_num = _output_tuple_desc->slots().size();
+        size_t current_column_num = scan_column_num * _max_scan_concurrency;
         if (current_column_num > max_column_reader_num) {
             int32_t new_max_thread_num = max_column_reader_num / scan_column_num;
             new_max_thread_num = new_max_thread_num <= 0 ? 1 : new_max_thread_num;
@@ -456,7 +456,8 @@ void ScannerContext::update_peak_running_scanner(int num) {
 int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
                                     std::unique_lock<std::shared_mutex>& scheduler_lock) {
     // margin_1 is used to ensure each scan operator could have at least _min_scan_concurrency scan tasks.
-    int32_t margin_1 = _min_scan_concurrency - (_tasks_queue.size() + _num_scheduled_scanners);
+    int32_t margin_1 = _min_scan_concurrency -
+                       (cast_set<Int32>(_tasks_queue.size()) + _num_scheduled_scanners);
 
     // margin_2 is used to ensure the scan scheduler could have at least _min_scan_concurrency_of_scan_scheduler scan tasks.
     int32_t margin_2 =
@@ -529,13 +530,14 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 
     while (margin-- > 0) {
         std::shared_ptr<ScanTask> task_to_run;
-        const int32_t current_concurrency =
+        const size_t current_concurrency =
                 _tasks_queue.size() + _num_scheduled_scanners + tasks_to_submit.size();
         VLOG_DEBUG << fmt::format("{} currenct concurrency: {} = {} + {} + {}", ctx_id,
                                   current_concurrency, _tasks_queue.size(), _num_scheduled_scanners,
                                   tasks_to_submit.size());
         if (first_pull) {
-            task_to_run = _pull_next_scan_task(current_scan_task, current_concurrency);
+            task_to_run =
+                    _pull_next_scan_task(current_scan_task, cast_set<Int32>(current_concurrency));
             if (task_to_run == nullptr) {
                 // In two situations we will get nullptr.
                 // 1. current_concurrency already reached _max_scan_concurrency.
@@ -555,7 +557,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
             }
             first_pull = false;
         } else {
-            task_to_run = _pull_next_scan_task(nullptr, current_concurrency);
+            task_to_run = _pull_next_scan_task(nullptr, cast_set<Int32>(current_concurrency));
         }
 
         if (task_to_run) {

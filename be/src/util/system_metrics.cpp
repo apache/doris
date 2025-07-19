@@ -25,12 +25,11 @@
 #include <unordered_map>
 #include <utility>
 
-#include "runtime/memory/jemalloc_control.h"
 #include "util/cgroup_util.h"
 #include "util/perf_counters.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(avail_cpu_num, MetricUnit::NOUNIT);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(host_cpu_num, MetricUnit::NOUNIT);
@@ -731,7 +730,7 @@ void SystemMetrics::_update_snmp_metrics() {
     }
 
     // We only care about Tcp lines, so skip other lines in front of Tcp line
-    int res = 0;
+    size_t res = 0;
     while ((res = getline(&_line_ptr, &_line_buf_size, fp)) > 0) {
         if (strstr(_line_ptr, "Tcp") != nullptr) {
             break;
