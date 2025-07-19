@@ -1173,6 +1173,7 @@ public class DateLiteral extends LiteralExpr {
         final int secondPart = 1 << 8;
         final int fracPart = 1 << 9;
         final int timePart = hourPart | minutePart | secondPart | fracPart;
+        final int timePartWithoutFrac = hourPart | minutePart | secondPart;
 
         int halfDay = 0; // 0 for am/none, 12 for pm.
         long weekday = -1;
@@ -1393,12 +1394,12 @@ public class DateLiteral extends LiteralExpr {
                     case 'r':
                         tmp = fromDateFormatStr("%I:%i:%S %p", value.substring(pValue, endValue), true);
                         pValue = tmp;
-                        partUsed |= timePart;
+                        partUsed |= timePartWithoutFrac;
                         break;
                     case 'T':
                         tmp = fromDateFormatStr("%H:%i:%S", value.substring(pValue, endValue), true);
                         pValue = tmp;
-                        partUsed |= timePart;
+                        partUsed |= timePartWithoutFrac;
                         break;
                     case '.':
                         while (pValue < endValue && Character.toString(value.charAt(pValue)).matches("\\p{Punct}")) {
@@ -1456,6 +1457,9 @@ public class DateLiteral extends LiteralExpr {
                     case 'S':
                     case 'p':
                     case 'T':
+                        partUsed |= timePartWithoutFrac;
+                        break;
+                    case 'f':
                         partUsed |= timePart;
                         break;
                     default:
