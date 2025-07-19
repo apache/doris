@@ -601,7 +601,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
 
         // fix up table pointer
         if (tdesc.__isset.tableId) {
-            desc->_table_desc = (*tbl)->get_table_descriptor(cast_set<int>(tdesc.tableId));
+            desc->_table_desc = (*tbl)->get_table_descriptor(tdesc.tableId);
             DCHECK(desc->_table_desc != nullptr);
         }
 
