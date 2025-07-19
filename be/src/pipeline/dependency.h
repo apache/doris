@@ -106,7 +106,7 @@ public:
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
+    [[nodiscard]] virtual Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready();
     void set_ready_to_read() {
@@ -151,7 +151,7 @@ public:
     }
 
 protected:
-    void _add_block_task(PipelineTask* task);
+    void _add_block_task(std::shared_ptr<PipelineTask> task);
 
     const int _id;
     const int _node_id;
@@ -162,7 +162,7 @@ protected:
     MonotonicStopWatch _watcher;
 
     std::mutex _task_lock;
-    std::vector<PipelineTask*> _blocked_task;
+    std::vector<std::weak_ptr<PipelineTask>> _blocked_task;
 
     // If `_always_ready` is true, `block()` will never block tasks.
     std::atomic<bool> _always_ready = false;
@@ -282,7 +282,7 @@ public:
             : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
-    Dependency* is_blocked_by(PipelineTask* task) override;
+    Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task) override;
 
 private:
     const IRuntimeFilter* _runtime_filter = nullptr;
