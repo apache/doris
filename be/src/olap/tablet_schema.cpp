@@ -599,6 +599,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (is_variant_type() && !column.has_column_path_info()) {
         // set path info for variant root column, to prevent from missing
         _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
+        // _parent_col_unique_id = _unique_id;
     }
     for (const auto& column_pb : column.sparse_columns()) {
         TabletColumn column;

@@ -2387,4 +2387,4 @@ TEST_F(ColumnObjectTest, subcolumn_operations_coverage) {
         }
     }
 }
-}
+} // namespace doris::vectorized
