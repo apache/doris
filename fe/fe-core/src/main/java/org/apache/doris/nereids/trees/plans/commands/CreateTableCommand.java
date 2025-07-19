@@ -184,7 +184,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         try {
             if (!FeConstants.runningUnitTest) {
                 new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(),
-                        Optional.empty(), Optional.empty()).run(ctx, executor);
+                        Optional.empty(), true, Optional.empty()).run(ctx, executor);
             }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);

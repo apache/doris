@@ -332,8 +332,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
             // check branch
             if (branchName.isPresent() && !(physicalSink instanceof PhysicalIcebergTableSink)) {
-                throw new AnalysisException(
-                    "Only data insertion operations into the branch of an `IcebergCatalog` table are supported");
+                throw new AnalysisException("Only support insert data into iceberg table's branch");
             }
 
             if (physicalSink instanceof PhysicalOlapTableSink) {

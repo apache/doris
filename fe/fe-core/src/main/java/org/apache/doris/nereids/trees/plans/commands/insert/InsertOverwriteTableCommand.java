@@ -199,7 +199,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         // check branch
         if (branchName.isPresent() && !(physicalTableSink instanceof PhysicalIcebergTableSink)) {
             throw new AnalysisException(
-                "Only data insertion operations into the branch of an `IcebergCatalog` table are supported");
+                    "Only support insert overwrite into iceberg table's branchd");
         }
 
         InsertOverwriteManager insertOverwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
@@ -418,7 +418,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             boolean allowAutoPartition = ctx.getConnectContext().getSessionVariable().isEnableAutoCreateWhenOverwrite();
             OlapInsertCommandContext insertCtx = new OlapInsertCommandContext(allowAutoPartition, true);
             InsertIntoTableCommand insertIntoTableCommand = new InsertIntoTableCommand(
-                    logicalQuery, labelName, Optional.of(insertCtx), Optional.empty(), Optional.empty());
+                    logicalQuery, labelName, Optional.of(insertCtx), Optional.empty(), true, Optional.empty());
             return insertIntoTableCommand.getExplainPlanner(logicalPlan, ctx);
         }
         return Optional.empty();
