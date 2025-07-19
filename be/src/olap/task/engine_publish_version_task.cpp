@@ -228,7 +228,7 @@ Status EnginePublishVersionTask::execute() {
                             if (!st) {
                                 LOG_WARNING(
                                         "mow publish failed to submit missing rowset clone task.")
-                                        .tag("st", st.to_string())
+                                        .tag("st", st.msg())
                                         .tag("tablet_id", tablet->tablet_id())
                                         .tag("version", version.first - 1)
                                         .tag("replica_id", tablet->replica_id())
