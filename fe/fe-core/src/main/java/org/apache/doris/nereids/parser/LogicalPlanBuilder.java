@@ -213,7 +213,7 @@ import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -367,6 +367,7 @@ import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
@@ -454,10 +455,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreAggOnHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -617,7 +618,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             throw new ParseException("tableName and tableId cannot both be null");
         }
-        Optional<String> labelName = ctx.labelName == null ? Optional.empty() : Optional.of(ctx.labelName.getText());
+        Optional<String> labelName = (ctx.labelName == null) ? Optional.empty() : Optional.of(ctx.labelName.getText());
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         // TODO visit partitionSpecCtx
         LogicalPlan plan = visitQuery(ctx.query());
@@ -648,7 +649,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             command = new InsertOverwriteTableCommand(sink, labelName, cte);
         } else {
             if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()
-                    && sink.child() instanceof LogicalInlineTable
+                    && sink.child() instanceof InlineTable
                     && sink.child().getExpressions().stream().allMatch(Expression::isConstant)) {
                 // FIXME: In legacy, the `insert into select 1` is handled as `insert into values`.
                 //  In nereids, the original way is throw an AnalysisException and fallback to legacy.
@@ -1442,8 +1443,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (columnCtx.EXCEPT() != null) {
                     throw new ParseException("select-except cannot be used in one row relation", selectCtx);
                 }
-                relation = new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                        ImmutableList.of(new UnboundAlias(Literal.of(0))));
+                relation = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
+                        ImmutableList.of(new Alias(Literal.of(0))));
             } else {
                 relation = visitFromClause(ctx.fromClause());
             }
@@ -1475,10 +1476,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInlineTable(InlineTableContext ctx) {
-        List<List<NamedExpression>> values = ctx.rowConstructor().stream()
-                .map(this::visitRowConstructor)
-                .collect(ImmutableList.toImmutableList());
-        return new LogicalInlineTable(values);
+        List<RowConstructorContext> rowConstructorContexts = ctx.rowConstructor();
+        ImmutableList.Builder<List<NamedExpression>> rows
+                = ImmutableList.builderWithExpectedSize(rowConstructorContexts.size());
+        for (RowConstructorContext rowConstructorContext : rowConstructorContexts) {
+            rows.add(visitRowConstructor(rowConstructorContext));
+        }
+        return new UnboundInlineTable(rows.build());
     }
 
     /**
@@ -1623,6 +1627,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ctx.identifierOrText() == null) {
                 if (expression instanceof NamedExpression) {
                     return (NamedExpression) expression;
+                } else if (expression instanceof Literal) {
+                    return new Alias(expression);
                 } else {
                     int start = ctx.expression().start.getStartIndex();
                     int stop = ctx.expression().stop.getStopIndex();
@@ -1636,6 +1642,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
             String alias = visitIdentifierOrText(ctx.identifierOrText());
+            if (expression instanceof Literal) {
+                return new Alias(expression, alias);
+            }
             return new UnboundAlias(expression, alias);
         });
     }
@@ -2575,14 +2584,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public List<NamedExpression> visitRowConstructor(RowConstructorContext ctx) {
-        return ctx.rowConstructorItem().stream()
-                .map(this::visitRowConstructorItem)
-                .collect(ImmutableList.toImmutableList());
+        List<RowConstructorItemContext> rowConstructorItemContexts = ctx.rowConstructorItem();
+        ImmutableList.Builder<NamedExpression> columns
+                = ImmutableList.builderWithExpectedSize(rowConstructorItemContexts.size());
+        for (RowConstructorItemContext rowConstructorItemContext : rowConstructorItemContexts) {
+            columns.add(visitRowConstructorItem(rowConstructorItemContext));
+        }
+        return columns.build();
     }
 
     @Override
     public NamedExpression visitRowConstructorItem(RowConstructorItemContext ctx) {
-        if (ctx.DEFAULT() != null) {
+        ConstantContext constant = ctx.constant();
+        if (constant != null) {
+            return new Alias((Expression) constant.accept(this));
+        } else if (ctx.DEFAULT() != null) {
             return new DefaultValueSlot();
         } else {
             return visitNamedExpression(ctx.namedExpression());
@@ -3135,14 +3151,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 offset = Long.parseLong(offsetToken.getText());
             }
             return new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, input);
-        });
-    }
-
-    private UnboundOneRowRelation withOneRowRelation(SelectColumnClauseContext selectCtx) {
-        return ParserUtils.withOrigin(selectCtx, () -> {
-            // fromClause does not exists.
-            List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-            return new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(), projects);
         });
     }
 
