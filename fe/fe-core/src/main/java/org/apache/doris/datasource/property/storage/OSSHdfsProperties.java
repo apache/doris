@@ -239,4 +239,9 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     public String getStorageName() {
         return "OSSHDFS";
     }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = configuration;
+    }
 }

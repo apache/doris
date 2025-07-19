@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
@@ -26,6 +27,7 @@ import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
@@ -122,6 +124,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The external id of S3.")
     protected String s3ExternalId = "";
 
+    public static S3Properties of(Map<String, String> properties) {
+        S3Properties propertiesObj = new S3Properties(properties);
+        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        return propertiesObj;
+    }
 
     /**
      * Pattern to match various AWS S3 endpoint formats and extract the region part.
@@ -284,4 +291,18 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 InstanceProfileCredentialsProvider.create());
     }
 
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.endpoint", endpoint);
+        hadoopStorageConfig.set("fs.s3a.access.key", accessKey);
+        hadoopStorageConfig.set("fs.s3a.secret.key", secretKey);
+        hadoopStorageConfig.set("fs.s3a.connection.maximum", s3ConnectionMaximum);
+        hadoopStorageConfig.set("fs.s3a.connection.request.timeout", s3ConnectionRequestTimeoutS);
+        hadoopStorageConfig.set("fs.s3a.connection.timeout", s3ConnectionTimeoutS);
+        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
+    }
 }

@@ -168,4 +168,9 @@ public class AzureProperties extends StorageProperties {
     public String getStorageName() {
         return "Azure";
     }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        throw new UnsupportedOperationException("Azure does not support initializeHadoopStorageConfig");
+    }
 }
