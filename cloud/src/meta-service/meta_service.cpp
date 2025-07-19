@@ -2903,6 +2903,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
     VLOG_DEBUG << "get delete bitmap update lock in v2 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     auto table_id = request->table_id();
+    bool urgent = request->has_urgent() && request->urgent();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     bool first_retry = true;
     int64_t retry = 0;
@@ -2973,7 +2974,30 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 msg = "failed to parse DeleteBitmapUpdateLockPB";
                 return;
             }
-            if (!is_job_delete_bitmap_lock_id(lock_info.lock_id())) {
+            if (urgent) {
+                // since currently only the FE Master initiates the lock request for import tasks,
+                // and it does so in a single-threaded manner, there is no need to check the lock id here
+                DCHECK(request->lock_id() > 0);
+                lock_info.clear_initiators();
+                std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
+                std::string key1 = mow_tablet_job_key(
+                        {instance_id, table_id, std::numeric_limits<int64_t>::max()});
+                txn->remove(key0, key1);
+                LOG(INFO) << "remove mow tablet job kv, begin=" << hex(key0) << " end=" << hex(key1)
+                          << " table_id=" << table_id;
+                std::string current_lock_msg =
+                        "original lock_id=" + std::to_string(lock_info.lock_id());
+                lock_info.set_lock_id(request->lock_id());
+                lock_info.set_expiration(expiration);
+                lock_info.add_initiators(request->initiator());
+                if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id, request->lock_id(),
+                                                       request->initiator(), lock_key, lock_info,
+                                                       current_lock_msg)) {
+                    return;
+                }
+                LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
+                          << " lock_id=" << request->lock_id();
+            } else if (!is_job_delete_bitmap_lock_id(lock_info.lock_id())) {
                 if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
                     LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
                               << lock_info.lock_id() << " table_id=" << table_id
@@ -3117,6 +3141,16 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                                  request, &err);
         if (err == TxnErrorCode::TXN_OK) {
             break;
+        } else if (err == TxnErrorCode::TXN_CONFLICT && urgent && request->lock_id() > 0 &&
+                   first_retry) {
+            g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+            // fast retry for urgent request when TXN_CONFLICT
+            LOG(INFO) << "fast retry to get_delete_bitmap_update_lock, tablet_id="
+                      << request->table_id() << " lock_id=" << request->lock_id()
+                      << ", initiator=" << request->initiator() << "urgent=" << urgent
+                      << ", err=" << err;
+            first_retry = false;
+            continue;
         } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
                    is_job_delete_bitmap_lock_id(request->lock_id()) &&
                    config::delete_bitmap_enable_retry_txn_conflict && first_retry) {
@@ -3172,6 +3206,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         stats.del_counter += txn->num_del_keys();
     };
     auto table_id = request->table_id();
+    bool urgent = request->has_urgent() && request->urgent();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     DeleteBitmapUpdateLockPB lock_info;
@@ -3191,7 +3226,15 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
             msg = "failed to parse DeleteBitmapUpdateLockPB";
             return;
         }
-        if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
+        if (urgent) {
+            // since currently only the FE Master initiates the lock request for import tasks,
+            // and it does so in a single-threaded manner, there is no need to check the lock id here
+            DCHECK(request->lock_id() > 0);
+            LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
+                      << " lock_id=" << request->lock_id()
+                      << "prev_lock_id=" << lock_info.lock_id();
+            lock_info.clear_initiators();
+        } else if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
             LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
                       << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
             lock_info.clear_initiators();
@@ -3422,6 +3465,11 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
+        return;
+    }
+    if (request->has_urgent() && request->urgent() && request->lock_id() < 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "only load can set urgent flag currently";
         return;
     }
     RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
