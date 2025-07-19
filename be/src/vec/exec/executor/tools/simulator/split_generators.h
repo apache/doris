@@ -20,7 +20,7 @@
 #include <memory>
 #include <random>
 
-#include "vec/exec/executor/simulator/split_specification.h"
+#include "vec/exec/executor/tools/simulator/split_specification.h"
 
 namespace doris {
 namespace vectorized {

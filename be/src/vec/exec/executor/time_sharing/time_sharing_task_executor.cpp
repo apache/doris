@@ -31,7 +31,6 @@
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/uid_util.h"
-#include "vec/exec/executor/simulator/simulation_fifo_split_queue.h"
 #include "vec/exec/executor/time_sharing/multilevel_split_queue.h"
 #include "vec/exec/executor/time_sharing/time_sharing_task_handle.h"
 

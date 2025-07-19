@@ -350,7 +350,8 @@ public:
         if (!_is_stop) {
             vectorized::TaskId task_id(task_id_string);
             std::shared_ptr<TaskHandle> task_handle = DORIS_TRY(_task_executor->create_task(
-                    task_id, []() { return 0.0; }, config::task_executor_initial_split_concurrency,
+                    task_id, []() { return 0.0; },
+                    config::task_executor_initial_max_concurrency_per_task,
                     std::chrono::milliseconds(100), std::nullopt));
 
             auto wrapped_scan_func = [this, task_handle, scan_func = scan_task.scan_func]() {

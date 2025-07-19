@@ -26,10 +26,10 @@
 #include <unordered_set>
 #include <vector>
 
-#include "vec/exec/executor/simulator/simulation_controller.h"
-#include "vec/exec/executor/simulator/simulation_split.h"
-#include "vec/exec/executor/simulator/split_specification.h"
 #include "vec/exec/executor/time_sharing/time_sharing_task_executor.h"
+#include "vec/exec/executor/tools/simulator/simulation_controller.h"
+#include "vec/exec/executor/tools/simulator/simulation_split.h"
+#include "vec/exec/executor/tools/simulator/split_specification.h"
 
 namespace doris {
 namespace vectorized {

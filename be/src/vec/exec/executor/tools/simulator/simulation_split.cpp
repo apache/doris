@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/executor/simulator/simulation_split.h"
+#include "vec/exec/executor/tools/simulator/simulation_split.h"
 
 #include <atomic>
 #include <chrono>
@@ -24,9 +24,9 @@
 #include <mutex>
 #include <vector>
 
-#include "vec/exec/executor/simulator/scheduled_executor.h"
-#include "vec/exec/executor/simulator/simulation_task.h"
 #include "vec/exec/executor/split_runner.h"
+#include "vec/exec/executor/tools/simulator/scheduled_executor.h"
+#include "vec/exec/executor/tools/simulator/simulation_task.h"
 
 namespace doris {
 namespace vectorized {

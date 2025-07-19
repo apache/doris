@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/executor/simulator/simulation_controller.h"
+#include "vec/exec/executor/tools/simulator/simulation_controller.h"
 
 #include <atomic>
 #include <chrono>
@@ -30,8 +30,8 @@
 #include <vector>
 
 #include "common/exception.h"
-#include "vec/exec/executor/simulator/simulation_task.h"
 #include "vec/exec/executor/time_sharing/time_sharing_task_executor.h"
+#include "vec/exec/executor/tools/simulator/simulation_task.h"
 
 namespace doris {
 namespace vectorized {

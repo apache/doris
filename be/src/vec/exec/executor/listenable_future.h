@@ -75,11 +75,21 @@ public:
     void set_error(const doris::Status& status) { _execute({}, status); }
 
     void add_callback(Callback cb) {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (_ready) {
-            cb(_value, _status);
-        } else {
-            _callbacks.emplace_back(std::move(cb));
+        bool ready = false;
+        T value;
+        Status status;
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            if (_ready) {
+                ready = true;
+                value = _value;
+                status = _status;
+            } else {
+                _callbacks.emplace_back(std::move(cb));
+            }
+        }
+        if (ready) {
+            cb(value, status);
         }
     }
 

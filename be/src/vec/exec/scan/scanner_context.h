@@ -87,6 +87,9 @@ public:
     std::weak_ptr<ScannerDelegate> scanner;
     std::list<std::pair<vectorized::BlockUPtr, size_t>> cached_blocks;
     bool is_first_schedule = true;
+    // Use weak_ptr to avoid circular references and potential memory leaks with SplitRunner.
+    // ScannerContext only needs to observe the lifetime of SplitRunner without owning it.
+    // When SplitRunner is destroyed, split_runner.lock() will return nullptr, ensuring safe access.
     std::weak_ptr<SplitRunner> split_runner;
 
     void set_status(Status _status) {

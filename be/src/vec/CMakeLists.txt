@@ -21,7 +21,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
 file(GLOB_RECURSE VEC_FILES CONFIGURE_DEPENDS *.cpp)
 
-list(FILTER VEC_FILES EXCLUDE REGEX ".*exec/executor/simulator/.*")
+list(FILTER VEC_FILES EXCLUDE REGEX ".*exec/executor/tools/simulator/.*")
 
 add_library(Vec STATIC
         ${VEC_FILES}
@@ -31,7 +31,7 @@ pch_reuse(Vec)
 
 if (${BUILD_TASK_EXECUTOR_SIMULATOR} STREQUAL "ON")
     file(GLOB_RECURSE SIMULATOR_FILES CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/exec/executor/simulator/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/exec/executor/tools/simulator/*.cpp"
     )
     message(STATUS "Add Task Executor Simulator To Build")
     add_executable(task_executor_simulator ${SIMULATOR_FILES})

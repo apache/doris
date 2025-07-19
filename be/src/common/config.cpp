@@ -294,16 +294,9 @@ DEFINE_Int32(be_service_threads, "64");
 DEFINE_mInt32(pipeline_status_report_interval, "10");
 DEFINE_mInt32(pipeline_task_exec_time_slice, "100");
 
-DEFINE_Int32(task_executor_initial_split_concurrency, "-1");
-DEFINE_Validator(task_executor_initial_split_concurrency, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        task_executor_initial_split_concurrency = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
-
+// task executor min concurrency per task
 DEFINE_Int32(task_executor_min_concurrency_per_task, "1");
+// task executor max concurrency per task
 DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
 DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) -> bool {
     if (config == -1) {
@@ -311,7 +304,18 @@ DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) ->
     }
     return true;
 });
-DEFINE_Bool(enable_task_executor_in_internal_table, "false");
+// task task executor inital split max concurrency per task, later concurrency may be adjusted dynamically
+DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
+DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        task_executor_initial_max_concurrency_per_task = std::max(48, CpuInfo::num_cores() * 2);
+    }
+    return true;
+});
+// Enable task executor in internal table scan.
+DEFINE_Bool(enable_task_executor_in_internal_table, "true");
+// Enable task executor in external table scan.
 DEFINE_Bool(enable_task_executor_in_external_table, "true");
 
 // number of scanner thread pool size for olap table

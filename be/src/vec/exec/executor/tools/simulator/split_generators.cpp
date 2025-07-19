@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/executor/simulator/split_generators.h"
+#include "vec/exec/executor/tools/simulator/split_generators.h"
 
 #include <algorithm>
 
-#include "vec/exec/executor/simulator/split_specification.h"
+#include "vec/exec/executor/tools/simulator/split_specification.h"
 
 namespace doris {
 namespace vectorized {

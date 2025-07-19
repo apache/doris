@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/executor/simulator/task_executor_simulator.h"
+#include "vec/exec/executor/tools/simulator/task_executor_simulator.h"
 
 #include <chrono>
 #include <fstream>
 #include <iostream>
 #include <thread>
 
-#include "vec/exec/executor/simulator/histogram.h"
 #include "vec/exec/executor/time_sharing/multilevel_split_queue.h"
+#include "vec/exec/executor/tools/simulator/histogram.h"
 
 namespace doris {
 namespace vectorized {

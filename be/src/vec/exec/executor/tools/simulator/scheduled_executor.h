@@ -27,7 +27,7 @@
 #include <thread>
 #include <vector>
 
-#include "vec/exec/executor/simulator/simulation_split.h"
+#include "vec/exec/executor/tools/simulator/simulation_split.h"
 
 namespace doris {
 namespace vectorized {

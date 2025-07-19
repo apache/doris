@@ -23,11 +23,11 @@
 #include <string>
 #include <vector>
 
-#include "vec/exec/executor/simulator/simulation_controller.h"
-#include "vec/exec/executor/simulator/simulation_fifo_split_queue.h"
-#include "vec/exec/executor/simulator/simulation_task.h"
-#include "vec/exec/executor/simulator/split_generators.h"
 #include "vec/exec/executor/time_sharing/time_sharing_task_executor.h"
+#include "vec/exec/executor/tools/simulator/simulation_controller.h"
+#include "vec/exec/executor/tools/simulator/simulation_fifo_split_queue.h"
+#include "vec/exec/executor/tools/simulator/simulation_task.h"
+#include "vec/exec/executor/tools/simulator/split_generators.h"
 
 namespace doris {
 namespace vectorized {
