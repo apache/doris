@@ -593,7 +593,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             DCHECK(false) << "invalid table type: " << tdesc.tableType;
         }
 
-        (*tbl)->_tbl_desc_map[cast_set<int>(tdesc.id)] = desc;
+        (*tbl)->_tbl_desc_map[tdesc.id] = desc;
     }
 
     for (const auto& tdesc : thrift_tbl.tupleDescriptors) {

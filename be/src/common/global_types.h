@@ -24,7 +24,7 @@ namespace doris {
 // assignment-incompatible
 typedef int TupleId;
 typedef int SlotId;
-typedef int TableId;
+typedef int64_t TableId;
 typedef int PlanNodeId;
 
 }; // namespace doris
