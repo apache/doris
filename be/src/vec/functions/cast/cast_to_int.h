@@ -29,6 +29,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 // cast bool, int, float, double and time to int
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires((IsDataTypeNumber<FromDataType> || std::is_same_v<FromDataType, DataTypeTimeV2>) &&
@@ -90,7 +91,8 @@ public:
                         }
                     }
                     auto truncated_value = std::trunc(vec_from[i]);
-                    if (truncated_value < min_to_value || truncated_value > max_to_value) {
+                    if (truncated_value < min_to_value ||
+                        truncated_value > static_cast<double>(max_to_value)) {
                         // overflow
                         if constexpr (CastMode == CastModeType::NonStrictMode) {
                             vec_null_map_to[i] = 1;
@@ -181,11 +183,12 @@ WrapperType create_int_wrapper(FunctionContext* context, const DataTypePtr& from
     }
 
     return [cast_impl](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       size_t result, size_t input_rows_count,
+                       uint32_t result, size_t input_rows_count,
                        const NullMap::value_type* null_map = nullptr) {
         return cast_impl->execute_impl(context, block, arguments, result, input_rows_count,
                                        null_map);
     };
 }
 } // namespace CastWrapper
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

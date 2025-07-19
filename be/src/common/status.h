@@ -607,7 +607,7 @@ public:
             return false;
         }
         error_st_ = new_status;
-        error_code_.store(new_status.code(), std::memory_order_release);
+        error_code_.store(static_cast<int16_t>(new_status.code()), std::memory_order_release);
         return true;
     }
 

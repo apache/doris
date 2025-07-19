@@ -27,6 +27,7 @@
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename FromDataType, typename ToDataType>
 Status static_cast_no_overflow(FunctionContext* context, Block& block,
@@ -178,4 +179,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
