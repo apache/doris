@@ -129,8 +129,7 @@ public class NereidsStreamLoadPlanner {
 
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
                 || uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-            boolean hasSyncMaterializedView = destTable.getFullSchema().stream()
-                    .anyMatch(col -> col.isMaterializedViewColumn());
+            boolean hasSyncMaterializedView = destTable.getIndexIdToSchema().size() > 1;
             if (hasSyncMaterializedView) {
                 throw new DdlException("Can't do partial update on merge-on-write Unique table"
                         + " with sync materialized view.");
