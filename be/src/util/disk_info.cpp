@@ -36,9 +36,12 @@
 #include <memory>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "io/fs/local_file_system.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 bool DiskInfo::_s_initialized;
 std::vector<DiskInfo::Disk> DiskInfo::_s_disks;
@@ -87,7 +90,7 @@ void DiskInfo::get_device_names() {
 
         if (it == _s_disk_name_to_disk_id.end()) {
             // First time seeing this disk
-            disk_id = _s_disks.size();
+            disk_id = cast_set<int>(_s_disks.size());
             _s_disks.push_back(Disk(name, disk_id));
             _s_disk_name_to_disk_id[name] = disk_id;
         } else {
@@ -231,5 +234,7 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
     fclose(fp);
     return status;
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
