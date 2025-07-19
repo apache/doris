@@ -152,7 +152,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
         // insert
    
         // cloud control
-        future2 = thread {
+        def future2 = thread {
             // check cluster "TO_RESUME"
             awaitUntil(5) {
                 tag = getCloudBeTagByName(clusterName)
