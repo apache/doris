@@ -315,7 +315,7 @@ public class CreateRoutineLoadInfo {
                 + " Maybe routine load job name is longer than 64 or contains illegal characters");
         }
         // check load properties include column separator etc.
-        checkLoadProperties(ctx);
+        routineLoadDesc = checkLoadProperties(ctx, loadPropertyMap, dbName, tableName, isMultiTable, mergeType);
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
@@ -363,7 +363,20 @@ public class CreateRoutineLoadInfo {
         }
     }
 
-    private void checkLoadProperties(ConnectContext ctx) throws UserException {
+    /**
+     * check load properties
+     * @param ctx connect context
+     * @param loadPropertyMap load property map
+     * @param dbName database name
+     * @param tableName table name
+     * @param isMultiTable whether is multi table
+     * @param mergeType merge type
+     * @return routine load desc
+     * @throws UserException user exception
+     */
+    public static RoutineLoadDesc checkLoadProperties(ConnectContext ctx, Map<String, LoadProperty> loadPropertyMap,
+                        String dbName, String tableName, boolean isMultiTable, LoadTask.MergeType mergeType)
+                        throws UserException {
         Separator columnSeparator = null;
         // TODO(yangzhengguo01): add line delimiter to properties
         Separator lineDelimiter = null;
@@ -425,7 +438,7 @@ public class CreateRoutineLoadInfo {
                 }
             }
         }
-        routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
+        return new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
             precedingImportWhereStmt, importWhereStmt,
             partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
             importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
