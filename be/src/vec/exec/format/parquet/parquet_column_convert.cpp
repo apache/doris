@@ -286,9 +286,8 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
             convert_params->reset_time_scale_if_missing(9);
             physical_converter.reset(new Int96toTimestamp());
         } else if (src_physical_type == tparquet::Type::INT64) {
-            convert_params->reset_time_scale_if_missing(
-                    remove_nullable(dst_logical_type)->get_scale());
-            physical_converter.reset(new Int64ToTimestamp());
+            convert_params->reset_time_scale_if_missing(src_logical_type.scale);
+            physical_converter = std::make_unique<Int64ToTimestamp>();
         } else {
             physical_converter.reset(new UnsupportedConverter(src_physical_type, src_logical_type));
         }
