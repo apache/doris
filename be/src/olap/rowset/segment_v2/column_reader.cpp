@@ -81,6 +81,7 @@
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 inline bool read_as_string(PrimitiveType type) {
     return type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
@@ -178,9 +179,9 @@ Status ColumnReader::create_struct(const ColumnReaderOptions& opts, const Column
     // now we support struct column can add the children columns according to the schema-change behavior
     for (size_t i = 0; i < meta.children_columns_size(); i++) {
         std::unique_ptr<ColumnReader> sub_reader;
-        RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(i),
-                                             meta.children_columns(i).num_rows(), file_reader,
-                                             &sub_reader));
+        RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(cast_set<int>(i)),
+                                             meta.children_columns(cast_set<int>(i)).num_rows(),
+                                             file_reader, &sub_reader));
         struct_reader->_sub_readers.push_back(std::move(sub_reader));
     }
     struct_reader->_meta_type = FieldType::OLAP_FIELD_TYPE_STRUCT;
@@ -391,8 +392,10 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     }
     // TODO: this work to get min/max value seems should only do once
     FieldType type = _type_info->type();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> min_value(
+            WrapperField::create_by_type(type, cast_set<uint32_t>(_meta_length)));
+    std::unique_ptr<WrapperField> max_value(
+            WrapperField::create_by_type(type, cast_set<int32_t>(_meta_length)));
     RETURN_IF_ERROR(
             _parse_zone_map_skip_null(*_segment_zone_map, min_value.get(), max_value.get()));
 
@@ -432,8 +435,10 @@ bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates
         return true;
     }
     FieldType type = _type_info->type();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> min_value(
+            WrapperField::create_by_type(type, cast_set<int32_t>(_meta_length)));
+    std::unique_ptr<WrapperField> max_value(
+            WrapperField::create_by_type(type, cast_set<int32_t>(_meta_length)));
     RETURN_FALSE_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
 
     return _zone_map_match_condition(*_segment_zone_map, min_value.get(), max_value.get(),
@@ -447,8 +452,10 @@ bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& p
     }
 
     FieldType type = _type_info->type();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> min_value(
+            WrapperField::create_by_type(type, cast_set<int32_t>(_meta_length)));
+    std::unique_ptr<WrapperField> max_value(
+            WrapperField::create_by_type(type, cast_set<int32_t>(_meta_length)));
     RETURN_FALSE_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
 
     auto pruned = false;
@@ -522,8 +529,10 @@ Status ColumnReader::_get_filtered_pages(
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     int32_t page_size = _zone_map_index->num_pages();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> min_value(
+            WrapperField::create_by_type(type, cast_set<int32_t>(_meta_length)));
+    std::unique_ptr<WrapperField> max_value(
+            WrapperField::create_by_type(type, cast_set<int32_t>(_meta_length)));
     for (int32_t i = 0; i < page_size; ++i) {
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(i);
@@ -550,7 +559,8 @@ Status ColumnReader::_get_filtered_pages(
         }
     }
     VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
-            << " filtered-percent:" << 1.0 - (page_indexes->size() * 1.0) / (page_size * 1.0);
+            << " filtered-percent:"
+            << 1.0 - ((static_cast<double>(page_indexes->size()) * 1.0) / (page_size * 1.0));
     return Status::OK();
 }
 
@@ -802,13 +812,14 @@ Status ColumnReader::new_struct_iterator(ColumnIterator** iterator,
     ColumnIterator* sub_column_iterator;
     for (size_t i = 0; i < child_size; i++) {
         RETURN_IF_ERROR(_sub_readers[i]->new_iterator(
-                &sub_column_iterator, tablet_column ? &tablet_column->get_sub_column(i) : nullptr));
+                &sub_column_iterator,
+                tablet_column ? &tablet_column->get_sub_column(cast_set<uint32_t>(i)) : nullptr));
         sub_column_iterators.push_back(sub_column_iterator);
     }
 
     // create default_iterator for schema-change behavior which increase column
     for (size_t i = child_size; i < tablet_column_size; i++) {
-        TabletColumn column = tablet_column->get_sub_column(i);
+        TabletColumn column = tablet_column->get_sub_column(cast_set<uint32_t>(i));
         std::unique_ptr<ColumnIterator> it;
         RETURN_IF_ERROR(Segment::new_default_iterator(column, &it));
         sub_column_iterators.push_back(it.get());
@@ -1228,7 +1239,7 @@ Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offs
         } else {
             // rewind null bitmap, and
             page->null_decoder = RleDecoder<bool>((const uint8_t*)page->null_bitmap.data,
-                                                  page->null_bitmap.size, 1);
+                                                  cast_set<int>(page->null_bitmap.size), 1);
         }
 
         auto skip_nulls = page->null_decoder.Skip(skips);
@@ -1323,7 +1334,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 this_run = _page.null_decoder.GetNextRun(&is_null, this_run);
                 size_t offset = total_read_count + already_read;
                 size_t this_read_count = 0;
-                rowid_t current_ordinal_in_page = _page.offset_in_page + _page.first_ordinal;
+                rowid_t current_ordinal_in_page =
+                        cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
                 for (size_t i = 0; i < this_run; ++i) {
                     if (rowids[offset + i] - current_ordinal_in_page >= this_run) {
                         break;
@@ -1766,7 +1778,7 @@ Status RowIdColumnIteratorV2::next_batch(size_t* n, vectorized::MutableColumnPtr
     auto* string_column = assert_cast<vectorized::ColumnString*>(dst.get());
 
     for (size_t i = 0; i < *n; ++i) {
-        uint32_t row_id = _current_rowid + i;
+        uint32_t row_id = cast_set<uint32_t>(_current_rowid + i);
         GlobalRowLoacationV2 location(_version, _backend_id, _file_id, row_id);
         string_column->insert_data(reinterpret_cast<const char*>(&location),
                                    sizeof(GlobalRowLoacationV2));
@@ -1787,5 +1799,6 @@ Status RowIdColumnIteratorV2::read_by_rowids(const rowid_t* rowids, const size_t
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2
