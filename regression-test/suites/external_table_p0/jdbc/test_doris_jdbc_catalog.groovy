@@ -239,6 +239,12 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
 
     order_qt_sql """ select tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
 
+    order_qt_sql """ with tmp as (select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col from tmp;"""
+
+    order_qt_sql """ with tmp as (select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col,varchar_col from tmp;"""
+
+    order_qt_sql """ with tmp as (select tinyint_col,varchar_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col from tmp;"""
+
     //clean
     qt_sql """select current_catalog()"""
     sql "switch internal"
