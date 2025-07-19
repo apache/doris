@@ -24,6 +24,7 @@ suite("variant_nested_type_conflict", "p0"){
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """set describe_extend_variant_column = true"""
 
+        sql """ set disable_variant_flatten_nested = false """
         sql """
                 CREATE TABLE IF NOT EXISTS ${table_name} (
                     k bigint,
