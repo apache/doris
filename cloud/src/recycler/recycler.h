@@ -284,6 +284,11 @@ private:
     // Both `operation_log` and `log_key` will be removed in the same transaction, to ensure atomicity.
     int recycle_operation_log(Versionstamp log_version, OperationLogPB operation_log);
 
+    // Recycle rowset meta and data, return 0 for success otherwise error
+    //
+    // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
+    int recycle_rowset_meta_and_data(std::string_view key, const RowsetMetaCloudPB& rowset_meta);
+
 private:
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
