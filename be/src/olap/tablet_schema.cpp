@@ -583,7 +583,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
                          << column.children_columns_size();
         }
     }
-    for (size_t i = 0; i < column.children_columns_size(); i++) {
+    for (int i = 0; i < column.children_columns_size(); i++) {
         TabletColumn child_column;
         child_column.init_from_pb(column.children_columns(i));
         add_sub_column(child_column);
@@ -598,9 +598,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
     }
     for (const auto& column_pb : column.sparse_columns()) {
-        TabletColumn column;
-        column.init_from_pb(column_pb);
-        _sparse_cols.emplace_back(std::make_shared<TabletColumn>(std::move(column)));
+        TabletColumn new_column;
+        new_column.init_from_pb(column_pb);
+        _sparse_cols.emplace_back(std::make_shared<TabletColumn>(std::move(new_column)));
         _num_sparse_columns++;
     }
 }
