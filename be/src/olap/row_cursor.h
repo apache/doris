@@ -32,6 +32,7 @@
 #include "olap/tablet_schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class Field;
 
 // Delegate the operation of a row of data
@@ -49,8 +50,8 @@ public:
     Status init(const std::vector<TabletColumnPtr>& schema);
 
     // Create a RowCursor based on the first n columns of the schema
-    Status init(const std::vector<TabletColumnPtr>& schema, size_t column_count);
-    Status init(TabletSchemaSPtr schema, size_t column_count);
+    Status init(const std::vector<TabletColumnPtr>& schema, uint32_t column_count);
+    Status init(TabletSchemaSPtr schema, uint32_t column_count);
 
     // Create a RowCursor based on the schema and column id list
     // which is used for the calculation process only uses some discontinuous prefix columns
@@ -102,11 +103,15 @@ public:
     char* nullable_cell_ptr(uint32_t cid) const { return _fixed_buf + _schema->column_offset(cid); }
     char* cell_ptr(uint32_t cid) const { return _fixed_buf + _schema->column_offset(cid) + 1; }
 
-    bool is_null(size_t index) const { return *reinterpret_cast<bool*>(nullable_cell_ptr(index)); }
+    bool is_null(uint32_t index) const {
+        return *reinterpret_cast<bool*>(nullable_cell_ptr(index));
+    }
 
-    void set_null(size_t index) const { *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true; }
+    void set_null(uint32_t index) const {
+        *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true;
+    }
 
-    void set_not_null(size_t index) const {
+    void set_not_null(uint32_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = false;
     }
 
@@ -141,4 +146,5 @@ private:
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };
+#include "common/compile_check_end.h"
 } // namespace doris

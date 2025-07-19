@@ -164,7 +164,7 @@ Status RowsetBuilder::check_tablet_version_count() {
         LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id() << " : "
                      << st;
     }
-    int version_count = tablet()->version_count();
+    auto version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { version_count = INT_MAX; });
     if (version_count > max_version_config) {
@@ -202,7 +202,7 @@ Status RowsetBuilder::init() {
         RETURN_IF_ERROR(check_tablet_version_count());
     }
 
-    int version_count = tablet()->version_count() + tablet()->stale_version_count();
+    auto version_count = tablet()->version_count() + tablet()->stale_version_count();
     if (tablet()->avg_rs_meta_serialize_size() * version_count >
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
