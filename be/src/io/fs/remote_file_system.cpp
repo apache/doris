@@ -17,38 +17,38 @@
 
 #include "io/fs/remote_file_system.h"
 
+#include <bthread/bthread.h>
 #include <glog/logging.h>
 
-#include <algorithm>
-
 #include "common/config.h"
-#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
-#include "util/async_io.h" // IWYU pragma: keep
 
 namespace doris::io {
 
 Status RemoteFileSystem::upload(const Path& local_file, const Path& dest_file) {
+    DCHECK(bthread_self() == 0) << "RemoteFileSystem::upload should not be called in bthread";
     Path dest_path;
     RETURN_IF_ERROR(absolute_path(dest_file, dest_path));
-    FILESYSTEM_M(upload_impl(local_file, dest_path));
+    return upload_impl(local_file, dest_path);
 }
 
 Status RemoteFileSystem::batch_upload(const std::vector<Path>& local_files,
                                       const std::vector<Path>& remote_files) {
+    DCHECK(bthread_self() == 0) << "RemoteFileSystem::batch_upload should not be called in bthread";
     std::vector<Path> remote_paths;
-    for (auto& path : remote_files) {
+    for (const auto& path : remote_files) {
         Path abs_path;
         RETURN_IF_ERROR(absolute_path(path, abs_path));
         remote_paths.push_back(abs_path);
     }
-    FILESYSTEM_M(batch_upload_impl(local_files, remote_paths));
+    return batch_upload_impl(local_files, remote_paths);
 }
 
 Status RemoteFileSystem::download(const Path& remote_file, const Path& local) {
+    DCHECK(bthread_self() == 0) << "RemoteFileSystem::download should not be called in bthread";
     Path remote_path;
     RETURN_IF_ERROR(absolute_path(remote_file, remote_path));
-    FILESYSTEM_M(download_impl(remote_path, local));
+    return download_impl(remote_path, local);
 }
 
 Status RemoteFileSystem::open_file_impl(const Path& path, FileReaderSPtr* reader,
