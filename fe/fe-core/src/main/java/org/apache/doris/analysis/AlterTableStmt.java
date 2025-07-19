@@ -19,13 +19,16 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -87,6 +90,17 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                 ((AlterTableClause) op).setTableName(tbl);
             }
             op.analyze(analyzer);
+        }
+
+        String ctlName = tbl.getCtl();
+        String dbName = tbl.getDb();
+        String tableName = tbl.getTbl();
+        DatabaseIf dbIf = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
+                .getDbOrDdlException(dbName);
+        TableIf tableIf = dbIf.getTableOrDdlException(tableName);
+        if (tableIf.isTemporary()) {
+            throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
         }
     }
 
