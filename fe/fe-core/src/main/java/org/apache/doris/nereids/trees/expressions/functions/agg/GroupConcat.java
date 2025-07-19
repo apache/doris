@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -40,10 +39,18 @@ import java.util.List;
 public class GroupConcat extends NullableAggregateFunction
         implements ExplicitlyCastableSignature {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
+    private static final List<FunctionSignature> ONE_ARG = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT)
+    );
+    private static final List<FunctionSignature> ONE_ARG_WITH_ORDER_BY = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX),
+                    .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX)
+    );
+    private static final List<FunctionSignature> TWO_ARGS = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+    );
+    private static final List<FunctionSignature> TWO_ARGS_WITH_ORDER_BY = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
@@ -95,23 +102,6 @@ public class GroupConcat extends NullableAggregateFunction
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType typeOrArg0 = getArgumentType(0);
-        if (!typeOrArg0.isStringLikeType() && !typeOrArg0.isNullType()) {
-            throw new AnalysisException(
-                    "group_concat requires first parameter to be of type STRING: " + this.toSql());
-        }
-
-        if (nonOrderArguments == 2) {
-            DataType typeOrArg1 = getArgumentType(1);
-            if (!typeOrArg1.isStringLikeType() && !typeOrArg1.isNullType()) {
-                throw new AnalysisException(
-                        "group_concat requires second parameter to be of type STRING: " + this.toSql());
-            }
-        }
-    }
-
-    @Override
     public GroupConcat withAlwaysNullable(boolean alwaysNullable) {
         return new GroupConcat(distinct, alwaysNullable, children);
     }
@@ -131,7 +121,17 @@ public class GroupConcat extends NullableAggregateFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        if (nonOrderArguments == 2) {
+            if (arity() >= 3) {
+                return TWO_ARGS_WITH_ORDER_BY;
+            }
+            return TWO_ARGS;
+        } else {
+            if (arity() >= 2) {
+                return ONE_ARG_WITH_ORDER_BY;
+            }
+            return ONE_ARG;
+        }
     }
 
     @Override
