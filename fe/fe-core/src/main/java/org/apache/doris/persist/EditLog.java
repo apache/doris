@@ -47,6 +47,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
@@ -112,6 +113,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -1560,6 +1562,20 @@ public class EditLog {
         }
 
         long start = System.currentTimeMillis();
+        if (DebugPointUtil.isEnable("EditLog.logEdit.randomSleep")) {
+            DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("EditLog.logEdit.randomSleep");
+            int upperLimit = debugPoint.param("upperLimit", 3000);
+            long timestamp = System.currentTimeMillis();
+            Random random = new Random(timestamp);
+            try {
+                int ms = Math.abs(random.nextInt()) % upperLimit;
+                Thread.sleep(ms);
+                LOG.info("logEdit in debug point op {} content {} sleep {} ms",
+                        OperationType.getOpName(op), writable.toString(), ms);
+            } catch (InterruptedException e) {
+                LOG.warn("sleep exception op {} content {}", OperationType.getOpName(op), writable.toString(), e);
+            }
+        }
         long logId = -1;
         if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
             logId = logEditWithQueue(op, writable);
@@ -1597,10 +1613,6 @@ public class EditLog {
      */
     public synchronized long getEditLogNum() throws IOException {
         return journal.getJournalNum();
-    }
-
-    public synchronized long getTxId() {
-        return txId;
     }
 
     public void logSaveNextId(long nextId) {
@@ -2340,10 +2352,6 @@ public class EditLog {
 
     public void logDeleteAnalysisJob(AnalyzeDeletionLog log) {
         logEdit(OperationType.OP_DELETE_ANALYSIS_JOB, log);
-    }
-
-    public void logDeleteAnalysisTask(AnalyzeDeletionLog log) {
-        logEdit(OperationType.OP_DELETE_ANALYSIS_TASK, log);
     }
 
     public long logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {

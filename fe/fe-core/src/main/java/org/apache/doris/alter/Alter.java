@@ -17,6 +17,8 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.AddColumnClause;
+import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
@@ -28,9 +30,11 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateOrReplaceBranchClause;
 import org.apache.doris.analysis.CreateOrReplaceTagClause;
 import org.apache.doris.analysis.DropBranchClause;
+import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTagClause;
+import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyEngineClause;
@@ -38,6 +42,7 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTableCommentClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
+import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -406,6 +411,29 @@ public class Alter {
                 table.getCatalog().dropTag(
                         table,
                         ((DropTagClause) alterClause).getDropTagInfo());
+            } else if (alterClause instanceof TableRenameClause) {
+                TableRenameClause tableRename = (TableRenameClause) alterClause;
+                table.getCatalog().renameTable(
+                        table.getDbName(), table.getName(), tableRename.getNewTableName());
+            } else if (alterClause instanceof AddColumnClause) {
+                AddColumnClause addColumn = (AddColumnClause) alterClause;
+                table.getCatalog().addColumn(table, addColumn.getColumn(), addColumn.getColPos());
+            } else if (alterClause instanceof AddColumnsClause) {
+                AddColumnsClause addColumns = (AddColumnsClause) alterClause;
+                table.getCatalog().addColumns(table, addColumns.getColumns());
+            } else if (alterClause instanceof DropColumnClause) {
+                DropColumnClause dropColumn = (DropColumnClause) alterClause;
+                table.getCatalog().dropColumn(table, dropColumn.getColName());
+            } else if (alterClause instanceof ColumnRenameClause) {
+                ColumnRenameClause columnRename = (ColumnRenameClause) alterClause;
+                table.getCatalog().renameColumn(
+                        table, columnRename.getColName(), columnRename.getNewColName());
+            } else if (alterClause instanceof ModifyColumnClause) {
+                ModifyColumnClause modifyColumn = (ModifyColumnClause) alterClause;
+                table.getCatalog().modifyColumn(table, modifyColumn.getColumn(), modifyColumn.getColPos());
+            } else if (alterClause instanceof ReorderColumnsClause) {
+                ReorderColumnsClause reorderColumns = (ReorderColumnsClause) alterClause;
+                table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
             }
@@ -680,7 +708,7 @@ public class Alter {
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
         DatabaseIf dbIf = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
+                .getCatalogOrDdlException(ctlName)
                 .getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tableName);
         List<AlterClause> alterClauses = Lists.newArrayList();
@@ -1182,7 +1210,6 @@ public class Alter {
         return tablet.getHealth(systemInfoService, partition.getVisibleVersion(), oldReplicaAlloc, aliveBes)
                      .status == Tablet.TabletStatus.HEALTHY;
     }
-
 
     private Map<Tag, List<Replica>> getReplicasWithTag(Tablet tablet) {
         return tablet.getReplicas().stream()
