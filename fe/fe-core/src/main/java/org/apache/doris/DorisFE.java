@@ -30,6 +30,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.lock.DeadlockMonitor;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
@@ -540,6 +541,25 @@ public class DorisFE {
             Config.random_add_cluster_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
             LOG.info("fuzzy set random_add_cluster_keys_for_mow={}", Config.random_add_cluster_keys_for_mow);
         }
+
+        setFuzzyForCatalog();
+    }
+
+    private static void setFuzzyForCatalog() {
+        if (!Config.fuzzy_test_type.equals("external")) {
+            return;
+        }
+
+        Config.max_hive_partition_cache_num = Util.getRandomLong(0, 10, 10000);
+        Config.max_hive_partition_table_cache_num = Util.getRandomLong(0, 10, 10000);
+        Config.external_cache_expire_time_seconds_after_access = Util.getRandomLong(0, 1, 10, 86400);
+        Config.external_cache_refresh_time_minutes = Util.getRandomLong(1, 10);
+        Config.max_external_cache_loader_thread_pool_size = Util.getRandomInt(1, 10, 64);
+        Config.max_external_file_cache_num = Util.getRandomInt(0, 10, 10000);
+        Config.max_external_schema_cache_num = Util.getRandomInt(0, 1, 10, 10000);
+        Config.max_external_table_cache_num = Util.getRandomInt(0, 1, 10, 10000);
+        Config.max_external_table_row_count_cache_num = Util.getRandomInt(0, 1, 10, 100000);
+        Config.max_external_table_split_file_meta_cache_num = Util.getRandomInt(0, 1, 10, 100000);
     }
 
     public static class StartupOptions {
