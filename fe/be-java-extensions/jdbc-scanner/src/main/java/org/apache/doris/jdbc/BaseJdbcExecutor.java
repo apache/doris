@@ -496,6 +496,15 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     protected abstract Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList)
             throws SQLException;
 
+    /**
+     * Some special column types (like bitmap/hll in Doris) may need to be converted to string.
+     * Subclass can override this method to handle such conversions.
+     *
+     * @param outputIdx
+     * @param origType
+     * @param replaceStringList
+     * @return
+     */
     protected ColumnType convertTypeIfNecessary(int outputIdx, ColumnType origType, String[] replaceStringList) {
         return origType;
     }
