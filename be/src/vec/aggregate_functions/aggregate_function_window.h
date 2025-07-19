@@ -339,7 +339,9 @@ struct NTileData {
 };
 
 class WindowFunctionNTile final
-        : public IAggregateFunctionDataHelper<NTileData, WindowFunctionNTile> {
+        : public IAggregateFunctionDataHelper<NTileData, WindowFunctionNTile>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     WindowFunctionNTile(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}

@@ -166,7 +166,9 @@ private:
 template <typename Data, bool has_input_param>
 class AggregateFunctionHistogram final
         : public IAggregateFunctionDataHelper<Data,
-                                              AggregateFunctionHistogram<Data, has_input_param>> {
+                                              AggregateFunctionHistogram<Data, has_input_param>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionHistogram() = default;
     AggregateFunctionHistogram(const DataTypes& argument_types_)

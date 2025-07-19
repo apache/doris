@@ -44,7 +44,9 @@ struct StatFunc {
 template <typename StatFunc>
 struct AggregateFunctionBinary
         : public IAggregateFunctionDataHelper<typename StatFunc::Data,
-                                              AggregateFunctionBinary<StatFunc>> {
+                                              AggregateFunctionBinary<StatFunc>>,
+          MultiExpression,
+          NullableAggregateFunction {
     static constexpr PrimitiveType ResultType = StatFunc::ResultPrimitiveType;
 
     using ColVecT1 = typename StatFunc::ColVecT1;
