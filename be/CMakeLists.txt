@@ -569,7 +569,6 @@ if (absl_FOUND)
         ${COMMON_THIRDPARTY}
         absl::flags_internal
         absl::flags_reflection
-        absl::random_internal_pool_urbg
         absl::random_internal_randen
         absl::random_internal_seed_material
         absl::spinlock_wait
