@@ -292,6 +292,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -2360,6 +2361,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMapContainsValue(MapContainsValue mapContainsValue, C context) {
         return visitScalarFunction(mapContainsValue, context);
+    }
+
+    default R visitMapEntries(MapEntries mapEntries, C context) {
+        return visitScalarFunction(mapEntries, context);
     }
 
     default R visitMapKeys(MapKeys mapKeys, C context) {

@@ -288,6 +288,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -775,6 +776,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MakeDate.class, "makedate"),
             scalar(MapContainsKey.class, "map_contains_key"),
             scalar(MapContainsValue.class, "map_contains_value"),
+            scalar(MapEntries.class, "map_entries"),
             scalar(MapKeys.class, "map_keys"),
             scalar(MapSize.class, "map_size"),
             scalar(MapValues.class, "map_values"),

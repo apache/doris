@@ -48,6 +48,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/functions/array/function_array_index.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -288,6 +289,76 @@ public:
     }
 };
 
+class FunctionMapToEntries : public IFunction {
+public:
+    static constexpr auto name = "map_entries";
+    static FunctionPtr create() { return std::make_shared<FunctionMapToEntries>(); }
+
+    /// Get function name.
+    String get_name() const override { return name; }
+
+    bool is_variadic() const override { return false; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DataTypePtr datatype = arguments[0];
+        if (datatype->is_nullable()) {
+            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
+        }
+        DCHECK(datatype->get_primitive_type() == TYPE_MAP)
+                << "first argument for function: " << name << " should be DataTypeMap";
+        const auto* const datatype_map = static_cast<const DataTypeMap*>(datatype.get());
+
+        // Create struct type with named fields "key" and "value"
+        // key and value are always nullable
+        auto struct_type = std::make_shared<DataTypeStruct>(
+                DataTypes {make_nullable(datatype_map->get_key_type()),
+                           make_nullable(datatype_map->get_value_type())},
+                Strings {"key", "value"});
+
+        return std::make_shared<DataTypeArray>(struct_type);
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto left_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const ColumnMap* map_column = nullptr;
+        ColumnPtr nullmap_column = nullptr;
+
+        if (left_column->is_nullable()) {
+            const auto* nullable_column =
+                    reinterpret_cast<const ColumnNullable*>(left_column.get());
+            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            nullmap_column = nullable_column->get_null_map_column_ptr();
+        } else {
+            map_column = check_and_get_column<ColumnMap>(*left_column.get());
+        }
+
+        if (!map_column) {
+            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
+                                        block.get_by_position(arguments[0]).type->get_name());
+        }
+
+        auto struct_column = ColumnStruct::create(
+                Columns {map_column->get_keys_ptr(), map_column->get_values_ptr()});
+
+        auto result_array_column =
+                ColumnArray::create(std::move(struct_column), map_column->get_offsets_ptr());
+
+        // Handle nullable case
+        if (nullmap_column) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(result_array_column), nullmap_column));
+        } else {
+            block.replace_by_position(result, std::move(result_array_column));
+        }
+
+        return Status::OK();
+    }
+};
+
 class FunctionStrToMap : public IFunction {
 public:
     static constexpr auto name = "str_to_map";
@@ -446,6 +517,7 @@ void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMapContains<false>>();
     factory.register_function<FunctionMapEntries<true>>();
     factory.register_function<FunctionMapEntries<false>>();
+    factory.register_function<FunctionMapToEntries>();
     factory.register_function<FunctionStrToMap>();
 }
 
