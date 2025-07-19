@@ -82,7 +82,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
@@ -1229,7 +1228,12 @@ public class StmtExecutor {
                     context.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
             try {
-                StatementBase parsedStmt = setParsedStmt(SqlParserUtils.getStmt(parser, originStmt.idx));
+                List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
+                if (originStmt.idx >= stmts.size()) {
+                    throw new AnalysisException("Invalid statement index: "
+                            + originStmt.idx + ". size: " + stmts.size());
+                }
+                StatementBase parsedStmt = stmts.get(originStmt.idx);
                 parsedStmt.setOrigStmt(originStmt);
                 parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             } catch (Error e) {
