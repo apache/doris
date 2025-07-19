@@ -96,7 +96,6 @@ jobs:
             'autoconf'
             'libtool-bin'
             'pkg-config'
-            'cmake=3.22.1-1ubuntu1.22.04.2'
             'ninja-build'
             'ccache'
             'python-is-python3'
@@ -116,11 +115,10 @@ jobs:
           )
 
           sudo apt update
-          sudo apt-cache policy cmake
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes "${packages[@]}"
 
           mkdir -p "${DEFAULT_DIR}"
-          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
+          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.25/ldb_toolchain_gen.sh \
             -q -O /tmp/ldb_toolchain_gen.sh
           bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
 
@@ -181,9 +179,10 @@ jobs:
 
           # Install specific version of cmake
           brew unlink cmake || true
-          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
-          tar -xzf cmake-3.22.1-macos-universal.tar.gz
-          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          # faiss requires cmake 3.29.0 or later
+          wget https://github.com/Kitware/CMake/releases/download/v3.29.0/cmake-3.29.0-macos-universal.tar.gz
+          tar -xzf cmake-3.29.0-macos-universal.tar.gz
+          sudo cp -r cmake-3.29.0-macos-universal/CMake.app/Contents/* /usr/local/
           cmake --version
 
       - name: Build
@@ -239,9 +238,10 @@ jobs:
 
           # Install specific version of cmake
           brew unlink cmake || true
-          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
-          tar -xzf cmake-3.22.1-macos-universal.tar.gz
-          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          # faiss requires cmake 3.29.0 or later
+          wget https://github.com/Kitware/CMake/releases/download/v3.29.0/cmake-3.29.0-macos-universal.tar.gz
+          tar -xzf cmake-3.29.0-macos-universal.tar.gz
+          sudo cp -r cmake-3.29.0-macos-universal/CMake.app/Contents/* /usr/local/
           cmake --version
 
       - name: Build
