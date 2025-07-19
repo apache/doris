@@ -45,6 +45,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -1395,6 +1396,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             partition = tempPartitions.getPartition(partitionId);
         }
         return partition;
+    }
+
+    public Partition getPartitionOrMetaException(long partitionId) throws MetaNotFoundException {
+        return Optional.ofNullable(getPartition(partitionId))
+                .orElseThrow(() -> new MetaNotFoundException("Partition=" + partitionId + "not found"));
     }
 
     public PartitionItem getPartitionItemOrAnalysisException(String partitionName) throws AnalysisException {
