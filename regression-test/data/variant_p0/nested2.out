@@ -2,7 +2,7 @@
 -- !sql_desc_1 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.nested.a	array<tinyint>	Yes	false	\N	NONE
+v.nested.a	array<bigint>	Yes	false	\N	NONE
 v.nested.b	array<text>	Yes	false	\N	NONE
 v.nested.c	array<double>	Yes	false	\N	NONE
 
@@ -51,17 +51,17 @@ v.nested.c	array<double>	Yes	false	\N	NONE
 -- !sql_desc_2 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.nested.a	array<double>	Yes	false	\N	NONE
+v.nested.a	array<json>	Yes	false	\N	NONE
 v.nested.b	array<json>	Yes	false	\N	NONE
 v.nested.c	array<double>	Yes	false	\N	NONE
 
 -- !sql_0 --
-1	{"nested":[{"a":1.0,"c":1.1},{"b":"1"}]}
+1	{"nested":[{"a":1,"c":1.1},{"b":"1"}]}
 2	{"nested":[{"a":2.5,"b":123.1}]}
 
 -- !sql_1 --
-[1, null]
-[2.5]
+["1", null]
+["2.5"]
 
 -- !sql_2 --
 [null, ""1""]
@@ -72,7 +72,7 @@ v.nested.c	array<double>	Yes	false	\N	NONE
 \N
 
 -- !sql_4 --
-[{"a":1.0,"c":1.1}, {"b":"1"}]
+[{"a":1,"c":1.1}, {"b":"1"}]
 [{"a":2.5,"b":123.1}]
 
 -- !sql_8 --
@@ -112,12 +112,12 @@ v.nested.c	array<double>	Yes	false	\N	NONE
 \N	\N
 
 -- !sql_0 --
-1	{"nested":[{"a":1.0,"c":1.1},{"b":"1"}]}
+1	{"nested":[{"a":1,"c":1.1},{"b":"1"}]}
 2	{"nested":[{"a":2.5,"b":123.1}]}
 
 -- !sql_1 --
-[1, null]
-[2.5]
+["1", null]
+["2.5"]
 
 -- !sql_2 --
 [null, ""1""]
@@ -128,7 +128,7 @@ v.nested.c	array<double>	Yes	false	\N	NONE
 [null]
 
 -- !sql_4 --
-[{"a":1.0,"c":1.1}, {"b":"1"}]
+[{"a":1,"c":1.1}, {"b":"1"}]
 [{"a":2.5,"b":123.1}]
 
 -- !sql_8 --
