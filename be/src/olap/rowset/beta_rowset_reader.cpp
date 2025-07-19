@@ -216,6 +216,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.io_ctx.expiration_time = 0;
     }
 
+    // use rate_limiter
+    // !fix: need to check reader_type
+    _read_options.is_limit_io =
+            _read_context->reader_type == ReaderType::READER_BASE_COMPACTION ||
+            _read_context->reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+            _read_context->reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+            _read_context->reader_type == ReaderType::READER_FULL_COMPACTION;
+
     bool enable_segment_cache = true;
     auto* state = read_context->runtime_state;
     if (state != nullptr) {
