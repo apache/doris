@@ -199,7 +199,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         // check branch
         if (branchName.isPresent() && !(physicalTableSink instanceof PhysicalIcebergTableSink)) {
             throw new AnalysisException(
-                    "Only support insert overwrite into iceberg table's branchd");
+                    "Only support insert overwrite into iceberg table's branch");
         }
 
         InsertOverwriteManager insertOverwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();

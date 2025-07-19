@@ -182,7 +182,7 @@ public class IcebergTransaction implements Transaction {
             // 1. if dst_tb is a partitioned table, it will return directly.
             // 2. if dst_tb is an unpartitioned table, the `dst_tb` table will be emptied.
             if (!transaction.table().spec().isPartitioned()) {
-                OverwriteFiles overwriteFiles = transaction.table().newOverwrite();
+                OverwriteFiles overwriteFiles = transaction.newOverwrite();
                 if (branchName != null) {
                     overwriteFiles = overwriteFiles.toBranch(branchName);
                 }
