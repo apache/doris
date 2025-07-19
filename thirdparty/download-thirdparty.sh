@@ -514,9 +514,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GRPC " ]]; then
         cd "${TP_SOURCE_DIR}/${GRPC_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/grpc-1.54.3.patch"
-            if [[ "$(uname -s)" == "Darwin" ]]; then
-                patch -p1 <"${TP_PATCH_DIR}/grpc-mac-compile-fix.patch"
-            fi 
+            patch -p1 <"${TP_PATCH_DIR}/grpc-absl-fix.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
