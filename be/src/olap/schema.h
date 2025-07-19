@@ -37,6 +37,7 @@
 #include "vec/columns/column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // The class is used to represent row's format in memory.  Each row contains
 // multiple columns, some of which are key-columns (the rest are value-columns).
@@ -70,10 +71,10 @@ public:
             }
             if (column.name() == BeConsts::ROWID_COL ||
                 column.name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-                _rowid_col_idx = cid;
+                _rowid_col_idx = static_cast<int32_t>(cid);
             }
             if (column.name() == VERSION_COL) {
-                _version_col_idx = cid;
+                _version_col_idx = static_cast<int32_t>(cid);
             }
             columns.push_back(std::make_shared<TabletColumn>(column));
         }
@@ -93,14 +94,14 @@ public:
                 ++num_key_columns;
             }
             if (columns[i]->name() == DELETE_SIGN) {
-                _delete_sign_idx = i;
+                _delete_sign_idx = static_cast<int32_t>(i);
             }
             if (columns[i]->name() == BeConsts::ROWID_COL ||
                 columns[i]->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-                _rowid_col_idx = i;
+                _rowid_col_idx = static_cast<int32_t>(i);
             }
             if (columns[i]->name() == VERSION_COL) {
-                _version_col_idx = i;
+                _version_col_idx = static_cast<int32_t>(i);
             }
             _unique_ids[i] = columns[i]->unique_id();
         }
@@ -125,10 +126,10 @@ public:
         for (uint32_t cid = 0; cid < cols.size(); ++cid) {
             col_ids[cid] = cid;
             if (cols.at(cid)->name() == DELETE_SIGN) {
-                _delete_sign_idx = cid;
+                _delete_sign_idx = static_cast<int32_t>(cid);
             }
             if (cols.at(cid)->name() == VERSION_COL) {
-                _version_col_idx = cid;
+                _version_col_idx = static_cast<int32_t>(cid);
             }
             _unique_ids[cid] = cols[cid]->unique_id();
         }
@@ -211,5 +212,5 @@ private:
     int32_t _version_col_idx = -1;
     int64_t _mem_size = 0;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris
