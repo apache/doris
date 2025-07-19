@@ -108,7 +108,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
         PlanChecker.from(connectContext).checkExplain(sql, planner -> {
             Plan plan = planner.getOptimizedPlan();
             MatchingUtils.assertMatches(plan,
-                    physicalResultSink(physicalDistribute(physicalProject(
+                    physicalResultSink(physicalProject(
                     physicalHashJoin(
                             physicalDistribute(
                                     physicalProject(
@@ -128,7 +128,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                                             physicalOlapScan())
                             ).when(dis -> dis.getDistributionSpec() instanceof DistributionSpecHash
                                     && ((DistributionSpecHash) dis.getDistributionSpec()).getOrderedShuffledColumns().size() == 2)
-                    ))))
+                    )))
             );
         });
     }
