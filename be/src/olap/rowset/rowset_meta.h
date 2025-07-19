@@ -398,6 +398,8 @@ private:
     bool _is_removed_from_rowset_meta = false;
 };
 
+using RowsetMetaMapContainer = std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>;
+
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
