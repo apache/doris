@@ -39,7 +39,7 @@ suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_
         "s3.region" = "us-east-1"
     );"""
 
-    sql """drop database if exists ${catalog_name}.iceberg_branch_insert_data_db"""
+    sql """drop database if exists ${catalog_name}.iceberg_branch_insert_data_db force"""
     sql """create database ${catalog_name}.iceberg_branch_insert_data_db"""
     sql """ use ${catalog_name}.iceberg_branch_insert_data_db """
 
@@ -164,5 +164,22 @@ suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_
     execute(tmp_tb1)
     execute(tmp_tb2)
 
+    // test insert table which not support branch
+    sql """switch internal"""
+    sql """drop database if exists iceberg_branch_insert_data_internal_db"""
+    sql """create database iceberg_branch_insert_data_internal_db"""
+    sql """use iceberg_branch_insert_data_internal_db"""
+    sql """create table iceberg_branch_insert_data_internal_tb (id int, par string) properties("replication_num" = "1")"""
+
+    test {
+        sql """insert into iceberg_branch_insert_data_internal_tb@branch(b1) values (1,'a'),(2,'a'),(3,'b'),(4,'b')"""
+        exception "Only support insert data into iceberg table's branch"
+    }
+
+    test {
+        sql """insert overwrite table iceberg_branch_insert_data_internal_tb@branch(b1) values (1,'a'),(2,'a'),(3,'b'),(4,'b')"""
+        exception "Only support insert overwrite into iceberg table's branch"
+    }
 }
+
 
