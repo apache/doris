@@ -961,7 +961,7 @@ public class IngestionLoadJob extends LoadJob {
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
             Env.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, tableList, transactionId, commitInfos,
+                    db, tableList, transactionId, commitInfos, getTimeout(),
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                             finishTimestamp, state, failMsg));
         } catch (TabletQuorumFailedException e) {
