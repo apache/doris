@@ -116,7 +116,7 @@ public class CatalogProperty implements Writable {
     private void reInitCatalogStorageProperties() {
         List<StorageProperties> storageProperties;
         try {
-            storageProperties = StorageProperties.createAll(this.properties);
+            storageProperties = StorageProperties.createAll(getProperties());
             this.storagePropertiesMap = (storageProperties.stream()
                     .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity())));
         } catch (UserException e) {
