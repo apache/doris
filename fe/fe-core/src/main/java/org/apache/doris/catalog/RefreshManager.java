@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -30,7 +29,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.persist.OperationType;
-import org.apache.doris.qe.DdlExecutor;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
