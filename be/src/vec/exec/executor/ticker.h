@@ -15,20 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gmock/gmock.h>
+#pragma once
+#include <atomic>
+#include <chrono>
+#include <mutex>
 
-#include "vec/exec/scan/scanner_scheduler.h"
+namespace doris {
+namespace vectorized {
 
-namespace doris::vectorized {
-class MockSimplifiedScanScheduler : ThreadPoolSimplifiedScanScheduler {
+class Ticker {
 public:
-    MockSimplifiedScanScheduler(std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : ThreadPoolSimplifiedScanScheduler("ForTest", cgroup_cpu_ctl) {}
+    virtual ~Ticker() = default;
 
-    MOCK_METHOD0(get_active_threads, int());
-    MOCK_METHOD0(get_queue_size, int());
-    MOCK_METHOD3(schedule_scan_task, Status(std::shared_ptr<ScannerContext> scanner_ctx,
-                                            std::shared_ptr<ScanTask> current_scan_task,
-                                            std::unique_lock<std::mutex>& transfer_lock));
+    /**
+     * Returns the number of nanoseconds since a fixed reference point
+     */
+    virtual int64_t read() const = 0;
+
+protected:
+    Ticker() = default;
 };
-} // namespace doris::vectorized
+
+class SystemTicker : public Ticker {
+public:
+    int64_t read() const override {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                       std::chrono::steady_clock::now().time_since_epoch())
+                .count();
+    }
+};
+
+} // namespace vectorized
+} // namespace doris
