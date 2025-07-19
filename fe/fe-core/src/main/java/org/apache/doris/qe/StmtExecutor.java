@@ -1233,7 +1233,7 @@ public class StmtExecutor {
                     throw new AnalysisException("Invalid statement index: "
                             + originStmt.idx + ". size: " + stmts.size());
                 }
-                StatementBase parsedStmt = stmts.get(originStmt.idx);
+                parsedStmt = stmts.get(originStmt.idx);
                 parsedStmt.setOrigStmt(originStmt);
                 parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             } catch (Error e) {
