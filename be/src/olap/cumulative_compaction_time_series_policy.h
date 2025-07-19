@@ -67,17 +67,20 @@ public:
 
     std::string_view name() override { return CUMULATIVE_TIME_SERIES_POLICY; }
 
-    static int32_t pick_input_rowsets(BaseTablet* tablet, int64_t last_cumu,
+    static int32_t pick_input_rowsets(BaseTablet* tablet,
                                       const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                       const int64_t max_compaction_score,
                                       const int64_t min_compaction_score,
                                       std::vector<RowsetSharedPtr>* input_rowsets,
                                       Version* last_delete_version, size_t* compaction_score,
-                                      bool allow_delete = false);
+                                      bool is_cloud, bool allow_delete = false);
 
     static int64_t get_compaction_level(BaseTablet* tablet,
                                         const std::vector<RowsetSharedPtr>& input_rowsets,
                                         RowsetSharedPtr output_rowset);
+
+    static constexpr int64_t MAX_LEVEL1_COMPACTION_GOAL_SIZE = 2 * 1024;
+    static constexpr int64_t LEVEL2_COMPACTION_MULTIPLIER = 10;
 };
 
 } // namespace doris
