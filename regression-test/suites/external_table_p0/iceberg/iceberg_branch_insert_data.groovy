@@ -159,6 +159,12 @@ suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_
         // Non-partitioned table: 1,2,3,4 Partitioned table: 1,2,3,4,7,8
         query_all()
 
+        // insert with columns
+        sql """ insert into ${table_name}@branch(b1)(par) values('part');"""
+        query_all()
+        sql """ insert overwrite table ${table_name}@branch(b1)(par) values('part2');"""
+        query_all()
+        
     }
 
     execute(tmp_tb1)
