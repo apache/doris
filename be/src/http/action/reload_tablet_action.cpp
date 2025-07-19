@@ -33,6 +33,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const std::string PATH = "path";
 const std::string TABLET_ID = "tablet_id";
@@ -73,7 +74,7 @@ void ReloadTabletAction::handle(HttpRequest* req) {
     int32_t schema_hash;
     try {
         tablet_id = boost::lexical_cast<int64_t>(tablet_id_str);
-        schema_hash = boost::lexical_cast<int64_t>(schema_hash_str);
+        schema_hash = boost::lexical_cast<int32_t>(schema_hash_str);
     } catch (boost::bad_lexical_cast& e) {
         std::string error_msg = std::string("param format is invalid: ") + std::string(e.what());
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
@@ -108,4 +109,5 @@ void ReloadTabletAction::reload(const std::string& path, int64_t tablet_id, int3
     }
 }
 
+#include "common/compile_check_end.h"
 } // end namespace doris

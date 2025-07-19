@@ -32,6 +32,7 @@
 #include "util/bitmap_value.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
