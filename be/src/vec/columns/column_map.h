@@ -101,6 +101,8 @@ public:
                values_column->is_exclusive() && offsets_column->is_exclusive();
     }
 
+    PrimitiveType get_primitive_type() const override { return TYPE_MAP; }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
