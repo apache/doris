@@ -85,7 +85,7 @@ public:
     ~CalcDeleteBitmapExecutor() { _thread_pool->shutdown(); }
 
     // init should be called after storage engine is opened,
-    void init();
+    void init(int max_threads);
 
     std::unique_ptr<CalcDeleteBitmapToken> create_token();
 
