@@ -1288,7 +1288,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     //==========================================================================
     if (!schema_change.has_alter_version()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "invalid alter_version";
+        msg = "no alter_version for schema change job, tablet_id=" + std::to_string(tablet_id);
         return;
     }
     if (schema_change.alter_version() < 2) {
@@ -1388,7 +1388,12 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     internal_get_tablet_stats(code, msg, txn.get(), instance_id, new_tablet_idx, *stats,
                               detached_stats, config::snapshot_get_tablet_stats);
     // clang-format off
-    stats->set_cumulative_point(schema_change.output_cumulative_point());
+    // ATTN: cumu point in job is from base tablet which may be fetched long time ago
+    //       since the new tablet may have done cumu compactions with alter_version as initial cumu point
+    //       current cumu point of new tablet may be larger than job.alter_version
+    //       we need to keep the larger one in case of cumu point roll-back to
+    //       break the basic assumptions of non-decreasing cumu point
+    stats->set_cumulative_point(std::max(schema_change.output_cumulative_point(), stats->cumulative_point()));
     stats->set_num_rows(stats->num_rows() + (schema_change.num_output_rows() - num_remove_rows));
     stats->set_data_size(stats->data_size() + (schema_change.size_output_rowsets() - size_remove_rowsets));
     stats->set_num_rowsets(stats->num_rowsets() + (schema_change.num_output_rowsets() - num_remove_rowsets));

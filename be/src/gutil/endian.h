@@ -33,7 +33,7 @@
 #include <assert.h>
 
 #include "olap/uint24.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 
 inline uint16_t UNALIGNED_LOAD16(const void* p) {
     uint16_t t;

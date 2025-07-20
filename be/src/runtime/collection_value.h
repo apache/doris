@@ -70,10 +70,10 @@ public:
 private:
     // child column data
     void* _data = nullptr;
-    uint64_t _length;
+    uint64_t _length = 0;
     // item has no null value if has_null is false.
     // item ```may``` has null value if has_null is true.
-    bool _has_null;
+    bool _has_null = false;
     // null bitmap
     bool* _null_signs = nullptr;
 };
