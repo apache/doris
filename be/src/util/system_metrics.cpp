@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "runtime/memory/jemalloc_control.h"
 #include "util/cgroup_util.h"
 #include "util/perf_counters.h"
 
