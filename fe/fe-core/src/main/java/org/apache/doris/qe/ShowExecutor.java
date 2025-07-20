@@ -24,7 +24,6 @@ import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
-import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMTMVStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowIndexPolicyStmt;
@@ -38,7 +37,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
@@ -74,7 +72,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -99,8 +96,6 @@ public class ShowExecutor {
             handleShowCreateMTMV();
         } else if (stmt instanceof ShowEnginesStmt) {
             handleShowEngines();
-        } else if (stmt instanceof ShowCreateLoadStmt) {
-            handleShowCreateLoad();
         } else if (stmt instanceof ShowAlterStmt) {
             handleShowAlter();
         } else if (stmt instanceof ShowColumnStatsStmt) {
@@ -253,26 +248,6 @@ public class ShowExecutor {
             rows = procNodeI.fetchResult().getRows();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowCreateLoad() throws AnalysisException {
-        ShowCreateLoadStmt showCreateLoadStmt = (ShowCreateLoadStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        String labelName = showCreateLoadStmt.getLabel();
-
-        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
-        Env env = ctx.getEnv();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showCreateLoadStmt.getDb());
-        long dbId = db.getId();
-        try {
-            List<Pair<Long, String>> result = env.getLoadManager().getCreateLoadStmt(dbId, labelName);
-            rows.addAll(result.stream().map(pair -> Lists.newArrayList(String.valueOf(pair.first), pair.second))
-                    .collect(Collectors.toList()));
-        } catch (DdlException e) {
-            LOG.warn(e.getMessage(), e);
-            throw new AnalysisException(e.getMessage());
-        }
-        resultSet = new ShowResultSet(showCreateLoadStmt.getMetaData(), rows);
     }
 
     private void handleShowColumnStats() throws AnalysisException {
