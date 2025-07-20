@@ -35,6 +35,9 @@ namespace doris::vectorized {
 // Used to receive LLM Resource in the fragment
 class LLMFunctionUtil {
 public:
+    LLMFunctionUtil(const LLMFunctionUtil&) = delete;
+    LLMFunctionUtil& operator=(const LLMFunctionUtil&) = delete;
+
     static LLMFunctionUtil& instance() {
         static LLMFunctionUtil util;
         return util;
@@ -54,6 +57,8 @@ public:
 
 private:
     std::map<std::string, TLLMResource> _llm_resources;
+    LLMFunctionUtil() = default;
+    ~LLMFunctionUtil() = default;
 };
 
 // Base class for LLM-based functions
@@ -73,11 +78,10 @@ public:
         return assert_cast<const Derived&>(*this).number_of_arguments;
     }
 
-    // 1. Initialize resource
-    // 2. Create an adapter based on provider_type
     Status init_from_resource(const Block& block, const ColumnNumbers& arguments, size_t row_num) {
         Status status;
 
+        // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         if (const auto* col_const_resource =
                     check_and_get_column<ColumnConst>(resource_column.column.get())) {
@@ -93,13 +97,12 @@ public:
             _config = LLMFunctionUtil::instance().get_llm_resource(resource_name);
         }
 
+        // 2. Create an adapter based on provider_type
         _adapter = LLMAdapterFactory::create_adapter(_config.provider_type);
         if (!_adapter) {
             return Status::InternalError("Unsupported LLM provider type: " + _config.provider_type);
         }
         _adapter->init(_config);
-
-        return Status::OK();
 
         if (!status.ok()) {
             throw Status::InternalError("Failed to initialize FunctionLLMTranslate: " +
