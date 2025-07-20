@@ -2352,7 +2352,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TCheckCurrentUserPrivilegeResult checkCurrentUserPrivilege(TCheckCurrentUserPrivilegeRequest request)
             throws TException {
-        TCheckCurrentUserPrivilegeResult result;
+        TCheckCurrentUserPrivilegeResult result = new TCheckCurrentUserPrivilegeResult();
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(
                 ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN)) {
             result.setCheckRes(false);
