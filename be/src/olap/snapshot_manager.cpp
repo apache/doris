@@ -178,7 +178,7 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     bool exists = true;
     RETURN_IF_ERROR_RESULT(io::global_local_filesystem()->exists(clone_dir, &exists));
     if (!exists) {
-        return unexpected(Status::Error<DIR_NOT_EXIST>(
+        return std::unexpected(Status::Error<DIR_NOT_EXIST>(
                 "clone dir not existed when convert rowsetids. clone_dir={}", clone_dir));
     }
 

@@ -44,6 +44,6 @@ private:
     int _block_rows_limit = 4096;
     int _row_idx = 0;
     int _total_rows = 0;
-    std::unique_ptr<vectorized::Block> _info_block = nullptr;
+    std::unique_ptr<vectorized::Block> _info_block {nullptr};
 };
 }; // namespace doris

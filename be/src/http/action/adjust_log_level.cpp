@@ -44,7 +44,7 @@ Result<std::tuple<std::string, int, int>> handle_request(HttpRequest* req) {
         return std::make_tuple(module, google::SetVLOGLevel(module.c_str(), result.value()),
                                result.value());
     } else {
-        return unexpected(std::move(result).error());
+        return std::unexpected(std::move(result).error());
     }
 }
 

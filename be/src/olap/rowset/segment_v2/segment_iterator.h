@@ -18,9 +18,9 @@
 #pragma once
 
 #include <gen_cpp/Exprs_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -28,7 +28,6 @@
 #include <set>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "common/status.h"

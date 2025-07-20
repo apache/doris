@@ -17,16 +17,14 @@
 
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
-#include <assert.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <iterator>
+#include <cassert>
 #include <memory>
-#include <numeric>
 #include <set>
 #include <utility>
 #include <vector>
@@ -40,7 +38,6 @@
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
-#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/field.h"
 #include "olap/id_manager.h"
@@ -50,7 +47,6 @@
 #include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
-#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -66,38 +62,28 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
-#include "vec/functions/array/function_array_index.h"
-#include "vec/json/path_in_data.h"
 
 namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
-
-SegmentIterator::~SegmentIterator() = default;
 
 // A fast range iterator for roaring bitmap. Output ranges use closed-open form, like [from, to).
 // Example:
@@ -268,6 +254,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _inited(false),
           _pool(new ObjectPool) {}
 
+SegmentIterator::~SegmentIterator() = default;
+
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     auto status = _init_impl(opts);
     if (!status.ok()) {
@@ -398,9 +386,9 @@ Status SegmentIterator::_lazy_init() {
         _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
     }
     if (_opts.read_orderby_key_reverse) {
-        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
+        _range_iter = std::make_unique<BackwardBitmapRangeIterator>(_row_bitmap);
     } else {
-        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+        _range_iter = std::make_unique<BitmapRangeIterator>(_row_bitmap);
     }
     return Status::OK();
 }
