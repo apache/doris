@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/aggregate_functions/aggregate_function_geomean.h"
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 
 #include "vec/aggregate_functions/helpers.h"
@@ -23,16 +24,17 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <PrimitiveType T>
-AggregateFunctionPtr create_agg_function_geomean(const DataTypes& argument_types,
-                                                const bool result_is_nullable) {
-    return creator_without_type::create<AggregateFunctionGeomean<T>>(argument_types, result_is_nullable);
-}
+ template <PrimitiveType T>
+ AggregateFunctionPtr create_agg_function_geomean(const DataTypes& argument_types,
+                                                 const bool result_is_nullable) {
+    return creator_without_type::create<AggregateFunctionGeomean<T>>(argument_types,
+                                                                     result_is_nullable);
+ }
 
-AggregateFunctionPtr create_aggregate_function_geomean(const std::string& name,
-                                                                const DataTypes& argument_types,
-                                                                const bool result_is_nullable,
-                                                                const AggregateFunctionAttr& attr) {
+ AggregateFunctionPtr create_aggregate_function_geomean(const std::string& name,
+                                                       const DataTypes& argument_types,
+                                                       const bool result_is_nullable,
+                                                       const AggregateFunctionAttr& attr) {
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return create_agg_function_geomean<TYPE_BOOLEAN>(argument_types, result_is_nullable);
@@ -43,11 +45,9 @@ AggregateFunctionPtr create_aggregate_function_geomean(const std::string& name,
     case PrimitiveType::TYPE_INT:
         return create_agg_function_geomean<TYPE_INT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_BIGINT:
-        return create_agg_function_geomean<TYPE_BIGINT>(argument_types,
-														result_is_nullable);
+        return create_agg_function_geomean<TYPE_BIGINT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_LARGEINT:
-        return create_agg_function_geomean<TYPE_LARGEINT>(argument_types,
-															result_is_nullable);
+        return create_agg_function_geomean<TYPE_LARGEINT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_FLOAT:
         return create_agg_function_geomean<TYPE_FLOAT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DOUBLE:
@@ -66,7 +66,7 @@ AggregateFunctionPtr create_aggregate_function_geomean(const std::string& name,
         LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
                                     argument_types[0]->get_name(), name);
         return nullptr;
-	}
+    }
 }
 
 void register_aggregate_function_geomean(AggregateFunctionSimpleFactory& factory) {

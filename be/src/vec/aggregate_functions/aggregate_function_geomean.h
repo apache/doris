@@ -30,17 +30,16 @@ namespace doris::vectorized {
 // geomean = (x1 * x2 * ... * xn)^(1/n), directly compute
 // (x1*x2*...*xn) maybe overflow easily, so we compute
 // geomean = exp((log(x1) + log(x2) + ... + log(xn)) / n)
-// 
 // like DuckDB, xi < 0 is not allowed but we allow xi = zero
 // e.g. (0 * 4 * 8)  ^ {1/3} => 0
 
 template <PrimitiveType T>
 struct AggregateFunctionGeomeanData {
-	using DataType = typename PrimitiveTypeTraits<T>::ColumnItemType;
-	bool has_zero = false;
-	bool has_negative = false;
-	Int32 count_positive = 0;
-	Float64 sum_log {};
+    using DataType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    bool has_zero = false;
+    bool has_negative = false;
+    Int32 count_positive = 0;
+    Float64 sum_log {};
 
 	void write(BufferWritable& buf) const {
 		buf.write_binary(has_zero);
