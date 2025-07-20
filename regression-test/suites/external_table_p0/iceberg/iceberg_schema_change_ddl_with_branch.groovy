@@ -42,6 +42,8 @@ suite("iceberg_schema_change_ddl_with_branch", "p0,external,doris,external_docke
     );"""
 
     sql """switch ${catalog_name};"""
+    sql """drop database if exists iceberg_schema_change_ddl_with_branch_db force"""
+    sql """create database iceberg_schema_change_ddl_with_branch_db"""
     sql """ use iceberg_schema_change_ddl_with_branch_db;""" 
 
     sql """ set enable_fallback_to_original_planner=false; """
