@@ -151,23 +151,21 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
             for (Expression groupBy : agg.getGroupByExpressions()) {
-                if (groupBy.getDataType().isOnlyMetricType()) {
+                if (groupBy.getDataType().isObjectOrVariantType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
         } else if (plan instanceof LogicalSort) {
             LogicalSort<?> sort = (LogicalSort<?>) plan;
             for (OrderKey orderKey : sort.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isOnlyMetricType()
-                        && !orderKey.getExpr().getDataType().isArrayType()) {
+                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
         } else if (plan instanceof LogicalTopN) {
             LogicalTopN<?> topN = (LogicalTopN<?>) plan;
             for (OrderKey orderKey : topN.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isOnlyMetricType()
-                        && !orderKey.getExpr().getDataType().isArrayType()) {
+                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -178,11 +176,11 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
                 WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
                 if (windowExpression.getOrderKeys().stream().anyMatch((
-                        orderKey -> orderKey.getDataType().isOnlyMetricType()))) {
+                        orderKey -> orderKey.getDataType().isObjectOrVariantType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
                 if (windowExpression.getPartitionKeys().stream().anyMatch((
-                        partitionKey -> partitionKey.getDataType().isOnlyMetricType()))) {
+                        partitionKey -> partitionKey.getDataType().isObjectOrVariantType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });

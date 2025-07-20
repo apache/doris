@@ -623,6 +623,7 @@ public class Column implements GsonPostProcessable {
         tColumn.setIsKey(this.isKey);
         tColumn.setIsAllowNull(this.isAllowNull);
         tColumn.setIsAutoIncrement(this.isAutoInc);
+        tColumn.setIsOnUpdateCurrentTimestamp(this.hasOnUpdateDefaultValue);
         // keep compatibility
         tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
         tColumn.setVisible(visible);
@@ -1207,4 +1208,5 @@ public class Column implements GsonPostProcessable {
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
     }
+
 }

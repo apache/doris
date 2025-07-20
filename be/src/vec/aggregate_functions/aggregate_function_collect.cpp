@@ -17,8 +17,6 @@
 
 #include "vec/aggregate_functions/aggregate_function_collect.h"
 
-#include <type_traits>
-
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -27,7 +25,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <PrimitiveType T, typename HasLimit>
+template <PrimitiveType T, bool HasLimit>
 AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
                                                     const bool result_is_nullable) {
     if (distinct) {
@@ -46,7 +44,7 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
     }
 }
 
-template <typename HasLimit>
+template <bool HasLimit>
 AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& name,
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable) {
@@ -111,11 +109,7 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
         return do_create_agg_function_collect<TYPE_IPV4, HasLimit>(distinct, argument_types,
                                                                    result_is_nullable);
     case PrimitiveType::TYPE_STRING:
-        return do_create_agg_function_collect<TYPE_STRING, HasLimit>(distinct, argument_types,
-                                                                     result_is_nullable);
     case PrimitiveType::TYPE_CHAR:
-        return do_create_agg_function_collect<TYPE_CHAR, HasLimit>(distinct, argument_types,
-                                                                   result_is_nullable);
     case PrimitiveType::TYPE_VARCHAR:
         return do_create_agg_function_collect<TYPE_VARCHAR, HasLimit>(distinct, argument_types,
                                                                       result_is_nullable);
@@ -131,12 +125,12 @@ AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 1) {
-        return create_aggregate_function_collect_impl<std::false_type>(name, argument_types,
-                                                                       result_is_nullable);
+        return create_aggregate_function_collect_impl<false>(name, argument_types,
+                                                             result_is_nullable);
     }
     if (argument_types.size() == 2) {
-        return create_aggregate_function_collect_impl<std::true_type>(name, argument_types,
-                                                                      result_is_nullable);
+        return create_aggregate_function_collect_impl<true>(name, argument_types,
+                                                            result_is_nullable);
     }
     throw Exception(ErrorCode::INTERNAL_ERROR,
                     "unexpected type for collect, please check the input");

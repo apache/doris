@@ -635,6 +635,10 @@ public abstract class DataType {
         return isObjectType() || isComplexType() || isJsonType() || isVariantType();
     }
 
+    public boolean isObjectOrVariantType() {
+        return isObjectType() || isVariantType();
+    }
+
     public boolean isObjectType() {
         return isHllType() || isBitmapType() || isQuantileStateType();
     }

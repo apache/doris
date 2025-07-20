@@ -174,12 +174,12 @@ public:
         if (offset != 0) {
             const IColumn* column[3] = {columns[0].get(), columns[1].get(), columns[2].get()};
             for (int i = 0; i < input_rows; i++) {
-                agg_function->add(place, column, i, &_agg_arena_pool);
+                agg_function->add(place, column, i, _agg_arena_pool);
             }
         } else {
             const IColumn* column[2] = {columns[0].get(), columns[1].get()};
             for (int i = 0; i < input_rows; i++) {
-                agg_function->add(place, column, i, &_agg_arena_pool);
+                agg_function->add(place, column, i, _agg_arena_pool);
             }
         }
     }
@@ -219,14 +219,14 @@ public:
         agg_function->serialize(place, buf_writer);
         buf_writer.commit();
         VectorBufferReader buf_reader(buf.get_data_at(0));
-        agg_function->deserialize(place, buf_reader, &_agg_arena_pool);
+        agg_function->deserialize(place, buf_reader, _agg_arena_pool);
 
         std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
         AggregateDataPtr place2 = memory2.get();
         agg_function->create(place2);
         agg_linear_histogram_add_elements<DataType>(agg_function, place2, input_rows, interval,
                                                     offset);
-        agg_function->merge(place, place2, &_agg_arena_pool);
+        agg_function->merge(place, place2, _agg_arena_pool);
 
         auto column_result1 = ColumnString::create();
         agg_function->insert_result_into(place, *column_result1);

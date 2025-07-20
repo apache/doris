@@ -196,7 +196,7 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_pb(IColumn& column,
 template <typename ColumnType>
 void DataTypeStringSerDeBase<ColumnType>::write_one_cell_to_jsonb(const IColumn& column,
                                                                   JsonbWriter& result,
-                                                                  Arena* mem_pool, int32_t col_id,
+                                                                  Arena& mem_pool, int32_t col_id,
                                                                   int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const auto& data_ref = column.get_data_at(row_num);
@@ -355,6 +355,32 @@ Status DataTypeStringSerDeBase<ColumnType>::read_one_cell_from_json(
         return Status::OK();
     }
     col.insert_data(result.GetString(), result.GetStringLength());
+    return Status::OK();
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                                      int64_t row_num,
+                                                                      JsonbWriter& writer) const {
+    const auto& data = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
+
+    // start writing string
+    if (!writer.writeStartString()) {
+        return Status::InternalError("writeStartString failed");
+    }
+
+    // write string
+    if (data.size > 0) {
+        if (writer.writeString(data.data, data.size) == 0) {
+            return Status::InternalError("writeString failed");
+        }
+    }
+
+    // end writing string
+    if (!writer.writeEndString()) {
+        return Status::InternalError("writeEndString failed");
+    }
+
     return Status::OK();
 }
 

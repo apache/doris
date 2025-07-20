@@ -41,6 +41,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "util/debug_points.h"
+#include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -88,6 +89,8 @@ public:
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
     bool is_auto_increment() const { return _is_auto_increment; }
+    bool is_seqeunce_col() const { return _col_name == SEQUENCE_COL; }
+    bool is_on_update_current_timestamp() const { return _is_on_update_current_timestamp; }
     bool is_variant_type() const { return _type == FieldType::OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
@@ -121,6 +124,9 @@ public:
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_is_auto_increment(bool is_auto_increment) { _is_auto_increment = is_auto_increment; }
+    void set_is_on_update_current_timestamp(bool is_on_update_current_timestamp) {
+        _is_on_update_current_timestamp = is_on_update_current_timestamp;
+    }
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
@@ -213,6 +219,7 @@ private:
     std::string _aggregation_name;
     bool _is_nullable = false;
     bool _is_auto_increment = false;
+    bool _is_on_update_current_timestamp {false};
 
     bool _has_default_value = false;
     std::string _default_value;
@@ -397,6 +404,10 @@ public:
     long row_store_page_size() const { return _row_store_page_size; }
     void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
     long storage_page_size() const { return _storage_page_size; }
+    void set_storage_dict_page_size(long storage_dict_page_size) {
+        _storage_dict_page_size = storage_dict_page_size;
+    }
+    long storage_dict_page_size() const { return _storage_dict_page_size; }
     bool has_global_row_id() const {
         for (auto [col_name, _] : _field_name_to_index) {
             if (col_name.start_with(StringRef(BeConsts::GLOBAL_ROWID_COL.data(),
@@ -592,6 +603,7 @@ private:
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     long _storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+    long _storage_dict_page_size = segment_v2::STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 

@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-
 #include <CLucene.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
@@ -28,9 +26,10 @@
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/options.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
@@ -165,8 +164,8 @@ public:
         Status st = io::global_local_filesystem()->create_file(file_path, &file_writer, &opts);
         ASSERT_TRUE(st.ok()) << st.msg();
 
-        // Create InvertedIndexFileWriter
-        auto writer = std::make_unique<InvertedIndexFileWriter>(
+        // Create IndexFileWriter
+        auto writer = std::make_unique<IndexFileWriter>(
                 io::global_local_filesystem(), index_path_prefix, "test_rowset", 0,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -226,8 +225,8 @@ TEST_F(InvertedIndexFileReaderTest, TestEmptyIndexSegmentError) {
     create_empty_index_file(index_path + ".idx");
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     Status status = reader.init(4096);
     EXPECT_FALSE(status.ok());
@@ -241,8 +240,8 @@ TEST_F(InvertedIndexFileReaderTest, TestUnknownIndexFormatError) {
                                 1); // Version < V2 to trigger unknown format error
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     Status status = reader.init(4096);
     EXPECT_FALSE(status.ok());
@@ -263,8 +262,8 @@ TEST_F(InvertedIndexFileReaderTest, TestV1FileNotFoundError) {
     index_info->set_index_suffix("test");
     index_info->set_index_file_size(100);
 
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V1, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V1, file_info);
 
     MockTabletIndex tablet_index(1, "test");
     auto result = reader.open(&tablet_index);
@@ -277,8 +276,8 @@ TEST_F(InvertedIndexFileReaderTest, TestV2StreamNullptrError) {
     std::string index_path = kTestDir + "/null_stream";
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     MockTabletIndex tablet_index(1, "test");
     auto result = reader.open(&tablet_index);
@@ -293,8 +292,8 @@ TEST_F(InvertedIndexFileReaderTest, TestV2IndexNotFoundError) {
     create_v2_file_with_null_bitmap(index_path + ".idx", 100, "other", false);
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     Status status = reader.init(4096);
     EXPECT_TRUE(status.ok());
@@ -311,8 +310,8 @@ TEST_F(InvertedIndexFileReaderTest, TestIndexFileExistV2StreamNullptr) {
     std::string index_path = kTestDir + "/exist_test";
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     MockTabletIndex tablet_index(1, "test");
     bool res = true;
@@ -327,8 +326,8 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV1Format) {
     std::string index_path = kTestDir + "/has_null_v1";
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V1, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V1, file_info);
 
     MockTabletIndex tablet_index(1, "test");
     bool res = false;
@@ -343,8 +342,8 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2WithNullBitmap) {
     create_v2_file_with_null_bitmap(index_path + ".idx", 1, "test", true);
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     Status init_status = reader.init(4096);
     EXPECT_TRUE(init_status.ok());
@@ -362,8 +361,8 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2WithSmallNullBitmap) {
     create_v2_file_with_small_null_bitmap(index_path + ".idx", 1, "test");
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     Status init_status = reader.init(4096);
     EXPECT_TRUE(init_status.ok());
@@ -380,8 +379,8 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2StreamNullptr) {
     std::string index_path = kTestDir + "/has_null_stream_null";
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     MockTabletIndex tablet_index(1, "test");
     bool res = true;
@@ -396,8 +395,8 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2IndexNotFound) {
     create_v2_file_with_null_bitmap(index_path + ".idx", 100, "other", false);
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     Status init_status = reader.init(4096);
     EXPECT_TRUE(init_status.ok());
@@ -415,8 +414,8 @@ TEST_F(InvertedIndexFileReaderTest, TestDebugFileEntries) {
     create_v2_file_with_null_bitmap(index_path + ".idx", 1, "test", true);
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     Status init_status = reader.init(4096);
     EXPECT_TRUE(init_status.ok());
@@ -430,8 +429,8 @@ TEST_F(InvertedIndexFileReaderTest, TestGetAllDirectoriesError) {
     std::string index_path = kTestDir + "/get_all_dirs";
 
     InvertedIndexFileInfo file_info;
-    InvertedIndexFileReader reader(io::global_local_filesystem(), index_path,
-                                   InvertedIndexStorageFormatPB::V2, file_info);
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
 
     // Don't initialize to cause empty result in get_all_directories
     auto result = reader.get_all_directories();

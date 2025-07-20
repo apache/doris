@@ -23,15 +23,85 @@
 #include <arrow/util/decimal.h>
 
 #include "arrow/type.h"
+#include "common/consts.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/functions/cast/function_cast.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 // #include "common/compile_check_begin.h"
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                                  const FormatOptions& options) const {
+    const auto row = str.size();
+    column.resize(row);
+
+    const ColumnString::Chars* chars = &str.get_chars();
+    const IColumn::Offsets* offsets = &str.get_offsets();
+
+    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    auto& vec_to = column_to.get_data();
+    auto& null_map = column.get_null_map_data();
+    size_t current_offset = 0;
+    PrecisionScaleArg scale_arg {.precision = static_cast<UInt32>(precision),
+                                 .scale = static_cast<UInt32>(scale)};
+    for (size_t i = 0; i < row; ++i) {
+        size_t next_offset = (*offsets)[i];
+        size_t string_size = next_offset - current_offset;
+
+        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+
+        StringParser::ParseResult res =
+                try_parse_decimal_impl<DataTypeDecimal<T>>(vec_to[i], read_buffer, scale_arg);
+        bool parsed = (res == StringParser::PARSE_SUCCESS);
+        null_map[i] = !parsed;
+        current_offset = next_offset;
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
+        const ColumnString& str, IColumn& column, const FormatOptions& options,
+        const NullMap::value_type* null_map) const {
+    const auto row = str.size();
+    column.resize(row);
+
+    const ColumnString::Chars* chars = &str.get_chars();
+    const IColumn::Offsets* offsets = &str.get_offsets();
+
+    auto& column_to = assert_cast<ColumnType&>(column);
+    auto& vec_to = column_to.get_data();
+    size_t current_offset = 0;
+    PrecisionScaleArg scale_arg {.precision = static_cast<UInt32>(precision),
+                                 .scale = static_cast<UInt32>(scale)};
+    for (size_t i = 0; i < row; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
+        size_t next_offset = (*offsets)[i];
+        size_t string_size = next_offset - current_offset;
+
+        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+
+        StringParser::ParseResult res =
+                try_parse_decimal_impl<DataTypeDecimal<T>>(vec_to[i], read_buffer, scale_arg);
+        if (res != StringParser::PARSE_SUCCESS) {
+            return Status::InvalidArgument(
+                    "parse number fail, string: '{}'",
+                    std::string((char*)&(*chars)[current_offset], string_size));
+        }
+        current_offset = next_offset;
+    }
+    return Status::OK();
+}
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -350,7 +420,7 @@ void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& c
 
 template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                      Arena* mem_pool, int32_t col_id,
+                                                      Arena& mem_pool, int32_t col_id,
                                                       int64_t row_num) const {
     StringRef data_ref = column.get_data_at(row_num);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
@@ -377,6 +447,43 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
     }
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                          int64_t row_num,
+                                                          JsonbWriter& writer) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb");
+    } else {
+        const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_element(row_num);
+        if (!writer.writeDecimal(data, precision, scale)) {
+            return Status::InvalidArgument(
+                    "DataTypeDecimalSerDe<T>::serialize_column_to_jsonb failed");
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                 ColumnString& to_column) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb_vector");
+    } else {
+        const auto size = from_column.size();
+        JsonbWriter writer;
+        const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_data();
+        for (int i = 0; i < size; i++) {
+            writer.reset();
+            if (!writer.writeDecimal(data[i], precision, scale)) {
+                return Status::InvalidArgument(
+                        "DataTypeDecimalSerDe<T>::serialize_column_to_jsonb failed");
+            }
+            to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        }
+    }
+    return Status::OK();
 }
 
 template <PrimitiveType T>

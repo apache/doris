@@ -823,6 +823,7 @@ enum TSchemaTableName {
   TABLE_PROPERTIES = 8,
   CATALOG_META_CACHE_STATS = 9,
   PARTITIONS = 10,
+  VIEW_DEPENDENCY = 11,
 }
 
 struct TMetadataTableRequestParams {

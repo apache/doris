@@ -337,12 +337,12 @@ Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) 
         // we don't need to close wait on non-open streams
         return Status::OK();
     }
+    if (state->get_query_ctx()->is_cancelled()) {
+        return state->get_query_ctx()->exec_status();
+    }
     if (!_is_closing.load()) {
         *is_closed = false;
         return _status;
-    }
-    if (state->get_query_ctx()->is_cancelled()) {
-        return state->get_query_ctx()->exec_status();
     }
     if (_is_closed.load()) {
         RETURN_IF_ERROR(_check_cancel());

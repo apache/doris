@@ -27,6 +27,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -41,6 +42,7 @@
 #include "olap/inverted_index_stats.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_fwd.h"
+#include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -370,6 +372,8 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_bitmap_copy_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
     int64_t inverted_index_searcher_search_timer = 0;
+    int64_t inverted_index_searcher_search_init_timer = 0;
+    int64_t inverted_index_searcher_search_exec_timer = 0;
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
@@ -407,7 +411,7 @@ struct OlapReaderStatistics {
     int64_t segment_iterator_init_timer_ns = 0;
     int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
     int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
-    int64_t segment_iterator_init_inverted_index_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_index_iterators_timer_ns = 0;
 
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
@@ -533,6 +537,30 @@ inline RowsetId extract_rowset_id(std::string_view filename) {
 }
 
 class DeleteBitmap;
+
+struct CalcDeleteBitmapTask {
+    std::mutex m;
+    Status status {Status::OK()};
+    CountDownLatch latch {1};
+
+    void set_status(Status st) {
+        {
+            std::unique_lock l(m);
+            status = std::move(st);
+        }
+        latch.count_down(1);
+    }
+
+    Status get_status() {
+        if (!latch.wait_for(
+                    std::chrono::seconds(config::segcompaction_wait_for_dbm_task_timeout_s))) {
+            return Status::InternalError<false>("wait for calc delete bitmap task timeout");
+        };
+        std::unique_lock l(m);
+        return status;
+    }
+};
+
 // merge on write context
 struct MowContext {
     MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
@@ -542,11 +570,21 @@ struct MowContext {
               rowset_ids(ids),
               rowset_ptrs(std::move(rowset_ptrs)),
               delete_bitmap(std::move(db)) {}
+
+    CalcDeleteBitmapTask* get_calc_dbm_task(int32_t segment_id) {
+        std::lock_guard l(m);
+        return &calc_dbm_tasks[segment_id];
+    }
+
     int64_t max_version;
     int64_t txn_id;
     const RowsetIdUnorderedSet& rowset_ids;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
+
+    std::mutex m;
+    // status of calc delete bitmap task in flush phase
+    std::unordered_map<int32_t /* origin seg id*/, CalcDeleteBitmapTask> calc_dbm_tasks;
 };
 
 // used for controll compaction

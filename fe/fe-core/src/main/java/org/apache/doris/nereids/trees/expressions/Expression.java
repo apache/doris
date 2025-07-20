@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -117,6 +118,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.compareWidthAndDepth = compareWidthAndDepth;
                 this.fastChildrenHashCode = fastChildrenHashCode;
         }
+        checkLimit();
         this.inferred = false;
         this.hasUnbound = hasUnbound || this instanceof Unbound;
     }
@@ -170,8 +172,20 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.compareWidthAndDepth = compareWidthAndDepth && supportCompareWidthAndDepth();
                 this.fastChildrenHashCode = fastChildrenhashCode;
         }
+        checkLimit();
         this.inferred = inferred;
         this.hasUnbound = hasUnbound || this instanceof Unbound;
+    }
+
+    private void checkLimit() {
+        if (depth > Config.expr_depth_limit) {
+            throw new AnalysisException(String.format("Exceeded the maximum depth of an "
+                    + "expression tree (%s).", Config.expr_depth_limit));
+        }
+        if (width > Config.expr_children_limit) {
+            throw new AnalysisException(String.format("Exceeded the maximum children of an "
+                    + "expression tree (%s).", Config.expr_children_limit));
+        }
     }
 
     public Alias alias(String alias) {

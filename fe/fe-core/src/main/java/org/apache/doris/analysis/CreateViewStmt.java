@@ -35,8 +35,8 @@ public class CreateViewStmt extends BaseViewStmt implements NotFallbackInParser 
     private final String comment;
 
     public CreateViewStmt(boolean ifNotExists, boolean orReplace, TableName tableName, List<ColWithComment> cols,
-            String comment, QueryStmt queryStmt) {
-        super(tableName, cols, queryStmt);
+            String comment) {
+        super(tableName, cols);
         this.ifNotExists = ifNotExists;
         this.orReplace = orReplace;
         this.comment = Strings.nullToEmpty(comment);

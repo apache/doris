@@ -60,7 +60,14 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     for (auto child : _children) {
-        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
+        if (child->is_literal()) {
+            // For some functions, he needs some literal columns to derive the return type.
+            auto literal_node = std::dynamic_pointer_cast<VLiteral>(child);
+            argument_template.emplace_back(literal_node->get_column_ptr(), child->data_type(),
+                                           child->expr_name());
+        } else {
+            argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
+        }
     }
 
     _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
@@ -224,7 +231,7 @@ size_t VectorizedFnCall::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,
+Status VectorizedFnCall::execute_runtime_filter(doris::vectorized::VExprContext* context,
                                                 doris::vectorized::Block* block,
                                                 int* result_column_id, ColumnNumbers& args) {
     return _do_execute(context, block, result_column_id, args);

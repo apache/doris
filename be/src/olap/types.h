@@ -19,18 +19,15 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
 
-#include <algorithm>
 #include <cinttypes>
+#include <climits>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
 #include <limits>
 #include <memory>
-#include <new>
-#include <sstream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -47,13 +44,14 @@
 #include "runtime/collection_value.h"
 #include "runtime/map_value.h"
 #include "runtime/struct_value.h"
+#include "runtime/type_limit.h"
 #include "util/binary_cast.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/common/arena.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -80,7 +78,7 @@ public:
     virtual ~TypeInfo() = default;
     virtual int cmp(const void* left, const void* right) const = 0;
 
-    virtual void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const = 0;
+    virtual void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const = 0;
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
@@ -104,7 +102,7 @@ class ScalarTypeInfo : public TypeInfo {
 public:
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
         _deep_copy(dest, src, arena);
     }
 
@@ -143,7 +141,7 @@ public:
 private:
     int (*_cmp)(const void* left, const void* right);
 
-    void (*_deep_copy)(void* dest, const void* src, vectorized::Arena* arena);
+    void (*_deep_copy)(void* dest, const void* src, vectorized::Arena& arena);
     void (*_direct_copy)(void* dest, const void* src);
     void (*_direct_copy_may_cut)(void* dest, const void* src);
 
@@ -211,7 +209,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
@@ -224,7 +222,7 @@ public:
 
         size_t item_size = src_value->length() * _item_size;
         size_t nulls_size = src_value->has_null() ? src_value->length() : 0;
-        dest_value->set_data(arena->alloc(item_size + nulls_size));
+        dest_value->set_data(arena.alloc(item_size + nulls_size));
         dest_value->set_has_null(src_value->has_null());
         dest_value->set_null_signs(src_value->has_null()
                                            ? reinterpret_cast<bool*>(dest_value->mutable_data()) +
@@ -370,7 +368,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
         DCHECK(false);
     }
 
@@ -481,7 +479,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
         auto dest_value = reinterpret_cast<StructValue*>(dest);
         auto src_value = reinterpret_cast<const StructValue*>(src);
 
@@ -500,7 +498,7 @@ public:
             allocate_size += _type_infos[i]->size();
         }
 
-        dest_value->set_values((void**)arena->alloc(allocate_size));
+        dest_value->set_values((void**)arena.alloc(allocate_size));
         auto ptr = reinterpret_cast<uint8_t*>(dest_value->mutable_values());
         ptr += dest_value->size() * sizeof(*dest_value->values());
 
@@ -809,7 +807,7 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
         }
     }
 
-    static inline void deep_copy(void* dest, const void* src, vectorized::Arena* arena) {
+    static inline void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
         memcpy(dest, src, sizeof(CppType));
     }
 
@@ -859,9 +857,9 @@ struct NumericFieldTypeTraits<fieldType, false> : public BaseFieldTypeTraits<fie
 template <FieldType fieldType>
 struct FieldTypeTraits
         : public NumericFieldTypeTraits<
-                  fieldType,
-                  std::is_arithmetic_v<typename BaseFieldTypeTraits<fieldType>::CppType> &&
-                          std::is_signed_v<typename BaseFieldTypeTraits<fieldType>::CppType>> {};
+                  fieldType, IsArithmeticV<typename BaseFieldTypeTraits<fieldType>::CppType> &&
+                                     IsSignedV<typename BaseFieldTypeTraits<fieldType>::CppType>> {
+};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
@@ -957,7 +955,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
 
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
-    static void deep_copy(void* dest, const void* src, vectorized::Arena* arena) {
+    static void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void direct_copy(void* dest, const void* src) {
@@ -1376,10 +1374,10 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
         return slice->to_string();
     }
 
-    static void deep_copy(void* dest, const void* src, vectorized::Arena* arena) {
+    static void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
-        l_slice->data = arena->alloc(r_slice->size);
+        l_slice->data = arena.alloc(r_slice->size);
         memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }

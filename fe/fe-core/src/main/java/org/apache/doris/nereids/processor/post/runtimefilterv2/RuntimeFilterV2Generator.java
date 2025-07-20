@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post.runtimefilterv2;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessor;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -61,14 +62,16 @@ public class RuntimeFilterV2Generator extends PlanPostProcessor {
                 && child0.getStats().getRowCount()
                 < ConnectContext.get().getSessionVariable().runtimeFilterMaxBuildRowCount) {
             for (int slotIdx : chooseSourceSlots(setOp)) {
+                Expression sourceExpression = setOp.getRegularChildrenOutputs().get(0).get(slotIdx);
                 for (int childId = 1; childId < setOp.children().size(); childId++) {
                     Plan child = setOp.children().get(childId);
+                    Expression targetExpression = setOp.getRegularChildrenOutputs().get(childId).get(slotIdx);
                     Statistics stats = child0.getStats();
                     long buildNdvOrRowCount = -1;
                     if (stats != null) {
                         buildNdvOrRowCount = (long) stats.getRowCount();
                         ColumnStatistic colStats = stats.findColumnStatistics(
-                                setOp.child(0).getOutput().get(slotIdx));
+                                sourceExpression);
                         if (colStats != null && !colStats.isUnKnown) {
                             buildNdvOrRowCount = Math.max(1, (long) colStats.ndv);
                         }
@@ -76,10 +79,10 @@ public class RuntimeFilterV2Generator extends PlanPostProcessor {
                     PushDownContext pushDownContext = new PushDownContext(
                             context.getRuntimeFilterV2Context(),
                             setOp,
-                            setOp.child(0).getOutput().get(slotIdx),
+                            sourceExpression,
                             buildNdvOrRowCount,
                             slotIdx,
-                            setOp.child(childId).getOutput().get(slotIdx));
+                            targetExpression);
                     child.accept(PushDownVisitor.INSTANCE, pushDownContext);
                 }
             }
