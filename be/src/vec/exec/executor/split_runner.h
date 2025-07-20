@@ -15,20 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gmock/gmock.h>
+#pragma once
+#include <memory>
+#include <string>
 
-#include "vec/exec/scan/scanner_scheduler.h"
+#include "common/status.h"
+#include "vec/exec/executor/listenable_future.h"
 
-namespace doris::vectorized {
-class MockSimplifiedScanScheduler : ThreadPoolSimplifiedScanScheduler {
+namespace doris {
+namespace vectorized {
+
+class SplitRunner {
 public:
-    MockSimplifiedScanScheduler(std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : ThreadPoolSimplifiedScanScheduler("ForTest", cgroup_cpu_ctl) {}
-
-    MOCK_METHOD0(get_active_threads, int());
-    MOCK_METHOD0(get_queue_size, int());
-    MOCK_METHOD3(schedule_scan_task, Status(std::shared_ptr<ScannerContext> scanner_ctx,
-                                            std::shared_ptr<ScanTask> current_scan_task,
-                                            std::unique_lock<std::mutex>& transfer_lock));
+    virtual ~SplitRunner() = default;
+    virtual Status init() = 0;
+    virtual Result<SharedListenableFuture<Void>> process_for(std::chrono::nanoseconds duration) = 0;
+    virtual void close(const Status& status) = 0;
+    virtual bool is_finished() = 0;
+    virtual Status finished_status() = 0;
+    virtual std::string get_info() const = 0;
+    virtual bool is_auto_reschedule() const { return true; }
 };
-} // namespace doris::vectorized
+
+} // namespace vectorized
+} // namespace doris

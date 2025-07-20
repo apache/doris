@@ -15,20 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gmock/gmock.h>
+#pragma once
 
-#include "vec/exec/scan/scanner_scheduler.h"
+#include "common/status.h"
+#include "vec/exec/executor/task_id.h"
 
-namespace doris::vectorized {
-class MockSimplifiedScanScheduler : ThreadPoolSimplifiedScanScheduler {
+namespace doris {
+namespace vectorized {
+
+class TaskHandle {
 public:
-    MockSimplifiedScanScheduler(std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : ThreadPoolSimplifiedScanScheduler("ForTest", cgroup_cpu_ctl) {}
-
-    MOCK_METHOD0(get_active_threads, int());
-    MOCK_METHOD0(get_queue_size, int());
-    MOCK_METHOD3(schedule_scan_task, Status(std::shared_ptr<ScannerContext> scanner_ctx,
-                                            std::shared_ptr<ScanTask> current_scan_task,
-                                            std::unique_lock<std::mutex>& transfer_lock));
+    virtual ~TaskHandle() = default;
+    virtual Status init() = 0;
+    virtual bool is_closed() const = 0;
+    virtual TaskId task_id() const = 0;
 };
-} // namespace doris::vectorized
+
+} // namespace vectorized
+} // namespace doris

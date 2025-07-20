@@ -15,20 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gmock/gmock.h>
+#pragma once
+#include <memory>
+#include <string>
 
-#include "vec/exec/scan/scanner_scheduler.h"
+namespace doris {
+namespace vectorized {
 
-namespace doris::vectorized {
-class MockSimplifiedScanScheduler : ThreadPoolSimplifiedScanScheduler {
+class TaskId {
 public:
-    MockSimplifiedScanScheduler(std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : ThreadPoolSimplifiedScanScheduler("ForTest", cgroup_cpu_ctl) {}
+    TaskId(const std::string& id) : _id(id) {}
+    std::string to_string() const { return _id; }
+    bool operator==(const TaskId& other) const { return _id == other._id; }
 
-    MOCK_METHOD0(get_active_threads, int());
-    MOCK_METHOD0(get_queue_size, int());
-    MOCK_METHOD3(schedule_scan_task, Status(std::shared_ptr<ScannerContext> scanner_ctx,
-                                            std::shared_ptr<ScanTask> current_scan_task,
-                                            std::unique_lock<std::mutex>& transfer_lock));
+private:
+    std::string _id;
 };
-} // namespace doris::vectorized
+
+} // namespace vectorized
+} // namespace doris
+
+namespace std {
+template <>
+struct hash<doris::vectorized::TaskId> {
+    size_t operator()(const doris::vectorized::TaskId& task_id) const {
+        return std::hash<std::string> {}(task_id.to_string());
+    }
+};
+} // namespace std
