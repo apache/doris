@@ -201,14 +201,16 @@ protected:
         //  (((c_end_new - c_res_mem) >> 16) << 16) 是将本次最少 tracking 的内存大小向下对齐到 64K
         //  capacity_bytes() 最小为 512K，所以 (capacity_bytes() >> 3) 最小为 64K
         //  所以 (((c_end_new - c_res_mem) >> 16) << 16) + (capacity_bytes() >> 3) 一定大于 c_end_new - c_res_mem
-        int64_t res_mem_growth = c_end_of_storage - c_res_mem < TrackingGrowthMinSize
-                                         ? c_end_of_storage - c_res_mem
-                                         : std::min(c_end_of_storage - c_res_mem,
-                                                    (((c_end_new - c_res_mem) >> 16) << 16) +
-                                                            (capacity_bytes() >> 3));
+        int64_t res_mem_growth =
+                c_end_of_storage - c_res_mem < TrackingGrowthMinSize
+                        ? c_end_of_storage - c_res_mem
+                        : std::min(static_cast<size_t>(c_end_of_storage - c_res_mem),
+                                   static_cast<size_t>((((c_end_new - c_res_mem) >> 16) << 16) +
+                                                       (capacity_bytes() >> 3)));
         DCHECK(res_mem_growth > 0) << ", c_end_new: " << (c_end_new - c_start)
                                    << ", c_res_mem: " << (c_res_mem - c_start)
                                    << ", c_end_of_storage: " << (c_end_of_storage - c_start)
+                                   << ", allocated_bytes: " << allocated_bytes()
                                    << ", capacity_bytes: " << capacity_bytes()
                                    << ", res_mem_growth: " << res_mem_growth;
         check_memory(res_mem_growth);
@@ -245,7 +247,7 @@ protected:
     void dealloc() {
         if (c_start == null) return;
         unprotect();
-        RELEASE_THREAD_MEM_TRACKER((c_res_mem - c_start + pad_right + pad_left));
+        RELEASE_THREAD_MEM_TRACKER(allocated_bytes());
         TAllocator::free(c_start - pad_left, allocated_bytes());
     }
 
@@ -261,6 +263,12 @@ protected:
         ptrdiff_t end_diff = c_end - c_start;
         ptrdiff_t res_mem_diff = c_res_mem - c_start;
 
+        // Realloc can do 2 possible things:
+        // - expand existing memory region
+        // - allocate new memory block and free the old one
+        // Because we don't know which option will be picked we need to make sure there is enough
+        // memory for all options.
+        check_memory(res_mem_diff);
         char* allocated = reinterpret_cast<char*>(
                 TAllocator::realloc(c_start - pad_left, allocated_bytes(), bytes,
                                     std::forward<TAllocatorParams>(allocator_params)...));
@@ -480,7 +488,10 @@ public:
     const_iterator cend() const { return t_end(); }
 
     void* get_end_ptr() const { return this->c_end; }
-    void set_end_ptr(void* ptr) { this->c_end = (char*)ptr; }
+    void set_end_ptr(void* ptr) {
+        this->c_end = (char*)ptr;
+        this->reset_resident_memory();
+    }
 
     /// Same as resize, but zeroes new elements.
     void resize_fill(size_t n) {
