@@ -24,6 +24,7 @@ import com.google.common.base.Strings;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -167,6 +168,10 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
                 return StaticCredentialsProvider.create(AwsSessionCredentials.create(getAccessKey(), getSecretKey(),
                         sessionToken));
             }
+        }
+        // For anonymous access (no credentials required)
+        if (StringUtils.isBlank(getAccessKey()) && StringUtils.isBlank(getSecretKey())) {
+            return AnonymousCredentialsProvider.create();
         }
         return null;
     }

@@ -49,11 +49,13 @@ public class COSProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"cos.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
+            required = false,
             description = "The access key of COS.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"cos.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+            required = false,
             description = "The secret key of COS.")
     protected String secretKey = "";
 

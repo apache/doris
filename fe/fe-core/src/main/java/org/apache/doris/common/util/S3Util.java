@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.credentials.CloudCredential;
 
 import com.google.common.base.Strings;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -63,7 +64,8 @@ public class S3Util {
                     EnvironmentVariableCredentialsProvider.create(),
                     WebIdentityTokenFileCredentialsProvider.create(),
                     ProfileCredentialsProvider.create(),
-                    InstanceProfileCredentialsProvider.create());
+                    InstanceProfileCredentialsProvider.create(),
+                    AnonymousCredentialsProvider.create());
         } else {
             awsCredentialsProvider = StaticCredentialsProvider.create(awsCredential);
         }
@@ -148,7 +150,8 @@ public class S3Util {
                     EnvironmentVariableCredentialsProvider.create(),
                     WebIdentityTokenFileCredentialsProvider.create(),
                     ProfileCredentialsProvider.create(),
-                    InstanceProfileCredentialsProvider.create());
+                    InstanceProfileCredentialsProvider.create(),
+                    AnonymousCredentialsProvider.create());
     }
 
     public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,
