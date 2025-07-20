@@ -136,6 +136,8 @@ import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
+import org.apache.doris.thrift.TCheckCurrentUserPrivilegeRequest
+import org.apache.doris.thrift.TCheckCurrentUserPrivilegeResult;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TColumnInfo;
@@ -170,8 +172,6 @@ import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
 import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
-import org.apache.doris.thrift.TCheckCurrentUserPrivilegeRequest
-import org.apache.doris.thrift.TCheckCurrentUserPrivilegeResult;
 import org.apache.doris.thrift.TGetColumnInfoRequest;
 import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
