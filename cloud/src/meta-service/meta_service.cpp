@@ -1068,9 +1068,8 @@ bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg
 
     if (!match) {
         std::stringstream ss;
-        ss << " stale perpare rowset request,"
-           << " instance_id=" << instance_id << " tablet_id=" << tablet_id << " job id=" << job_id
-           << " rowset_id=" << rowset_id;
+        ss << " stale perpare rowset request," << " instance_id=" << instance_id
+           << " tablet_id=" << tablet_id << " job id=" << job_id << " rowset_id=" << rowset_id;
         msg = ss.str();
         code = MetaServiceCode::STALE_PREPARE_ROWSET;
         return false;
@@ -2622,8 +2621,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     auto& end_versions = request->end_versions();
     if (rowset_ids.size() != begin_versions.size() || rowset_ids.size() != end_versions.size()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "rowset and version size not match. "
-           << " rowset_size=" << rowset_ids.size()
+        ss << "rowset and version size not match. " << " rowset_size=" << rowset_ids.size()
            << " begin_version_size=" << begin_versions.size()
            << " end_version_size=" << end_versions.size();
         msg = ss.str();
@@ -3135,8 +3133,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 std::string key1 = mow_tablet_job_key(
                         {instance_id, table_id, std::numeric_limits<int64_t>::max()});
                 txn->remove(key0, key1);
-                LOG_INFO("remove mow tablet job kv") << ", begin=" << hex(key0) << " end="
-                          << hex(key1) << " table_id=" << table_id;
+                LOG_INFO("remove mow tablet job kv")
+                        << ", begin=" << hex(key0) << " end=" << hex(key1)
+                        << " table_id=" << table_id;
                 std::string current_lock_msg =
                         "original lock_id=" + std::to_string(lock_info.lock_id());
                 lock_info.set_lock_id(request->lock_id());
@@ -3147,8 +3146,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                                                        current_lock_msg)) {
                     return;
                 }
-                LOG_INFO("force take delete bitmap update lock") << ", table_id=" << table_id
-                          << " lock_id=" << request->lock_id();
+                LOG_INFO("force take delete bitmap update lock")
+                        << ", table_id=" << table_id << " lock_id=" << request->lock_id();
             } else if (!is_job_delete_bitmap_lock_id(lock_info.lock_id())) {
                 if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
                     LOG_INFO(
@@ -3300,10 +3299,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                    first_retry) {
             g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
             // fast retry for urgent request when TXN_CONFLICT
-            LOG_INFO("fast retry to get_delete_bitmap_update_lock") << ", tablet_id="
-                      << request->table_id() << " lock_id=" << request->lock_id()
-                      << ", initiator=" << request->initiator() << "urgent=" << urgent
-                      << ", err=" << err;
+            LOG_INFO("fast retry to get_delete_bitmap_update_lock")
+                    << ", tablet_id=" << request->table_id() << " lock_id=" << request->lock_id()
+                    << ", initiator=" << request->initiator() << "urgent=" << urgent
+                    << ", err=" << err;
             first_retry = false;
             continue;
         } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
@@ -3385,9 +3384,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
             // since currently only the FE Master initiates the lock request for import tasks,
             // and it does so in a single-threaded manner, there is no need to check the lock id here
             DCHECK(request->lock_id() > 0);
-            LOG_INFO("force take delete bitmap update lock") << ", table_id=" << table_id
-                      << " lock_id=" << request->lock_id()
-                      << "prev_lock_id=" << lock_info.lock_id();
+            LOG_INFO("force take delete bitmap update lock")
+                    << ", table_id=" << table_id << " lock_id=" << request->lock_id()
+                    << "prev_lock_id=" << lock_info.lock_id();
             lock_info.clear_initiators();
         } else if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
             LOG_INFO("delete bitmap lock expired, continue to process.")
@@ -3714,8 +3713,7 @@ void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* cont
     auto& end_versions = request->end_versions();
     if (rowset_ids.size() != begin_versions.size() || rowset_ids.size() != end_versions.size()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "rowset and version size not match. "
-           << " rowset_size=" << rowset_ids.size()
+        ss << "rowset and version size not match. " << " rowset_size=" << rowset_ids.size()
            << " begin_version_size=" << begin_versions.size()
            << " end_version_size=" << end_versions.size();
         msg = ss.str();
