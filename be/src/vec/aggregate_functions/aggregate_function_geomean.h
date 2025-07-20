@@ -106,7 +106,7 @@ class AggregateFunctionGeomean final
                                               AggregateFunctionGeomean<type>> {
 public:
     using ColVecType = typename PrimitiveTypeTraits<type>::ColumnType;
- 
+
     AggregateFunctionGeomean(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionGeomeanData<type>,
                                            AggregateFunctionGeomean<type>>(argument_types_) {}
@@ -123,11 +123,11 @@ public:
             this->data(place).add(column.get_data()[row_num]);
         }
     }
- 
+
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
- 
+
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-                Arena&) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 

@@ -23,7 +23,6 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-
 template <PrimitiveType T>
 AggregateFunctionPtr create_agg_function_geomean(const DataTypes& argument_types,
                                                  const bool result_is_nullable) {
