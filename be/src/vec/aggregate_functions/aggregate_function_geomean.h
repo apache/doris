@@ -41,93 +41,95 @@ struct AggregateFunctionGeomeanData {
     Int32 count_positive = 0;
     Float64 sum_log {};
 
-	void write(BufferWritable& buf) const {
-		buf.write_binary(has_zero);
-		buf.write_binary(has_negative);
-		buf.write_binary(count_positive);
-		buf.write_binary(sum_log);
-	}
+    void write(BufferWritable& buf) const {
+        buf.write_binary(has_zero);
+        buf.write_binary(has_negative);
+        buf.write_binary(count_positive);
+        buf.write_binary(sum_log);
+    }
 
-	void read(BufferReadable& buf) {
-		buf.read_binary(has_zero);
-		buf.read_binary(has_negative);
-		buf.read_binary(count_positive);
-		buf.read_binary(sum_log);
-	}
+    void read(BufferReadable& buf) {
+        buf.read_binary(has_zero);
+        buf.read_binary(has_negative);
+        buf.read_binary(count_positive);
+        buf.read_binary(sum_log);
+    }
 
-	void reset() {
-		has_zero = false;
-		has_negative = false;
-		count_positive = 0;
-		sum_log = {};
-	}
+    void reset() {
+        has_zero = false;
+        has_negative = false;
+        count_positive = 0;
+        sum_log = {};
+    }
 
-	void merge(const AggregateFunctionGeomeanData& rhs) {
-		if (has_negative || has_zero || rhs.has_negative || rhs.has_zero || rhs.count_positive == 0) {
-			return;
-		}
-	
-		count_positive += rhs.count_positive;
-		sum_log += rhs.sum_log;
-	}
+    void merge(const AggregateFunctionGeomeanData& rhs) {
+        if (has_negative || has_zero || rhs.has_negative || rhs.has_zero ||
+            rhs.count_positive == 0) {
+            return;
+        }
 
-	// the caller makes sure `value_x` is not NULL
-	void add(const DataType& value_x) {
-		if (has_negative) {
-			return;
-		} else if (double(value_x) < 0) { // the conversion is safe here
-			has_negative = true;
-			return;
-		} else if (has_zero) { 
-			return;
-		} else if (double(value_x) == 0) {
-			has_zero = true;
-			return;
-		}
+        count_positive += rhs.count_positive;
+        sum_log += rhs.sum_log;
+    }
 
-		count_positive++; // value_x > 0
-		sum_log += std::log((double)value_x);
-	}
+    // the caller makes sure `value_x` is not NULL
+    void add(const DataType& value_x) {
+        if (has_negative) {
+            return;
+        } else if (double(value_x) < 0) { // the conversion is safe here
+            has_negative = true;
+            return;
+        } else if (has_zero) {
+            return;
+        } else if (double(value_x) == 0) {
+            has_zero = true;
+            return;
+        }
 
-	Float64 get_geomean() const {
-		if (has_negative) {
-			return std::numeric_limits<Float64>::quiet_NaN();
-		} else if (has_zero || count_positive == 0) {
-			return 0;
-		}
-		return std::exp(sum_log / count_positive);
-	}
+        count_positive++; // value_x > 0
+        sum_log += std::log((double)value_x);
+    }
+
+    Float64 get_geomean() const {
+        if (has_negative) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        } else if (has_zero || count_positive == 0) {
+            return 0;
+        }
+        return std::exp(sum_log / count_positive);
+    }
 };
 
 template <PrimitiveType type>
 class AggregateFunctionGeomean final
-		: public IAggregateFunctionDataHelper<AggregateFunctionGeomeanData<type>,
-											AggregateFunctionGeomean<type>> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionGeomeanData<type>,
+                                              AggregateFunctionGeomean<type>> {
 public:
-	using ColVecType = typename PrimitiveTypeTraits<type>::ColumnType;
+    using ColVecType = typename PrimitiveTypeTraits<type>::ColumnType;
+ 
+    AggregateFunctionGeomean(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<AggregateFunctionGeomeanData<type>,
+                                           AggregateFunctionGeomean<type>>(argument_types_) {}
 
-	AggregateFunctionGeomean(const DataTypes& argument_types_)
-			: IAggregateFunctionDataHelper<AggregateFunctionGeomeanData<type>,
-										AggregateFunctionGeomean<type>>(argument_types_) {}
-	
-	String get_name() const override { return "geomean"; }
+    String get_name() const override { return "geomean"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
-	void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-				Arena&) const override {
-		const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-		if (!column.is_null_at(row_num)) {
-				this->data(place).add(column.get_data()[row_num]);
-		}
-	}
-
-	void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
-
-	void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
-		this->data(place).merge(this->data(rhs));
-	}
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
+             Arena&) const override {
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        if (!column.is_null_at(row_num)) {
+            this->data(place).add(column.get_data()[row_num]);
+        }
+    }
+ 
+    void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
+ 
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+                Arena&) const override {
+        this->data(place).merge(this->data(rhs));
+    }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
@@ -138,12 +140,11 @@ public:
         this->data(place).read(buf);
     }
 
-	void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-		auto& column = assert_cast<ColumnFloat64&>(to);
-		column.get_data().push_back(this->data(place).get_geomean());
-	}
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& column = assert_cast<ColumnFloat64&>(to);
+        column.get_data().push_back(this->data(place).get_geomean());
+    }
 };
-
 
 } // namespace doris::vectorized
 

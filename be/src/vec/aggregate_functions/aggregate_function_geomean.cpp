@@ -18,20 +18,20 @@
 #include "vec/aggregate_functions/aggregate_function_geomean.h"
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
- template <PrimitiveType T>
- AggregateFunctionPtr create_agg_function_geomean(const DataTypes& argument_types,
+
+template <PrimitiveType T>
+AggregateFunctionPtr create_agg_function_geomean(const DataTypes& argument_types,
                                                  const bool result_is_nullable) {
     return creator_without_type::create<AggregateFunctionGeomean<T>>(argument_types,
                                                                      result_is_nullable);
- }
+}
 
- AggregateFunctionPtr create_aggregate_function_geomean(const std::string& name,
+AggregateFunctionPtr create_aggregate_function_geomean(const std::string& name,
                                                        const DataTypes& argument_types,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
@@ -70,7 +70,7 @@ namespace doris::vectorized {
 }
 
 void register_aggregate_function_geomean(AggregateFunctionSimpleFactory& factory) {
-	factory.register_function_both("geomean", create_aggregate_function_geomean);
+    factory.register_function_both("geomean", create_aggregate_function_geomean);
 }
 
 } // namespace doris::vectorized
