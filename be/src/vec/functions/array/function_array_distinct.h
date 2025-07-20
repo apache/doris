@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -310,6 +311,12 @@ private:
         case TYPE_VARCHAR:
             return _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
                                    dest_null_map);
+        case TYPE_IPV4:
+            return _execute_number<ColumnIPv4>(src_column, src_offsets, dest_column, dest_offsets,
+                                               src_null_map, dest_null_map);
+        case TYPE_IPV6:
+            return _execute_number<ColumnIPv6>(src_column, src_offsets, dest_column, dest_offsets,
+                                               src_null_map, dest_null_map);
         default:
             LOG(ERROR) << "Unsupported array's element type: "
                        << remove_nullable(nested_type)->get_name() << " for function "
