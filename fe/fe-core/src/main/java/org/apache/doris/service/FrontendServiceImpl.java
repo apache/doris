@@ -36,14 +36,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.LLMResource;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -82,7 +80,6 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
-import org.apache.doris.datasource.property.constants.LLMProperties;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.StreamLoadHandler;
@@ -181,8 +178,6 @@ import org.apache.doris.thrift.TGetColumnInfoRequest;
 import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
-import org.apache.doris.thrift.TGetLLMResourceRequest;
-import org.apache.doris.thrift.TGetLLMResourceResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
 import org.apache.doris.thrift.TGetMasterTokenResult;
 import org.apache.doris.thrift.TGetMetaDB;
@@ -4342,69 +4337,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         result.setStatus(new TStatus(TStatusCode.OK));
         result.setRunningQueries(runningQueries);
-        return result;
-    }
-
-    @Override
-    public TGetLLMResourceResult getLLMResource(TGetLLMResourceRequest request) throws TException {
-        TGetLLMResourceResult result = new TGetLLMResourceResult();
-        TStatus status = new TStatus();
-
-        String resourceName = request.getResourceName();
-
-        try {
-            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-            if (!(resource instanceof LLMResource)) {
-                throw new TException("LLM resource '" + resourceName + "' does not exist");
-            }
-            LLMResource llmResource = (LLMResource) resource;
-
-            result.setEndpoint(llmResource.getProperty(LLMProperties.ENDPOINT));
-            result.setProviderType(llmResource.getProperty(LLMProperties.PROVIDER_TYPE));
-            result.setApiKey(llmResource.getProperty(LLMProperties.API_KEY));
-            result.setModelName(llmResource.getProperty(LLMProperties.MODEL_NAME));
-            result.setAnthropicVersion(llmResource.getProperty(LLMProperties.ANTHROPIC_VERSION));
-
-            try {
-                result.setTemperature(Double.parseDouble(llmResource.getProperty(LLMProperties.TEMPERATURE)));
-            } catch (NumberFormatException e) {
-                LOG.warn("Failed to parse temperature: " + llmResource.getProperty(LLMProperties.TEMPERATURE), e);
-            }
-
-            try {
-                result.setMaxTokens(Long.parseLong(llmResource.getProperty(LLMProperties.MAX_TOKEN)));
-            } catch (NumberFormatException e) {
-                LOG.warn("Failed to parse max_token: " + llmResource.getProperty(LLMProperties.MAX_TOKEN), e);
-            }
-
-            try {
-                result.setMaxRetries(Long.parseLong(llmResource.getProperty(LLMProperties.MAX_RETRIES)));
-            } catch (NumberFormatException e) {
-                LOG.warn("Failed to parse max_retries: " + llmResource.getProperty(LLMProperties.MAX_RETRIES), e);
-            }
-
-            try {
-                result.setRetryDelayMs(Long.parseLong(llmResource.getProperty(LLMProperties.RETRY_DELAY_MS)));
-            } catch (NumberFormatException e) {
-                LOG.warn("Failed to parse retry_delay_ms: " + llmResource.getProperty(LLMProperties.RETRY_DELAY_MS), e);
-            }
-
-            try {
-                result.setTimeoutMs(Long.parseLong(llmResource.getProperty(LLMProperties.TIMEOUT_MS)));
-            } catch (NumberFormatException e) {
-                LOG.warn("Failed to parse timeout_ms: " + llmResource.getProperty(LLMProperties.TIMEOUT_MS), e);
-            }
-
-            status.setStatusCode(TStatusCode.OK);
-        } catch (TException e) {
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.setErrorMsgs(Lists.newArrayList(e.getMessage()));
-        } catch (Exception e) {
-            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.setErrorMsgs(Lists.newArrayList(e.getMessage()));
-        }
-
-        result.setStatus(status);
         return result;
     }
 

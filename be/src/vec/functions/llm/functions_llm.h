@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/FrontendService.h>
+#include <gen_cpp/PaloInternalService_types.h>
 
 #include <memory>
 #include <string>
@@ -26,13 +27,35 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "http/http_client.h"
-#include "runtime/client_cache.h"
 #include "util/threadpool.h"
-#include "util/thrift_rpc_helper.h"
 #include "vec/functions/function.h"
 #include "vec/functions/llm/llm_adapter.h"
 
 namespace doris::vectorized {
+// Used to receive LLM Resource in the fragment
+class LLMFunctionUtil {
+public:
+    static LLMFunctionUtil& instance() {
+        static LLMFunctionUtil util;
+        return util;
+    }
+
+    void prepare(std::map<std::string, TLLMResource> llm_resources) {
+        _llm_resources = std::move(llm_resources);
+    }
+
+    const TLLMResource& get_llm_resource(const std::string& resource_name) const {
+        auto it = _llm_resources.find(resource_name);
+        if (it != _llm_resources.end()) {
+            return it->second;
+        }
+        throw Status::InternalError("LLM resource not found: " + resource_name);
+    }
+
+private:
+    std::map<std::string, TLLMResource> _llm_resources;
+};
+
 // Base class for LLM-based functions
 template <typename Derived>
 class LLMFunction : public IFunction {
@@ -52,52 +75,7 @@ public:
 
     // 1. Initialize resource
     // 2. Create an adapter based on provider_type
-    Status init(const std::string& resource_name) {
-        if (resource_name == _resource_name && _adapter != nullptr) {
-            return Status::OK();
-        }
-        _resource_name = resource_name;
-
-        // Obtain resource data through RPC
-        TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
-        TGetLLMResourceRequest request;
-        request.__set_resource_name(resource_name);
-        TGetLLMResourceResult result;
-        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr.hostname, master_addr.port,
-                [&request, &result](FrontendServiceConnection& client) {
-                    client->getLLMResource(result, request);
-                },
-                config::thrift_rpc_timeout_ms));
-        if (result.status.status_code != TStatusCode::OK) {
-            std::stringstream ss;
-            for (const std::string& err : result.status.error_msgs) {
-                ss << err << " ";
-            }
-            return Status::InternalError("Failed to get LLM resource: " + ss.str());
-        }
-        _config.endpoint_url = result.endpoint;
-        _config.provider_type = result.provider_type;
-        _config.api_key = result.api_key;
-        _config.model_name = result.model_name;
-        _config.temperature = result.temperature;
-        _config.max_tokens = result.max_tokens;
-        _config.max_retries = result.max_retries;
-        _config.retry_delay_ms = result.retry_delay_ms;
-        _config.timeout_ms = result.timeout_ms;
-        _config.anthropic_version = result.anthropic_version;
-
-        _adapter = LLMAdapterFactory::create_adapter(_config.provider_type);
-        if (!_adapter) {
-            return Status::InternalError("Unsupported LLM provider type: " + _config.provider_type);
-        }
-        _adapter->init(_config);
-
-        return Status::OK();
-    }
-
-    Status init_from_resource(const Block& block, const ColumnNumbers& arguments,
-                              size_t row_num) const {
+    Status init_from_resource(const Block& block, const ColumnNumbers& arguments, size_t row_num) {
         Status status;
 
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
@@ -106,14 +84,22 @@ public:
             StringRef resource_name_ref = col_const_resource->get_data_at(0);
             const std::string resource_name =
                     std::string(resource_name_ref.data, resource_name_ref.size);
-            status = const_cast<Derived*>(assert_cast<const Derived*>(this))->init(resource_name);
+            _config = LLMFunctionUtil::instance().get_llm_resource(resource_name);
         } else {
             const auto* col_resource =
                     assert_cast<const ColumnString*>(resource_column.column.get());
             StringRef resource_name_ref = col_resource->get_data_at(row_num);
             std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
-            status = const_cast<Derived*>(assert_cast<const Derived*>(this))->init(resource_name);
+            _config = LLMFunctionUtil::instance().get_llm_resource(resource_name);
         }
+
+        _adapter = LLMAdapterFactory::create_adapter(_config.provider_type);
+        if (!_adapter) {
+            return Status::InternalError("Unsupported LLM provider type: " + _config.provider_type);
+        }
+        _adapter->init(_config);
+
+        return Status::OK();
 
         if (!status.ok()) {
             throw Status::InternalError("Failed to initialize FunctionLLMTranslate: " +
@@ -125,7 +111,7 @@ public:
     // Executes the actual HTTP request
     Status do_send_request(HttpClient* client, const std::string& request_body,
                            std::string& response) const {
-        RETURN_IF_ERROR(client->init(_config.endpoint_url));
+        RETURN_IF_ERROR(client->init(_config.endpoint));
 
         client->set_timeout_ms(_config.timeout_ms);
 
@@ -191,18 +177,10 @@ public:
             bool is_null = false;
         };
 
-        std::vector<std::unique_ptr<CountDownLatch>> latches;
-        latches.reserve(input_rows_count);
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            latches.push_back(std::make_unique<CountDownLatch>(1));
-        }
-
         std::vector<RowResult> results(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            CountDownLatch* task_latch = latches[i].get();
-
             Status submit_status =
-                    thread_pool->submit_func([this, i, &block, &arguments, &results, task_latch]() {
+                    thread_pool->submit_func([this, i, &block, &arguments, &results]() {
                         RowResult& row_result = results[i];
 
                         try {
@@ -212,13 +190,13 @@ public:
                                     block, arguments, i, prompt);
                             // 2. Init LLM resources and adapters
                             if (status.ok()) {
-                                status = init_from_resource(block, arguments, i);
+                                status = const_cast<Derived*>(assert_cast<const Derived*>(this))
+                                                 ->init_from_resource(block, arguments, i);
                             }
 
                             if (!status.ok()) {
                                 row_result.status = status;
                                 row_result.is_null = true;
-                                task_latch->count_down();
                                 return;
                             }
 
@@ -228,7 +206,6 @@ public:
                             if (!status.ok()) {
                                 row_result.status = status;
                                 row_result.is_null = true;
-                                task_latch->count_down();
                                 return;
                             }
                             row_result.data = std::move(result_str);
@@ -238,8 +215,6 @@ public:
                                                                       std::string(e.what()));
                             row_result.is_null = true;
                         }
-
-                        task_latch->count_down();
                     });
 
             if (!submit_status.ok()) {
@@ -248,9 +223,7 @@ public:
             }
         }
 
-        for (auto& latch : latches) {
-            latch->wait();
-        }
+        thread_pool->wait();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             const RowResult& row_result = results[i];
@@ -273,9 +246,8 @@ public:
     }
 
 private:
-    LLMConfig _config;
+    TLLMResource _config;
     std::shared_ptr<LLMAdapter> _adapter;
-    std::string _resource_name;
 };
 
 } // namespace doris::vectorized

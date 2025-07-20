@@ -785,12 +785,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
-    public static final String SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR = "skew_rewrite_join_salt_explode_factor";
-
-    public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
-
-    public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
-
     public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
     public static final String DEFAULT_LLM_TRANSLATE_RESOURCE = "default_llm_translate_resource";
     public static final String DEFAULT_LLM_CLASSIFY_RESOURCE = "default_llm_classify_resource";

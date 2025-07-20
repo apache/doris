@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -30,19 +32,6 @@
 #include "rapidjson/writer.h"
 
 namespace doris::vectorized {
-struct LLMConfig {
-    std::string provider_type;
-    std::string endpoint_url;
-    std::string api_key;
-    std::string model_name;
-    double temperature;
-    long max_tokens;
-    long max_retries;
-    long retry_delay_ms;
-    long timeout_ms;
-    std::string anthropic_version;
-};
-
 class LLMAdapter {
 public:
     virtual ~LLMAdapter() = default;
@@ -50,7 +39,7 @@ public:
     // Set authentication headers for the HTTP client
     virtual Status set_authentication(HttpClient* client) const = 0;
 
-    virtual void init(const LLMConfig& config) { _config = config; }
+    virtual void init(const TLLMResource& config) { _config = config; }
 
     // Build request payload based on input text strings
     virtual Status build_request_payload(const std::vector<std::string>& inputs,
@@ -64,7 +53,7 @@ public:
     virtual std::string get_type() const = 0;
 
 protected:
-    LLMConfig _config;
+    TLLMResource _config;
 };
 
 // Local LLM adapter for locally hosted models (Ollama, LLaMA, etc.)
