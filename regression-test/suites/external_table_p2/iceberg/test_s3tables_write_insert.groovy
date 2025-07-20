@@ -617,23 +617,6 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
         order_qt_q03 """ select * from ${all_types_partition_table};
         """
 
-        // just test
-        sql """
-            SELECT
-              CASE
-                WHEN file_size_in_bytes BETWEEN 0 AND 8 * 1024 * 1024 THEN '0-8M'
-                WHEN file_size_in_bytes BETWEEN 8 * 1024 * 1024 + 1 AND 32 * 1024 * 1024 THEN '8-32M'
-                WHEN file_size_in_bytes BETWEEN 2 * 1024 * 1024 + 1 AND 128 * 1024 * 1024 THEN '32-128M'
-                WHEN file_size_in_bytes BETWEEN 128 * 1024 * 1024 + 1 AND 512 * 1024 * 1024 THEN '128-512M'
-                WHEN file_size_in_bytes > 512 * 1024 * 1024 THEN '> 512M'
-                ELSE 'Unknown'
-              END AS SizeRange,
-              COUNT(*) AS FileNum
-            FROM ${all_types_partition_table}\$data_files
-            GROUP BY
-              SizeRange;
-        """
-
         sql """ DROP TABLE ${all_types_partition_table}; """
     }
 
