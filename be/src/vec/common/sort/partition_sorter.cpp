@@ -25,7 +25,6 @@
 #include "common/object_pool.h"
 #include "vec/core/block.h"
 #include "vec/core/sort_cursor.h"
-#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {

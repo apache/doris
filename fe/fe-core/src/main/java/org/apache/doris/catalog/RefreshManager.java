@@ -179,7 +179,13 @@ public class RefreshManager {
             LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
-        refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+        if (!Strings.isNullOrEmpty(log.getNewTableName())) {
+            // this is a rename table op
+            db.get().unregisterTable(log.getTableName());
+            db.get().resetMetaCacheNames();
+        } else {
+            refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+        }
     }
 
     public void refreshExternalTableFromEvent(String catalogName, String dbName, String tableName,
