@@ -483,14 +483,14 @@ class UpCommand(Command):
         if self._support_boolean_action():
             parser.add_argument(
                 "--be-cluster-id",
-                default=True,
+                default=False,
                 action=self._get_parser_bool_action(False),
                 help="Do not set BE cluster ID in conf. Default is False.")
         else:
             parser.add_argument(
                 "--no-be-cluster-id",
                 dest='be_cluster_id',
-                default=True,
+                default=False,
                 action=self._get_parser_bool_action(False),
                 help="Do not set BE cluster ID in conf. Default is False.")
 
