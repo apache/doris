@@ -375,6 +375,7 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
 }
 
 Status Block::check_type_and_column() const {
+#ifndef NDEBUG
     for (const auto& elem : data) {
         if (!elem.column) {
             continue;
@@ -394,6 +395,7 @@ Status Block::check_type_and_column() const {
                     elem.name, column->get_name(), type->get_name(), st.msg());
         }
     }
+#endif
     return Status::OK();
 }
 
