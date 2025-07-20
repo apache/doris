@@ -27,7 +27,7 @@ suite("iceberg_schema_change_ddl_with_branch", "p0,external,doris,external_docke
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String catalog_name = "iceberg_schema_change_ddl_with_branch""
+    String catalog_name = "iceberg_schema_change_ddl_with_branch"
 
     sql """drop catalog if exists ${catalog_name}"""
     sql """
