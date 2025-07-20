@@ -74,38 +74,38 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
