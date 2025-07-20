@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.errors.QueryPlanningErrors;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -37,8 +37,8 @@ public interface RewriteJob {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         long elapsedS = context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) / 1000;
         if (sessionVariable.enableNereidsTimeout && elapsedS > sessionVariable.nereidsTimeoutSecond) {
-            throw new AnalysisException(String.format("Nereids cost too much time (%ds > %ds)",
-                    elapsedS, sessionVariable.nereidsTimeoutSecond));
+            throw QueryPlanningErrors.planTimeoutError(elapsedS, sessionVariable.nereidsTimeoutSecond,
+                    context.getConnectContext().getExecutor().getSummaryProfile());
         }
     }
 }

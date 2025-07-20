@@ -225,7 +225,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA + TC > 3 and TA + TC < 1) and TB < 5", "(TA + TC) is null and null and TB < 5");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "((TA + TC) is null and null) OR TB < 5");
 
-        assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1");
+        assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1");
 
     }
 

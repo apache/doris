@@ -132,6 +132,7 @@ class RpcController;
 } // namespace google
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 using namespace ErrorCode;
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
@@ -2307,5 +2308,5 @@ void PInternalService::abort_refresh_dictionary(google::protobuf::RpcController*
                                                                            request->version_id());
     st.to_protobuf(response->mutable_status());
 }
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

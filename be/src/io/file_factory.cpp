@@ -53,6 +53,7 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
 io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
@@ -89,6 +90,7 @@ int32_t get_broker_index(const std::vector<TNetworkAddress>& brokers, const std:
 
     // secondly select broker by hash of file path
     auto key = HashUtil::hash(path.data(), cast_set<uint32_t>(path.size()), 0);
+
     return key % brokers.size();
 }
 
@@ -276,4 +278,5 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     return Status::OK();
 }
 #include "common/compile_check_end.h"
+
 } // namespace doris
