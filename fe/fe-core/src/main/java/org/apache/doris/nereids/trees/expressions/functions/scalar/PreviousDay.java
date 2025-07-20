@@ -16,7 +16,6 @@
 // under the License.
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
-
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -25,28 +24,9 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-
 import java.util.List;
-
-/**
- * ScalarFunction 'next_day'.
- * next_day(expr, dayOfWeek)
- * - expr: A DATE expression.
- * - dayOfWeek: A STRING expression identifying a day of the week.
- * Returns the first DATE that is later than expr and has the same day of the
- * week as dayOfWeek.
- * dayOfWeek must be one of the following (case insensitive):
- * 'SU', 'SUN', 'SUNDAY'
- * 'MO', 'MON', 'MONDAY'
- * 'TU', 'TUE', 'TUESDAY'
- * 'WE', 'WED', 'WEDNESDAY'
- * 'TH', 'THU', 'THURSDAY'
- * 'FR', 'FRI', 'FRIDAY'
- * 'SA', 'SAT', 'SATURDAY'
- */
 
 public class PreviousDay extends ScalarFunction implements BinaryExpression, 
 ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
@@ -72,5 +52,5 @@ ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
 	public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
 		return visitor.visitPreviousDay(this, context);
 	}
+}
 
-} 
