@@ -102,5 +102,8 @@ TEST(AggTest, topn_test) {
             "46,\"10\":37}";
     EXPECT_EQ(result, expect_result);
     agg_function->destroy(place);
+
+    char* buf = new char[102400000];
+    DCHECK(buf!=nullptr);
 }
 } // namespace doris::vectorized
