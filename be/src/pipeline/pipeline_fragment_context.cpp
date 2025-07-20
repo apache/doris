@@ -117,6 +117,7 @@
 #include "util/uid_util.h"
 #include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/topn_sorter.h"
+#include "vec/functions/llm/functions_llm.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/spill/spill_stream.h"
 
@@ -254,6 +255,10 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
     if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
         _timeout = request.query_options.execution_timeout;
+    }
+
+    if (request.__isset.llm_resources) {
+        vectorized::LLMFunctionUtil::instance().prepare(request.llm_resources);
     }
 
     _fragment_level_profile = std::make_unique<RuntimeProfile>("PipelineContext");

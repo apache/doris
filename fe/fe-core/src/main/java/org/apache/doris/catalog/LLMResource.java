@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.datasource.property.constants.LLMProperties;
+import org.apache.doris.thrift.TLLMResource;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -243,5 +244,47 @@ public class LLMResource extends Resource {
             }
         }
         readUnlock();
+    }
+
+    public TLLMResource toThrift() throws NumberFormatException {
+        TLLMResource tLLMResource = new  TLLMResource();
+        tLLMResource.setProviderType(properties.get(LLMProperties.PROVIDER_TYPE));
+        tLLMResource.setEndpoint(properties.get(LLMProperties.ENDPOINT));
+        tLLMResource.setApiKey(properties.get(LLMProperties.API_KEY));
+        tLLMResource.setModelName(properties.get(LLMProperties.MODEL_NAME));
+        tLLMResource.setAnthropicVersion(properties.get(LLMProperties.ANTHROPIC_VERSION));
+
+        try {
+            tLLMResource.setTemperature(Double.parseDouble(properties.get(LLMProperties.TEMPERATURE)));
+        } catch (NumberFormatException e) {
+            throw new NumberFormatException("Failed to parse temperature: "
+                                            + properties.get(LLMProperties.TEMPERATURE));
+        }
+        try {
+            tLLMResource.setMaxTokens(Long.parseLong(properties.get(LLMProperties.MAX_TOKEN)));
+        } catch (NumberFormatException e) {
+            throw new NumberFormatException("Failed to parse max_token: "
+                                            + properties.get(LLMProperties.MAX_TOKEN));
+        }
+        try {
+            tLLMResource.setMaxRetries(Long.parseLong(properties.get(LLMProperties.MAX_RETRIES)));
+        } catch (NumberFormatException e) {
+            throw new NumberFormatException("Failed to parse max_retries: "
+                                            + properties.get(LLMProperties.MAX_RETRIES));
+        }
+        try {
+            tLLMResource.setRetryDelayMs(Long.parseLong(properties.get(LLMProperties.RETRY_DELAY_MS)));
+        } catch (NumberFormatException e) {
+            throw new NumberFormatException("Failed to parse retry_delay_ms: "
+                                            + properties.get(LLMProperties.RETRY_DELAY_MS));
+        }
+        try {
+            tLLMResource.setTimeoutMs(Long.parseLong(properties.get(LLMProperties.TIMEOUT_MS)));
+        } catch (NumberFormatException e) {
+            throw new NumberFormatException("Failed to parse timeout_ms: "
+                                            + properties.get(LLMProperties.TIMEOUT_MS));
+        }
+
+        return tLLMResource;
     }
 }
