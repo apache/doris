@@ -175,32 +175,34 @@ protected:
                       "TAllocator should `check_and_tracking_memory` is false");
         // Premise conditions:
         //  - c_res_mem <= c_end_of_storage
-        //  - c_end_new - c_start + pad_right + pad_left > c_res_mem - c_start + pad_right + pad_left
+        //  - c_end_new > c_res_mem
         //  - If padding is not a power of 2, such as 24, capacity_bytes() will also not be a power of 2.
-        //  - res_mem_growth is usually power of 2, if padding and capacity is not a power of 2,
-        //    res_mem_growth = std::min(capacity, >capacity), res_mem_growth may not be a power of 2.
         //
-        // If capacity <= 8M, res_mem_growth >= 1M.
-        // If 8M < capacity <= 16M, res_mem_growth >= 2M.
-        // If 16M < capacity <= 32M, res_mem_growth >= 4M.
-        // If 32M < capacity <= 64M, res_mem_growth >= 8M.
-        // ...
-        // If 256M < capacity <= 512M, res_mem_growth >= 64M.
+        // If capacity_bytes <= 256K, res_mem_growth = c_end_of_storage - c_res_mem.
         //
-        // so, when PODArray is expanded by power of 2, the memory is checked and tracked 4 times between each expansion.
+        // If capacity >= 512K:
+        //      - If `c_end_of_storage - c_res_mem < TrackingGrowthMinSize`, then tracking to c_end_of_storage.
+        //      - `c_end_new - c_res_mem` is the size of the physical memory growth,
+        //        which is also the minimum tracking size of this time,
+        //        `(((c_end_new - c_res_mem) >> 16) << 16)` is aligned down to 64K,
+        //        assuming `capacity_bytes >= 512K`, so `(capacity_bytes >> 3)` is at least 64K,
+        //        so `(((c_end_new - c_res_mem) >> 16) << 16) + (capacity_bytes() >> 3)`
+        //        must be greater than `c_end_new - c_res_mem`.
+        //
+        //        For example:
+        //         - 256K < capacity <= 512K,
+        //           it will only tracking twice,
+        //           the second time `c_end_of_storage - c_res_mem < TrackingGrowthMinSize` is true,
+        //           so it will tracking to c_end_of_storage.
+        //         - capacity > 32M, `(((c_end_new - c_res_mem) >> 16) << 16)` align the increased
+        //           physical memory size down to 64k, then add `(capacity_bytes() >> 3)` equals 2M,
+        //           so `reset_resident_memory` is tracking an additional 2M,
+        //           after that, physical memory growth within 2M does not need to reset_resident_memory again.
+        //
+        // so, when PODArray is expanded by power of 2,
+        // the memory is checked and tracked up to 8 times between each expansion,
+        // because each time additional tracking `(capacity_bytes() >> 3)`.
         // after each reset_resident_memory, tracking_res_memory >= used_bytes;
-        // int64_t res_mem_growth =
-        //         std::min(capacity, (((c_end_new - c_start + pad_right + pad_left) >> 20) +
-        //                             std::max(static_cast<int>(capacity >> 23), 1)) *
-        //                                    TrackingGrowthMinSize) -
-        //         (c_res_mem - c_start + pad_right + pad_left);
-        //
-        // 当 capacity_bytes <= 256K 时，res_mem_growth永远等于 c_end_of_storage - c_res_mem
-        // 当 capacity_bytes > 256K 时：
-        //  c_end_new - c_res_mem 是本次最少 tracking 的内存大小
-        //  (((c_end_new - c_res_mem) >> 16) << 16) 是将本次最少 tracking 的内存大小向下对齐到 64K
-        //  capacity_bytes() 最小为 512K，所以 (capacity_bytes() >> 3) 最小为 64K
-        //  所以 (((c_end_new - c_res_mem) >> 16) << 16) + (capacity_bytes() >> 3) 一定大于 c_end_new - c_res_mem
         int64_t res_mem_growth =
                 c_end_of_storage - c_res_mem < TrackingGrowthMinSize
                         ? c_end_of_storage - c_res_mem
