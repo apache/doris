@@ -136,7 +136,7 @@ import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
-import org.apache.doris.thrift.TCheckCurrentUserPrivilegeRequest
+import org.apache.doris.thrift.TCheckCurrentUserPrivilegeRequest;
 import org.apache.doris.thrift.TCheckCurrentUserPrivilegeResult;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
