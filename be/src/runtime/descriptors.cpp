@@ -667,4 +667,5 @@ std::string DescriptorTbl::debug_string() const {
 
     return out.str();
 }
+
 } // namespace doris
