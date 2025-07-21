@@ -302,7 +302,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             newStats = plan.accept(this, null);
         } catch (Exception e) {
             // throw exception in debug mode
-            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
+            if (SessionVariable.isFeDebug()) {
                 throw e;
             }
             LOG.warn("stats calculation failed, plan " + plan.toString(), e);

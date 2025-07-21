@@ -18,10 +18,15 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -39,11 +44,17 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -55,10 +66,14 @@ import org.apache.commons.math3.util.Precision;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
 class FilterEstimationTest {
+    private static final NereidsParser PARSER = new NereidsParser();
+    private static final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
+    private static final float HOT_VALUE_PERCENTAGE = 30f;
 
     // a > 500 or b < 100
     // b isNaN
@@ -188,9 +203,9 @@ class FilterEstimationTest {
         double ndv = 14.0;
         ColumnStatistic ymStats = new ColumnStatisticBuilder(rowCount)
                 .setNdv(ndv)
-                .setMinExpr(new StringLiteral("2023-07"))
+                .setMinExpr(new StringLiteral("2023-07").toLegacyLiteral())
                 .setMinValue(14126741000630328.000000)
-                .setMaxExpr(new StringLiteral("2024-08"))
+                .setMaxExpr(new StringLiteral("2024-08").toLegacyLiteral())
                 .setMaxValue(14126741017407544.000000)
                 .setAvgSizeByte(7)
                 .build();
@@ -199,7 +214,7 @@ class FilterEstimationTest {
                 .build();
 
         EqualTo predicate = new EqualTo(ym,
-                new Left(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("2024-08-14"),
+                new Left(new StringLiteral("2024-08-14"),
                         new IntegerLiteral(7))
         );
         FilterEstimation filterEstimation = new FilterEstimation();
@@ -214,9 +229,9 @@ class FilterEstimationTest {
         double ndv = 0.5;
         ColumnStatistic ymStats = new ColumnStatisticBuilder(rowCount)
                 .setNdv(ndv)
-                .setMinExpr(new StringLiteral("2023-07"))
+                .setMinExpr(new StringLiteral("2023-07").toLegacyLiteral())
                 .setMinValue(14126741000630328.000000)
-                .setMaxExpr(new StringLiteral("2024-08"))
+                .setMaxExpr(new StringLiteral("2024-08").toLegacyLiteral())
                 .setMaxValue(14126741017407544.000000)
                 .setAvgSizeByte(7)
                 .build();
@@ -225,7 +240,7 @@ class FilterEstimationTest {
                 .build();
 
         EqualTo predicate = new EqualTo(ym,
-                new Left(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("2024-08-14"),
+                new Left(new StringLiteral("2024-08-14"),
                         new IntegerLiteral(7))
         );
         FilterEstimation filterEstimation = new FilterEstimation();
@@ -1184,9 +1199,9 @@ class FilterEstimationTest {
         ColumnStatisticBuilder gameBuilder = new ColumnStatisticBuilder(1000000)
                 .setNdv(1.0)
                 .setNumNulls(49813.0)
-                .setMaxExpr(new StringLiteral("mus"))
+                .setMaxExpr(new StringLiteral("mus").toLegacyLiteral())
                 .setMaxValue(new VarcharLiteral("mus").getDouble())
-                .setMinExpr(new StringLiteral("mus"))
+                .setMinExpr(new StringLiteral("mus").toLegacyLiteral())
                 .setMinValue(new VarcharLiteral("mus").getDouble());
         VarcharLiteral mus = new VarcharLiteral("mus");
         EqualTo gameEqualTo = new EqualTo(game, mus);
@@ -1195,9 +1210,9 @@ class FilterEstimationTest {
         ColumnStatisticBuilder platBuilder = new ColumnStatisticBuilder(1000000)
                 .setNdv(1.0)
                 .setNumNulls(49691.0)
-                .setMaxExpr(new StringLiteral("37wan"))
+                .setMaxExpr(new StringLiteral("37wan").toLegacyLiteral())
                 .setMaxValue(new VarcharLiteral("37wan").getDouble())
-                .setMinExpr(new StringLiteral("37wan"))
+                .setMinExpr(new StringLiteral("37wan").toLegacyLiteral())
                 .setMinValue(new VarcharLiteral("37wan").getDouble());
         VarcharLiteral wan = new VarcharLiteral("37wan");
         EqualTo wanEqualTo = new EqualTo(plat, wan);
@@ -1310,9 +1325,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
-                .setMaxExpr(new StringLiteral("200"))
+                .setMaxExpr(new StringLiteral("200").toLegacyLiteral())
                 .setMaxValue(new VarcharLiteral("200").getDouble())
-                .setMinExpr(new StringLiteral("100"))
+                .setMinExpr(new StringLiteral("100").toLegacyLiteral())
                 .setMinValue(new VarcharLiteral("100").getDouble());
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.setRowCount(100);
@@ -1338,9 +1353,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
-                .setMaxExpr(new StringLiteral("2022-01-01"))
+                .setMaxExpr(new StringLiteral("2022-01-01").toLegacyLiteral())
                 .setMaxValue(new VarcharLiteral("2022-01-01").getDouble())
-                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinExpr(new StringLiteral("2020-01-01").toLegacyLiteral())
                 .setMinValue(new VarcharLiteral("2020-01-01").getDouble());
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.setRowCount(100);
@@ -1366,9 +1381,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
-                .setMaxExpr(new StringLiteral("2022-01-01"))
+                .setMaxExpr(new StringLiteral("2022-01-01").toLegacyLiteral())
                 .setMaxValue(new VarcharLiteral("2022-01-01").getDouble())
-                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinExpr(new StringLiteral("2020-01-01").toLegacyLiteral())
                 .setMinValue(new VarcharLiteral("2020-01-01").getDouble());
 
         SlotReference b = new SlotReference("b", new VarcharType(25));
@@ -1376,9 +1391,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
-                .setMaxExpr(new StringLiteral("2012-01-01"))
+                .setMaxExpr(new StringLiteral("2012-01-01").toLegacyLiteral())
                 .setMaxValue(new VarcharLiteral("2012-01-01").getDouble())
-                .setMinExpr(new StringLiteral("2010-01-01"))
+                .setMinExpr(new StringLiteral("2010-01-01").toLegacyLiteral())
                 .setMinValue(new VarcharLiteral("2010-01-01").getDouble());
 
         SlotReference c = new SlotReference("c", new VarcharType(25));
@@ -1386,9 +1401,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
-                .setMaxExpr(new StringLiteral("2021-01-01"))
+                .setMaxExpr(new StringLiteral("2021-01-01").toLegacyLiteral())
                 .setMaxValue(new VarcharLiteral("2021-01-01").getDouble())
-                .setMinExpr(new StringLiteral("2010-01-01"))
+                .setMinExpr(new StringLiteral("2010-01-01").toLegacyLiteral())
                 .setMinValue(new VarcharLiteral("2010-01-01").getDouble());
 
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
@@ -1419,9 +1434,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
-                .setMaxExpr(new StringLiteral("2022-01-01"))
+                .setMaxExpr(new StringLiteral("2022-01-01").toLegacyLiteral())
                 .setMaxValue(new DateLiteral("2022-01-01").getDouble())
-                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinExpr(new StringLiteral("2020-01-01").toLegacyLiteral())
                 .setMinValue(new DateLiteral("2020-01-01").getDouble());
 
         SlotReference b = new SlotReference("b", DateType.INSTANCE);
@@ -1429,9 +1444,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
-                .setMaxExpr(new StringLiteral("2012-01-01"))
+                .setMaxExpr(new StringLiteral("2012-01-01").toLegacyLiteral())
                 .setMaxValue(new DateLiteral("2012-01-01").getDouble())
-                .setMinExpr(new StringLiteral("2010-01-01"))
+                .setMinExpr(new StringLiteral("2010-01-01").toLegacyLiteral())
                 .setMinValue(new DateLiteral("2010-01-01").getDouble());
 
         SlotReference c = new SlotReference("c", DateType.INSTANCE);
@@ -1439,9 +1454,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
-                .setMaxExpr(new StringLiteral("2021-01-01"))
+                .setMaxExpr(new StringLiteral("2021-01-01").toLegacyLiteral())
                 .setMaxValue(new DateLiteral("2021-01-01").getDouble())
-                .setMinExpr(new StringLiteral("2010-01-01"))
+                .setMinExpr(new StringLiteral("2010-01-01").toLegacyLiteral())
                 .setMinValue(new DateLiteral("2010-01-01").getDouble());
 
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
@@ -1590,5 +1605,165 @@ class FilterEstimationTest {
         Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
         Assertions.assertTrue(stats.findColumnStatistics(a).isUnKnown());
         Assertions.assertFalse(stats.findColumnStatistics(b).isUnKnown());
+    }
+
+    private ColumnStatistic createColumnStatistic(
+            String colName,
+            double ndv, double rowCount,
+            String minExprStr, String maxExprStr,
+            double numNulls,
+            String[] hot) {
+        DataType dataType = guessDataType(colName);
+        Map<Literal, Float> hotValues = null;
+        if (hot.length > 0) {
+            hotValues = new HashMap<>();
+            for (String oneHot : hot) {
+                Literal literal = (Literal) new StringLiteral(oneHot).checkedCastTo(dataType);
+                hotValues.put(literal, HOT_VALUE_PERCENTAGE);
+            }
+        }
+        LiteralExpr minExpr = null;
+        double minValue = Double.NEGATIVE_INFINITY;
+        if (minExprStr != null) {
+            Literal literal = (Literal) new StringLiteral(minExprStr).checkedCastTo(dataType);
+            minExpr = literal.toLegacyLiteral();
+            minValue = literal.getDouble();
+        }
+        LiteralExpr maxExpr = null;
+        double maxValue = Double.POSITIVE_INFINITY;
+        if (maxExprStr != null) {
+            Literal literal = (Literal) new StringLiteral(maxExprStr).checkedCastTo(dataType);
+            maxExpr = literal.toLegacyLiteral();
+            maxValue = literal.getDouble();
+        }
+
+        return new ColumnStatisticBuilder(rowCount)
+                .setNdv(ndv)
+                .setMinExpr(minExpr)
+                .setMinValue(minValue)
+                .setMaxExpr(maxExpr)
+                .setMaxValue(maxValue)
+                .setAvgSizeByte(4)
+                .setNumNulls(numNulls)
+                .setHotValues(hotValues)
+                .build();
+    }
+
+    private Pair<Expression, ArrayList<SlotReference>> createExpr(String expr) {
+        ArrayList<SlotReference> slots = new ArrayList<>();
+        Expression unbound = PARSER.parseExpression(expr);
+        Expression bound = unbound.rewriteDownShortCircuit(e -> {
+            if (e instanceof UnboundSlot) {
+                String colName = ((UnboundSlot) e).getName();
+                SlotReference slot = new SlotReference(colName, guessDataType(colName));
+                slots.add(slot);
+                return slot;
+            } else {
+                return e;
+            }
+        });
+        return Pair.of(bound, slots);
+    }
+
+    private DataType guessDataType(String value) {
+        if (value.startsWith("str")) {
+            return StringType.INSTANCE;
+        }
+        if (value.startsWith("i")) {
+            return IntegerType.INSTANCE;
+        }
+        if (value.startsWith("f")) {
+            return FloatType.INSTANCE;
+        }
+        if (value.startsWith("d")) {
+            return DateTimeV2Type.SYSTEM_DEFAULT;
+        }
+        throw new RuntimeException("cannot guess datatype by name: " + value);
+    }
+
+    @Test
+    public void testSkewFilterEqual() {
+        double rowCont = 1000;
+        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia = 10");
+        Expression expr = pair.first;
+        ArrayList<SlotReference> slots = pair.second;
+        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCont, "0", "1000", 0, new String[]{"10"});
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCont);
+        Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+        Assertions.assertEquals(HOT_VALUE_PERCENTAGE * rowCont / ColumnStatistic.ONE_HUNDRED, stats.getRowCount(), 0.1);
+    }
+
+    @Test
+    public void testSkewFilterGreater() {
+        double rowCount = 1000;
+            {
+                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia > 8");
+                Expression expr = pair.first;
+                ArrayList<SlotReference> slots = pair.second;
+                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "10", 0, new String[] {"1", "10"});
+                StatisticsBuilder statsBuilder = new StatisticsBuilder();
+                statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
+                Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+                Assertions.assertEquals((0.4 * 0.2 + HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount,
+                        stats.getRowCount(), 0.1);
+            }
+            {
+                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia > 10");
+                Expression expr = pair.first;
+                ArrayList<SlotReference> slots = pair.second;
+                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "10", 0, new String[]{"1", "10"});
+                StatisticsBuilder statsBuilder = new StatisticsBuilder();
+                statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
+                Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+                Assertions.assertEquals((1 / iaStats.ndv * (1 - 0.3 - 0.3)) * rowCount, stats.getRowCount(), 0.1);
+            }
+            {
+                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia >= 10");
+                Expression expr = pair.first;
+                ArrayList<SlotReference> slots = pair.second;
+                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "10", 0, new String[]{"1", "10"});
+                StatisticsBuilder statsBuilder = new StatisticsBuilder();
+                statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
+                Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+                Assertions.assertEquals((0.4 * 0.01 + HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount, stats.getRowCount(), 0.1);
+            }
+    }
+
+    @Test
+    public void testSkewFilterLess() {
+        double rowCount = 1000;
+            {
+                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia < 80");
+                Expression expr = pair.first;
+                ArrayList<SlotReference> slots = pair.second;
+                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[] {"0", "100"});
+                StatisticsBuilder statsBuilder = new StatisticsBuilder();
+                statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
+                Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+                Assertions.assertEquals((0.4 * 0.8 + HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount,
+                        stats.getRowCount(), 0.1);
+            }
+
+            {
+                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia < 0");
+                Expression expr = pair.first;
+                ArrayList<SlotReference> slots = pair.second;
+                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "100"});
+                StatisticsBuilder statsBuilder = new StatisticsBuilder();
+                statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
+                Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+                Assertions.assertEquals((1 / iaStats.ndv * (1 - 0.3 - 0.3)) * rowCount, stats.getRowCount(), 0.1);
+            }
+            {
+                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia <= 0");
+                Expression expr = pair.first;
+                ArrayList<SlotReference> slots = pair.second;
+                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "100"});
+                StatisticsBuilder statsBuilder = new StatisticsBuilder();
+                statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
+                Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+                Assertions.assertEquals((0.4 * 0.01 + HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount, stats.getRowCount(), 0.1);
+            }
     }
 }
