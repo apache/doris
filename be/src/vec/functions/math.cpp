@@ -566,6 +566,216 @@ private:
     }
 };
 
+template <template <PrimitiveType> class Impl, typename Param>
+class FunctionMathBinary : public IFunction {
+public:
+    static constexpr auto T = TYPE_SMALLINT;
+
+    static constexpr auto name = Param::name;
+
+    template <typename F>
+    static bool cast_type(const IDataType* type, F&& f) {
+        return cast_type_to_either<DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
+                                   DataTypeInt128>(type, std::forward<F>(f));
+    }
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionMathBinary<Impl, Param>>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DataTypePtr result;
+        bool valid = cast_type(arguments[0].get(), [&](const auto& type) {
+            using DataType = std::decay_t<decltype(type)>;
+            result = std::make_shared<DataType>();
+            return true;
+        });
+        if (!valid) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} of argument of function {}",
+                                   arguments[0]->get_name(), get_name());
+        }
+        // auto res = std::make_shared<DataTypeNumber<Impl<T>::return_type>>();
+        return Param::is_nullable ? make_nullable(result) : result;
+    }
+    bool need_replace_null_data_to_default() const override {
+        return Param::need_replace_null_data_to_default;
+    }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto& column_left = block.get_by_position(arguments[0]).column;
+        auto& column_right = block.get_by_position(arguments[1]).column;
+        bool is_const_left = is_column_const(*column_left);
+        bool is_const_right = is_column_const(*column_right);
+
+        bool valid =
+                cast_type(block.get_by_position(arguments[0]).type.get(), [&](const auto& type) {
+                    using DataType = std::decay_t<decltype(type)>;
+                    using T0 = typename DataType::FieldType;
+                    constexpr PrimitiveType PT = ResultOfUnaryFunc<T0>::ResultType;
+
+                    ColumnPtr column_result = nullptr;
+                    if (is_const_left && is_const_right) {
+                        column_result =
+                                this->template constant_constant<PT>(column_left, column_right);
+                    } else if (is_const_left) {
+                        column_result =
+                                this->template constant_vector<PT>(column_left, column_right);
+                    } else if (is_const_right) {
+                        column_result =
+                                this->template vector_constant<PT>(column_left, column_right);
+                    } else {
+                        column_result = this->template vector_vector<PT>(column_left, column_right);
+                    }
+                    block.replace_by_position(result, std::move(column_result));
+
+                    return true;
+                });
+        if (!valid) {
+            return Status::RuntimeError("{}'s argument does not match the expected data type",
+                                        get_name());
+        }
+
+        return Status::OK();
+    }
+
+private:
+    template <PrimitiveType PT>
+    ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right) const {
+        using result_column_type = typename PrimitiveTypeTraits<Impl<PT>::return_type>::ColumnType;
+        using parameter_cpp_type = typename PrimitiveTypeTraits<Impl<PT>::parameter_type>::CppType;
+
+        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
+        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
+        ColumnPtr column_result = nullptr;
+
+        auto res = result_column_type::create(1);
+        if constexpr (Param::is_nullable) {
+            auto null_map = ColumnUInt8::create(1, 0);
+            res->get_element(0) =
+                    Impl<PT>::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
+                                    column_right_ptr->template get_value<parameter_cpp_type>(),
+                                    null_map->get_element(0));
+            column_result = ColumnNullable::create(std::move(res), std::move(null_map));
+        } else {
+            res->get_element(0) =
+                    Impl<PT>::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
+                                    column_right_ptr->template get_value<parameter_cpp_type>());
+            column_result = std::move(res);
+        }
+
+        return ColumnConst::create(std::move(column_result), column_left->size());
+    }
+
+    template <PrimitiveType PT>
+    ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
+        using result_column_type = typename PrimitiveTypeTraits<Impl<PT>::return_type>::ColumnType;
+        using parameter_cpp_type = typename PrimitiveTypeTraits<Impl<PT>::parameter_type>::CppType;
+        using parameter_column_type =
+                typename PrimitiveTypeTraits<Impl<PT>::parameter_type>::ColumnType;
+
+        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
+        const auto* column_left_ptr = assert_cast<const parameter_column_type*>(column_left.get());
+        auto column_result = result_column_type::create(column_left->size());
+
+        if constexpr (Param::is_nullable) {
+            auto null_map = ColumnUInt8::create(column_left->size(), 0);
+            auto& a = column_left_ptr->get_data();
+            auto& c = column_result->get_data();
+            auto& n = null_map->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl<PT>::apply(
+                        a[i], column_right_ptr->template get_value<parameter_cpp_type>(), n[i]);
+            }
+            return ColumnNullable::create(std::move(column_result), std::move(null_map));
+        } else {
+            auto& a = column_left_ptr->get_data();
+            auto& c = column_result->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl<PT>::apply(a[i],
+                                       column_right_ptr->template get_value<parameter_cpp_type>());
+            }
+            return column_result;
+        }
+    }
+
+    template <PrimitiveType PT>
+    ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        using result_column_type = typename PrimitiveTypeTraits<Impl<PT>::return_type>::ColumnType;
+        using parameter_cpp_type = typename PrimitiveTypeTraits<Impl<PT>::parameter_type>::CppType;
+        using parameter_column_type =
+                typename PrimitiveTypeTraits<Impl<PT>::parameter_type>::ColumnType;
+
+        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
+        const auto* column_right_ptr =
+                assert_cast<const parameter_column_type*>(column_right.get());
+        auto column_result = result_column_type::create(column_right->size());
+
+        if constexpr (Param::is_nullable) {
+            auto null_map = ColumnUInt8::create(column_right->size(), 0);
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            auto& n = null_map->get_data();
+            size_t size = b.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl<PT>::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
+                                       b[i], n[i]);
+            }
+            return ColumnNullable::create(std::move(column_result), std::move(null_map));
+        } else {
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            size_t size = b.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl<PT>::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
+                                       b[i]);
+            }
+            return column_result;
+        }
+    }
+
+    template <PrimitiveType PT>
+    ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        using result_column_type = typename PrimitiveTypeTraits<Impl<PT>::return_type>::ColumnType;
+        using parameter_column_type =
+                typename PrimitiveTypeTraits<Impl<PT>::parameter_type>::ColumnType;
+
+        const auto* column_left_ptr =
+                assert_cast<const parameter_column_type*>(column_left->get_ptr().get());
+        const auto* column_right_ptr =
+                assert_cast<const parameter_column_type*>(column_right->get_ptr().get());
+
+        auto column_result = result_column_type::create(column_left->size());
+
+        if constexpr (Param::is_nullable) {
+            auto null_map = ColumnUInt8::create(column_result->size(), 0);
+            auto& a = column_left_ptr->get_data();
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            auto& n = null_map->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl<PT>::apply(a[i], b[i], n[i]);
+            }
+            return ColumnNullable::create(std::move(column_result), std::move(null_map));
+        } else {
+            auto& a = column_left_ptr->get_data();
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl<PT>::apply(a[i], b[i]);
+            }
+            return column_result;
+        }
+    }
+};
+
 class FunctionNormalCdf : public IFunction {
 public:
     static constexpr auto name = "normal_cdf";
@@ -652,17 +862,6 @@ struct NameSignBit {
 
 using FunctionSignBit = FunctionUnaryArithmetic<SignBitImpl, NameSignBit>;
 
-// template <typename A>
-// struct EvenImpl {
-//     static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
-
-//     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-//         double mag = std::abs(a);
-//         double even_mag = 2 * std::ceil(mag / 2);
-//         return std::copysign(even_mag, a);
-//     }
-// };
-
 double EvenImpl(double a) {
     double mag = std::abs(a);
     double even_mag = 2 * std::ceil(mag / 2);
@@ -674,7 +873,6 @@ struct NameEven {
 };
 
 using FunctionEven = FunctionMathUnary<UnaryFunctionPlain<NameEven, EvenImpl>>;
-// using FunctionEven = FunctionUnaryArithmetic<EvenImpl, NameEven>;
 
 // template <typename A, typename B>
 // struct ResultOfGcd {
@@ -683,26 +881,25 @@ using FunctionEven = FunctionMathUnary<UnaryFunctionPlain<NameEven, EvenImpl>>;
 //                                    false, NumberTraits::max(sizeof(A), sizeof(B)) > ::Type;
 // };
 
-// template <PrimitiveType AType, PrimitiveType BType>
-//     requires (AType == BType && is_int_or_bool(AType))
-// struct GcdImpl {
-//     using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
-//     using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
-//     // static constexpr bool is_integral = is_int(AType);
-//     static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
-//     // using Traits = NumberTraits::BinaryOperatorTraits<AType, BType>;
-//     static const constexpr bool allow_decimal = false;
+template <PrimitiveType A>
+struct GcdImpl {
+    using parameter_cpp_type = typename PrimitiveTypeTraits<A>::CppType;
 
-//     template <PrimitiveType Result = ResultType>
-//     static inline typename PrimitiveTypeTraits<Result>::ColumnItemType apply(A a, B b) {
-//         return static_cast<typename PrimitiveTypeTraits<Result>::ColumnItemType>(
-//                 std::gcd(a, b));
-//     }
-// };
+    static constexpr auto return_type = A;
+    static constexpr auto parameter_type = A;
 
-// struct GcdName {
-//     static constexpr auto name = "gcd";
-// };
+    static inline typename PrimitiveTypeTraits<return_type>::CppType apply(parameter_cpp_type a,
+                                                                           parameter_cpp_type b) {
+        // is_null = !is_int(A);
+        return static_cast<typename PrimitiveTypeTraits<return_type>::CppType>(std::gcd(a, b));
+    }
+};
+
+struct GcdParam {
+    static constexpr auto name = "gcd";
+    static constexpr bool need_replace_null_data_to_default = false;
+    static constexpr bool is_nullable = false;
+};
 
 // using FunctionGcd = FunctionBinaryArithmetic<GcdImpl, GcdName, false>;
 
@@ -715,33 +912,15 @@ using FunctionEven = FunctionMathUnary<UnaryFunctionPlain<NameEven, EvenImpl>>;
 //                                                                              sizeof(B))) > ::Type;
 // };
 
-// template <PrimitiveType AType, PrimitiveType BType>
-// requires (AType == BType)
+// template <PrimitiveType A>
 // struct LcmImpl {
-//     using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
-//     using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
-//     static constexpr bool is_integral = is_int(AType) && is_int(BType);
-//     static constexpr PrimitiveType ResultType = ResultOfLcm<A, B>::Type;
-//     using Traits = NumberTraits::BinaryOperatorTraits<AType, BType>;
-//     static const constexpr bool allow_decimal = false;
+//     static constexpr auto return_type = A;
+//     static constexpr auto parameter_type = A;
 
-//     template <PrimitiveType Result = ResultType>
-//     static void apply(const typename Traits::ArrayA& a, B b,
-//                       typename PrimitiveTypeTraits<Result>::ColumnType::Container& c,
-//                       typename Traits::ArrayNull& null_map) {
-//         size_t size = c.size();
+//     static constexpr auto name = "lcm";
+//     static constexpr bool need_replace_null_data_to_default = false;
+//     static constexpr bool is_nullable = true;
 
-//         if constexpr (is_integral) {
-//             for (size_t i = 0; i < size; i++) {
-//                 c[i] = static_cast<typename PrimitiveTypeTraits<Result>::ColumnItemType>(
-//                         std::lcm(a[i], b));
-//             }
-//         } else {
-//             memset(null_map.data(), is_integral, size);
-//         }
-//     }
-
-//     template <PrimitiveType Result = ResultType>
 //     static inline typename PrimitiveTypeTraits<Result>::ColumnItemType apply(A a, B b,
 //                                                                              UInt8& is_null) {
 //         if constexpr (is_integral) {
@@ -806,7 +985,11 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNormalCdf>();
     factory.register_function<FunctionSignBit>();
     factory.register_function<FunctionEven>();
-    // factory.register_function<FunctionGcd>();
+    factory.register_function<FunctionMathBinary<GcdImpl, GcdParam>>();
+    // factory.register_function<FunctionMathBinary<GcdImpl<TYPE_SMALLINT>>>();
+    // factory.register_function<FunctionMathBinary<GcdImpl<TYPE_INT>>>();
+    // factory.register_function<FunctionMathBinary<GcdImpl<TYPE_BIGINT>>>();
+    // factory.register_function<FunctionMathBinary<GcdImpl<TYPE_LARGEINT>>>();
     // factory.register_function<FunctionLcm>();
 }
 } // namespace doris::vectorized
