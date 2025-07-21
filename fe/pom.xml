@@ -216,7 +216,6 @@ under the License.
     </build>
     <modules>
         <module>fe-common</module>
-        <module>spark-dpp</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
@@ -748,11 +747,6 @@ under the License.
                 <artifactId>fe-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>spark-dpp</artifactId>
-                <version>${project.version}</version>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/cglib/cglib -->
             <dependency>
                 <groupId>cglib</groupId>
@@ -1173,58 +1167,6 @@ under the License.
                 <groupId>org.roaringbitmap</groupId>
                 <artifactId>RoaringBitmap</artifactId>
                 <version>${RoaringBitmap.version}</version>
-            </dependency>
-            <!-- spark -->
-            <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-core_2.12 -->
-            <dependency>
-                <groupId>org.apache.spark</groupId>
-                <artifactId>spark-core_2.12</artifactId>
-                <version>${spark.version}</version>
-                <scope>provided</scope>
-                <exclusions>
-                    <exclusion>
-                        <groupId>log4j</groupId>
-                        <artifactId>log4j</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.slf4j</groupId>
-                        <artifactId>slf4j-log4j12</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.eclipse.jetty</groupId>
-                        <artifactId>jetty-util</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>io.netty</groupId>
-                        <artifactId>netty</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-launcher_2.12 -->
-            <dependency>
-                <groupId>org.apache.spark</groupId>
-                <artifactId>spark-launcher_2.12</artifactId>
-                <version>${spark.version}</version>
-                <scope>provided</scope>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
-            <dependency>
-                <groupId>org.apache.spark</groupId>
-                <artifactId>spark-sql_2.12</artifactId>
-                <version>${spark.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.apache.arrow</groupId>
-                        <artifactId>arrow-vector</artifactId>
-                    </exclusion>
-                </exclusions>
-                <scope>provided</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.spark</groupId>
-                <artifactId>spark-tags_2.12</artifactId>
-                <version>${spark.version}</version>
-                <scope>provided</scope>
             </dependency>
 
             <dependency>

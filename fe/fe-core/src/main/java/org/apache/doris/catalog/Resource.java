@@ -170,9 +170,6 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     private static Resource getResourceInstance(ResourceType type, String name) throws DdlException {
         Resource resource;
         switch (type) {
-            case SPARK:
-                resource = new SparkResource(name);
-                break;
             case ODBC_CATALOG:
                 resource = new OdbcCatalogResource(name);
                 break;

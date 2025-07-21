@@ -308,17 +308,7 @@ public class LoadAction extends RestBaseController {
 
             TNetworkAddress redirectAddr;
             if (!isStreamLoad && !Strings.isNullOrEmpty(request.getParameter(SUB_LABEL_NAME_PARAM))) {
-                // only multi mini load need to redirect to Master, because only Master has the info of table to
-                // the Backend which the file exists.
-                Object redirectView = redirectToMaster(request, response);
-                if (redirectView != null) {
-                    return redirectView;
-                }
-                try {
-                    redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label);
-                } catch (DdlException e) {
-                    return new RestBaseResult(e.getMessage());
-                }
+                return new RestBaseResult("Multi load is longer supported");
             } else {
                 long tableId = -1;
                 if (groupCommit) {

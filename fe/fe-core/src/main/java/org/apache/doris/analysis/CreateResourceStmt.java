@@ -88,11 +88,8 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         resourceType = ResourceType.fromString(type);
-        if (resourceType == ResourceType.UNKNOWN) {
+        if (resourceType == ResourceType.UNKNOWN || resourceType == ResourceType.SPARK) {
             throw new AnalysisException("Unsupported resource type: " + type);
-        }
-        if (resourceType == ResourceType.SPARK && !isExternal) {
-            throw new AnalysisException("Spark is external resource");
         }
         if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_mysql_broker_table) {
             throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "

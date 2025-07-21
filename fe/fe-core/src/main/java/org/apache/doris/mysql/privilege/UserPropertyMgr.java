@@ -28,7 +28,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
@@ -177,18 +176,6 @@ public class UserPropertyMgr implements Writable {
             tags = Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
         }
         return tags;
-    }
-
-    public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {
-        Pair<String, DppConfig> loadClusterInfo = null;
-
-        UserProperty property = propertyMap.get(qualifiedUser);
-        property = getPropertyIfNull(qualifiedUser, property);
-        if (property == null) {
-            throw new DdlException("User " + qualifiedUser + " does not exist");
-        }
-        loadClusterInfo = property.getLoadClusterInfo(cluster);
-        return loadClusterInfo;
     }
 
     public List<List<String>> fetchUserProperty(String qualifiedUser) throws AnalysisException {
