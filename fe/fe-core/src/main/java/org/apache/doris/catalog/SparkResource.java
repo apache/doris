@@ -71,6 +71,7 @@ import java.util.stream.Stream;
  *
  * DROP RESOURCE "spark0";
  */
+@Deprecated
 public class SparkResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(SparkResource.class);
 
