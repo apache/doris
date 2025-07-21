@@ -1571,6 +1571,10 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                                           int64_t txn_id, bool is_explicit_txn,
                                           int64_t next_visible_version) {
     VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
+    LOG(INFO) << "start update delete bitmap for tablet_id: " << tablet.tablet_id()
+              << ", rowset_id: " << rowset_id
+              << ", delete_bitmap num: " << delete_bitmap->delete_bitmap.size()
+              << ", lock_id=" << lock_id << ", initiator=" << initiator;
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -1625,7 +1629,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                       << ", delete_bitmap num: " << delete_bitmap_pb.rowset_ids_size()
                       << ",  size: " << delete_bitmap_pb.ByteSizeLong() << ", keys=[" << ss.str()
                       << "]";
-            if (delete_bitmap_pb.ByteSizeLong() > config::delete_bitmap_max_bytes_store_in_fdb) {
+            if (config::delete_bitmap_max_bytes_store_in_fdb >= 0 &&
+                delete_bitmap_pb.ByteSizeLong() > config::delete_bitmap_max_bytes_store_in_fdb) {
                 DeleteBitmapFileWriter file_writer(tablet.tablet_id(), rowset_id, storage_resource);
                 RETURN_IF_ERROR(file_writer.init());
                 RETURN_IF_ERROR(file_writer.write(delete_bitmap_pb));
@@ -1643,7 +1648,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
         req.set_store_version(2);
         LOG(INFO) << "update delete bitmap for tablet_id: " << tablet.tablet_id()
                   << ", rowset_id: " << rowset_id
-                  << ", delete_bitmap num: " << delete_bitmap->delete_bitmap.size();
+                  << ", delete_bitmap num: " << delete_bitmap->delete_bitmap.size()
+                  << ", lock_id=" << lock_id << ", initiator=" << initiator;
         if (rowset_id.empty()) {
             std::string pre_rowset_id = "";
             DeleteBitmapPB delete_bitmap_pb;
