@@ -3387,6 +3387,18 @@ public class Config extends ConfigBase {
             })
     public static String[] auto_start_ignore_resume_db_names = {"__internal_schema", "information_schema"};
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_mow_load_force_take_ms_lock = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_load_force_take_ms_lock_threshold_ms = 500;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_base = 20;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_interval = 80;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
