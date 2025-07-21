@@ -72,7 +72,7 @@ jobs:
       - name: Download
         run: |
           cd thirdparty
-          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
+          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation-3.0/doris-thirdparty-source.tgz \
             -o doris-thirdparty-source.tgz
           tar -zxvf doris-thirdparty-source.tgz
 
@@ -138,7 +138,7 @@ jobs:
       - name: Download
         run: |
           cd thirdparty
-          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
+          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation-3.0/doris-thirdparty-source.tgz \
             -o doris-thirdparty-source.tgz
           tar -zxvf doris-thirdparty-source.tgz
 
@@ -196,7 +196,7 @@ jobs:
       - name: Download
         run: |
           cd thirdparty
-          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
+          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation-3.0/doris-thirdparty-source.tgz \
             -o doris-thirdparty-source.tgz
           tar -zxvf doris-thirdparty-source.tgz
 
