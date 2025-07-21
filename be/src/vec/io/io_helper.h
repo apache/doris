@@ -40,7 +40,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 inline std::string int128_to_string(int128_t value) {
     return fmt::format(FMT_COMPILE("{}"), value);
 }
@@ -196,7 +196,7 @@ template <typename T>
 bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<UInt32, T>);
     auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), config::allow_zero_date);
+    auto ans = dv.from_date_str(buf.position(), (int)buf.count(), config::allow_zero_date);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -221,7 +221,7 @@ template <typename T>
 bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), scale, config::allow_zero_date);
+    auto ans = dv.from_date_str(buf.position(), (int)buf.count(), scale, config::allow_zero_date);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -250,7 +250,7 @@ StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 p
     if constexpr (!std::is_same_v<Decimal128V2, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<P>((const char*)buf.position(), buf.count(),
+        x.value = StringParser::string_to_decimal<P>((const char*)buf.position(), (int)buf.count(),
                                                      precision, scale, &result);
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
@@ -258,7 +258,7 @@ StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 p
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(buf.position(), buf.count(),
+        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(buf.position(), (int)buf.count(),
                                                                   DecimalV2Value::PRECISION,
                                                                   DecimalV2Value::SCALE, &result);
 
@@ -289,8 +289,8 @@ bool try_read_int_text(T& x, ReadBuffer& buf) {
 
 template <typename T>
 const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
-    const int len = end - pos;
-    int i = 0;
+    const int64_t len = end - pos;
+    int64_t i = 0;
     while (i < len) {
         if (pos[i] >= '0' && pos[i] <= '9') {
             i++;
@@ -346,8 +346,6 @@ bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& loca
                                UInt32 scale) {
     return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
-
-#include "common/compile_check_begin.h"
 
 bool inline try_read_bool_text(UInt8& x, StringRef& buf) {
     StringParser::ParseResult result;
