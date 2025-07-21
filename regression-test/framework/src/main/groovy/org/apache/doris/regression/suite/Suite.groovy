@@ -262,6 +262,25 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    // delete 'dockerAwaitUntil', should call 'Awaitility.await()...' directly or use 'awaitUntil(..., f)'
+    // public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+    //     def connInfo = context.threadLocalConn.get()
+    //     Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+    //         {
+    //             connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+    //         }
+    //     )
+    // }
+    public void awaitUntil(int atMostSeconds, double intervalSecond = 1, Closure actionSupplier) {
+        Awaitility
+            .with().pollInSameThread()
+            .await()
+            .atMost(atMostSeconds, TimeUnit.SECONDS)
+            .pollInterval((int) (1000 * intervalSecond), TimeUnit.MILLISECONDS)
+            .until(actionSupplier)
+    }
+
+    // more explaination can see example file: demo_p0/docker_action.groovy
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
             return
@@ -283,6 +302,8 @@ class Suite implements GroovyInterceptable {
             }
         }
 
+        logger.info("=== start run suite {} in not_cloud mode. ===", name)
+        def originConnection = context.threadLocalConn.get()
         try {
             cluster.destroy(true)
             cluster.init(options, dockerIsCloud)
@@ -308,18 +329,18 @@ class Suite implements GroovyInterceptable {
 
             // wait be report
             Thread.sleep(5000)
-            def url = String.format(
-                    "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
+            def jdbcUrl = String.format(
+                    "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
-            def conn = DriverManager.getConnection(url, user, password)
-            def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
-            logger.info("try create database if not exists {}", context.dbName)
-            JdbcUtils.executeToList(conn, sql)
-            url = Config.buildUrlWithDb(url, context.dbName)
-
-            logger.info("connect to docker cluster: suite={}, url={}", name, url)
-            connect(user, password, url, actionSupplier)
+            cluster.jdbcUrl = jdbcUrl
+            context.threadLocalConn.remove()
+            actionSupplier.call()
         } finally {
+            if (originConnection == null) {
+                context.threadLocalConn.remove()
+            } else {
+                context.threadLocalConn.set(originConnection)
+            }
             if (!context.config.dockerEndNoKill) {
                 cluster.destroy(context.config.dockerEndDeleteFiles)
             }
@@ -601,6 +622,10 @@ class Suite implements GroovyInterceptable {
 
     String getCurDbName() {
         return context.dbName
+    }
+
+    String getCurDbConnectUrl() {
+        return Config.buildUrlWithDb(context.getJdbcUrl(), getCurDbName())
     }
 
     long getDbId() {

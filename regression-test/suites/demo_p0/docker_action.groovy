@@ -17,6 +17,13 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
+// Run docker suite steps:
+// 1. Read 'docker/runtime/doris-compose/Readme.md', make sure you can setup a doris docker cluster;
+// 2. update regression-conf-custom.groovy with config:
+//    image = "xxxx"                // your doris docker image
+//    excludeDockerTest = false     // do run docker suite, default is true
+//    dockerEndDeleteFiles = false  // after run docker suite, whether delete contains's log and data in directory '/tmp/doris/<suite-name>'
+
 suite('docker_action', 'docker') {
     // run a new docker
     docker {
