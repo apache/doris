@@ -563,7 +563,7 @@ static Status from_int(int64_t int_val, int length, double& val) {
         }
 
         // align to `target_scale` digits
-        auto in_scale_part =
+        uint32_t in_scale_part =
                 (frac_length > target_scale)
                         ? (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale))
                         : (uint32_t)(frac_input * common::exp10_i64(target_scale - frac_length));
@@ -578,7 +578,7 @@ static Status from_int(int64_t int_val, int length, double& val) {
                 if (in_scale_part == common::exp10_i32(target_scale)) {
                     // overflow, round up to next second
                     val += sign * TimeValue::ONE_SECOND_MICROSECONDS;
-                    if (val >= TimeValue::MAX_TIME) [[unlikely]] {
+                    if (!TimeValue::valid(val)) [[unlikely]] {
                         return false; // overflow
                     }
                     in_scale_part = 0;
@@ -586,7 +586,7 @@ static Status from_int(int64_t int_val, int length, double& val) {
             }
         }
         val = TimeValue::init_microsecond(
-                val, sign * (uint32_t)in_scale_part * common::exp10_i32(6 - (int)target_scale));
+                val, sign * in_scale_part * common::exp10_i32(6 - (int)target_scale));
     }
     return true;
 }
