@@ -63,7 +63,28 @@ suite("test_session_variables_view","view") {
 
     order_qt_view_2 "SELECT * FROM ${viewName}"
 
+    sql""" set sql_mode="ONLY_FULL_GROUP_BY"; """
 
-//     sql """drop table if exists `${tableName}`"""
-//     sql """drop view if exists ${viewName};"""
+    test {
+              sql """
+                  alter VIEW ${viewName}
+                  AS
+                  SELECT k2,k3 from ${tableName} group by k3;
+                  """
+              exception "not in aggregate's output"
+          }
+
+     sql""" set sql_mode=""; """
+
+       sql """
+           alter VIEW ${viewName}
+           AS
+           SELECT k2,k3 from ${tableName} group by k3;
+           """
+   sql""" set sql_mode="ONLY_FULL_GROUP_BY"; """
+
+    order_qt_view_3 "SELECT * FROM ${viewName}"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop view if exists ${viewName};"""
 }
