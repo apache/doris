@@ -784,10 +784,13 @@ BlockFileCache::FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& ha
     }
 
     auto& offsets = _files[hash];
-    DCHECK_EQ(offsets.count(offset), 0)
-            << "Cache already exists for hash: " << hash.to_string() << ", offset: " << offset
-            << ", size: " << size
-            << ".\nCurrent cache structure: " << dump_structure_unlocked(hash, cache_lock);
+    auto itr = offsets.find(offset);
+    if (itr != offsets.end()) {
+        VLOG_DEBUG << "Cache already exists for hash: " << hash.to_string()
+                   << ", offset: " << offset << ", size: " << size
+                   << ".\nCurrent cache structure: " << dump_structure_unlocked(hash, cache_lock);
+        return &(itr->second);
+    }
 
     FileCacheKey key;
     key.hash = hash;
@@ -2277,10 +2280,11 @@ void BlockFileCache::run_background_lru_dump() {
 }
 
 void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock) {
-    _lru_dumper->restore_queue(_disposable_queue, "disposable", cache_lock);
+    // keep this order coz may be duplicated in different queue, we use the first appearence
+    _lru_dumper->restore_queue(_ttl_queue, "ttl", cache_lock);
     _lru_dumper->restore_queue(_index_queue, "index", cache_lock);
     _lru_dumper->restore_queue(_normal_queue, "normal", cache_lock);
-    _lru_dumper->restore_queue(_ttl_queue, "ttl", cache_lock);
+    _lru_dumper->restore_queue(_disposable_queue, "disposable", cache_lock);
 }
 
 std::map<std::string, double> BlockFileCache::get_stats() {
