@@ -18,8 +18,97 @@
 #pragma once
 
 #include "cast_base.h"
+#include "vec/core/types.h"
+#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+
+struct CastToBool {
+    template <class SRC>
+    static inline bool from_number(const SRC& from, UInt8& to, CastParameters& params);
+
+    template <class SRC>
+    static inline bool from_decimal(const SRC& from, UInt8& to, CastParameters& params);
+
+    static inline bool from_string(const StringRef& from, UInt8& to, CastParameters& params);
+};
+
+template <>
+inline bool CastToBool::from_number(const UInt8& from, UInt8& to, CastParameters& params) {
+    to = from;
+    return true;
+}
+
+template <>
+inline bool CastToBool::from_number(const Int8& from, UInt8& to, CastParameters& params) {
+    to = (from != 0);
+    return true;
+}
+template <>
+inline bool CastToBool::from_number(const Int16& from, UInt8& to, CastParameters& params) {
+    to = (from != 0);
+    return true;
+}
+template <>
+inline bool CastToBool::from_number(const Int32& from, UInt8& to, CastParameters& params) {
+    to = (from != 0);
+    return true;
+}
+template <>
+inline bool CastToBool::from_number(const Int64& from, UInt8& to, CastParameters& params) {
+    to = (from != 0);
+    return true;
+}
+template <>
+inline bool CastToBool::from_number(const Int128& from, UInt8& to, CastParameters& params) {
+    to = (from != 0);
+    return true;
+}
+
+template <>
+inline bool CastToBool::from_number(const Float32& from, UInt8& to, CastParameters& params) {
+    to = (from != 0);
+    return true;
+}
+template <>
+inline bool CastToBool::from_number(const Float64& from, UInt8& to, CastParameters& params) {
+    to = (from != 0);
+    return true;
+}
+
+template <>
+inline bool CastToBool::from_decimal(const Decimal32& from, UInt8& to, CastParameters& params) {
+    to = (from.value != 0);
+    return true;
+}
+
+template <>
+inline bool CastToBool::from_decimal(const Decimal64& from, UInt8& to, CastParameters& params) {
+    to = (from.value != 0);
+    return true;
+}
+
+template <>
+inline bool CastToBool::from_decimal(const Decimal128V2& from, UInt8& to, CastParameters& params) {
+    to = (from.value != 0);
+    return true;
+}
+
+template <>
+inline bool CastToBool::from_decimal(const Decimal128V3& from, UInt8& to, CastParameters& params) {
+    to = (from.value != 0);
+    return true;
+}
+
+template <>
+inline bool CastToBool::from_decimal(const Decimal256& from, UInt8& to, CastParameters& params) {
+    to = (from.value != 0);
+    return true;
+}
+
+inline bool CastToBool::from_string(const StringRef& from, UInt8& to, CastParameters& params) {
+    return try_read_bool_text(to, from);
+}
 
 template <CastModeType Mode>
 class CastToImpl<Mode, DataTypeString, DataTypeBool> : public CastToBase {
@@ -68,12 +157,15 @@ public:
         DataTypeBool::ColumnType::MutablePtr col_to =
                 DataTypeBool::ColumnType::create(input_rows_count);
 
+        CastParameters params;
+        params.is_strict = (AllMode == CastModeType::StrictMode);
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (IsDataTypeDecimal<NumberOrDecimalType>) {
                 using NativeType = typename NumberOrDecimalType::FieldType::NativeType;
                 col_to->get_element(i) = ((NativeType)col_from->get_element(i)) != 0;
+                CastToBool::from_decimal(col_from->get_element(i), col_to->get_element(i), params);
             } else {
-                col_to->get_element(i) = col_from->get_element(i) != 0;
+                CastToBool::from_number(col_from->get_element(i), col_to->get_element(i), params);
             }
         }
 
@@ -83,7 +175,7 @@ public:
 };
 
 namespace CastWrapper {
-WrapperType create_boolean_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
+inline WrapperType create_boolean_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
     std::shared_ptr<CastToBase> cast_to_bool;
 
     auto make_bool_wrapper = [&](const auto& types) -> bool {
