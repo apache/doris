@@ -363,6 +363,15 @@ public:
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
             break;
+
+        case TYPE_IPV4:
+            ret = _execute_internal<ColumnIPv4>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+            break;
+        case TYPE_IPV6:
+            ret = _execute_internal<ColumnIPv6>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+            break;
         default:
             break;
         }

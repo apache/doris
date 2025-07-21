@@ -46,7 +46,8 @@ class SipHash;
             ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128V3,                 \
             ColumnDecimal128V2, ColumnDecimal256
 #define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
-#define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
+#define ALL_COLUMNS_IP ColumnIPv4, ColumnIPv6
+#define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME, ALL_COLUMNS_IP
 #define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
 
 namespace doris::vectorized {
