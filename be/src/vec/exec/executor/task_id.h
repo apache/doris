@@ -15,29 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf_sample.h"
+#pragma once
+#include <memory>
+#include <string>
 
-namespace doris_udf {
+namespace doris {
+namespace vectorized {
 
-// ---------------------------------------------------------------------------
-// This is a sample of implementing a COUNT aggregate function.
-// ---------------------------------------------------------------------------
-void CountInit(FunctionContext* context, BigIntVal* val) {
-    val->is_null = false;
-    val->val = 0;
-}
+class TaskId {
+public:
+    TaskId(const std::string& id) : _id(id) {}
+    std::string to_string() const { return _id; }
+    bool operator==(const TaskId& other) const { return _id == other._id; }
 
-void CountUpdate(FunctionContext* context, const IntVal& input, BigIntVal* val) {
-    if (input.is_null) return;
-    ++val->val;
-}
+private:
+    std::string _id;
+};
 
-void CountMerge(FunctionContext* context, const BigIntVal& src, BigIntVal* dst) {
-    dst->val += src.val;
-}
+} // namespace vectorized
+} // namespace doris
 
-BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val) {
-    return val;
-}
-
-}
+namespace std {
+template <>
+struct hash<doris::vectorized::TaskId> {
+    size_t operator()(const doris::vectorized::TaskId& task_id) const {
+        return std::hash<std::string> {}(task_id.to_string());
+    }
+};
+} // namespace std
