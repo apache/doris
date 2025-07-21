@@ -103,6 +103,7 @@ public class HMSBaseProperties {
 
     private ParamRules buildRules() {
         return new ParamRules()
+                .require(hiveMetastoreUri, "hive.metastore.uris or uri is required")
                 .forbidIf(hiveMetastoreAuthenticationType, "simple", new String[]{
                         hiveMetastoreClientPrincipal, hiveMetastoreClientKeytab},
                         "hive.metastore.client.principal and hive.metastore.client.keytab cannot be set when "

@@ -171,6 +171,8 @@ public class AzureProperties extends StorageProperties {
 
     @Override
     public void initializeHadoopStorageConfig() {
-        throw new UnsupportedOperationException("Azure does not support initializeHadoopStorageConfig");
+        // Azure does not require any special Hadoop configuration for S3 compatibility.
+        // The properties are already set in the getBackendConfigProperties method.
+        // This method will be removed in the future when FileIO is fully implemented.
     }
 }

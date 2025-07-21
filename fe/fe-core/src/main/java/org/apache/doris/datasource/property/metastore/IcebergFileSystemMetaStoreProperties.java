@@ -95,10 +95,8 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
 
     private Catalog executeWithAuth(Supplier<Catalog> action) {
         try {
-            return hadoopAuthenticator.doAs(() -> {
-                action.get(); // catalog.initialize()
-                return action.get(); // return catalog
-            });
+            // return catalog
+            return hadoopAuthenticator.doAs(action::get);
         } catch (IOException e) {
             throw new RuntimeException("Kerberos doAs failed for Iceberg HadoopCatalog", e);
         }

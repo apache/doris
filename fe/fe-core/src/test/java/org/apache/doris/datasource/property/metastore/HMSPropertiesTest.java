@@ -23,7 +23,6 @@ import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticat
 import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

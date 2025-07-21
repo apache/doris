@@ -101,7 +101,6 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         hadoopStorageConfig = new Configuration();
-        hadoopStorageConfig = new Configuration();
         hadoopStorageConfig.set("fs.obs.impl", "com.obs.services.hadoop.fs.OBSFileSystem");
         hadoopStorageConfig.set("fs.obs.access.key", accessKey);
         hadoopStorageConfig.set("fs.obs.secret.key", secretKey);

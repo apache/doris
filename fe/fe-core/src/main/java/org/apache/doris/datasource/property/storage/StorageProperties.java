@@ -56,6 +56,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         OSS,
         OBS,
         COS,
+        OSS_HDFS,
         MINIO,
         AZURE,
         BROKER,

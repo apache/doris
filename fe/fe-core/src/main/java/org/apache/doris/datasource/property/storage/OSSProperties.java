@@ -142,7 +142,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         hadoopStorageConfig = new Configuration();
-        hadoopStorageConfig = new Configuration();
         hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
         hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
         hadoopStorageConfig.set("fs.oss.region", region);

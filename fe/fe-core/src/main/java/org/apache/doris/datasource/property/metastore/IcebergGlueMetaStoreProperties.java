@@ -37,7 +37,7 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     public AWSGlueMetaStoreBaseProperties glueProperties;
 
     public S3Properties s3Properties;
-    
+
     // As a default placeholder. The path just use for 'create table', query stmt will not use it.
     private static final String CHECKED_WAREHOUSE = "s3://doris";
 
@@ -66,11 +66,11 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         appendGlueProps(props);
 
         props.put("client.region", glueProperties.glueRegion);
-        
-        
+
+
         if (StringUtils.isNotBlank(warehouse)) {
             props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        }else{
+        } else {
             props.put(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
         }
 
