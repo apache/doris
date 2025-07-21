@@ -92,7 +92,22 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         } else {
             doBeforeCommit();
             summaryProfile.ifPresent(profile -> profile.setTransactionBeginTime(transactionType()));
-            transactionManager.commit(txnId);
+            if (table instanceof ExternalTable) {
+                try {
+                    ExternalTable externalTable = (ExternalTable) table;
+                    externalTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
+                        try {
+                            transactionManager.commit(txnId);
+                        } catch (UserException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                } catch (Exception e) {
+                    throw new UserException(Util.getRootCauseMessage(e), e);
+                }
+            } else {
+                transactionManager.commit(txnId);
+            }
             summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
             Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
@@ -126,7 +141,19 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             }
         }
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, t.getMessage());
-        transactionManager.rollback(txnId);
+
+        if (table instanceof ExternalTable) {
+            try {
+                ExternalTable externalTable = (ExternalTable) table;
+                externalTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
+                    transactionManager.rollback(txnId);
+                });
+            } catch (Exception e) {
+                LOG.warn("errors when abort txn. {} for table: {}", txnId, table.getName(), e);
+            }
+        } else {
+            transactionManager.rollback(txnId);
+        }
     }
 
     @Override
