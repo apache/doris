@@ -55,7 +55,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -485,7 +485,7 @@ public class CreateRoutineLoadInfo {
             if (Config.isCloudMode()) {
                 tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
             }
-            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+            List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroup(tmpCtx);
             if (wgList.size() == 0) {
                 throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
