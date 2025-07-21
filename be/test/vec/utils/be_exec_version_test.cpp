@@ -25,7 +25,7 @@ namespace doris::vectorized {
 TEST(be_exec_version_test, empty_buckets) {
     // YOU MUST NOT CHANGE THIS TEST !
     // if you want to change be_exec_version, you should know what you are doing
-    EXPECT_EQ(BeExecVersionManager::get_newest_version(), 6);
+    EXPECT_EQ(BeExecVersionManager::get_newest_version(), 7);
     EXPECT_EQ(BeExecVersionManager::get_min_version(), 0);
 }
 
