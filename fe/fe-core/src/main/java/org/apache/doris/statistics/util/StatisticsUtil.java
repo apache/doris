@@ -1273,7 +1273,7 @@ public class StatisticsUtil {
      * @return Map of LiteralExpr -> percentage.
      */
     public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type) {
-        if (stringValues == null) {
+        if (stringValues == null || "null".equalsIgnoreCase(stringValues)) {
             return null;
         }
         try {
