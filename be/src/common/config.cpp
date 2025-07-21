@@ -293,6 +293,31 @@ DEFINE_Int32(be_service_threads, "64");
 // The pipeline task has a high concurrency, therefore reducing its report frequency
 DEFINE_mInt32(pipeline_status_report_interval, "10");
 DEFINE_mInt32(pipeline_task_exec_time_slice, "100");
+
+// task executor min concurrency per task
+DEFINE_Int32(task_executor_min_concurrency_per_task, "1");
+// task executor max concurrency per task
+DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
+DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) -> bool {
+    if (config == -1) {
+        task_executor_max_concurrency_per_task = std::numeric_limits<int>::max();
+    }
+    return true;
+});
+// task task executor inital split max concurrency per task, later concurrency may be adjusted dynamically
+DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
+DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        task_executor_initial_max_concurrency_per_task = std::max(48, CpuInfo::num_cores() * 2);
+    }
+    return true;
+});
+// Enable task executor in internal table scan.
+DEFINE_Bool(enable_task_executor_in_internal_table, "true");
+// Enable task executor in external table scan.
+DEFINE_Bool(enable_task_executor_in_external_table, "true");
+
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
@@ -310,7 +335,6 @@ DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
-DEFINE_mInt32(fetch_rpc_timeout_seconds, "30");
 
 // default thrift client retry interval (in milliseconds)
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");

@@ -19,19 +19,21 @@ suite("test_json_parse") {
     sql """DROP TABLE IF EXISTS `test_json_parse_table`;"""
     sql """CREATE TABLE test_json_parse_table (
             id INT,
-            json_str VARCHAR(500)
+            json_str VARCHAR(500),
+            json_value JSON
         ) PROPERTIES ("replication_num"="1");"""
 
     sql """INSERT INTO test_json_parse_table VALUES
-        (1, '{"name": "Alice", "age": 30}'),
-        (2, '{"name": "Bob", "age": 25}'),
-        (3, 'Invalid JSON String'),
-        (4, NULL),
-        (5, '{"list": [1, 2, 3], "valid": true}'),
-        (6, ''),
-        (7, 'null'),
-        (8, '123'),
-        (9, '[1, 2, 3]');"""
+        (1, '{"name": "Alice", "age": 30}', '{"name": "Alice2", "age": 32}'),
+        (2, '{"name": "Bob", "age": 25}', '{"name": "Bob", "age": 25}'),
+        (3, 'Invalid JSON String', '{"name": "Jack", "age": 28}'),
+        (4, NULL, '{"name": "Jim", "age": 33}'),
+        (5, '{"list": [1, 2, 3], "valid": true}', NULL),
+        (6, 'Invalid JSON String', NULL),
+        (7, 'null', '[1, 2, 3]'),
+        (8, '', '{"key": "value"}'),
+        (8, '123', '{"key2": "value2"}'),
+        (9, '[1, 2, 3]', '{"key": "value"}');"""
 
     qt_basic_parse "SELECT json_parse_error_to_null('{\"key\": \"value\"}');"
     qt_invalid_json "SELECT json_parse_error_to_null('Invalid JSON');"
@@ -40,7 +42,9 @@ suite("test_json_parse") {
     qt_number_string "SELECT json_parse_error_to_null('123');"
     qt_null_input "SELECT json_parse_error_to_null(NULL);"
 
-    qt_parse_from_table "SELECT id, json_parse_error_to_null(json_str) FROM test_json_parse_table ORDER BY id;"
+    qt_parse_from_table_null "SELECT id, json_parse_error_to_null(json_str) FROM test_json_parse_table ORDER BY id;"
+    qt_parse_from_table_value1 "SELECT id, json_parse_error_to_value(json_str) FROM test_json_parse_table ORDER BY id;"
+    qt_parse_from_table_value2 "SELECT id, json_parse_error_to_value(json_str, json_value) FROM test_json_parse_table ORDER BY id;"
 
     check_fold_consistency "json_parse_error_to_null('{\"key\": \"value\"}')"
     check_fold_consistency "json_parse_error_to_null('Invalid JSON')"
