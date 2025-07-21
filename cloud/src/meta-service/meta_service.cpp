@@ -1068,8 +1068,9 @@ bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg
 
     if (!match) {
         std::stringstream ss;
-        ss << " stale perpare rowset request," << " instance_id=" << instance_id
-           << " tablet_id=" << tablet_id << " job id=" << job_id << " rowset_id=" << rowset_id;
+        ss << " stale perpare rowset request,"
+           << " instance_id=" << instance_id << " tablet_id=" << tablet_id << " job id=" << job_id
+           << " rowset_id=" << rowset_id;
         msg = ss.str();
         code = MetaServiceCode::STALE_PREPARE_ROWSET;
         return false;
@@ -2621,7 +2622,8 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     auto& end_versions = request->end_versions();
     if (rowset_ids.size() != begin_versions.size() || rowset_ids.size() != end_versions.size()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "rowset and version size not match. " << " rowset_size=" << rowset_ids.size()
+        ss << "rowset and version size not match. "
+           << " rowset_size=" << rowset_ids.size()
            << " begin_version_size=" << begin_versions.size()
            << " end_version_size=" << end_versions.size();
         msg = ss.str();
@@ -3713,7 +3715,8 @@ void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* cont
     auto& end_versions = request->end_versions();
     if (rowset_ids.size() != begin_versions.size() || rowset_ids.size() != end_versions.size()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "rowset and version size not match. " << " rowset_size=" << rowset_ids.size()
+        ss << "rowset and version size not match. "
+           << " rowset_size=" << rowset_ids.size()
            << " begin_version_size=" << begin_versions.size()
            << " end_version_size=" << end_versions.size();
         msg = ss.str();
