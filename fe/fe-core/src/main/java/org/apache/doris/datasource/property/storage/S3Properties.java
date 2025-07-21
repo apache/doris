@@ -176,7 +176,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             return;
         }
         throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
-                + "s3.external_id");
+                + "s3.external_id or omit all for anonymous access to public bucket.");
     }
 
     /**
@@ -279,11 +279,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                         }
                     }).build();
         }
+        // For anonymous access (no credentials required)
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return AnonymousCredentialsProvider.create();
+        }
         return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
                 EnvironmentVariableCredentialsProvider.create(),
                 WebIdentityTokenFileCredentialsProvider.create(),
                 ProfileCredentialsProvider.create(),
-                InstanceProfileCredentialsProvider.create(),
-                AnonymousCredentialsProvider.create());
+                InstanceProfileCredentialsProvider.create());
     }
 }

@@ -18,11 +18,15 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 import java.util.Map;
 import java.util.Objects;
@@ -124,6 +128,18 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             String publicAccess = origProps.getOrDefault("dlf.catalog.accessPublic", "false");
             this.endpoint = getOssEndpoint(region, Boolean.parseBoolean(publicAccess));
         }
+        // Check if credentials are provided properly - either both or neither
+        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
+            return;
+        }
+        // Allow anonymous access if both access_key and secret_key are empty
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return;
+        }
+        // If only one is provided, it's an error
+        throw new StoragePropertiesException(
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {
@@ -140,4 +156,16 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         return ENDPOINT_PATTERN;
     }
 
+    @Override
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
+        AwsCredentialsProvider credentialsProvider = super.getAwsCredentialsProvider();
+        if (credentialsProvider != null) {
+            return credentialsProvider;
+        }
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            // For anonymous access (no credentials required)
+            return AnonymousCredentialsProvider.create();
+        }
+        return null;
+    }
 }
