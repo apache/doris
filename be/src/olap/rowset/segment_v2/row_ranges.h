@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "absl/strings/substitute.h"
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "olap/rowset/segment_v2/common.h"
 
@@ -248,7 +249,7 @@ public:
             return;
         }
         RowRange range_to_add = range;
-        for (auto i = _ranges.size() - 1; i >= 0; --i) {
+        for (int i = cast_set<int>(_ranges.size()) - 1; i >= 0; --i) {
             const RowRange last = _ranges[i];
             DCHECK(!last.is_after(range));
             RowRange u;
