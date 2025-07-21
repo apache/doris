@@ -257,7 +257,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     private void convertGlueToS3EndpointIfNeeded() {
         if (this.endpoint.contains("glue")) {
-            this.endpoint = "s3." + this.region + ".amazonaws.com";
+            this.endpoint = "https://s3." + this.region + ".amazonaws.com";
         }
     }
 

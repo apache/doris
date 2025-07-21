@@ -104,25 +104,25 @@ public class AWSGlueMetaStoreBaseProperties {
 
     public void checkAndInit() {
         buildRules().validate();
-        if (!ENDPOINT_PATTERN.matcher(glueEndpoint).matches()) {
-            throw new IllegalArgumentException("AWS Glue properties (glue.endpoint) are not set correctly: "
-                    + glueEndpoint);
-        }
-        if (StringUtils.isBlank(glueRegion)) {
-            // If region is not set, use the region from the endpoint
-            Matcher matcher = ENDPOINT_PATTERN.matcher(this.glueEndpoint.toLowerCase());
-            if (matcher.matches()) {
-                // Check all possible groups for region (group 1, 2, or 3)
-                for (int i = 1; i <= matcher.groupCount(); i++) {
-                    String group = matcher.group(i);
-                    if (StringUtils.isNotBlank(group)) {
-                        this.glueRegion = group;
-                        return;
-                    }
-                }
-            }
 
+        Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("Invalid AWS Glue endpoint: " + glueEndpoint);
         }
+
+        if (StringUtils.isBlank(glueRegion)) {
+            this.glueRegion = extractRegionFromEndpoint(matcher);
+        }
+    }
+
+    private String extractRegionFromEndpoint(Matcher matcher) {
+        for (int i = 1; i <= matcher.groupCount(); i++) {
+            String group = matcher.group(i);
+            if (StringUtils.isNotBlank(group)) {
+                return group;
+            }
+        }
+        throw new IllegalArgumentException("Could not extract region from endpoint: " + glueEndpoint);
     }
 }
 
