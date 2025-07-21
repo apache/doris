@@ -708,7 +708,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         .tag("new_rowsets(rowset,count,cardinality)",
                              fmt::format("[{}]", fmt::join(new_rowset_msgs, ", ")));
             }
-            if (config::enable_delete_bitmap_store_v2_check_correctness &&
+            if (config::delete_bitmap_store_version == 2 &&
+                config::enable_delete_bitmap_store_v2_check_correctness &&
                 !resp.rowset_meta().empty()) {
                 DeleteBitmap full_delete_bitmap(tablet_id);
                 // rowset_id, num_segments
