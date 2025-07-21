@@ -16,15 +16,26 @@
 // under the License.
 
 #pragma once
+#include <memory>
+#include <string>
 
-#include "udf.h"
+#include "common/status.h"
+#include "vec/exec/executor/listenable_future.h"
 
-namespace doris_udf {
+namespace doris {
+namespace vectorized {
 
-/// This is an example of the COUNT aggregate function.
-void CountInit(FunctionContext* context, BigIntVal* val);
-void CountUpdate(FunctionContext* context, const IntVal& input, BigIntVal* val);
-void CountMerge(FunctionContext* context, const BigIntVal& src, BigIntVal* dst);
-BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val);
+class SplitRunner {
+public:
+    virtual ~SplitRunner() = default;
+    virtual Status init() = 0;
+    virtual Result<SharedListenableFuture<Void>> process_for(std::chrono::nanoseconds duration) = 0;
+    virtual void close(const Status& status) = 0;
+    virtual bool is_finished() = 0;
+    virtual Status finished_status() = 0;
+    virtual std::string get_info() const = 0;
+    virtual bool is_auto_reschedule() const { return true; }
+};
 
-}
+} // namespace vectorized
+} // namespace doris
