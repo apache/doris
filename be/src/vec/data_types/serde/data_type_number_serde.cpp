@@ -27,7 +27,6 @@
 #include "util/mysql_global.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
-#include "vec/functions/cast/function_cast.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -608,6 +607,21 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& 
     return Status::OK();
 }
 
+template <PrimitiveType PT, bool enable_strict_cast>
+bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x, ReadBuffer& rb) {
+    if constexpr (is_float_or_double(PT)) {
+        return try_read_float_text(x, rb);
+    } else if constexpr (PT == TYPE_BOOLEAN) {
+        return try_read_bool_text(x, rb);
+    } else if constexpr (is_int(PT)) {
+        return try_read_int_text<typename PrimitiveTypeTraits<PT>::ColumnItemType,
+                                 enable_strict_cast>(x, rb);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "try_parse_impl not implemented for type: {}", type_to_string(PT));
+    }
+}
+
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
                                                  const FormatOptions& options) const {
@@ -627,7 +641,7 @@ Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, Column
         size_t string_size = next_offset - current_offset;
 
         ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-        null_map[i] = !try_parse_impl<DataTypeNumber<T>, false>(vec_to[i], read_buffer, nullptr);
+        null_map[i] = !try_parse_impl<T, false>(vec_to[i], read_buffer);
         current_offset = next_offset;
     }
     return Status::OK();
@@ -688,7 +702,7 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
         size_t string_size = next_offset - current_offset;
 
         ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-        if (!try_parse_impl<DataTypeNumber<T>, true>(vec_to[i], read_buffer, nullptr)) {
+        if (!try_parse_impl<T, true>(vec_to[i], read_buffer)) {
             return Status::InvalidArgument(
                     "parse number fail, string: '{}'",
                     std::string((char*)&(*chars)[current_offset], string_size));
