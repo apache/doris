@@ -138,6 +138,11 @@ Status HierarchicalDataReader::add_stream(const SubcolumnColumnReaders::Node* no
         return Status::InternalError("Failed to add node path {}", node->path.get_path());
     }
     VLOG_DEBUG << fmt::format("Add substream {} for {}", node->path.get_path(), _path.get_path());
+    // print parts
+    for (const auto& part : node->path.get_parts()) {
+        VLOG_DEBUG << fmt::format("part: {}, is_nested: {}, anonymous_array_level: {}", part.key,
+                                  part.is_nested, part.anonymous_array_level);
+    }
     return Status::OK();
 }
 

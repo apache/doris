@@ -368,6 +368,15 @@ Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         }
     }
 
+    // print all_paths
+    for (const auto& path : all_paths) {
+        VLOG_DEBUG << fmt::format("path: {}", path.get_path());
+        // print path parts
+        for (const auto& part : path.get_parts()) {
+            VLOG_DEBUG << fmt::format("part: {}, is_nested: {}, anonymous_array_level: {}",
+                                      part.key, part.is_nested, part.anonymous_array_level);
+        }
+    }
     // Batch check for conflicts
     RETURN_IF_ERROR(check_variant_has_no_ambiguous_paths(all_paths));
 
