@@ -17,6 +17,14 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.CastException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -37,5 +45,168 @@ public class StringLikeLiteralTest {
         System.setProperty("file.encoding", "ANSI_X3.4-1968");
         double d1 = StringLikeLiteral.getDouble("一般风险准备");
         Assertions.assertEquals(d1, 6.4379158486625512E16);
+    }
+
+    @Test
+    void testUncheckedCastTo() {
+        // To boolean
+        StringLiteral s = new StringLiteral("tRuE");
+        Assertions.assertTrue(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        s = new StringLiteral("1");
+        Assertions.assertTrue(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        s = new StringLiteral("YeS");
+        Assertions.assertTrue(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        s = new StringLiteral("t");
+        Assertions.assertTrue(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        s = new StringLiteral("oN");
+        Assertions.assertTrue(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        s = new StringLiteral("FaLSE");
+        Assertions.assertFalse(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        s = new StringLiteral("0");
+        Assertions.assertFalse(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        s = new StringLiteral("NO");
+        Assertions.assertFalse(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        s = new StringLiteral("F");
+        Assertions.assertFalse(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        s = new StringLiteral("OfF");
+        Assertions.assertFalse(((BooleanLiteral) s.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+
+        // To integer
+        s = new StringLiteral("123456");
+        Expression expression = s.uncheckedCastTo(IntegerType.INSTANCE);
+        Assertions.assertTrue(expression instanceof IntegerLiteral);
+        Assertions.assertEquals(123456, ((IntegerLiteral) expression).getValue().intValue());
+
+        s = new StringLiteral("+123456");
+        expression = s.uncheckedCastTo(IntegerType.INSTANCE);
+        Assertions.assertTrue(expression instanceof IntegerLiteral);
+        Assertions.assertEquals(123456, ((IntegerLiteral) expression).getValue().intValue());
+
+        s = new StringLiteral("-123456");
+        expression = s.uncheckedCastTo(IntegerType.INSTANCE);
+        Assertions.assertTrue(expression instanceof IntegerLiteral);
+        Assertions.assertEquals(-123456, ((IntegerLiteral) expression).getValue().intValue());
+
+        s = new StringLiteral("1234567891011");
+        try {
+            s.uncheckedCastTo(IntegerType.INSTANCE);
+            Assertions.fail();
+        } catch (Exception e) {
+            Assertions.assertTrue(e instanceof CastException);
+        }
+
+        // To float
+        s = new StringLiteral("123.456");
+        expression = s.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertTrue(expression instanceof FloatLiteral);
+        Assertions.assertEquals((float) 123.456, ((FloatLiteral) expression).getValue().floatValue());
+
+        s = new StringLiteral("1.3E5");
+        expression = s.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertTrue(expression instanceof FloatLiteral);
+        Assertions.assertEquals(130000, ((FloatLiteral) expression).getValue().floatValue());
+
+        s = new StringLiteral("-.99");
+        expression = s.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertTrue(expression instanceof FloatLiteral);
+        Assertions.assertEquals((float) -0.99, ((FloatLiteral) expression).getValue().floatValue());
+
+        s = new StringLiteral("-1e400");
+        expression = s.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertTrue(expression instanceof FloatLiteral);
+        Assertions.assertEquals(Float.NEGATIVE_INFINITY, ((FloatLiteral) expression).getValue().floatValue());
+
+        s = new StringLiteral("InF");
+        expression = s.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertTrue(expression instanceof FloatLiteral);
+        Assertions.assertEquals(Float.POSITIVE_INFINITY, ((FloatLiteral) expression).getValue().floatValue());
+
+        s = new StringLiteral("-InfiNIty");
+        expression = s.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertTrue(expression instanceof FloatLiteral);
+        Assertions.assertEquals(Float.NEGATIVE_INFINITY, ((FloatLiteral) expression).getValue().floatValue());
+
+        s = new StringLiteral("nAN");
+        expression = s.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertTrue(expression instanceof FloatLiteral);
+        Assertions.assertEquals(Float.NaN, ((FloatLiteral) expression).getValue().floatValue());
+
+        // To double
+        s = new StringLiteral("123.456");
+        expression = s.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertTrue(expression instanceof DoubleLiteral);
+        Assertions.assertEquals(123.456, ((DoubleLiteral) expression).getValue().doubleValue());
+
+        s = new StringLiteral("1.3E5");
+        expression = s.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertTrue(expression instanceof DoubleLiteral);
+        Assertions.assertEquals(130000, ((DoubleLiteral) expression).getValue().doubleValue());
+
+        s = new StringLiteral("-.99");
+        expression = s.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertTrue(expression instanceof DoubleLiteral);
+        Assertions.assertEquals(-0.99, ((DoubleLiteral) expression).getValue().doubleValue());
+
+        s = new StringLiteral("-1e400");
+        expression = s.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertTrue(expression instanceof DoubleLiteral);
+        Assertions.assertEquals(Float.NEGATIVE_INFINITY, ((DoubleLiteral) expression).getValue().doubleValue());
+
+        s = new StringLiteral("InF");
+        expression = s.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertTrue(expression instanceof DoubleLiteral);
+        Assertions.assertEquals(Float.POSITIVE_INFINITY, ((DoubleLiteral) expression).getValue().doubleValue());
+
+        s = new StringLiteral("-InfiNIty");
+        expression = s.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertTrue(expression instanceof DoubleLiteral);
+        Assertions.assertEquals(Float.NEGATIVE_INFINITY, ((DoubleLiteral) expression).getValue().doubleValue());
+
+        s = new StringLiteral("nAN");
+        expression = s.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertTrue(expression instanceof DoubleLiteral);
+        Assertions.assertEquals(Float.NaN, ((DoubleLiteral) expression).getValue().doubleValue());
+
+        // To decimal
+        s = new StringLiteral("1234.5678");
+        expression = s.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(10, 4));
+        Assertions.assertTrue(expression instanceof DecimalV3Literal);
+        Assertions.assertEquals("1234.5678", ((DecimalV3Literal) expression).getValue().toString());
+
+        s = new StringLiteral("1234.5678");
+        expression = s.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(6, 2));
+        Assertions.assertTrue(expression instanceof DecimalV3Literal);
+        Assertions.assertEquals("1234.57", ((DecimalV3Literal) expression).getValue().toString());
+
+        s = new StringLiteral("1.33e1");
+        expression = s.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(6, 2));
+        Assertions.assertTrue(expression instanceof DecimalV3Literal);
+        Assertions.assertEquals("13.30", ((DecimalV3Literal) expression).getValue().toString());
+
+        s = new StringLiteral("1234.5678");
+        try {
+            s.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(2, 1));
+            Assertions.fail();
+        } catch (Exception e) {
+            Assertions.assertTrue(e instanceof CastException);
+        }
+
+        s = new StringLiteral("9999.999");
+        expression = s.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(7, 3));
+        Assertions.assertTrue(expression instanceof DecimalV3Literal);
+        Assertions.assertEquals("9999.999", ((DecimalV3Literal) expression).getValue().toString());
+
+        s = new StringLiteral("9999.999");
+        expression = s.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(7, 2));
+        Assertions.assertTrue(expression instanceof DecimalV3Literal);
+        Assertions.assertEquals("10000.00", ((DecimalV3Literal) expression).getValue().toString());
+
+        s = new StringLiteral("9999.999");
+        try {
+            s.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(6, 2));
+            Assertions.fail();
+        } catch (Exception e) {
+            Assertions.assertTrue(e instanceof CastException);
+        }
     }
 }
