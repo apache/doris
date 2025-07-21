@@ -44,6 +44,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
@@ -67,6 +68,11 @@ import org.apache.paimon.utils.Projection;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -390,8 +396,55 @@ public class PaimonUtil {
                 partitionType);
         Object[] partitionValuesArray = toObjectArrayConverter.convert(partitionValues);
         for (int i = 0; i < partitionKeys.size(); i++) {
-            partitionInfoMap.put(partitionKeys.get(i), partitionValuesArray[i].toString());
+            try {
+                String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
+                        partitionValuesArray[i]);
+                partitionInfoMap.put(partitionKeys.get(i), partitionValue);
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize partition value for key {}: {}", partitionKeys.get(i), e.getMessage());
+                return null;
+            }
         }
         return partitionInfoMap;
+    }
+
+    private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value) {
+        if (value == null) {
+            return "\\N";
+        }
+        switch (type.getTypeRoot()) {
+            case BOOLEAN:
+            case INTEGER:
+            case BIGINT:
+            case FLOAT:
+            case DOUBLE:
+            case SMALLINT:
+            case TINYINT:
+            case DECIMAL:
+            case VARCHAR:
+            case CHAR:
+                return value.toString();
+            case BINARY:
+            case VARBINARY:
+                return Base64.getEncoder().encodeToString((byte[]) value);
+            case DATE:
+                // Paimon date is stored as days since epoch
+                LocalDate date = LocalDate.ofEpochDay((Integer) value);
+                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            case TIME_WITHOUT_TIME_ZONE:
+                // Paimon time is stored as microseconds since midnight
+                long micros = (Long) value;
+                LocalDateTime time = LocalDateTime.ofEpochSecond(micros / 1_000_000, (int) (micros % 1_000_000) * 1000,
+                        ZoneId.systemDefault().getRules().getOffset(Instant.now()));
+                return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                Timestamp timestamp = (Timestamp) value;
+                return timestamp.toLocalDateTime()
+                        .atZone(ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            default:
+                throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
+        }
     }
 }
