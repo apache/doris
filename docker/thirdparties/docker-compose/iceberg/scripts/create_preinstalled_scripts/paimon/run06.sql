@@ -8,40 +8,35 @@ use partition_db;
 CREATE TABLE date_partitioned (
     id BIGINT,
     name STRING,
-    partition_key DATE,
-    PRIMARY KEY (id) NOT ENFORCED
+    partition_key DATE
 ) PARTITIONED BY (partition_key);
 
 -- Partition by integer type
 CREATE TABLE int_partitioned (
     id BIGINT,
     name STRING,
-    partition_key INT,
-    PRIMARY KEY (id) NOT ENFORCED
+    partition_key INT
 ) PARTITIONED BY (partition_key);
 
 -- Partition by string type
 CREATE TABLE string_partitioned (
     id BIGINT,
     name STRING,
-    partition_key STRING,
-    PRIMARY KEY (id) NOT ENFORCED
+    partition_key STRING
 ) PARTITIONED BY (partition_key);
 
 -- Partition by timestamp type
 CREATE TABLE timestamp_partitioned (
     id BIGINT,
     name STRING,
-    partition_key TIMESTAMP,
-    PRIMARY KEY (id) NOT ENFORCED
+    partition_key TIMESTAMP
 ) PARTITIONED BY (partition_key);
 
 -- Partition by boolean type
 CREATE TABLE boolean_partitioned (
     id BIGINT,
     name STRING,
-    partition_key BOOLEAN,
-    PRIMARY KEY (id) NOT ENFORCED
+    partition_key BOOLEAN
 ) PARTITIONED BY (partition_key);
 
 -- Partition by decimal type
@@ -49,8 +44,7 @@ CREATE TABLE decimal_partitioned (
     id BIGINT,
     name STRING,
     value FLOAT,
-    partition_key DECIMAL(10, 2),
-    PRIMARY KEY (id) NOT ENFORCED
+    partition_key DECIMAL(10, 2)
 ) PARTITIONED BY (partition_key);
 
 -- Insert data into date_partitioned table
