@@ -50,7 +50,7 @@ suite("test_session_variables_mtmv","mtmv") {
           exception "not in aggregate's output"
       }
 
-    sql""" set sql_mode=""; """"
+    sql""" set sql_mode=""; """
 
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
