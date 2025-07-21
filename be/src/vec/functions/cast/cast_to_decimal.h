@@ -21,6 +21,7 @@
 #include "vec/data_types/data_type_decimal.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 template <typename T>
 constexpr static bool type_allow_cast_to_decimal =
         std::is_same_v<T, DataTypeString> || IsDataTypeNumber<T> || IsDataTypeDecimal<T>;
@@ -276,4 +277,5 @@ WrapperType create_decimal_wrapper(FunctionContext* context, const DataTypePtr& 
     };
 }
 } // namespace CastWrapper
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
