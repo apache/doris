@@ -34,7 +34,7 @@ public:
 
     Status append_block(Block* block) override;
 
-    Status prepare_for_read() override;
+    Status prepare_for_read(bool is_spill) override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 

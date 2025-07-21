@@ -87,7 +87,7 @@ public:
         EXPECT_TRUE(sorter->append_block(&block).ok());
     }
 
-    void prepare_for_read() { EXPECT_TRUE(sorter->prepare_for_read().ok()); }
+    void prepare_for_read() { EXPECT_TRUE(sorter->prepare_for_read(false).ok()); }
 
     void check_sort_column(ColumnPtr column) {
         MutableBlock sorted_block(VectorizedUtils::create_columns_with_type_and_name(*row_desc));
@@ -156,7 +156,7 @@ void test_sort(SortType sort_type, int64_t rows, int64_t limit, int64_t offset) 
     SortTestParam param(sort_type, limit, offset);
     auto [unsort_column, sorted_column] = get_unsort_and_sorted_column(rows, limit, offset);
     param.append_block(unsort_column);
-    param.prepare_for_read();
+    param.prepare_for_read(false);
     param.check_sort_column(sorted_column->clone());
 }
 
