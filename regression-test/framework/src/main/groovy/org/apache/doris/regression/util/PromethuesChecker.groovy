@@ -18,9 +18,12 @@
 package org.apache.doris.regression.util
 
 import groovy.transform.CompileStatic
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 @CompileStatic
 class PromethuesChecker {
+    private static final Logger log = LoggerFactory.getLogger(PromethuesChecker.class)
 
     static boolean regexp(String s) {
         if (s == null) return false
@@ -41,9 +44,9 @@ class PromethuesChecker {
             if (line.startsWith("# HELP ")) continue
 
             if (line.startsWith("# TYPE ")) {
-                def matcher = line =~ /^# TYPE\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+(counter|gauge|histogram|summary)$/
+                def matcher = (line =~ /^# TYPE\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+(counter|gauge|histogram|summary)$/) as Matcher
                 if (matcher.matches()) {
-                    type = matcher[0][2]?.toLowerCase()
+                    type = matcher.group(2)?.toLowerCase()
                 } else {
                     allValid = false
                 }
