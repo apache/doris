@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -30,7 +29,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.persist.OperationType;
-import org.apache.doris.qe.DdlExecutor;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -74,13 +72,13 @@ public class RefreshManager {
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
+            ((ExternalCatalog) catalog).resetToUninitialized(invalidCache);
             LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
         }
     }
 
     // Refresh database
-    public void handleRefreshDb(String catalogName, String dbName, boolean invalidCache) throws DdlException {
+    public void handleRefreshDb(String catalogName, String dbName) throws DdlException {
         Env env = Env.getCurrentEnv();
         CatalogIf catalog = catalogName != null ? env.getCatalogMgr().getCatalog(catalogName) : env.getCurrentCatalog();
         if (catalog == null) {
@@ -90,9 +88,9 @@ public class RefreshManager {
             throw new DdlException("Only support refresh database in external catalog");
         }
         DatabaseIf db = catalog.getDbOrDdlException(dbName);
-        refreshDbInternal((ExternalDatabase) db, invalidCache);
+        refreshDbInternal((ExternalDatabase) db);
 
-        ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(catalog.getId(), db.getFullName(), invalidCache);
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(catalog.getId(), db.getFullName());
         Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
     }
 
@@ -111,17 +109,13 @@ public class RefreshManager {
         if (!db.isPresent()) {
             LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
         } else {
-            refreshDbInternal(db.get(), log.isInvalidCache());
+            refreshDbInternal(db.get());
         }
     }
 
-    private void refreshDbInternal(ExternalDatabase db, boolean invalidCache) {
-        db.setUnInitialized();
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(db.getCatalog().getId(), db.getFullName());
-        }
-        LOG.info("refresh database {} in catalog {} with invalidCache {}", db.getFullName(),
-                db.getCatalog().getName(), invalidCache);
+    private void refreshDbInternal(ExternalDatabase db) {
+        db.resetToUninitialized();
+        LOG.info("refresh database {} in catalog {}", db.getFullName(), db.getCatalog().getName());
     }
 
     // Refresh table
@@ -287,12 +281,12 @@ public class RefreshManager {
                          * {@link org.apache.doris.analysis.RefreshCatalogStmt#analyze(Analyzer)} is ok,
                          * because the default value of invalidCache is true.
                          * */
-                        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
                         try {
-                            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+                            Env.getCurrentEnv().getRefreshManager().handleRefreshCatalog(catalogName, true);
                         } catch (Exception e) {
                             LOG.warn("failed to refresh catalog {}", catalogName, e);
                         }
+
                         // reset
                         timeGroup[1] = original;
                         refreshMap.put(catalogId, timeGroup);

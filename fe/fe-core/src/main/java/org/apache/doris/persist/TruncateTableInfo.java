@@ -141,7 +141,7 @@ public class TruncateTableInfo implements Writable {
     public String toString() {
         return "TruncateTableInfo{"
                 + "ctl=" + ctl
-                + "dbId=" + dbId
+                + ", dbId=" + dbId
                 + ", db='" + db + '\''
                 + ", tblId=" + tblId
                 + ", table='" + table + '\''
