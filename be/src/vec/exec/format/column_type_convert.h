@@ -442,8 +442,8 @@ struct SafeCastString<TYPE_LARGEINT> {
     static bool safe_cast_string(
             const char* startptr, size_t buffer_size,
             PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnType::value_type* value) {
-        ReadBuffer buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
-        return read_int_text_impl<Int128>(*value, buffer);
+        StringRef str_ref(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
+        return try_read_int_text<Int128>(*value, str_ref);
     }
 };
 
@@ -524,9 +524,9 @@ struct SafeCastDecimalString {
 
     static bool safe_cast_string(const char* startptr, size_t buffer_size, CppType* value,
                                  int precision, int scale) {
-        ReadBuffer buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
+        StringRef str_ref(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
         return read_decimal_text_impl<DstPrimitiveType, CppType>(
-                       *value, buffer, precision, scale) == StringParser::PARSE_SUCCESS;
+                       *value, str_ref, precision, scale) == StringParser::PARSE_SUCCESS;
     }
 };
 
