@@ -417,6 +417,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
+    public static final String USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER
+            = "use_one_phase_agg_for_group_concat_with_order";
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
@@ -918,7 +920,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
     public boolean sqlAutoIsNull = false;
 
-    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
+    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT, needForward = true)
     private long sqlSelectLimit = Long.MAX_VALUE;
 
     // this is used to make c3p0 library happy
@@ -1668,6 +1670,17 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
+
+    @VariableMgr.VarAttr(
+            name = USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER,
+            needForward = true,
+            fuzzy = true,
+            description = {
+                    "允许使用一阶段聚合来执行带有order的group_concat函数",
+                    "Enable to use one stage aggregation to execute the group_concat function with order"
+            }
+    )
+    public boolean useOnePhaseAggForGroupConcatWithOrder = false;
 
     // Whether enable two phase read optimization
     // 1. read related rowids along with necessary column data
@@ -4611,10 +4624,16 @@ public class SessionVariable implements Serializable, Writable {
     public static boolean getEnableDecimal256() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
-            return false;
+            return VariableMgr.getDefaultSessionVariable().enableDecimal256;
         }
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        return connectContext.getState().isNereids() && sessionVariable.isEnableDecimal256();
+        if (!sessionVariable.isEnableDecimal256()) {
+            return false;
+        }
+        if (connectContext.getState().isQuery()) {
+            return connectContext.getState().isNereids();
+        }
+        return true;
     }
 
     public boolean isEnableDecimal256() {

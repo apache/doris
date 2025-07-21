@@ -72,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
@@ -279,6 +280,13 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitSlotReference(SlotReference slotReference, Statistics context) {
         return context.findColumnStatistics(slotReference);
+    }
+
+    @Override
+    public ColumnStatistic visitNonNullable(NonNullable nonNullable, Statistics context) {
+        ColumnStatistic childColStats = nonNullable.child().accept(this, context);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(childColStats);
+        return builder.setNumNulls(0).build();
     }
 
     @Override

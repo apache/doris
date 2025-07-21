@@ -719,7 +719,7 @@ public class HiveMetaStoreClientHelper {
     public static String showCreateTable(HMSExternalTable hmsTable) {
         // Always use the latest schema
         HMSExternalCatalog catalog = (HMSExternalCatalog) hmsTable.getCatalog();
-        Table remoteTable = catalog.getClient().getTable(hmsTable.getDbName(), hmsTable.getRemoteName());
+        Table remoteTable = catalog.getClient().getTable(hmsTable.getRemoteDbName(), hmsTable.getRemoteName());
         StringBuilder output = new StringBuilder();
         if (remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText()) {
             output.append(String.format("CREATE VIEW `%s` AS ", remoteTable.getTableName()));

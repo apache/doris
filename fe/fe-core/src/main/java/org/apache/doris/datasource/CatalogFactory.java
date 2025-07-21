@@ -22,7 +22,6 @@ import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
@@ -63,9 +62,6 @@ public class CatalogFactory {
         } else if (stmt instanceof AlterCatalogNameStmt) {
             log.setCatalogId(catalogId);
             log.setNewCatalogName(((AlterCatalogNameStmt) stmt).getNewCatalogName());
-        } else if (stmt instanceof RefreshCatalogStmt) {
-            log.setCatalogId(catalogId);
-            log.setInvalidCache(((RefreshCatalogStmt) stmt).isInvalidCache());
         } else if (stmt instanceof AlterCatalogCommentStmt) {
             log.setCatalogId(catalogId);
             log.setComment(((AlterCatalogCommentStmt) stmt).getComment());

@@ -2473,10 +2473,17 @@ size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
             ++index;
             return *this;
         }
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-member-function"
+#endif
         inline Iterator& operator--() {
             --index;
             return *this;
         }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         inline difference_type operator-(const Iterator& rhs) const { return index - rhs.index; }
 
         const ColumnString* data;

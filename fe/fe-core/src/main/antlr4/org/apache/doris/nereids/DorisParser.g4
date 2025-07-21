@@ -33,6 +33,10 @@ singleStatement
     : SEMICOLON* statement? SEMICOLON* EOF
     ;
 
+expressionWithEof
+    : expression EOF
+    ;
+
 statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
@@ -1426,7 +1430,7 @@ stepPartitionDef
     ;
 
 inPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN partitionValueLists+=partitionValueList
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier ((VALUES IN)? ((LEFT_PAREN partitionValueLists+=partitionValueList
         (COMMA partitionValueLists+=partitionValueList)* RIGHT_PAREN) | constants=partitionValueList))?
     ;
 
@@ -1714,7 +1718,6 @@ primitiveColType
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
-    | type=VARIANT
     | type=ALL
     ;
 
@@ -1730,6 +1733,7 @@ variantTypeDefinitions
     : VARIANT LT variantSubColTypeList COMMA properties=propertyClause GT  #variantWithFieldsAndProps
     | VARIANT LT variantSubColTypeList GT                                  #variantWithOnlyFields
     | VARIANT LT properties=propertyClause GT                              #variantWithOnlyProps
+    | VARIANT                                                              #variant
     ;
 
 variantSubColTypeList

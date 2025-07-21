@@ -28,9 +28,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.fsv2.FileSystemFactory;
-import org.apache.doris.fsv2.remote.RemoteFile;
-import org.apache.doris.fsv2.remote.RemoteFileSystem;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
@@ -85,7 +85,7 @@ public class BrokerUtil {
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
-        try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc)) {
+        try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties())) {
             Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());

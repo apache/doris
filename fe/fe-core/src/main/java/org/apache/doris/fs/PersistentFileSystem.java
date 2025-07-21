@@ -19,7 +19,8 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.persist.gson.GsonPreProcessable;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -31,7 +32,7 @@ import java.util.Map;
 /**
  * Use for persistence, Repository will persist properties of file system.
  */
-public abstract class PersistentFileSystem implements FileSystem, GsonPreProcessable {
+public abstract class PersistentFileSystem implements FileSystem {
     public static final String STORAGE_TYPE = "_DORIS_STORAGE_TYPE_";
     @SerializedName("prop")
     public Map<String, String> properties = Maps.newHashMap();
@@ -39,11 +40,7 @@ public abstract class PersistentFileSystem implements FileSystem, GsonPreProcess
     public String name;
     public StorageBackend.StorageType type;
 
-    public boolean needFullPath() {
-        return type == StorageBackend.StorageType.S3
-                    || type == StorageBackend.StorageType.OFS
-                    || type == StorageBackend.StorageType.JFS;
-    }
+    public abstract StorageProperties getStorageProperties();
 
     public PersistentFileSystem(String name, StorageBackend.StorageType type) {
         this.name = name;
@@ -63,7 +60,6 @@ public abstract class PersistentFileSystem implements FileSystem, GsonPreProcess
     }
 
     /**
-     *
      * @param in persisted data
      * @return file systerm
      */
@@ -80,13 +76,13 @@ public abstract class PersistentFileSystem implements FileSystem, GsonPreProcess
         }
         if (properties.containsKey(STORAGE_TYPE)) {
             type = StorageBackend.StorageType.valueOf(properties.get(STORAGE_TYPE));
-            properties.remove(STORAGE_TYPE);
         }
-        return FileSystemFactory.get(name, type, properties);
-    }
-
-    @Override
-    public void gsonPreProcess() {
-        properties.put(STORAGE_TYPE, type.name());
+        StorageProperties storageProperties;
+        if (type.equals(StorageBackend.StorageType.BROKER)) {
+            storageProperties = BrokerProperties.of(name, properties);
+        } else {
+            storageProperties = StorageProperties.createPrimary(properties);
+        }
+        return FileSystemFactory.get(storageProperties);
     }
 }

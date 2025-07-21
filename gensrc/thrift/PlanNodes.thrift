@@ -23,6 +23,7 @@ include "Types.thrift"
 include "Opcodes.thrift"
 include "Partitions.thrift"
 include "Descriptors.thrift"
+include "ExternalTableSchema.thrift"
 
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
@@ -471,7 +472,12 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
-    25: optional map<i64, map<i32, string>> history_schema_info // paimon/hudi map<schema id, map<column unique id , column name>> : for schema change. (native reader)
+
+    // Every time a iceberg/hudi/paimon table makes a schema change, a new schema id is generated.
+    // This is used to represent the latest id.
+    25: optional i64 current_schema_id;
+    // All schema information used in the current query process
+    26: optional list<ExternalTableSchema.TSchema> history_schema_info 
 }
 
 struct TFileRangeDesc {
@@ -548,6 +554,19 @@ struct TIcebergMetadataParams {
   2: optional map<string, string> hadoop_props
 }
 
+
+struct TPaimonMetadataParams {
+  1: optional string db_name
+  2: optional string tbl_name
+  3: optional string query_type
+  4: optional i64 ctl_id
+  5: optional i64 db_id
+  6: optional i64 tbl_id
+  7: optional string serialized_split
+  8: optional map<string, string> hadoop_props
+  9: optional map<string, string> paimon_props
+}
+
 struct THudiMetadataParams {
   1: optional Types.THudiQueryType hudi_query_type
   2: optional string catalog
@@ -616,6 +635,7 @@ struct TMetaScanRange {
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
   12: optional THudiMetadataParams hudi_params
+  13: optional TPaimonMetadataParams paimon_params
 }
 
 // Specification of an individual data range which is held in its entirety

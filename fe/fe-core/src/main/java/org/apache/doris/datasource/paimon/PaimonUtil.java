@@ -26,6 +26,15 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.hive.HiveUtil;
+import org.apache.doris.thrift.TColumnType;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.schema.external.TArrayField;
+import org.apache.doris.thrift.schema.external.TField;
+import org.apache.doris.thrift.schema.external.TFieldPtr;
+import org.apache.doris.thrift.schema.external.TMapField;
+import org.apache.doris.thrift.schema.external.TNestedField;
+import org.apache.doris.thrift.schema.external.TSchema;
+import org.apache.doris.thrift.schema.external.TStructField;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -39,20 +48,24 @@ import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +74,7 @@ import javax.annotation.Nullable;
 
 public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
+    private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
 
     public static List<InternalRow> read(
             Table table, @Nullable int[] projection, @Nullable Predicate predicate,
@@ -93,7 +107,7 @@ public class PaimonUtil {
     }
 
     public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-                                                            List<Partition> paimonPartitions) {
+            List<Partition> paimonPartitions) {
 
         if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
             return PaimonPartitionInfo.EMPTY;
@@ -224,5 +238,133 @@ public class PaimonUtil {
 
     public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type) {
         return paimonPrimitiveTypeToDorisType(type);
+    }
+
+    public static List<Column> parseSchema(Table table) {
+        List<String> primaryKeys = table.primaryKeys();
+        return parseSchema(table.rowType(), primaryKeys);
+    }
+
+    public static List<Column> parseSchema(RowType rowType, List<String> primaryKeys) {
+        List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
+        rowType.getFields().forEach(field -> {
+            resSchema.add(new Column(field.name().toLowerCase(),
+                    PaimonUtil.paimonTypeToDorisType(field.type()), primaryKeys.contains(field.name()), null,
+                    field.type().isNullable(),
+                    field.description(), true,
+                    field.id()));
+        });
+        return resSchema;
+    }
+
+    public static <T> String encodeObjectToString(T t) {
+        try {
+            byte[] bytes = InstantiationUtil.serializeObject(t);
+            return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static void updatePaimonColumnUniqueId(Column column, DataType dataType) {
+        List<Column> columns = column.getChildren();
+        switch (dataType.getTypeRoot()) {
+            case ARRAY:
+                ArrayType arrayType = (ArrayType) dataType;
+                updatePaimonColumnUniqueId(columns.get(0), arrayType.getElementType());
+                break;
+            case MAP:
+                MapType mapType = (MapType) dataType;
+                updatePaimonColumnUniqueId(columns.get(0), mapType.getKeyType());
+                updatePaimonColumnUniqueId(columns.get(1), mapType.getValueType());
+                break;
+            case ROW:
+                RowType rowType = (RowType) dataType;
+                for (int idx = 0; idx < columns.size(); idx++) {
+                    updatePaimonColumnUniqueId(columns.get(idx), rowType.getFields().get(idx));
+                }
+                break;
+            default:
+                return;
+        }
+    }
+
+    public static void updatePaimonColumnUniqueId(Column column, DataField field) {
+        column.setUniqueId(field.id());
+        updatePaimonColumnUniqueId(column, field.type());
+    }
+
+    public static TField getSchemaInfo(DataType dataType) {
+        TField field = new TField();
+        field.setIsOptional(dataType.isNullable());
+        TNestedField nestedField = new TNestedField();
+        switch (dataType.getTypeRoot()) {
+            case ARRAY: {
+                TArrayField listField = new TArrayField();
+                org.apache.paimon.types.ArrayType paimonArrayType = (org.apache.paimon.types.ArrayType) dataType;
+                TFieldPtr fieldPtr = new TFieldPtr();
+                fieldPtr.setFieldPtr(getSchemaInfo(paimonArrayType.getElementType()));
+                listField.setItemField(fieldPtr);
+                nestedField.setArrayField(listField);
+                field.setNestedField(nestedField);
+
+                TColumnType tColumnType = new TColumnType();
+                tColumnType.setType(TPrimitiveType.ARRAY);
+                field.setType(tColumnType);
+                break;
+            }
+            case MAP: {
+                TMapField mapField = new TMapField();
+                org.apache.paimon.types.MapType mapType = (org.apache.paimon.types.MapType) dataType;
+                TFieldPtr keyField = new TFieldPtr();
+                keyField.setFieldPtr(getSchemaInfo(mapType.getKeyType()));
+                mapField.setKeyField(keyField);
+                TFieldPtr valueField = new TFieldPtr();
+                valueField.setFieldPtr(getSchemaInfo(mapType.getValueType()));
+                mapField.setValueField(valueField);
+                nestedField.setMapField(mapField);
+                field.setNestedField(nestedField);
+
+                TColumnType tColumnType = new TColumnType();
+                tColumnType.setType(TPrimitiveType.MAP);
+                field.setType(tColumnType);
+                break;
+            }
+            case ROW: {
+                RowType rowType = (RowType) dataType;
+                TStructField structField = getSchemaInfo(rowType.getFields());
+                nestedField.setStructField(structField);
+                field.setNestedField(nestedField);
+
+                TColumnType tColumnType = new TColumnType();
+                tColumnType.setType(TPrimitiveType.STRUCT);
+                field.setType(tColumnType);
+                break;
+            }
+            default:
+                field.setType(paimonPrimitiveTypeToDorisType(dataType).toColumnTypeThrift());
+                break;
+        }
+        return field;
+    }
+
+    public static TStructField getSchemaInfo(List<DataField> paimonFields) {
+        TStructField structField = new TStructField();
+        for (DataField paimonField : paimonFields) {
+            TField childField = getSchemaInfo(paimonField.type());
+            childField.setName(paimonField.name());
+            childField.setId(paimonField.id());
+            TFieldPtr fieldPtr = new TFieldPtr();
+            fieldPtr.setFieldPtr(childField);
+            structField.addToFields(fieldPtr);
+        }
+        return structField;
+    }
+
+    public static TSchema getSchemaInfo(TableSchema paimonTableSchema) {
+        TSchema tSchema = new TSchema();
+        tSchema.setSchemaId(paimonTableSchema.id());
+        tSchema.setRootField(getSchemaInfo(paimonTableSchema.fields()));
+        return tSchema;
     }
 }

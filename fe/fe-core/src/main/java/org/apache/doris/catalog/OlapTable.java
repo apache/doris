@@ -1594,7 +1594,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
-            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false, false);
         }
         if (rowCount > 0) {
             return dataSize / rowCount;
@@ -2364,8 +2364,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildMinLoadReplicaNum();
     }
 
+    public int getPartitionTotalReplicasNum(long partitionId) {
+        return partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+    }
+
     public int getLoadRequiredReplicaNum(long partitionId) {
-        int totalReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+        int totalReplicaNum = getPartitionTotalReplicasNum(partitionId);
         int minLoadReplicaNum = getMinLoadReplicaNum();
         if (minLoadReplicaNum > 0) {
             return Math.min(minLoadReplicaNum, totalReplicaNum);

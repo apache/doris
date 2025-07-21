@@ -2818,6 +2818,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     replicaInfo.setBePort(backend.getBePort());
                     replicaInfo.setHttpPort(backend.getHttpPort());
                     replicaInfo.setBrpcPort(backend.getBrpcPort());
+                    replicaInfo.setIsAlive(backend.isAlive());
+                    replicaInfo.setBackendId(backend.getId());
                     replicaInfo.setReplicaId(replica.getId());
                     replicaInfos.add(replicaInfo);
                 }

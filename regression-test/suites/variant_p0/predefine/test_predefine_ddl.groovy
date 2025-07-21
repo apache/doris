@@ -17,6 +17,25 @@
 
 suite("test_predefine_ddl", "p0"){ 
 
+    def timeout = 60000
+    def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
+    def wait_for_latest_op_on_table_finish = { tableName, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(3000) // wait change table state to normal
+                logger.info(tableName + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
     test {
         sql "DROP TABLE IF EXISTS test_ddl_table"
         sql """CREATE TABLE test_ddl_table (
@@ -127,11 +146,7 @@ suite("test_predefine_ddl", "p0"){
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("""Duplicate field name ab in variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text,
-PROPERTIES (
-"variant_max_subcolumns_count" = "10",
-"variant_enable_typed_paths_to_sparse" = "true"
-)>""")
+        exception("""Duplicate field name ab in variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text,PROPERTIES ("variant_max_subcolumns_count" = "10","variant_enable_typed_paths_to_sparse" = "true")>""")
     }
 
     test {
@@ -311,4 +326,45 @@ PROPERTIES (
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
         exception("The variant_max_subcolumns_count must either be 0 in all columns, or greater than 0 in all columns")
     }
+
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql "set global_variant_max_subcolumns_count = 10"
+    sql "set global_variant_enable_typed_paths_to_sparse = false"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    qt_sql "desc test_ddl_table"
+
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant NULL,
+        INDEX idx_ab (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT ''
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql "create index idx_ab2 on test_ddl_table (var) using inverted"
+    wait_for_latest_op_on_table_finish("test_ddl_table", timeout)
+
+    sql """alter table test_ddl_table add column var2 variant<properties("variant_max_subcolumns_count" = "15")> NULL"""
+    wait_for_latest_op_on_table_finish("test_ddl_table", timeout)
+
+    test {
+        sql """alter table test_ddl_table add column var3 variant<properties("variant_max_subcolumns_count" = "0")> NULL"""
+        exception("The variant_max_subcolumns_count must either be 0 in all columns or greater than 0 in all columns")
+    }
+
+    sql "alter table test_ddl_table add column var3 variant NULL"
+    wait_for_latest_op_on_table_finish("test_ddl_table", timeout)
+
+    qt_sql "desc test_ddl_table"
+
+    sql "create index idx_ab3 on test_ddl_table (var2) using inverted"
+    wait_for_latest_op_on_table_finish("test_ddl_table", timeout)
+
+    sql "create index idx_ab4 on test_ddl_table (var2) using inverted properties(\"parser\"=\"unicode\")"
+    wait_for_latest_op_on_table_finish("test_ddl_table", timeout)
 }

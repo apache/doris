@@ -75,6 +75,8 @@ import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -147,6 +149,7 @@ import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
+import org.apache.doris.encryption.KeyManager;
 import org.apache.doris.event.EventProcessor;
 import org.apache.doris.event.ReplacePartitionEvent;
 import org.apache.doris.ha.BDBHA;
@@ -586,6 +589,8 @@ public class Env {
 
     private TokenManager tokenManager;
 
+    private KeyManager keyManager;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -836,6 +841,7 @@ public class Env {
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
+        this.keyManager = new KeyManager();
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -2502,6 +2508,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadKeyManager(DataInputStream in, long checksum) throws IOException {
+        this.keyManager = KeyManager.read(in);
+        LOG.info("finished replay KeyManager from image");
+        return checksum;
+    }
+
     public long saveInsertOverwrite(CountingDataOutputStream out, long checksum) throws IOException {
         this.insertOverwriteManager.write(out);
         LOG.info("finished save iot to image");
@@ -2782,6 +2794,12 @@ public class Env {
 
     public long saveAnalysisMgr(CountingDataOutputStream dos, long checksum) throws IOException {
         analysisManager.write(dos);
+        return checksum;
+    }
+
+    public long saveKeyManager(CountingDataOutputStream out, long checksum) throws IOException {
+        this.keyManager.write(out);
+        LOG.info("finished save KeyManager to image");
         return checksum;
     }
 
@@ -3316,7 +3334,7 @@ public class Env {
         } else {
             catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
         }
-        catalogIf.createDb(stmt);
+        catalogIf.createDb(stmt.getFullDbName(), stmt.isSetIfNotExists(), stmt.getProperties());
     }
 
     // For replay edit log, need't lock metadata
@@ -3342,7 +3360,7 @@ public class Env {
         } else {
             catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
         }
-        catalogIf.dropDb(stmt);
+        catalogIf.dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void replayDropDb(DropDbInfo info) throws DdlException {
@@ -4294,12 +4312,8 @@ public class Env {
     public void dropTable(DropTableStmt stmt) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.dropTable(stmt);
-    }
-
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-                                      Long recycleTime) {
-        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
+        catalogIf.dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(),
+                stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
@@ -5999,7 +6013,10 @@ public class Env {
     public void truncateTable(TruncateTableStmt stmt) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.truncateTable(stmt);
+        TableRef tableRef = stmt.getTblRef();
+        TableName tableName = tableRef.getName();
+        catalogIf.truncateTable(tableName.getDb(), tableName.getTbl(), tableRef.getPartitionNames(),
+                false, stmt.toSqlWithoutTable());
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {

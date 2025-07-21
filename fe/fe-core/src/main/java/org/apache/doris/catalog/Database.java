@@ -454,6 +454,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return result;
     }
 
+    @Override
     public void unregisterTable(String tableName) {
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();

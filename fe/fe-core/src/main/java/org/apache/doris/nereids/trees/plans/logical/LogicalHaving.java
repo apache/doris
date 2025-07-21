@@ -91,7 +91,7 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return new LogicalHaving<>(conjuncts, groupExpression, logicalProperties, children.get(0));
     }
 
-    public Plan withExpressions(Set<Expression> expressions) {
+    public Plan withConjuncts(Set<Expression> expressions) {
         return new LogicalHaving<Plan>(expressions, Optional.empty(),
                 Optional.of(getLogicalProperties()), child());
     }

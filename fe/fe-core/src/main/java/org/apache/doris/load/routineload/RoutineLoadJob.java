@@ -387,8 +387,8 @@ public abstract class RoutineLoadJob
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
             CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
-            jobProperties.put(LoadStmt.KEY_ENCLOSE, String.valueOf(csvFileFormatProperties.getEnclose()));
-            jobProperties.put(LoadStmt.KEY_ESCAPE, String.valueOf(csvFileFormatProperties.getEscape()));
+            jobProperties.put(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+            jobProperties.put(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
             this.enclose = csvFileFormatProperties.getEnclose();
             this.escape = csvFileFormatProperties.getEscape();
         } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
@@ -1815,8 +1815,10 @@ public abstract class RoutineLoadJob
         }
     }
 
+    // jobPropertiesJsonString contains both load properties and job properties defined in CreateRoutineLoadStmt
     public String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
+        // load properties defined in CreateRoutineLoadStmt
         jobProperties.put("partitions", partitions == null
                 ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null
@@ -1831,6 +1833,12 @@ public abstract class RoutineLoadJob
             jobProperties.put(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER,
                     lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
+        jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
+                deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
+        jobProperties.put(LoadStmt.KEY_IN_PARAM_SEQUENCE_COL,
+                sequenceCol == null ? STAR_STRING : sequenceCol);
+
+        // job properties defined in CreateRoutineLoadStmt
         jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
         jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
         jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
@@ -1842,8 +1850,6 @@ public abstract class RoutineLoadJob
                 String.valueOf(desireTaskConcurrentNum));
         jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
         jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
-        jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
-                deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);

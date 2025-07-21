@@ -19,8 +19,8 @@ suite("regression_test_variant_desc", "p0"){
     // if (isCloudMode()) {
     //     return
     // }
-    def count = "0"
     sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    sql """ set global_variant_max_subcolumns_count = 0 """
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -55,7 +55,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant<properties("variant_max_subcolumns_count" = "${count}")>
+                v variant
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
@@ -68,7 +68,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant<properties("variant_max_subcolumns_count" = "${count}")>
+                v variant
             )
             DUPLICATE KEY(`k`)
             PARTITION BY RANGE(k)
@@ -161,9 +161,9 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v1 variant<properties("variant_max_subcolumns_count" = "${count}")>,
-                v2 variant<properties("variant_max_subcolumns_count" = "${count}")>,
-                v3 variant<properties("variant_max_subcolumns_count" = "${count}")>
+                v1 variant,
+                v2 variant,
+                v3 variant
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
@@ -180,7 +180,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant<properties("variant_max_subcolumns_count" = "${count}")>
+                v variant
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
@@ -223,7 +223,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant<properties("variant_max_subcolumns_count" = "${count}")>
+                v variant
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
@@ -239,7 +239,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant<properties("variant_max_subcolumns_count" = "${count}")>
+                v variant
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
