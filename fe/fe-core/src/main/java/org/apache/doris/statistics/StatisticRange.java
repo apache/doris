@@ -19,6 +19,9 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.Objects;
@@ -153,6 +156,10 @@ public class StatisticRange {
         return intersect(other, false);
     }
 
+    /**
+     *
+     * partial is true when comparing column to column, o.w. comparing column to const
+     */
     public StatisticRange intersect(StatisticRange other, boolean partial) {
         Pair<Double, LiteralExpr> biggerLow = maxPair(low, lowExpr, other.low, other.lowExpr);
         double newLow = biggerLow.first;
@@ -247,6 +254,47 @@ public class StatisticRange {
 
     public double getDistinctValues() {
         return distinctValues;
+    }
+
+    public boolean contains(Literal literal) {
+        if (high < low) {
+            return false;
+        }
+        if (literal instanceof ComparableLiteral && highExpr != null && lowExpr != null) {
+            Literal max = (Literal) new StringLiteral(highExpr.getStringValue()).checkedCastTo(literal.getDataType());
+            Literal min = (Literal) new StringLiteral(lowExpr.getStringValue()).checkedCastTo(literal.getDataType());
+            if (max instanceof ComparableLiteral && min instanceof ComparableLiteral) {
+                return ((ComparableLiteral) literal).compareTo((ComparableLiteral) max) <= 0
+                        && ((ComparableLiteral) literal).compareTo((ComparableLiteral) min) >= 0;
+            }
+        }
+        return false;
+    }
+
+    public boolean isLeftEndpoint(Literal literal) {
+        if (high < low) {
+            return false;
+        }
+        if (literal instanceof ComparableLiteral && lowExpr != null) {
+            Literal min = (Literal) new StringLiteral(lowExpr.getStringValue()).checkedCastTo(literal.getDataType());
+            if (min instanceof ComparableLiteral) {
+                return ((ComparableLiteral) literal).compareTo((ComparableLiteral) min) == 0;
+            }
+        }
+        return false;
+    }
+
+    public boolean isRightEndpoint(Literal literal) {
+        if (high < low) {
+            return false;
+        }
+        if (literal instanceof ComparableLiteral && highExpr != null) {
+            Literal max = (Literal) new StringLiteral(highExpr.getStringValue()).checkedCastTo(literal.getDataType());
+            if (max instanceof ComparableLiteral) {
+                return ((ComparableLiteral) literal).compareTo((ComparableLiteral) max) == 0;
+            }
+        }
+        return false;
     }
 
     @Override

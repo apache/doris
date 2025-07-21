@@ -759,8 +759,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
 
     @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
-            description = {"value 在每百行中的最低出现次数",
-                    "The minimum number of occurrences of 'value' per hundred lines"})
+                description = {"value 在每百行中的最低出现次数",
+                        "The minimum number of occurrences of 'value' per hundred lines"})
     private double hotValueThreshold = 33; // by percentage
 
     public void setHotValueThreshold(double threshold) {
@@ -5084,6 +5084,14 @@ public class SessionVariable implements Serializable, Writable {
             return ConnectContext.get().getSessionVariable().enableStrictCast;
         } else {
             return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
+        }
+    }
+
+    public static boolean isFeDebug() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().feDebug;
+        } else {
+            return true;
         }
     }
 }
