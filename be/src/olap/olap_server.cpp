@@ -581,6 +581,7 @@ void StorageEngine::_tablet_path_check_callback() {
 }
 
 void StorageEngine::_adjust_compaction_thread_num() {
+    TEST_SYNC_POINT_RETURN_WITH_VOID("StorageEngine::_adjust_compaction_thread_num.return_void");
     auto base_compaction_threads_num = get_base_compaction_threads_num(_store_map.size());
     if (_base_compaction_thread_pool->max_threads() != base_compaction_threads_num) {
         int old_max_threads = _base_compaction_thread_pool->max_threads();
@@ -696,7 +697,16 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 // with a maximum of config::max_automatic_compaction_num_per_round tasks per generation.
                 if (_compaction_num_per_round < config::max_automatic_compaction_num_per_round) {
                     _compaction_num_per_round *= 2;
-                    LOG_INFO("update compaction_num_per_round.")
+                    LOG_INFO("increase compaction_num_per_round.")
+                            .tag("new compaction_num_per_round", _compaction_num_per_round);
+                }
+            } else if (thread_pool->get_queue_size() > _compaction_num_per_round / 2) {
+                // If all tasks in the thread pool is greater than
+                // half of the tasks submitted in the previous round,
+                // reduce the number of tasks generated each time by half, with a minimum of 1.
+                if (_compaction_num_per_round > 1) {
+                    _compaction_num_per_round /= 2;
+                    LOG_INFO("decrease compaction_num_per_round.")
                             .tag("new compaction_num_per_round", _compaction_num_per_round);
                 }
             }
@@ -959,6 +969,8 @@ bool has_free_compaction_slot(CompactionSubmitRegistry* registry, DataDir* dir,
 
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("olap_server::_generate_compaction_tasks.return_empty",
+                                      std::vector<TabletSharedPtr> {});
     _update_cumulative_compaction_policy();
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;
