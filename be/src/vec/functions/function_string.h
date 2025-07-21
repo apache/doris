@@ -45,6 +45,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/raw_value.h"
 #include "runtime/string_search.hpp"
@@ -4943,17 +4944,26 @@ public:
     static constexpr auto name = "crc32_internal";
     static FunctionPtr create() { return std::make_shared<FunctionCrc32Internal>(); }
     String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 1; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeInt64>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_EQ(arguments.size(), 1);
+        DCHECK_GE(arguments.size(), 1);
 
-        ColumnPtr src_col = block.get_by_position(arguments[0]).column;
-        auto primitive_type = block.get_by_position(arguments[0]).type->get_primitive_type();
+        auto argument_size = arguments.size();
+        std::vector<ColumnPtr> argument_columns(argument_size);
+        std::vector<PrimitiveType> argument_primitive_types(argument_size);
+
+        for (size_t i = 0; i < argument_size; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            argument_primitive_types[i] =
+                    block.get_by_position(arguments[i]).type->get_primitive_type();
+        }
 
         auto res_col = ColumnInt64::create();
         auto& res_data = res_col->get_data();
@@ -4961,11 +4971,15 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             uint32_t hash_val = 0;
-            auto val = src_col->get_data_at(i);
-            if (val.data != nullptr) {
-                hash_val = RawValue::zlib_crc32(val.data, val.size, primitive_type, hash_val);
-            } else {
-                hash_val = HashUtil::zlib_crc_hash_null(hash_val);
+            for (size_t j = 0; j < argument_size; ++j) {
+                const auto& column = argument_columns[j];
+                auto primitive_type = argument_primitive_types[j];
+                auto val = column->get_data_at(i);
+                if (val.data != nullptr) {
+                    hash_val = RawValue::zlib_crc32(val.data, val.size, primitive_type, hash_val);
+                } else {
+                    hash_val = HashUtil::zlib_crc_hash_null(hash_val);
+                }
             }
             res_data[i] = hash_val;
         }
@@ -4974,5 +4988,6 @@ public:
         return Status::OK();
     }
 };
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

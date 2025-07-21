@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,14 +39,14 @@ public class Crc32Internal extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(AnyDataType.INSTANCE_WITHOUT_INDEX)
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
 
     /**
-     * constructor with 1 argument.
+     * constructor with 1 or more arguments.
      */
-    public Crc32Internal(Expression arg) {
-        super("crc32_internal", arg);
+    public Crc32Internal(Expression arg, Expression... varArgs) {
+        super("crc32_internal", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
     /**
@@ -53,8 +54,9 @@ public class Crc32Internal extends ScalarFunction
      */
     @Override
     public Crc32Internal withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Crc32Internal(children.get(0));
+        Preconditions.checkArgument(children.size() >= 1);
+        return new Crc32Internal(children.get(0),
+                children.subList(1, children.size()).toArray(new Expression[0]));
     }
 
     @Override
