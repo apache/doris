@@ -959,4 +959,10 @@ public class NereidsParserTest extends ParserTestBase {
             Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql), sql);
         }
     }
+
+    public void testLambda() {
+        parsePlan("SELECT  x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
 }
