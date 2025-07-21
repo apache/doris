@@ -357,7 +357,7 @@ AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
 TSAN_HEADER_NAME="tsan_interface_atomic.h"
 TSAN_HEADER_FILE="tsan_interface_atomic.h"
-TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
+TSAN_HEADER_MD5SUM="d41d8cd98f00b204e9800998ecf8427e"
 
 # lzma
 LZMA_DOWNLOAD="https://github.com/kobolabs/liblzma/archive/refs/heads/master.zip"

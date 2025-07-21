@@ -38,7 +38,7 @@ arrow::Status to_arrow_status(const Status& status) {
         // The length of exception msg returned to the ADBC Client cannot larger than 8192,
         // otherwise ADBC Client will receive:
         // `INTERNAL: http2 exception Header size exceeded max allowed size (8192)`.
-        return arrow::Status::Invalid(status.to_string_no_stack());
+        return arrow::Status::Invalid("11111111test 4");
     }
 }
 

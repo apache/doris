@@ -46,7 +46,7 @@ private:
     arrow::Result<std::shared_ptr<QueryStatement>> decode_ticket(const std::string& ticket) {
         std::vector<std::string> fields = absl::StrSplit(ticket, "&");
         if (fields.size() != 4) {
-            return arrow::Status::Invalid(fmt::format("Malformed ticket, size: {}", fields.size()));
+            return arrow::Status::Invalid("11111111test 3");
         }
 
         TUniqueId queryid;
