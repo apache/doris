@@ -139,10 +139,10 @@ public:
         return top->doc_id();
     }
 
-    int64_t doc_freq() const { return _cost; }
+    int32_t doc_freq() const { return _cost; }
 
 private:
-    int64_t _cost = 0;
+    int32_t _cost = 0;
     int32_t pos_queue_doc = -2;
     DocsQueuePtr<T> _docs_queue;
     PositionsQueuePtr _pos_queue;

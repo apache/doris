@@ -40,7 +40,7 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("TA - 2 > 1", "(TA > (1 + 2))");
         assertRewriteAfterSimplify("1 + TA > 2", "TA > (2 - 1)");
         assertRewriteAfterSimplify("-1 + TA > 2", "TA > (2 - (-1))");
-        assertRewriteAfterSimplify("1 - TA > 2", "TA < (1 - 2))");
+        assertRewriteAfterSimplify("1 - TA > 2", "TA < (1 - 2)");
         assertRewriteAfterSimplify("-1 - TA > 2", "TA < ((-1) - 2)");
         assertRewriteAfterSimplify("2 * TA > 1", "((2 * TA) > 1)");
         assertRewriteAfterSimplify("-2 * TA > 1", "((-2 * TA) > 1)");
@@ -72,7 +72,7 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("TA - 2 > 200", "cast(TA as SMALLINT) > (200 + 2)");
         assertRewriteAfterSimplify("1 + TA > 200", "cast(TA as SMALLINT) > (200 - 1)");
         assertRewriteAfterSimplify("-1 + TA > 200", "cast(TA as SMALLINT) > (200 - (-1))");
-        assertRewriteAfterSimplify("1 - TA > 200", "cast(TA as SMALLINT) < (1 - 200))");
+        assertRewriteAfterSimplify("1 - TA > 200", "cast(TA as SMALLINT) < (1 - 200)");
         assertRewriteAfterSimplify("-1 - TA > 200", "cast(TA as SMALLINT) < ((-1) - 200)");
         assertRewriteAfterSimplify("2 * TA > 200", "((2 * TA) > 200)");
         assertRewriteAfterSimplify("-2 * TA > 200", "((-2 * TA) > 200)");

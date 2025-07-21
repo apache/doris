@@ -246,8 +246,13 @@ public class PublishVersionDaemon extends MasterDaemon {
                 transactionState.getTransactionId(), transactionState.getDbId(), transactionState.getTransactionId());
         try {
             dbExecutors.get((int) (transactionState.getDbId() % Config.publish_thread_pool_num)).execute(() -> {
-                tryFinishTxnSync(transactionState, globalTransactionMgr);
-                publishingTxnIds.remove(transactionState.getTransactionId());
+                try {
+                    tryFinishTxnSync(transactionState, globalTransactionMgr);
+                    publishingTxnIds.remove(transactionState.getTransactionId());
+                } catch (Throwable e) {
+                    LOG.warn("failed to finish dbId: {}, txnId: {}", transactionState.getDbId(),
+                            transactionState.getTransactionId(), e);
+                }
             });
         } catch (Throwable e) {
             LOG.warn("failed to finish transaction {}, dbId: {}, txnId: {}, exception: {}",

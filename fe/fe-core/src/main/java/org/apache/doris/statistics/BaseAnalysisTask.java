@@ -196,7 +196,8 @@ public abstract class BaseAnalysisTask {
             + "MIN(${min}) AS `min`, "
             + "MAX(${max}) AS `max`, "
             + "SUM(data_size_in_bytes) AS `data_size`, "
-            + "NOW() AS `update_time` FROM "
+            + "NOW() AS `update_time`,"
+            + "null as `hot_value` FROM "
             + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
             + " WHERE `catalog_id` = ${catalogId} "
             + " AND `db_id` = ${dbId} "

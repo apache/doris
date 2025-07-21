@@ -24,6 +24,7 @@
 #include "olap/utils.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // the sign of integer must be same as fraction
 struct decimal12_t {
@@ -107,7 +108,6 @@ struct decimal12_t {
             int32_t f = 0;
             int64_t i = 0;
             if (sepr == value_string) {
-                int32_t f = 0;
                 sscanf(value_string, ".%9d", &f);
             } else {
                 sscanf(value_string, "%18" PRId64 ".%9d", &i, &f);
@@ -115,8 +115,9 @@ struct decimal12_t {
             integer = i;
             fraction = f;
 
-            int32_t frac_len = (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1)
-                                                 : MAX_FRAC_DIGITS_NUM;
+            int64_t frac_len =
+                    (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - static_cast<int64_t>(strlen(sepr + 1))
+                                      : MAX_FRAC_DIGITS_NUM;
             frac_len = frac_len > 0 ? frac_len : 0;
             fraction *= g_power_table[frac_len];
         }
@@ -144,4 +145,5 @@ inline std::ostream& operator<<(std::ostream& os, const decimal12_t& val) {
     return os;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

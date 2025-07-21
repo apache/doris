@@ -107,7 +107,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 class FunctionStrcmp : public IFunction {
 public:
     static constexpr auto name = "strcmp";
@@ -4925,5 +4925,5 @@ private:
         return Status::OK();
     }
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

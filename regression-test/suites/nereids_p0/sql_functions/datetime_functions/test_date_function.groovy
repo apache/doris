@@ -686,6 +686,16 @@ suite("test_date_function") {
                 to_monday(birth2), to_monday(birth3)
                 from ${tableName};
     """
+
+    // Test dow and doy
+    qt_sql """
+        select extract(dow from birth), extract(dow from birth1), extract(dow from birth2), extract(dow from birth3),
+               extract(dayofweek from birth), extract(dayofweek from birth1), extract(dayofweek from birth2), extract(dayofweek from birth3),
+               extract(doy from birth), extract(doy from birth1), extract(doy from birth2), extract(doy from birth3),
+               extract(dayofyear from birth), extract(dayofyear from birth1), extract(dayofyear from birth2), extract(dayofyear from birth3)
+               from ${tableName};
+    """
+
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     test {

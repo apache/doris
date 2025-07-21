@@ -33,7 +33,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -98,7 +97,8 @@ public class UtFrameUtils {
         Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {
-            statementBase = SqlParserUtils.getFirstStmt(parser);
+            List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
+            statementBase = stmts.get(0);
         } catch (AnalysisException e) {
             String errorMessage = parser.getErrorMsg(originStmt);
             System.err.println("parse failed: " + errorMessage);

@@ -69,7 +69,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 template <typename DateType>
 struct StrToDate {
     static constexpr auto name = "str_to_date";
@@ -1448,5 +1448,5 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<DateTimeToTimestamp<MilliSec>>();
     factory.register_function<DateTimeToTimestamp<Sec>>();
 }
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

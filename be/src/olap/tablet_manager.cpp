@@ -77,6 +77,7 @@ using std::string;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
@@ -133,7 +134,7 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
     // if the new tablet's rowset version is larger than the old one to prevent losting data during
     // migration
     int64_t old_time, new_time;
-    int32_t old_version, new_version;
+    int64_t old_version, new_version;
     {
         std::shared_lock rdlock(existed_tablet->get_header_lock());
         const RowsetSharedPtr old_rowset = existed_tablet->get_rowset_with_max_version();
@@ -445,7 +446,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
     return nullptr;
 }
 
-static string _gen_tablet_dir(const string& dir, int16_t shard_id, int64_t tablet_id) {
+static string _gen_tablet_dir(const string& dir, int32_t shard_id, int64_t tablet_id) {
     string path = dir;
     path = path_util::join_path_segments(path, DATA_PREFIX);
     path = path_util::join_path_segments(path, std::to_string(shard_id));
@@ -974,7 +975,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     std::string shard_path =
             path_util::dir_name(path_util::dir_name(path_util::dir_name(header_path)));
     std::string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
-    int32_t shard = stol(shard_str);
+    int32_t shard = static_cast<int32_t>(stol(shard_str));
 
     bool exists = false;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(header_path, &exists));
@@ -1527,9 +1528,9 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
         for (uint32_t col_idx = 0; col_idx < request.tablet_schema.columns.size(); ++col_idx) {
             col_idx_to_unique_id[col_idx] = col_idx;
         }
-        next_unique_id = request.tablet_schema.columns.size();
+        next_unique_id = cast_set<int32_t>(request.tablet_schema.columns.size());
     } else {
-        next_unique_id = base_tablet->next_unique_id();
+        next_unique_id = cast_set<int32_t>(base_tablet->next_unique_id());
         auto& new_columns = request.tablet_schema.columns;
         for (uint32_t new_col_idx = 0; new_col_idx < new_columns.size(); ++new_col_idx) {
             const TColumn& column = new_columns[new_col_idx];
@@ -1837,4 +1838,5 @@ void TabletManager::get_topn_tablet_delete_bitmap_score(
               << max_base_rowset_delete_bitmap_score_tablet_id << ", tablets=[" << ss.str() << "]";
 }
 
+#include "common/compile_check_end.h"
 } // end namespace doris

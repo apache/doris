@@ -28,6 +28,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 bool CgroupCpuCtl::is_a_valid_cgroup_path(std::string cg_path) {
     if (!cg_path.empty()) {
         if (cg_path.back() != '/') {
@@ -214,7 +216,7 @@ Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, std::string value,
     }};
 
     auto str = fmt::format("{}\n", value);
-    int ret = write(fd, str.c_str(), str.size());
+    ssize_t ret = write(fd, str.c_str(), str.size());
     if (ret == -1) {
         LOG(ERROR) << msg << " write sys file failed";
         return Status::InternalError<false>("{} write sys file failed", msg);
@@ -250,7 +252,7 @@ Status CgroupCpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) 
         struct stat st;
         // == 0 means exists
         if (stat(dir_name.c_str(), &st) == 0 && (st.st_mode & S_IFDIR)) {
-            int pos = dir_name.rfind("/");
+            auto pos = dir_name.rfind("/");
             std::string wg_dir_name = dir_name.substr(pos + 1, dir_name.length());
             if (wg_dir_name.empty()) {
                 return Status::InternalError<false>("find an empty workload group path, path={}",
@@ -335,8 +337,8 @@ Status CgroupV1CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_shares) {
 }
 
 Status CgroupV1CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
-    int val = cpu_hard_limit > 0 ? (_cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100)
-                                 : CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE;
+    uint64_t val = cpu_hard_limit > 0 ? (_cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100)
+                                      : CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE;
     std::string str_val = std::to_string(val);
     std::string msg = "modify cpu quota value to " + str_val;
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_quota_file, str_val, msg, false);
@@ -418,5 +420,7 @@ Status CgroupV2CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_weight) {
 Status CgroupV2CpuCtl::add_thread_to_cgroup() {
     return CgroupCpuCtl::add_thread_to_cgroup(_cgroup_v2_query_wg_thread_file);
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

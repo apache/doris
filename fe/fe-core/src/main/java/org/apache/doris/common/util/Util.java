@@ -752,4 +752,31 @@ public class Util {
     public static boolean isTempTableInCurrentSession(String tableName) {
         return getTempTableSessionId(tableName).equals(ConnectContext.get().getSessionId());
     }
+
+    // randomly return the Long from given long arrays
+    public static Long getRandomLong(long... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the Long from given long arrays
+    public static Integer getRandomInt(int... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the String from given String arrays
+    public static String getRandomString(String... strs) {
+        if (strs == null || strs.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * strs.length);
+        return strs[index];
+    }
 }

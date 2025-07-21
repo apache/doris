@@ -27,6 +27,7 @@ import lombok.Getter;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -54,6 +55,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         OSS,
         OBS,
         COS,
+        OSS_HDFS,
         MINIO,
         AZURE,
         BROKER,
@@ -62,6 +64,22 @@ public abstract class StorageProperties extends ConnectionProperties {
     }
 
     public abstract Map<String, String> getBackendConfigProperties();
+
+    /**
+     * Get backend configuration properties with optional runtime properties.
+     * This method allows passing runtime properties (like vended credentials)
+     * that should be merged with the base configuration.
+     *
+     * @param runtimeProperties additional runtime properties to merge, can be null
+     * @return Map of backend properties including runtime properties
+     */
+    public Map<String, String> getBackendConfigProperties(Map<String, String> runtimeProperties) {
+        Map<String, String> properties = new HashMap<>(getBackendConfigProperties());
+        if (runtimeProperties != null && !runtimeProperties.isEmpty()) {
+            properties.putAll(runtimeProperties);
+        }
+        return properties;
+    }
 
     @Getter
     protected Type type;

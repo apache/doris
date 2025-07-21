@@ -140,6 +140,9 @@ message(STATUS "make benchmark: ${BUILD_BENCHMARK}")
 option(BUILD_FS_BENCHMARK "ON for building fs benchmark tool or OFF for not" OFF)
 message(STATUS "build fs benchmark tool: ${BUILD_FS_BENCHMARK}")
 
+option(BUILD_TASK_EXECUTOR_SIMULATOR "ON for building task executor simulator or OFF for not" OFF)
+message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}")
+
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -196,8 +199,10 @@ SET(LZ4_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/lz4")
 SET(ZLIB_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
+SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 
-add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
+# Out of source build need to set the binary dir
+add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
@@ -212,7 +217,8 @@ set(USE_STAT64 0)
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
 
-add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
+# Out of source build need to set the binary dir
+add_subdirectory(${CONTRIB_PATH}/clucene ${PROJECT_BINARY_DIR}/clucene EXCLUDE_FROM_ALL)
 
 set(clucene_options -w -Wall)
 if (COMPILER_CLANG)
@@ -227,7 +233,7 @@ target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
 target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
+    ${CONTRIB_PATH}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
 
 install(DIRECTORY
@@ -436,15 +442,15 @@ set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
 # Set include dirs
 include_directories(
-    ${SRC_DIR}/apache-orc/c++/include
-    ${CMAKE_CURRENT_BINARY_DIR}/src/apache-orc/c++/include
+    ${CONTRIB_PATH}/apache-orc/c++/include
+    ${CMAKE_CURRENT_BINARY_DIR}/apache-orc/c++/include
 )
 
 include_directories(
-    ${CMAKE_CURRENT_BINARY_DIR}/src/clucene/src/shared
-    ${SRC_DIR}/clucene/src/core
-    ${SRC_DIR}/clucene/src/shared
-    ${SRC_DIR}/clucene/src/contribs-lib
+    ${CMAKE_CURRENT_BINARY_DIR}/clucene/src/shared
+    ${CONTRIB_PATH}/clucene/src/core
+    ${CONTRIB_PATH}/clucene/src/shared
+    ${CONTRIB_PATH}/clucene/src/contribs-lib
 )
 
 include_directories(

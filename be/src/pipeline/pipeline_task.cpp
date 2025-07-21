@@ -52,6 +52,7 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                            std::shared_ptr<PipelineFragmentContext> fragment_context,
@@ -111,7 +112,7 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     _scan_ranges = scan_range;
     auto* parent_profile = _state->get_sink_local_state()->operator_profile();
 
-    for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
+    for (int op_idx = cast_set<int>(_operators.size() - 1); op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         LocalStateInfo info {parent_profile, _scan_ranges, get_op_shared_state(op->operator_id()),
                              _shared_state_map, _task_idx};
@@ -296,7 +297,7 @@ bool PipelineTask::is_revoking() const {
 bool PipelineTask::_is_blocked() {
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
-        for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
+        for (int i = cast_set<int>(_read_dependencies.size() - 1); i >= 0; i--) {
             // `_read_dependencies` is organized according to operators. For each operator, running condition is met iff all dependencies are ready.
             for (auto* dep : _read_dependencies[i]) {
                 if (dep->is_blocked_by(shared_from_this())) {
@@ -722,12 +723,14 @@ std::string PipelineTask::debug_string() {
 
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
-                       _opened && !is_finalized() ? _operators[i]->debug_string(_state, i)
-                                                  : _operators[i]->debug_string(i));
+                       _opened && !is_finalized()
+                               ? _operators[i]->debug_string(_state, cast_set<int>(i))
+                               : _operators[i]->debug_string(cast_set<int>(i)));
     }
     fmt::format_to(debug_string_buffer, "\n{}\n",
-                   _opened && !is_finalized() ? _sink->debug_string(_state, _operators.size())
-                                              : _sink->debug_string(_operators.size()));
+                   _opened && !is_finalized()
+                           ? _sink->debug_string(_state, cast_set<int>(_operators.size()))
+                           : _sink->debug_string(cast_set<int>(_operators.size())));
 
     fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
 
@@ -735,35 +738,35 @@ std::string PipelineTask::debug_string() {
     for (; i < _read_dependencies.size(); i++) {
         for (size_t j = 0; j < _read_dependencies[i].size(); j++) {
             fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                           _read_dependencies[i][j]->debug_string(i + 1));
+                           _read_dependencies[i][j]->debug_string(cast_set<int>(i) + 1));
         }
     }
 
     fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                   _memory_sufficient_dependency->debug_string(i++));
+                   _memory_sufficient_dependency->debug_string(cast_set<int>(i++)));
 
     fmt::format_to(debug_string_buffer, "\nWrite Dependency Information: \n");
     for (size_t j = 0; j < _write_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _write_dependencies[j]->debug_string(i + 1));
+                       _write_dependencies[j]->debug_string(cast_set<int>(j) + 1));
     }
 
     fmt::format_to(debug_string_buffer, "\nExecution Dependency Information: \n");
     for (size_t j = 0; j < _execution_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _execution_dependencies[j]->debug_string(i + 1));
+                       _execution_dependencies[j]->debug_string(cast_set<int>(i) + 1));
     }
 
     fmt::format_to(debug_string_buffer, "\nSpill Dependency Information: \n");
     for (size_t j = 0; j < _spill_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _spill_dependencies[j]->debug_string(i + 1));
+                       _spill_dependencies[j]->debug_string(cast_set<int>(i) + 1));
     }
 
     fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
     for (size_t j = 0; j < _finish_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _finish_dependencies[j]->debug_string(j + 1));
+                       _finish_dependencies[j]->debug_string(cast_set<int>(i) + 1));
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -823,4 +826,5 @@ Status PipelineTask::_state_transition(State new_state) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

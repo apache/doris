@@ -38,7 +38,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 using namespace doris::segment_v2::inverted_index;
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
@@ -75,7 +75,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
         }
 
         auto reader = InvertedIndexAnalyzer::create_reader(inverted_index_ctx.char_filter_map);
-        reader->init(tokenize_str.data, tokenize_str.size, true);
+        reader->init(tokenize_str.data, (int)tokenize_str.size, true);
         auto analyzer_tokens = InvertedIndexAnalyzer::get_analyse_result(
                 reader.get(), inverted_index_ctx.analyzer);
 
@@ -163,4 +163,5 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
     }
     return Status::RuntimeError("unimplemented function {}", get_name());
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

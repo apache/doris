@@ -24,6 +24,7 @@
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class FixedBitSet;
 using FixedBitSetPtr = std::unique_ptr<FixedBitSet>;
@@ -34,7 +35,7 @@ public:
         assert(num_bits >= 0 && num_bits < std::numeric_limits<int32_t>::max());
         _num_bits = num_bits;
         _bits.resize(bits2words(_num_bits));
-        _num_words = _bits.size();
+        _num_words = static_cast<int32_t>(_bits.size());
     }
 
     void clear() { std::fill(_bits.begin(), _bits.end(), 0ULL); }
@@ -90,13 +91,13 @@ public:
         _bits[end_word] &= end_mask;
     }
 
-    void ensure_capacity(size_t num_bits) {
+    void ensure_capacity(int32_t num_bits) {
         if (num_bits >= _num_bits) {
-            size_t num_words = bits2words(num_bits);
+            int32_t num_words = bits2words(num_bits);
             if (num_words >= _bits.size()) {
                 _bits.resize(num_words + 1, 0);
             }
-            reset(_bits.size() << 6);
+            reset(static_cast<int32_t>(_bits.size()) << 6);
         }
     }
 
@@ -190,4 +191,5 @@ private:
     int32_t _num_words = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

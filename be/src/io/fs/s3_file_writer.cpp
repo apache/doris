@@ -42,6 +42,7 @@
 #include "util/s3_util.h"
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> s3_file_writer_total("s3_file_writer_total_num");
 bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer_bytes_written");
@@ -282,7 +283,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
+void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
     VLOG_DEBUG << "upload_one_part " << _obj_storage_path_opts.path.native()
                << " part=" << part_num;
     if (buf.is_cancelled()) {
@@ -386,14 +387,14 @@ Status S3FileWriter::_complete() {
     }
 
     // check number of parts
-    int expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
-                              !!(_bytes_appended % config::s3_write_buffer_size);
-    int expected_num_parts2 =
+    int64_t expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
+                                  !!(_bytes_appended % config::s3_write_buffer_size);
+    int64_t expected_num_parts2 =
             (_bytes_appended % config::s3_write_buffer_size) ? _cur_part_num : _cur_part_num - 1;
     DCHECK_EQ(expected_num_parts1, expected_num_parts2)
             << " bytes_appended=" << _bytes_appended << " cur_part_num=" << _cur_part_num
             << " s3_write_buffer_size=" << config::s3_write_buffer_size;
-    if (_failed || _completed_parts.size() != expected_num_parts1 ||
+    if (_failed || _completed_parts.size() != static_cast<size_t>(expected_num_parts1) ||
         expected_num_parts1 != expected_num_parts2) {
         _st = Status::InternalError(
                 "failed to complete multipart upload, error status={} failed={} #complete_parts={} "
@@ -486,5 +487,6 @@ std::string S3FileWriter::_dump_completed_part() const {
     }
     return ss.str();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

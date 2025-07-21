@@ -63,7 +63,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 /// because all these functions(xxx_add/xxx_sub) defined in FE use Integer as the second value
 ///  so Int32 as delta is enough. For upstream(FunctionDateOrDateTimeComputation) we also could use Int32.
 
@@ -1296,5 +1296,5 @@ public:
         return Status::OK();
     }
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

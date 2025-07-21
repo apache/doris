@@ -1045,6 +1045,7 @@ struct TSortNode {
   10: optional bool is_colocate
   11: optional TSortAlgorithm algorithm
   12: optional bool use_local_merge
+  13: optional i64 full_sort_max_buffered_bytes
 }
 
 enum TopNAlgorithm {

@@ -133,7 +133,7 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
             auto callback = MaterializationCallback<PMultiGetResponseV2>::create_shared(
                     state->get_task_execution_context(), local_state._shared_state,
                     rpc_struct.rpc_timer, print_id(rpc_struct.request.query_id()));
-            callback->cntl_->set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
+            callback->cntl_->set_timeout_ms(state->execution_timeout() * 1000);
             auto closure =
                     AutoReleaseClosure<int, ::doris::DummyBrpcCallback<PMultiGetResponseV2>>::
                             create_unique(

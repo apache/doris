@@ -71,7 +71,7 @@ public:
         return INT_MAX;
     }
 
-    int64_t doc_freq() const { return _impl->postings.size(); }
+    int32_t doc_freq() const { return static_cast<int32_t>(_impl->postings.size()); }
 
     int32_t next_position() {
         auto& current_doc = _impl->current_doc;

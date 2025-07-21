@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -25,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -33,9 +34,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.JoinUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -79,24 +82,46 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
         }
         Set<Slot> output = project.getInputSlots();
         Set<Slot> foreignKeys = Sets.intersection(foreign.getOutputSet(), equalSet.getAllItemSet());
-        Map<Expression, Expression> outputToForeign =
-                tryMapOutputToForeignPlan(foreign, output, equalSet);
+        Map<Slot, Slot> outputToForeign = tryMapOutputToForeignPlan(foreign, output, equalSet);
         if (outputToForeign != null) {
+            Pair<Plan, Set<Slot>> newChildPair = applyNullCompensationFilter(foreign, foreignKeys);
+            Map<Slot, Expression> replacedSlots = getReplaceSlotMap(outputToForeign, newChildPair.second);
             List<NamedExpression> newProjects = project.getProjects().stream()
-                    .map(e -> outputToForeign.containsKey(e)
-                            ? new Alias(e.getExprId(), outputToForeign.get(e), e.toSql())
-                            : (NamedExpression) e.rewriteUp(s -> outputToForeign.getOrDefault(s, s)))
+                    .map(e -> replacedSlots.containsKey(e)
+                            ? new Alias(e.getExprId(), replacedSlots.get(e), e.toSql())
+                            : (NamedExpression) e.rewriteUp(s -> replacedSlots.getOrDefault(s, s)))
                     .collect(ImmutableList.toImmutableList());
-            return project.withProjects(newProjects)
-                    .withChildren(applyNullCompensationFilter(foreign, foreignKeys));
+            return project.withProjects(newProjects).withChildren(newChildPair.first);
         }
         return project;
     }
 
-    private @Nullable Map<Expression, Expression> tryMapOutputToForeignPlan(Plan foreignPlan,
+    /**
+     * get replace slots, include replace the primary slots and replace the nullable foreign slots.
+     * @param outputToForeign primary slot to foreign slot map
+     * @param compensationForeignSlots foreign slots which are nullable but add a filter 'slot is not null'
+     * @return the replaced map, include primary slot to foreign slot, and foreign nullable slot to non-nullable(slot)
+     */
+    @VisibleForTesting
+    public Map<Slot, Expression> getReplaceSlotMap(Map<Slot, Slot> outputToForeign,
+            Set<Slot> compensationForeignSlots) {
+        Map<Slot, Expression> replacedSlots = Maps.newHashMap();
+        for (Map.Entry<Slot, Slot> entry : outputToForeign.entrySet()) {
+            Slot forgeinSlot = entry.getValue();
+            Expression replacedExpr = compensationForeignSlots.contains(forgeinSlot)
+                    ? new NonNullable(forgeinSlot) : forgeinSlot;
+            replacedSlots.put(entry.getKey(), replacedExpr);
+        }
+        for (Slot forgeinSlot : compensationForeignSlots) {
+            replacedSlots.put(forgeinSlot, new NonNullable(forgeinSlot));
+        }
+        return replacedSlots;
+    }
+
+    private @Nullable Map<Slot, Slot> tryMapOutputToForeignPlan(Plan foreignPlan,
             Set<Slot> output, ImmutableEqualSet<Slot> equalSet) {
         Set<Slot> residualPrimary = Sets.difference(output, foreignPlan.getOutputSet());
-        ImmutableMap.Builder<Expression, Expression> builder = new ImmutableMap.Builder<>();
+        ImmutableMap.Builder<Slot, Slot> builder = new ImmutableMap.Builder<>();
         for (Slot primarySlot : residualPrimary) {
             Optional<Slot> replacedForeign = equalSet.calEqualSet(primarySlot).stream()
                     .filter(foreignPlan.getOutputSet()::contains)
@@ -109,14 +134,20 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
         return builder.build();
     }
 
-    private Plan applyNullCompensationFilter(Plan child, Set<Slot> childSlots) {
-        Set<Expression> predicates = childSlots.stream()
-                .filter(ExpressionTrait::nullable)
-                .map(s -> new Not(new IsNull(s)))
-                .collect(ImmutableSet.toImmutableSet());
-        if (predicates.isEmpty()) {
-            return child;
+    /**
+     * add a filter for foreign slots which is nullable, the filter is 'slot is not null'
+     */
+    @VisibleForTesting
+    public Pair<Plan, Set<Slot>> applyNullCompensationFilter(Plan child, Set<Slot> childSlots) {
+        ImmutableSet.Builder<Expression> predicatesBuilder = ImmutableSet.builder();
+        Set<Slot> filterNotNullSlots = Sets.newHashSet();
+        for (Slot slot : childSlots) {
+            if (slot.nullable()) {
+                filterNotNullSlots.add(slot);
+                predicatesBuilder.add(new Not(new IsNull(slot)));
+            }
         }
-        return new LogicalFilter<>(predicates, child);
+        Plan newChild = filterNotNullSlots.isEmpty() ? child : new LogicalFilter<>(predicatesBuilder.build(), child);
+        return Pair.of(newChild, filterNotNullSlots);
     }
 }

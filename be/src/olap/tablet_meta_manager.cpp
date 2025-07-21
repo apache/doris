@@ -47,6 +47,7 @@ struct ReadOptions;
 struct WriteOptions;
 } // namespace rocksdb
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 // should use tablet->generate_tablet_meta_copy() method to get a copy of current tablet meta
@@ -139,7 +140,7 @@ Status TabletMetaManager::traverse_headers(
             return true;
         }
         TTabletId tablet_id = std::stol(parts[1], nullptr, 10);
-        TSchemaHash schema_hash = std::stol(parts[2], nullptr, 10);
+        TSchemaHash schema_hash = cast_set<int32_t>(std::stol(parts[2], nullptr, 10));
         return func(tablet_id, schema_hash, value);
     };
     Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, header_prefix, traverse_header_func);
@@ -243,7 +244,7 @@ Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id
     DeleteBitmapPB delete_bitmap_pb;
     for (auto& [id, bitmap] : delete_bitmap->delete_bitmap) {
         auto& rowset_id = std::get<0>(id);
-        int64_t segment_id = std::get<1>(id);
+        auto segment_id = std::get<1>(id);
         delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
         delete_bitmap_pb.add_segment_ids(segment_id);
         std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
@@ -296,4 +297,5 @@ Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabl
     return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

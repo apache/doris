@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "function_cast.h"
-
 #include <utility>
 
 #include "cast_to_array.h"
@@ -25,6 +23,7 @@
 #include "cast_to_decimal.h"
 #include "cast_to_float.h"
 #include "cast_to_int.h"
+#include "cast_to_ip.h"
 #include "cast_to_jsonb.h"
 #include "cast_to_map.h"
 #include "cast_to_string.h"
@@ -38,40 +37,6 @@
 namespace doris::vectorized {
 
 namespace CastWrapper {
-template <typename ToDataType>
-WrapperType create_wrapper(const DataTypePtr& from_type, const ToDataType* const,
-                           bool requested_result_is_nullable) {
-    if (requested_result_is_nullable && check_and_get_data_type<DataTypeString>(from_type.get())) {
-        /// In case when converting to Nullable type, we apply different parsing rule,
-        /// that will not throw an exception but return NULL in case of malformed input.
-        auto function = FunctionConvertFromString<ToDataType>::create();
-        return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count,
-                          const NullMap::value_type* null_map = nullptr) {
-            return function->execute(context, block, arguments, result, input_rows_count);
-        };
-    } else if (requested_result_is_nullable &&
-               (IsDatelikeV1Types<ToDataType> || IsDatelikeV2Types<ToDataType>)&&!(
-                       check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
-                       check_and_get_data_type<DataTypeDate>(from_type.get()) ||
-                       check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
-                       check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
-        FunctionPtr function;
-        function = FunctionConvertToTimeType<ToDataType, NameCast>::create();
-        return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count,
-                          const NullMap::value_type* null_map = nullptr) {
-            return function->execute(context, block, arguments, result, input_rows_count);
-        };
-    } else {
-        return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                  uint32_t result, size_t input_rows_count,
-                  const NullMap::value_type* null_map = nullptr) {
-            FunctionConvert<ToDataType> function;
-            return function.execute_impl(context, block, arguments, result, input_rows_count);
-        };
-    }
-}
 
 WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
                                const DataTypeHLL& to_type) {
@@ -314,8 +279,7 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
             return true;
         } else if constexpr (std::is_same_v<ToDataType, DataTypeIPv4> ||
                              std::is_same_v<ToDataType, DataTypeIPv6>) {
-            ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
-                                 requested_result_is_nullable);
+            ret = create_ip_wrapper<ToDataType>(context, from_type);
             return true;
         }
 

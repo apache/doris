@@ -323,7 +323,12 @@ suite("union_rewrite_grace_big") {
     """
     sql """
     insert into lineitem_static values 
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '${today_str}', '${today_str}', '${today_str}', 'a', 'b', 'yyyyyyyyy');
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '${today_str}', '${today_str}', '${today_str}', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '${today_str}', '${today_str}', '${today_str}', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '${today_str}', '${today_str}', '${today_str}', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '${today_str}', '${today_str}', '${today_str}', 'a', 'b', 'yyyyyyyyy'),
+    (3, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '${today_str}', '${today_str}', '${today_str}', 'a', 'b', 'yyyyyyyyy'),
+    (4, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '${today_str}', '${today_str}', '${today_str}', 'a', 'b', 'yyyyyyyyy');
     """
 
     multi_sql """
@@ -336,7 +341,7 @@ suite("union_rewrite_grace_big") {
     select l_shipdate, o_orderdate, l_partkey,
     l_suppkey, sum(o_totalprice) as sum_total
     from lineitem_static
-    left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+    left join orders on l_orderkey = o_orderkey
     group by
     l_shipdate,
     o_orderdate,
@@ -346,7 +351,7 @@ suite("union_rewrite_grace_big") {
     def query_ttl_all_partition_sql = """
     select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
     from lineitem_static
-    left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+    left join orders on l_orderkey = o_orderkey
     group by
     l_shipdate,
     o_orderdate,
@@ -356,7 +361,7 @@ suite("union_rewrite_grace_big") {
     def query_ttl_partition_sql = """
     select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
     from lineitem_static
-    left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+    left join orders on l_orderkey = o_orderkey
     where (l_shipdate>= '2023-10-18' and l_shipdate <= '2023-10-19')
     group by
     l_shipdate,

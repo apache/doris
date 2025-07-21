@@ -18,6 +18,7 @@
 #include "IKSegmenter.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 IKSegmenter::IKSegmenter(std::shared_ptr<Configuration> config)
         : arena_(),
@@ -38,7 +39,7 @@ std::vector<std::unique_ptr<ISegmenter>> IKSegmenter::loadSegmenters() {
 bool IKSegmenter::next(Lexeme& lexeme) {
     while (!context_->getNextLexeme(lexeme)) {
         // Read data from the reader and fill the buffer
-        int available = context_->fillBuffer(input_);
+        auto available = static_cast<int32_t>(context_->fillBuffer(input_));
         if (available <= 0) {
             context_->reset();
             return false;
@@ -73,7 +74,9 @@ void IKSegmenter::reset(lucene::util::Reader* newInput) {
     }
 }
 
-int IKSegmenter::getLastUselessCharNum() {
+size_t IKSegmenter::getLastUselessCharNum() {
     return context_->getLastUselessCharNum();
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

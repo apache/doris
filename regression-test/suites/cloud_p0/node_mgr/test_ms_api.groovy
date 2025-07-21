@@ -429,7 +429,7 @@ suite('test_ms_api', 'p0, docker') {
                                     obj:[ak:"test-ak2", sk:"test-sk2", bucket:"test-bucket",
                                         prefix: "test-prefix", endpoint: "test-endpoint", region:"test-region", provider:"COS"]]
         jsonOutput = new JsonOutput()
-        addObjInfoBody = jsonOutput.toJson(add_obj_info_api_body)
+        def addObjInfoBody = jsonOutput.toJson(add_obj_info_api_body)
 
 
         add_obj_info_api.call(msHttpPort, addObjInfoBody) {
@@ -625,7 +625,7 @@ suite('test_ms_api', 'p0, docker') {
         def clusterName2 = "cluster_name2"
         def clusterId2 = "cluster_id2"
         def nodeList1 = [node1]
-        clusterMap1 = [cluster_name: "${clusterName2}", cluster_id:"${clusterId2}", type:"COMPUTE", nodes:nodeList1]
+        def clusterMap1 = [cluster_name: "${clusterName2}", cluster_id:"${clusterId2}", type:"COMPUTE", nodes:nodeList1]
         instance = [instance_id: "${instance_id}", cluster: clusterMap1]
         jsonOutput = new JsonOutput()
         def addNewComputeGroupBody = jsonOutput.toJson(instance)
@@ -1091,9 +1091,9 @@ suite('test_ms_api', 'p0, docker') {
             def compute_ip1 = "182.0.0.1" 
             def heartbeatPort = 9050
             def nodeMap = [cloud_unique_id: "${cloudUniqueId}", ip: "${compute_ip1}", heartbeat_port: "${heartbeatPort}"]
-            nodeList = [nodeMap]
-            clusterMap = [cluster_name: "${clusterName}", cluster_id:"${clusterId}", type:"COMPUTE", nodes:nodeList]
-            instance = [instance_id: "${instance_id}", cluster: clusterMap]
+            def nodeList = [nodeMap]
+            def clusterMap = [cluster_name: "${clusterName}", cluster_id:"${clusterId}", type:"COMPUTE", nodes:nodeList]
+            def instance = [instance_id: "${instance_id}", cluster: clusterMap]
             def addComputeGroupBody = jsonOutput.toJson(instance)
             add_cluster_api.call(msHttpPort, addComputeGroupBody) {
                 respCode, body ->
@@ -1104,18 +1104,18 @@ suite('test_ms_api', 'p0, docker') {
             
             // 1. Test that a node cannot be repeatedly added to multiple clusters
             // 1.1 compute node
-            node1 = [cloud_unique_id: "${cloudUniqueId}", ip : "${compute_ip1}", heartbeat_port: 9050]
-            add_nodes = [node1]
+            def node1 = [cloud_unique_id: "${cloudUniqueId}", ip : "${compute_ip1}", heartbeat_port: 9050]
+            def add_nodes = [node1]
             def otherClusterName = "compute_name_1_other"
             def otherClusterId = "compute_id_1_other"
-            add_nodes_cluster = [cluster_name: "${otherClusterName}", cluster_id: "${otherClusterId}", type: "COMPUTE", nodes: add_nodes]
+            def add_nodes_cluster = [cluster_name: "${otherClusterName}", cluster_id: "${otherClusterId}", type: "COMPUTE", nodes: add_nodes]
             def addNodeToOtherCluster = [instance_id: "${instance_id}", cluster: add_nodes_cluster]
             jsonOutput = new JsonOutput()
-            addNodeToOtherClusterbody = jsonOutput.toJson(addNodeToOtherCluster)
+            def addNodeToOtherClusterbody = jsonOutput.toJson(addNodeToOtherCluster)
             add_cluster_api.call(msHttpPort, addNodeToOtherClusterbody) {
                 respCode, body ->
                     log.info("add node to other compute group http cli result: ${body} ${respCode}".toString())
-                    json = parseJson(body)
+                    def json = parseJson(body)
                     assertTrue(json.code.equalsIgnoreCase("ALREADY_EXISTED"))
                     assertTrue(json.msg.contains("compute node endpoint has been added"))
             }
@@ -1143,18 +1143,18 @@ suite('test_ms_api', 'p0, docker') {
                         assertTrue(json.code.equalsIgnoreCase("OK"))
             }
             
-            node_fe_other = [cloud_unique_id: "${cloudUniqueId}", ip : "${ip3}", edit_log_port: 8050, node_type:"FE_FOLLOWER"]
+            def node_fe_other = [cloud_unique_id: "${cloudUniqueId}", ip : "${ip3}", edit_log_port: 8050, node_type:"FE_FOLLOWER"]
             add_nodes = [node_fe_other]
             otherClusterName = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER_OTHER"
             otherClusterId = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER_OTHER"
             add_nodes_cluster = [cluster_name: "${otherClusterName}", cluster_id: "${otherClusterId}", type:"SQL", nodes: add_nodes]
             def addNodeToOtherClusterFE = [instance_id: "${instance_id}", cluster: add_nodes_cluster]
             jsonOutput = new JsonOutput()
-            addNodeToOtherFEClusterbody = jsonOutput.toJson(addNodeToOtherClusterFE)
+            def addNodeToOtherFEClusterbody = jsonOutput.toJson(addNodeToOtherClusterFE)
             add_cluster_api.call(msHttpPort, addNodeToOtherFEClusterbody) {
                 respCode, body ->
                     log.info("add node to other compute group http cli result: ${body} ${respCode}".toString())
-                    json = parseJson(body)
+                    def json = parseJson(body)
                     assertTrue(json.code.equalsIgnoreCase("ALREADY_EXISTED"))
                     assertTrue(json.msg.contains("sql node endpoint has been added"))
             }
@@ -1174,7 +1174,7 @@ suite('test_ms_api', 'p0, docker') {
             add_cluster_api.call(msHttpPort, addNodesClusterFailedBody) {
                 respCode, body ->
                     log.info("add two observer fe failed test http cli result: ${body} ${respCode}".toString())
-                    json = parseJson(body)
+                    def json = parseJson(body)
                     assertTrue(json.code.equalsIgnoreCase("INVALID_ARGUMENT"))
                     assertTrue(json.msg.contains("cluster is SQL type, but not set master and follower node, master count=0 follower count=0 so sql cluster can't get a Master node"))
             }
@@ -1198,7 +1198,7 @@ suite('test_ms_api', 'p0, docker') {
 
             add_node_api.call(msHttpPort, addSomeFENodesFailed) {
                 respCode, body ->
-                    json = parseJson(body)
+                    def json = parseJson(body)
                     // failed, due to two master node
                     // if force_change_to_multi_follower_mode == false, check type not changed, FE_MASTER
                     log.info("add some fe failed nodes http cli result: ${body} ${respCode} ${json}".toString())
@@ -1208,7 +1208,7 @@ suite('test_ms_api', 'p0, docker') {
 
             add_node_api.call(msHttpPort, addSomeFENodesSucc) {
                 respCode, body ->
-                    json = parseJson(body)
+                    def json = parseJson(body)
                     log.info("add some fe nodes http cli result: ${body} ${respCode} ${json}".toString())
                     assertTrue(json.code.equalsIgnoreCase("OK"))
             }
@@ -1226,7 +1226,7 @@ suite('test_ms_api', 'p0, docker') {
 
             drop_node_api.call(msHttpPort, dropAllFeNodesFailedJson) {
                 respCode, body ->
-                    json = parseJson(body)
+                    def json = parseJson(body)
                     log.info("drop all fe nodes failed http cli result: ${body} ${respCode} ${json}".toString())
                     assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
                     assertTrue(json.msg.contains("instance invalid, cant modify, plz check")) 
@@ -1235,7 +1235,7 @@ suite('test_ms_api', 'p0, docker') {
             get_instance_api.call(msHttpPort, instance_id) {
                 respCode, body ->
                     log.info("add Master-observer mode get instance resp: ${body} ${respCode}".toString())
-                    json = parseJson(body)
+                    def json = parseJson(body)
                     assertTrue(json.code.equalsIgnoreCase("OK"))
                     def result = json.result
                     def FECluster = result.clusters.find {
@@ -1314,7 +1314,7 @@ suite('test_ms_api', 'p0, docker') {
         def feNodeMap2 = [cloud_unique_id: "${cloudUniqueId}", ip: "${ip2}", edit_log_port: "${edit_log_port}", node_type:"FE_OBSERVER"]
         def feNodeList = [feNodeMap1, feNodeMap2]
         def feClusterMap = [cluster_name: "${feClusterName}", cluster_id:"${feClusterId}", type:"SQL", nodes:feNodeList]
-        instance = [instance_id: "${instance_id}", cluster: feClusterMap]
+        def instance = [instance_id: "${instance_id}", cluster: feClusterMap]
         jsonOutput = new JsonOutput()
         def addSqlGroupBody = jsonOutput.toJson(instance) 
 
@@ -1327,7 +1327,7 @@ suite('test_ms_api', 'p0, docker') {
         get_instance_api.call(msHttpPort, instance_id) {
             respCode, body ->
                 log.info("add Master-observer mode get instance resp: ${body} ${respCode}".toString())
-                json = parseJson(body)
+                def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK"))
                 def result = json.result
                 def FECluster = result.clusters.find {
@@ -1354,7 +1354,7 @@ suite('test_ms_api', 'p0, docker') {
 
         get_cluster_api.call(msHttpPort, getClusterByNameBody) {
             respCode, body ->
-                json = parseJson(body)
+                def json = parseJson(body)
                 log.info("get FE cluster http cli result: ${body} ${respCode} ${json}".toString())
                 assertTrue(json.code.equalsIgnoreCase("OK"))
                 def result = json.result
@@ -1369,7 +1369,7 @@ suite('test_ms_api', 'p0, docker') {
         get_instance_api.call(msHttpPort, instance_id) {
             respCode, body ->
                 log.info("after get cluster get instance resp: ${body} ${respCode}".toString())
-                json = parseJson(body)
+                def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK"))
                 def result = json.result
                 def FECluster = result.clusters.find {
@@ -1394,7 +1394,7 @@ suite('test_ms_api', 'p0, docker') {
 
         drop_node_api.call(msHttpPort, delFeObserverNodesBody) {
             respCode, body ->
-                json = parseJson(body)
+                def json = parseJson(body)
                 log.info("drop fe observer node http cli result: ${body} ${respCode} ${json}".toString())
                 assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
                 assertTrue(json.msg.contains("drop fe node not in safe time, try later"))
@@ -1411,14 +1411,14 @@ suite('test_ms_api', 'p0, docker') {
         drop_cluster_api.call(msHttpPort, dropFeClusterBody) {
             respCode, body ->
                 log.info("drop fe cluster http cli result: ${body} ${respCode}".toString())
-                json = parseJson(body)
+                def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("NOT_FOUND"))
                 assertTrue(json.msg.contains("drop fe cluster not in safe time, try later"))
         }
 
         get_cluster_api.call(msHttpPort, getClusterByNameBody) {
             respCode, body ->
-                json = parseJson(body)
+                def json = parseJson(body)
                 log.info("get FE cluster after drop observer http cli result: ${body} ${respCode} ${json}".toString())
                 assertTrue(json.code.equalsIgnoreCase("OK"))
                 def result = json.result
@@ -1442,14 +1442,14 @@ suite('test_ms_api', 'p0, docker') {
         // after inject, drop fe node, drop fe cluster all succ
         drop_node_api.call(msHttpPort, delFeObserverNodesBody) {
             respCode, body ->
-                json = parseJson(body)
+                def json = parseJson(body)
                 log.info("after inject drop fe observer nodeshttp cli result: ${body} ${respCode} ${json}".toString())
                 assertTrue(json.code.equalsIgnoreCase("OK"))
         } 
 
         get_cluster_api.call(msHttpPort, getClusterByNameBody) {
             respCode, body ->
-                json = parseJson(body)
+                def json = parseJson(body)
                 log.info("get FE cluster after drop observer http cli result: ${body} ${respCode} ${json}".toString())
                 assertTrue(json.code.equalsIgnoreCase("OK"))
                 def result = json.result
@@ -1462,14 +1462,14 @@ suite('test_ms_api', 'p0, docker') {
         drop_cluster_api.call(msHttpPort, dropFeClusterBody) {
             respCode, body ->
                 log.info("drop fe cluster http cli result: ${body} ${respCode}".toString())
-                json = parseJson(body)
+                def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK"))
         }
 
         get_instance_api.call(msHttpPort, instance_id) {
             respCode, body ->
                 log.info("after get cluster get instance resp: ${body} ${respCode}".toString())
-                json = parseJson(body)
+                def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK"))
                 def result = json.result
                 def FECluster = result.clusters.find {
@@ -1482,8 +1482,8 @@ suite('test_ms_api', 'p0, docker') {
         def compute_ip1 = "182.0.0.1" 
         def heartbeatPort = 9050
         def nodeMap = [cloud_unique_id: "${cloudUniqueId}", ip: "${compute_ip1}", heartbeat_port: "${heartbeatPort}"]
-        nodeList = [nodeMap]
-        clusterMap = [cluster_name: "${clusterName}", cluster_id:"${clusterId}", type:"COMPUTE", nodes:nodeList]
+        def nodeList = [nodeMap]
+        def clusterMap = [cluster_name: "${clusterName}", cluster_id:"${clusterId}", type:"COMPUTE", nodes:nodeList]
         instance = [instance_id: "${instance_id}", cluster: clusterMap]
         def addComputeGroupBody = jsonOutput.toJson(instance)
         add_cluster_api.call(msHttpPort, addComputeGroupBody) {
@@ -1496,7 +1496,7 @@ suite('test_ms_api', 'p0, docker') {
         get_instance_api.call(msHttpPort, instance_id) {
             respCode, body ->
                 log.info("after get cluster get instance resp: ${body} ${respCode}".toString())
-                json = parseJson(body)
+                def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK"))
         } 
 
@@ -1512,7 +1512,7 @@ suite('test_ms_api', 'p0, docker') {
             respCode, body ->
                 log.info("drop compute group http cli result: ${body} ${respCode}".toString())
                 assertEquals(404, respCode)
-                json = parseJson(body)
+                def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("NOT_FOUND"))
         }
     }

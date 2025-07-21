@@ -115,6 +115,8 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("cn-hongkong", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
         origProps.put("oss.endpoint", "http://s3.oss-cn-hongkong.aliyuncs.com");
         Assertions.assertEquals("cn-hongkong", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "https://dlf.cn-beijing.aliyuncs.com");
+        Assertions.assertEquals("cn-beijing", ((OSSProperties) StorageProperties.createAll(origProps).get(1)).getRegion());
     }
 
     @Test

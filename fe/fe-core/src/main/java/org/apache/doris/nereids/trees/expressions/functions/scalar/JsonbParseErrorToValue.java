@@ -38,8 +38,16 @@ public class JsonbParseErrorToValue extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(JsonType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(JsonType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, JsonType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
     );
+
+    /**
+     * constructor with 1 arguments.
+     */
+    public JsonbParseErrorToValue(Expression arg) {
+        super("jsonb_parse_error_to_value", arg);
+    }
 
     /**
      * constructor with 2 arguments.
@@ -48,13 +56,22 @@ public class JsonbParseErrorToValue extends ScalarFunction
         super("jsonb_parse_error_to_value", arg0, arg1);
     }
 
+    @Override
+    public boolean foldable() {
+        return false;
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonbParseErrorToValue withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new JsonbParseErrorToValue(children.get(0), children.get(1));
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 1);
+        if (children.size() == 1) {
+            return new JsonbParseErrorToValue(children.get(0));
+        } else {
+            return new JsonbParseErrorToValue(children.get(0), children.get(1));
+        }
     }
 
     @Override

@@ -71,9 +71,7 @@ suite("test_show_routine_load","p0") {
                 producer.send(record)
             }
         }
-    }
 
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def tableName = "test_show_routine_load"
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -91,6 +89,7 @@ suite("test_show_routine_load","p0") {
             PROPERTIES ("replication_allocation" = "tag.location.default: 1");
         """
 
+        // test show routine load command
         try {
             sql """
                 CREATE ROUTINE LOAD testShow ON ${tableName}
@@ -170,6 +169,27 @@ suite("test_show_routine_load","p0") {
         } finally {
             sql "stop routine load for testShow"
             sql "stop routine load for testShow1"
+        }
+
+        // test show routine load properties
+        try {
+            sql """
+                CREATE ROUTINE LOAD testShow ON ${tableName}
+                COLUMNS TERMINATED BY ",",
+                ORDER BY k1
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "${kafkaCsvTpoics[0]}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            def res = sql "show routine load for testShow"
+            def json = parseJson(res[0][11])
+            log.info("routine load job properties: ${res[0][11].toString()}".toString())
+            assertEquals("k1", json.sequence_col.toString())
+        } finally {
+            sql "stop routine load for testShow"
         }
     }
 }

@@ -46,8 +46,8 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("IA * IB / 2 * 2", "((IA * IB) / (2 / 2))");
         assertRewriteAfterSimplify("IA * IB / (2 * 2)", "((IA * IB) / 4)");
         assertRewriteAfterSimplify("IA * IB / (2 * 2)", "((IA * IB) / 4)");
-        assertRewriteAfterSimplify("IA * (IB / 2) * 2)", "((IA * IB) / (2 / 2))");
-        assertRewriteAfterSimplify("IA * (IB / 2) * (IC + 1))", "(((IA * IB) * (IC + 1)) / 2)");
+        assertRewriteAfterSimplify("IA * (IB / 2) * 2", "((IA * IB) / (2 / 2))");
+        assertRewriteAfterSimplify("IA * (IB / 2) * (IC + 1)", "(((IA * IB) * (IC + 1)) / 2)");
         assertRewriteAfterSimplify("IA * IB / 2 / IC * 2 * ID / 4", "((((IA * IB) / IC) * ID) / ((2 / 2) * 4))");
         assertRewriteAfterSimplify("IA - 10 + (IB * 2 * 3) + 20", "IA + (IB * 6) - (-10)");
         assertRewriteAfterSimplify("IA / 10 * (IB - 2 + 3) * 20", "((IA * (IB - -1)) / (10 / 20))");

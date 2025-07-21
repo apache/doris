@@ -158,7 +158,7 @@
 -- !sql --
 
 -- !sql --
-10	20	aabc
+10	20	aabc	
 
 -- !sql --
 -10	20	aabc	update val
@@ -204,3 +204,4 @@ user_guid	feature	sk	feature_value	2021-01-01T00:00
 
 -- !sql --
 v1
+
