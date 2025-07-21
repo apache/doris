@@ -17,7 +17,7 @@
 
 import org.junit.Assert;
 
-suite("test_session_variables_mtmv","mtmv") {
+suite("test_session_variables_view","view") {
     String suiteName = "test_session_variables_view"
     String tableName = "${suiteName}_table"
     String viewName = "${suiteName}_view"
