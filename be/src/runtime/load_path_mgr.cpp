@@ -28,6 +28,7 @@
 #include <boost/algorithm/string/join.hpp>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/cast_set.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
@@ -135,7 +136,7 @@ bool LoadPathMgr::check_disk_space(size_t disk_capacity_bytes, size_t available_
                                    int64_t file_bytes) {
     bool is_available = false;
     int64_t remaining_bytes = available_bytes - file_bytes;
-    double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / disk_capacity_bytes;
+    double used_ratio = 1.0 - cast_set<double>(remaining_bytes) / cast_set<double>(disk_capacity_bytes);
     is_available = !(used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
                      remaining_bytes <= config::storage_flood_stage_left_capacity_bytes);
     if (!is_available) {
