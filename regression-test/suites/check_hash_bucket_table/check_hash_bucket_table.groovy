@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_crc32_internal") {
+suite("check_hash_bucket_table") {
 
     int dbNum = 0
     int tableNum = 0
     def excludedDbs = ["mysql", "information_schema", "__internal_schema"].toSet()
+
+    logger.info("===== begin to check hash bucket tables")
 
     def checkTable = { String db, String tblName ->
         sql "use ${db};"
