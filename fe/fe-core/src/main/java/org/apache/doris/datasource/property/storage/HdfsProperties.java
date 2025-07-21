@@ -118,9 +118,9 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
         }
         extractUserOverriddenHdfsConfig(origProps);
-        initHadoopConfiguration();
+        initializeHadoopStorageConfig();
         initBackendConfigProperties();
-        hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(configuration);
+        hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(hadoopStorageConfig);
     }
 
     private void extractUserOverriddenHdfsConfig(Map<String, String> origProps) {
@@ -145,7 +145,8 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
     }
 
-    private void initHadoopConfiguration() {
+    @Override
+    public void initializeHadoopStorageConfig() {
         Configuration conf = new Configuration(true);
         Map<String, String> allProps = loadConfigFromFile(hadoopConfigResources);
         allProps.forEach(conf::set);
@@ -172,20 +173,16 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = conf.get(HDFS_DEFAULT_FS_NAME, "");
         }
-        this.configuration = conf;
+        this.hadoopStorageConfig = conf;
     }
 
     private void initBackendConfigProperties() {
         Map<String, String> backendConfigProperties = new HashMap<>();
-        for (Map.Entry<String, String> entry : configuration) {
+        for (Map.Entry<String, String> entry : hadoopStorageConfig) {
             backendConfigProperties.put(entry.getKey(), entry.getValue());
         }
 
         this.backendConfigProperties = backendConfigProperties;
-    }
-
-    public Configuration getHadoopConfiguration() {
-        return this.configuration;
     }
 
     public boolean isKerberos() {
@@ -214,8 +211,4 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         return "HDFS";
     }
 
-    @Override
-    public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = configuration;
-    }
 }

@@ -62,7 +62,7 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     }
 
     @Override
-    protected Catalog initCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
         checkInitialized();
 
         Configuration conf = buildHiveConfiguration(storagePropertiesList);

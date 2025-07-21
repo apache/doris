@@ -60,7 +60,7 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     }
 
     @Override
-    protected Catalog initCatalog(String catalogName, List<StorageProperties> storageProperties) {
+    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storageProperties) {
         Map<String, String> props = prepareBaseCatalogProps();
         appendS3Props(props);
         appendGlueProps(props);

@@ -52,7 +52,7 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     }
 
     @Override
-    protected Catalog initCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
         checkInitialized();
 
         Map<String, String> props = buildS3CatalogProperties();

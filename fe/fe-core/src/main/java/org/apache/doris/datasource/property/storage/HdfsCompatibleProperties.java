@@ -35,8 +35,6 @@ public abstract class HdfsCompatibleProperties extends StorageProperties {
         super(type, origProps);
     }
 
-    protected Configuration configuration;
-
     @Getter
     protected HadoopAuthenticator hadoopAuthenticator = new HadoopSimpleAuthenticator(new SimpleAuthenticationConfig());
 
@@ -46,6 +44,7 @@ public abstract class HdfsCompatibleProperties extends StorageProperties {
     }
 
     public Configuration getHadoopConfiguration() {
-        return configuration;
+        return hadoopStorageConfig;
     }
+
 }

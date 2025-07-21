@@ -17,26 +17,20 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import lombok.Getter;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 
 public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergProperties {
-    @Getter
-    private HadoopAuthenticator hadoopAuthenticator;
 
     @Override
     public String getIcebergCatalogType() {
@@ -48,22 +42,13 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
     }
 
     @Override
-    protected Catalog initCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
         Configuration configuration = buildConfiguration(storagePropertiesList);
         Map<String, String> catalogProps = buildCatalogProps(storagePropertiesList);
 
         HadoopCatalog catalog = new HadoopCatalog();
         catalog.setConf(configuration);
-
-        if (hadoopAuthenticator != null) {
-            return executeWithAuth(() -> {
-                catalog.initialize(catalogName, catalogProps);
-                return catalog;
-            });
-        } else {
-            catalog.initialize(catalogName, catalogProps);
-        }
-
+        catalog.initialize(catalogName, catalogProps);
         return catalog;
     }
 
@@ -86,19 +71,10 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
                 props.put(CatalogProperties.FILE_IO_IMPL,
                         "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
             }
-            hadoopAuthenticator = hdfsProps.getHadoopAuthenticator();
         }
 
         props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         return props;
     }
 
-    private Catalog executeWithAuth(Supplier<Catalog> action) {
-        try {
-            // return catalog
-            return hadoopAuthenticator.doAs(action::get);
-        } catch (IOException e) {
-            throw new RuntimeException("Kerberos doAs failed for Iceberg HadoopCatalog", e);
-        }
-    }
 }

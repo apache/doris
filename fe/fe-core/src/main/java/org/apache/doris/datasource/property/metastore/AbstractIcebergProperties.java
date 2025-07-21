@@ -66,22 +66,9 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
 
     public abstract String getIcebergCatalogType();
 
-    protected AbstractIcebergProperties(Type type, Map<String, String> props) {
-        super(type, props);
-    }
-
     protected AbstractIcebergProperties(Map<String, String> props) {
-        super(props);
+        super(Type.ICEBERG, props);
     }
 
-    public final void initialize(String catalogName, List<StorageProperties> storagePropertiesList) {
-        if (this.catalog == null) {
-            this.catalog = initCatalog(catalogName, storagePropertiesList);
-            if (this.catalog == null) {
-                throw new IllegalStateException("Catalog must not be null after initialization.");
-            }
-        }
-    }
-
-    protected abstract Catalog initCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
+    public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
 }

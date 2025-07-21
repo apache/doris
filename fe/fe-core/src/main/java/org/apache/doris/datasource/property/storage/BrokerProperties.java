@@ -91,6 +91,6 @@ public class BrokerProperties extends StorageProperties {
 
     @Override
     public void initializeHadoopStorageConfig() {
-        throw new UnsupportedOperationException("Broker storage does not support hadoop config.");
+        // do nothing
     }
 }

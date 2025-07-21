@@ -59,8 +59,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         try {
             AbstractIcebergProperties properties = (AbstractIcebergProperties) MetastoreProperties
                     .create(getProperties());
-            properties.initialize(getName(), new ArrayList<>(catalogProperty.getStoragePropertiesMap().values()));
-            this.catalog = properties.getCatalog();
+            preExecutionAuthenticator.execute(() ->
+                    this.catalog = properties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
+                            .getStoragePropertiesMap().values())));
+
             this.icebergCatalogType = properties.getIcebergCatalogType();
         } catch (UserException e) {
             throw new RuntimeException("Failed to initialize Iceberg catalog: " + e.getMessage(), e);
@@ -85,11 +87,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
-            ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
-            Integer.MAX_VALUE,
-            String.format("iceberg_catalog_%s_executor_pool", name),
-            true,
-            preExecutionAuthenticator);
+                ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+                Integer.MAX_VALUE,
+                String.format("iceberg_catalog_%s_executor_pool", name),
+                true,
+                preExecutionAuthenticator);
         metadataOps = ops;
     }
 
