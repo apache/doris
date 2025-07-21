@@ -38,7 +38,6 @@
 #include <thread>
 #include <utility>
 
-#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/file_reader.h"
@@ -68,7 +67,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -384,7 +382,7 @@ Status DataDir::load() {
                         rowset_id.to_string(), tablet_uid.to_string());
                 CHECK_EQ(orig_delete_sub_pred.size(), delete_pred->sub_predicates().size())
                         << "inconsistent sub predicate v1 after conversion";
-                for (int i = 0; i < orig_delete_sub_pred.size(); ++i) {
+                for (size_t i = 0; i < orig_delete_sub_pred.size(); ++i) {
                     CHECK_STREQ(orig_delete_sub_pred.Get(i).c_str(),
                                 delete_pred->sub_predicates().Get(i).c_str())
                             << "inconsistent sub predicate v1 after conversion";
@@ -486,8 +484,7 @@ Status DataDir::load() {
     auto load_pending_publish_info_func =
             [&engine = _engine](int64_t tablet_id, int64_t publish_version, std::string_view info) {
                 PendingPublishInfoPB pending_publish_info_pb;
-                bool parsed = pending_publish_info_pb.ParseFromArray(info.data(),
-                                                                     cast_set<int>(info.size()));
+                bool parsed = pending_publish_info_pb.ParseFromArray(info.data(), info.size());
                 if (!parsed) {
                     LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
                                  << " publish_version: " << publish_version;
@@ -622,13 +619,13 @@ Status DataDir::load() {
         }
 
         DeleteBitmapPB delete_bitmap_pb;
-        delete_bitmap_pb.ParseFromArray(val.data(), cast_set<int>(val.size()));
+        delete_bitmap_pb.ParseFromArray(val.data(), val.size());
         int rst_ids_size = delete_bitmap_pb.rowset_ids_size();
         int seg_ids_size = delete_bitmap_pb.segment_ids_size();
         int seg_maps_size = delete_bitmap_pb.segment_delete_bitmaps_size();
         CHECK(rst_ids_size == seg_ids_size && seg_ids_size == seg_maps_size);
 
-        for (int i = 0; i < rst_ids_size; ++i) {
+        for (size_t i = 0; i < rst_ids_size; ++i) {
             RowsetId rst_id;
             rst_id.init(delete_bitmap_pb.rowset_ids(i));
             // only process the rowset in _rs_metas
@@ -872,7 +869,7 @@ void DataDir::perform_path_gc() {
                 }
                 int16_t shard_id = -1;
                 try {
-                    shard_id = cast_set<int16_t>(std::stoi(shard.file_name));
+                    shard_id = std::stoi(shard.file_name);
                 } catch (const std::exception&) {
                     LOG(WARNING) << "failed to stoi shard_id, shard name=" << shard.file_name;
                     continue;
@@ -1095,5 +1092,5 @@ void DataDir::perform_remote_tablet_gc() {
         static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
 }
-#include "common/compile_check_end.h"
+
 } // namespace doris
