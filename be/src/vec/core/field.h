@@ -526,7 +526,7 @@ T get(Field& field) {
 /// signedness of char is different in Linux on x86 and Linux on ARM.
 template <>
 struct NearestFieldTypeImpl<char> {
-    using Type = std::conditional_t<std::is_signed_v<char>, Int64, UInt64>;
+    using Type = std::conditional_t<IsSignedV<char>, Int64, UInt64>;
 };
 template <>
 struct NearestFieldTypeImpl<signed char> {

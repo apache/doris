@@ -17,8 +17,10 @@
 
 suite("test_nereids_show_create_function") {
     sql "CREATE DATABASE IF NOT EXISTS show_create_function_db"
+    sql """DROP FUNCTION if exists show_create_function_db.zzzyyyxxx_show_create_function_name(INT)"""
     sql """CREATE ALIAS FUNCTION show_create_function_db.zzzyyyxxx_show_create_function_name(INT) WITH PARAMETER(id)  
                 AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"""
+    sql """DROP GLOBAL FUNCTION if exists zzzyyyxxx_show_create_global_function_name(INT)"""
     sql """CREATE GLOBAL ALIAS FUNCTION zzzyyyxxx_show_create_global_function_name(INT) 
                 WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"""
 

@@ -273,9 +273,9 @@ private:
             if constexpr (sizeof(typename PrimitiveTypeTraits<B>::ColumnItemType) >
                           sizeof(CompareInt))
                 overflow |= (typename PrimitiveTypeTraits<B>::ColumnItemType(y) != b);
-            if constexpr (std::is_unsigned_v<typename PrimitiveTypeTraits<A>::ColumnItemType>)
+            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<A>::ColumnItemType>)
                 overflow |= (x < 0);
-            if constexpr (std::is_unsigned_v<typename PrimitiveTypeTraits<B>::ColumnItemType>)
+            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<B>::ColumnItemType>)
                 overflow |= (y < 0);
 
             if constexpr (scale_left) overflow |= common::mul_overflow(x, scale, x);

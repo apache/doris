@@ -43,6 +43,7 @@ struct TColumn {
     18: optional bool is_auto_increment = false;
     19: optional i32 cluster_key_id = -1
     20: optional i32 be_exec_version = -1
+    21: optional bool is_on_update_current_timestamp = false
 }
 
 struct TSlotDescriptor {

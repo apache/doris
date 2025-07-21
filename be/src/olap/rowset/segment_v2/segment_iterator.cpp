@@ -97,6 +97,8 @@ namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 SegmentIterator::~SegmentIterator() = default;
 
 // A fast range iterator for roaring bitmap. Output ranges use closed-open form, like [from, to).
@@ -184,7 +186,7 @@ class SegmentIterator::BackwardBitmapRangeIterator : public SegmentIterator::Bit
 public:
     explicit BackwardBitmapRangeIterator(const roaring::Roaring& bitmap) {
         roaring_init_iterator_last(&bitmap.roaring, &_riter);
-        _rowid_count = roaring_bitmap_get_cardinality(&bitmap.roaring);
+        _rowid_count = cast_set<uint32_t>(roaring_bitmap_get_cardinality(&bitmap.roaring));
         _rowid_left = _rowid_count;
     }
 
@@ -1160,7 +1162,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     const auto& key_col_ids = key.schema()->column_ids();
     _convert_rowcursor_to_short_key(key, key_col_ids.size());
 
-    uint32_t start_block_id = 0;
+    ssize_t start_block_id = 0;
     auto start_iter = sk_index_decoder->lower_bound(index_key);
     if (start_iter.valid()) {
         // Because previous block may contain this key, so we should set rowid to
@@ -1175,12 +1177,12 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
         // row block. so we set the rowid to first row of last row block.
         start_block_id = sk_index_decoder->num_items() - 1;
     }
-    rowid_t start = start_block_id * sk_index_decoder->num_rows_per_block();
+    rowid_t start = cast_set<rowid_t>(start_block_id) * sk_index_decoder->num_rows_per_block();
 
     rowid_t end = upper_bound;
     auto end_iter = sk_index_decoder->upper_bound(index_key);
     if (end_iter.valid()) {
-        end = end_iter.ordinal() * sk_index_decoder->num_rows_per_block();
+        end = cast_set<rowid_t>(end_iter.ordinal()) * sk_index_decoder->num_rows_per_block();
     }
 
     // binary search to find the exact key
@@ -1236,7 +1238,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
         }
         return status;
     }
-    *rowid = index_iterator->get_current_ordinal();
+    *rowid = cast_set<rowid_t>(index_iterator->get_current_ordinal());
 
     // The sequence column needs to be removed from primary key index when comparing key
     bool has_seq_col = _segment->_tablet_schema->has_sequence_col();
@@ -1853,22 +1855,22 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint16_t new_size = 0;
 
-    uint32_t sel_pos = 0;
-    const uint32_t sel_end = sel_pos + selected_size;
+    uint16_t sel_pos = 0;
+    const uint16_t sel_end = sel_pos + selected_size;
     static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
-    const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
+    const uint16_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
     while (sel_pos < sel_end_simd) {
         auto mask = simd::bytes_mask_to_bits_mask(_ret_flags.data() + sel_pos);
         if (0 == mask) {
             //pass
         } else if (simd::bits_mask_all() == mask) {
-            for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+            for (uint16_t i = 0; i < SIMD_BYTES; i++) {
                 sel_rowid_idx[new_size++] = sel_pos + i;
             }
         } else {
             simd::iterate_through_bits_mask(
-                    [&](const size_t bit_pos) { sel_rowid_idx[new_size++] = sel_pos + bit_pos; },
+                    [&](const uint16_t bit_pos) { sel_rowid_idx[new_size++] = sel_pos + bit_pos; },
                     mask);
         }
         sel_pos += SIMD_BYTES;
@@ -2107,7 +2109,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
-    nrows_read_limit = std::min(_row_bitmap.cardinality(), uint64_t(nrows_read_limit));
+    nrows_read_limit = std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), nrows_read_limit);
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt 1 execute failed: {}",
@@ -2154,7 +2156,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         _output_non_pred_columns(block);
     } else {
-        uint16_t selected_size = _current_batch_rows_read;
+        uint16_t selected_size = cast_set<uint16_t>(_current_batch_rows_read);
         _sel_rowid_idx.resize(selected_size);
 
         if (_is_need_vec_eval || _is_need_short_eval) {
@@ -2239,7 +2241,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto loc = _schema_block_id_map[cid];
                 block->replace_by_position(loc, std::move(_current_return_columns[cid]));
             }
-            for (uint32_t i = 0; i < selected_size; ++i) {
+            for (uint16_t i = 0; i < selected_size; ++i) {
                 _sel_rowid_idx[i] = i;
             }
 
@@ -2319,7 +2321,7 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
     DCHECK(!_remaining_conjunct_roots.empty());
     DCHECK(block->rows() != 0);
-    size_t prev_columns = block->columns();
+    int prev_columns = block->columns();
     uint16_t original_size = selected_size;
     _opts.stats->expr_cond_input_rows += original_size;
 
@@ -2496,7 +2498,7 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
             }
 
             const auto& children = expr->children();
-            for (int32_t i = children.size() - 1; i >= 0; --i) {
+            for (int i = cast_set<int>(children.size()) - 1; i >= 0; --i) {
                 if (!children[i]->children().empty()) {
                     stack.emplace(children[i]);
                 }
@@ -2589,6 +2591,8 @@ bool SegmentIterator::_can_opt_topn_reads() {
 
     return all_true;
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace segment_v2
 } // namespace doris

@@ -40,12 +40,9 @@ import java.util.Map;
  * Refresh database.
  */
 public class RefreshDatabaseCommand extends Command implements ForwardWithSync {
-    private static final String INVALID_CACHE = "invalid_cache";
-
     private String catalogName;
     private String dbName;
     private Map<String, String> properties;
-    private boolean invalidCache = false;
 
     public RefreshDatabaseCommand(String dbName, Map<String, String> properties) {
         super(PlanType.REFRESH_DATABASE_COMMAND);
@@ -85,15 +82,12 @@ public class RefreshDatabaseCommand extends Command implements ForwardWithSync {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
                     PrivPredicate.SHOW.getPrivs().toString(), dbName);
         }
-        String invalidConfig = properties == null ? null : properties.get(INVALID_CACHE);
-        // Default is to invalid cache.
-        invalidCache = invalidConfig == null || invalidConfig.equalsIgnoreCase("true");
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        Env.getCurrentEnv().getRefreshManager().handleRefreshDb(catalogName, dbName, invalidCache);
+        Env.getCurrentEnv().getRefreshManager().handleRefreshDb(catalogName, dbName);
     }
 
     @Override

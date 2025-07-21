@@ -24,6 +24,7 @@
 #include "union_term_iterator.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 using DISI = std::variant<TermPositionsIterPtr, UnionTermIterPtr, MockIterPtr>;
 
@@ -78,4 +79,5 @@ struct NextPosition {
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -27,6 +27,7 @@ import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -191,6 +192,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
 
     public static final String FORCE_SORT_ALGORITHM = "force_sort_algorithm";
+    public static final String FULL_SORT_MAX_BUFFERED_BYTES = "full_sort_max_buffered_bytes";
 
     // runtime filter run mode
     public static final String RUNTIME_FILTER_MODE = "runtime_filter_mode";
@@ -754,6 +756,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
 
+    public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -787,7 +791,7 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to allow predicates with CAST expressions to be pushed down to JDBC external tables."})
     public boolean enableJdbcCastPredicatePushDown = true;
 
-    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
+    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE, affectQueryResult = true)
     public boolean roundPreciseDecimalV2Value = false;
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
@@ -826,7 +830,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
-    @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
+    @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT, affectQueryResult = true)
     private long defaultOrderByLimit = -1;
 
     // query timeout in second.
@@ -866,7 +870,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
     public int autoProfileThresholdMs = -1;
 
-    @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
+    @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external", fuzzy = true)
     public boolean runtimeFilterPruneForExternal = true;
 
     @VariableMgr.VarAttr(name = "runtime_filter_jump_threshold")
@@ -879,7 +883,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableSingleDistinctColumnOpt = false;
 
     // Set sqlMode to empty string
-    @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
+    @VariableMgr.VarAttr(name = SQL_MODE, needForward = true, affectQueryResult = true)
     public long sqlMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
 
     @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE, needForward = true)
@@ -953,7 +957,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
     public boolean sqlAutoIsNull = false;
 
-    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
+    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT, needForward = true, affectQueryResult = true)
     private long sqlSelectLimit = Long.MAX_VALUE;
 
     // this is used to make c3p0 library happy
@@ -984,7 +988,7 @@ public class SessionVariable implements Serializable, Writable {
     public int netReadTimeout = 600;
 
     // The current time zone
-    @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true)
+    @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResult = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
@@ -1284,6 +1288,10 @@ public class SessionVariable implements Serializable, Writable {
             "Force the sort algorithm of SortNode to be specified" })
     public String forceSortAlgorithm = "";
 
+    @VariableMgr.VarAttr(name = FULL_SORT_MAX_BUFFERED_BYTES, needForward = true,
+            setter = "setFullSortMaxBufferedBytes")
+    public long fullSortMaxBufferedBytes = 64L * 1024L * 1024L;
+
     @VariableMgr.VarAttr(name = "ignore_runtime_filter_error", needForward = true, description = { "在rf遇到错误的时候忽略该rf",
             "Ignore the rf when it encounters an error" })
     public boolean ignoreRuntimeFilterError = false;
@@ -1335,7 +1343,7 @@ public class SessionVariable implements Serializable, Writable {
                     "set the number of sort phases 1 or 2. if set other value, let cbo decide the sort type"})
     public int sortPhaseNum = 0;
 
-    @VariableMgr.VarAttr(name = HIVE_TEXT_COMPRESSION, needForward = true)
+    @VariableMgr.VarAttr(name = HIVE_TEXT_COMPRESSION, fuzzy = true, needForward = true)
     private String hiveTextCompression = "plain";
 
     @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
@@ -1394,6 +1402,9 @@ public class SessionVariable implements Serializable, Writable {
     public void setCboNetWeight(double cboNetWeight) {
         this.cboNetWeight = cboNetWeight;
     }
+
+    @VariableMgr.VarAttr(name = "enable_init_join_order")
+    public boolean enableInitJoinOrder = true;
 
     @VariableMgr.VarAttr(name = CBO_CPU_WEIGHT)
     private double cboCpuWeight = 1.0;
@@ -1472,10 +1483,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
     private boolean enableShortCircuitQueryAcessColumnStore = true;
 
-    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, affectQueryResult = true)
     private boolean checkOverflowForDecimal = true;
 
-    @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, description = {
+    @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, affectQueryResult = true, description = {
             "当decimal数值计算结果精度溢出时，计算结果最多可保留的小数位数", "When the precision of the result of"
             + " a decimal numerical calculation overflows,"
             + "the maximum number of decimal scale that the result can be retained"
@@ -1755,7 +1766,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = false;
 
-    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
+    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN, affectQueryResult = true)
     public long groupConcatMaxLen = 2147483646;
 
     @VariableMgr.VarAttr(
@@ -1902,13 +1913,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,
-            description = {"如果分区数量超过阈值，BE将通过batch方式获取scan ranges",
+            fuzzy = true,
+            description = {"如果分区数量超过阈值，BE将通过batch方式获取scan ranges。作用于 Hive、Hudi、MaxCompute 表。",
                     "If the number of partitions exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
     public int numPartitionsInBatchMode = 1024;
 
     @VariableMgr.VarAttr(
             name = NUM_FILES_IN_BATCH_MODE,
+            fuzzy = true,
             description = {"如果文件数量超过阈值，BE将通过batch方式获取scan ranges",
                     "If the number of files exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
@@ -1923,6 +1936,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
+            fuzzy = true,
             description = {"控制 parquet reader 是否启用延迟物化技术。默认为 true。",
                     "Controls whether to use lazy materialization technology in parquet reader. "
                             + "The default value is true."},
@@ -1931,15 +1945,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ENABLE_ORC_LAZY_MAT,
+            fuzzy = true,
             description = {"控制 orc reader 是否启用延迟物化技术。默认为 true。",
                     "Controls whether to use lazy materialization technology in orc reader. "
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcLazyMat = true;
 
-
     @VariableMgr.VarAttr(
             name = ORC_TINY_STRIPE_THRESHOLD_BYTES,
+            fuzzy = true,
             description = {"在orc文件中如果一个stripe的字节大小小于`orc_tiny_stripe_threshold`,"
                     + "我们认为该stripe为 tiny stripe。对于多个连续的tiny stripe我们会进行读取优化，即一次性读多个tiny stripe."
                     + "如果你不想使用该优化，可以将该值设置为0。默认为 8M。",
@@ -1955,6 +1970,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ORC_ONCE_MAX_READ_BYTES,
+            fuzzy = true,
             description = {"在使用tiny stripe读取优化的时候，会对多个tiny stripe合并成一次IO，"
                     + "该参数用来控制每次IO请求的最大字节大小。你不应该将值设置的小于`orc_tiny_stripe_threshold`。默认为 8M。",
                     "When using tiny stripe read optimization, multiple tiny stripes will be merged into one IO."
@@ -1968,6 +1984,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ORC_MAX_MERGE_DISTANCE_BYTES,
+            fuzzy = true,
             description = {"在使用tiny stripe读取优化的时候，由于tiny stripe并不一定连续。"
                     + "当两个tiny stripe之间距离大于该参数时，我们不会将其合并成一次IO。默认为 1M。",
                     "When using tiny stripe read optimization, since tiny stripes are not necessarily continuous,"
@@ -1980,12 +1997,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_FILTER_BY_MIN_MAX,
+            fuzzy = true,
             description = {"控制 parquet reader 是否启用 min-max 值过滤。默认为 true。",
                     "Controls whether to filter by min-max values in parquet reader. "
                             + "The default value is true."},
             needForward = true)
     public boolean enableParquetFilterByMinMax = true;
-
 
     @VariableMgr.VarAttr(
             name = ENABLE_ORC_FILTER_BY_MIN_MAX,
@@ -2219,6 +2236,7 @@ public class SessionVariable implements Serializable, Writable {
     public long partitionSampleRowCount = 3_000_000_000L;
 
     @VariableMgr.VarAttr(name = FETCH_HIVE_ROW_COUNT_SYNC,
+            fuzzy = true,
             description = {"同步获取Hive外表行数", "Fetch Hive external table row count synchronously"})
     public boolean fetchHiveRowCountSync = true;
 
@@ -2294,7 +2312,6 @@ public class SessionVariable implements Serializable, Writable {
                             + "by their ordinal position in the Hive table definition."})
     public boolean hiveParquetUseColumnNames = true;
 
-
     @VariableMgr.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES,
             description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
                     "Access Parquet columns by name by default. Set this property to `false` to access columns "
@@ -2312,10 +2329,12 @@ public class SessionVariable implements Serializable, Writable {
     public int exchangeMultiBlocksByteSize = 256 * 1024;
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
+            fuzzy = true,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
+            fuzzy = true,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
     private boolean enableCountPushDownForExternalTable = true;
 
@@ -2329,6 +2348,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
     @VariableMgr.VarAttr(
             name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
+            fuzzy = true,
             description = {"使能外表的batch mode功能", "Enable the batch mode function of the external table."},
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
@@ -2347,6 +2367,10 @@ public class SessionVariable implements Serializable, Writable {
     public void setSkewRewriteAggBucketNum(int num) {
         this.skewRewriteAggBucketNum = num;
     }
+
+    @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
+            description = {"cast使用严格模式", "Use strict mode for cast"})
+    public boolean enableStrictCast = false;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
@@ -2419,7 +2443,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
-            "Set to true to enable Decimal256 type" })
+            "Set to true to enable Decimal256 type" }, affectQueryResult = true)
     public boolean enableDecimal256 = false;
 
     @VariableMgr.VarAttr(name = FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
@@ -2593,7 +2617,7 @@ public class SessionVariable implements Serializable, Writable {
         "in条件value数量大于这个threshold后将不会走fast_execute",
         "When the number of values in the IN condition exceeds this threshold,"
                 + " fast_execute will not be used."
-    })
+    }, affectQueryResult = true)
     public int inListValueCountThreshold = 10;
 
     @VariableMgr.VarAttr(name = ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = {
@@ -2841,6 +2865,43 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSpill = randomInt % 4 != 0;
         this.enableForceSpill = randomInt % 3 == 0;
         this.enableReserveMemory = randomInt % 5 != 0;
+        setFuzzyForCatalog(random);
+    }
+
+    private void setFuzzyForCatalog(Random random) {
+        if (!Config.fuzzy_test_type.equals("external")) {
+            return;
+        }
+        // parquet
+        this.enableParquetFilterByMinMax = random.nextBoolean();
+        this.enableParquetLazyMat = random.nextBoolean();
+
+        // orc
+        this.enableOrcLazyMat = random.nextBoolean();
+        this.orcTinyStripeThresholdBytes = Util.getRandomLong(0, 8L * 1024L * 1024L);
+        this.orcOnceMaxReadBytes = Util.getRandomLong(0, 8L * 1024L * 1024L, 16L * 1024L * 1024L);
+        this.orcMaxMergeDistanceBytes = Util.getRandomLong(0, 1L * 1024L * 1024L, 10L * 1024L * 1024L);
+
+        // jni
+        this.forceJniScanner = random.nextBoolean();
+
+        // statistics
+        this.fetchHiveRowCountSync = random.nextBoolean();
+
+        // hive
+        this.hiveTextCompression = Util.getRandomString(
+                "gzip", "defalte", "bzip2", "zstd", "lz4", "lzo", "snappy", "plain");
+
+        // batch mode
+        this.enableExternalTableBatchMode = random.nextBoolean();
+        if (this.enableExternalTableBatchMode) {
+            this.numPartitionsInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+            this.numFilesInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+        }
+
+        // common
+        this.enableCountPushDownForExternalTable = random.nextBoolean();
+        this.runtimeFilterPruneForExternal = random.nextBoolean();
     }
 
     public String printFuzzyVariables() {
@@ -3204,6 +3265,15 @@ public class SessionVariable implements Serializable, Writable {
     public void setOrcMaxMergeDistanceBytes(String value)  throws Exception {
         long val = checkFieldLongValue(ORC_MAX_MERGE_DISTANCE_BYTES, 0, value);
         this.orcMaxMergeDistanceBytes = val;
+    }
+
+    public void setFullSortMaxBufferedBytes(String value) throws Exception {
+        long val = Long.parseLong(value);
+        if (val < 16L * 1024L * 1024L || val > 1024L * 1024L * 1024L) {
+            throw new Exception(
+                    FULL_SORT_MAX_BUFFERED_BYTES + " value should between 16MB and 1GB , you set value is: " + value);
+        }
+        this.fullSortMaxBufferedBytes = val;
     }
 
     private long checkFieldLongValue(String variableName, long minValue, String value) throws Exception {
@@ -3587,10 +3657,6 @@ public class SessionVariable implements Serializable, Writable {
         return numPartitionsInBatchMode;
     }
 
-    public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
-        this.numPartitionsInBatchMode = numPartitionsInBatchMode;
-    }
-
     public int getNumFilesInBatchMode() {
         return numFilesInBatchMode;
     }
@@ -3603,28 +3669,12 @@ public class SessionVariable implements Serializable, Writable {
         this.fetchSplitsMaxWaitTime = fetchSplitsMaxWaitTime;
     }
 
-    public boolean isEnableParquetLazyMat() {
-        return enableParquetLazyMat;
-    }
-
-    public void setEnableParquetLazyMat(boolean enableParquetLazyMat) {
-        this.enableParquetLazyMat = enableParquetLazyMat;
-    }
-
     public boolean isEnableOrcLazyMat() {
         return enableOrcLazyMat;
     }
 
     public void setEnableOrcLazyMat(boolean enableOrcLazyMat) {
         this.enableOrcLazyMat = enableOrcLazyMat;
-    }
-
-    public boolean isEnableParquetFilterByMinMax() {
-        return enableParquetFilterByMinMax;
-    }
-
-    public void setEnableParquetFilterByMinMax(boolean enableParquetFilterByMinMax) {
-        this.enableParquetFilterByMinMax = enableParquetFilterByMinMax;
     }
 
     public boolean isEnableOrcFilterByMinMax() {
@@ -4317,6 +4367,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
+        tResult.setEnableStrictCast(enableStrictCast);
         return tResult;
     }
 
@@ -4421,7 +4472,7 @@ public class SessionVariable implements Serializable, Writable {
             Field[] fields = SessionVariable.class.getDeclaredFields();
             for (Field f : fields) {
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !varAttr.needForward()) {
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResult())) {
                     continue;
                 }
                 map.put(varAttr.name(), String.valueOf(f.get(this)));
@@ -4441,7 +4492,7 @@ public class SessionVariable implements Serializable, Writable {
             for (Field f : fields) {
                 f.setAccessible(true);
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !varAttr.needForward()) {
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResult())) {
                     continue;
                 }
                 String val = variables.get(varAttr.name());
@@ -5003,5 +5054,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableAddIndexForNewData(boolean enableAddIndexForNewData) {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
+    }
+
+    public boolean enableStrictCast() {
+        return enableStrictCast;
     }
 }

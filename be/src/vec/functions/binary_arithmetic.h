@@ -33,7 +33,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 template <typename Impl>
 struct PlusMinusIntegralImpl {
     static constexpr PrimitiveType Type = Impl::PType;
@@ -618,5 +618,5 @@ private:
         return res;
     }
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
