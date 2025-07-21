@@ -880,7 +880,7 @@ void Tablet::delete_expired_stale_rowset() {
                     << " old_meta_size=" << old_meta_size << " sweep endtime " << std::fixed
                     << expired_stale_sweep_endtime << ", reconstructed=" << reconstructed;
     }
-    if (!deleted_stale_rowsets.empty()) {
+    if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap && !deleted_stale_rowsets.empty()) {
         // agg delete bitmap for pre rowsets; record unused delete bitmap key ranges
         OlapStopWatch watch;
         for (const auto& [version, remove_rowset_ids] : deleted_stale_rowsets) {
