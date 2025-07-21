@@ -35,7 +35,7 @@ Status DeleteBitmapFileWriter::init() {
     }
     _path = _storage_resource->remote_delete_bitmap_path(_tablet_id, _rowset_id);
     io::FileWriterOptions opts;
-    opts.write_file_cache = true;
+    // opts.write_file_cache = true;
     return _storage_resource->fs->create_file(_path, &_file_writer, &opts);
 }
 
