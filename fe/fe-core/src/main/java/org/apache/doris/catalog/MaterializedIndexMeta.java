@@ -70,7 +70,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
     @SerializedName(value = "idx", alternate = {"indexes"})
     private List<Index> indexes;
-    @SerializedName(value = "sv")
+    @SerializedName(value = "svs")
     private Map<String, String> sessionVariables;
 
     private Expr whereClause;
