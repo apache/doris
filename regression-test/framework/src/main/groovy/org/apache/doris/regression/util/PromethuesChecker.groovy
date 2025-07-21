@@ -18,6 +18,7 @@
 package org.apache.doris.regression.util
 
 import groovy.transform.CompileStatic
+import java.util.regex.Matcher
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
