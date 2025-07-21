@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -1150,6 +1152,23 @@ public abstract class ExternalCatalog
     }
 
     @Override
+    public void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("Rename table is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.renameTable(dbName, oldTableName, newTableName);
+            Env.getCurrentEnv().getEditLog()
+                    .logRefreshExternalTable(
+                            ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
+        } catch (Exception e) {
+            LOG.warn("Failed to rename table {} in database {}.", oldTableName, dbName, e);
+            throw e;
+        }
+    }
+
+    @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
             boolean force) throws DdlException {
         makeSureInitialized();
@@ -1487,6 +1506,122 @@ public abstract class ExternalCatalog
             metaCache.resetNames();
         } else {
             resetToUninitialized(true);
+        }
+    }
+
+    // log the refresh external table operation
+    private void logRefreshExternalTable(ExternalTable dorisTable) {
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(dorisTable.getCatalog().getId(),
+                                dorisTable.getDbName(), dorisTable.getName()));
+    }
+
+    @Override
+    public void addColumn(TableIf dorisTable, Column column, ColumnPosition position) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Add column operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.addColumn(externalTable, column, position);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to add column {} to table {}.{} in catalog {}",
+                    column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void addColumns(TableIf dorisTable, List<Column> columns) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Add columns operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.addColumns(externalTable, columns);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to add columns to table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void dropColumn(TableIf dorisTable, String columnName) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Drop column operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.dropColumn(externalTable, columnName);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop column {} from table {}.{} in catalog {}",
+                    columnName, externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void renameColumn(TableIf dorisTable, String oldName, String newName) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Rename column operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.renameColumn(externalTable, oldName, newName);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to rename column {} to {} in table {}.{} in catalog {}",
+                    oldName, newName, externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void modifyColumn(TableIf dorisTable, Column column, ColumnPosition columnPosition) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Modify column operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.modifyColumn(externalTable, column, columnPosition);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to modify column {} in table {}.{} in catalog {}",
+                    column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void reorderColumns(TableIf dorisTable, List<String> newOrder) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Reorder columns operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.reorderColumns(externalTable, newOrder);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to reorder columns in table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
         }
     }
 }
