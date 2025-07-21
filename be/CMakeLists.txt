@@ -569,8 +569,7 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        absl::flags_internal
-        absl::flags_reflection
+        absl::flags
         absl::random_random
         absl::spinlock_wait
         absl::status
