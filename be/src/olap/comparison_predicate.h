@@ -28,7 +28,7 @@
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
@@ -215,7 +215,7 @@ public:
                             sizeof(decimal12_t));
                     // Datev1 using uint24_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
-                    uint24_t date_value(_value.to_olap_date());
+                    uint24_t date_value(uint32_t(_value.to_olap_date()));
                     return bf->test_bytes(
                             const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
                             sizeof(uint24_t));
@@ -605,8 +605,8 @@ private:
         }
     }
 
-    __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
-            const vectorized::ColumnDictI32& column) const {
+    __attribute__((flatten)) int32_t
+    _find_code_from_dictionary_column(const vectorized::ColumnDictI32& column) const {
         int32_t code = 0;
         if (_segment_id_to_cached_code.if_contains(
                     column.get_rowset_segment_id(),
@@ -644,5 +644,5 @@ private:
             _segment_id_to_cached_code;
     T _value;
 };
-
+#include "common/compile_check_end.h"
 } //namespace doris
