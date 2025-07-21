@@ -114,6 +114,7 @@ import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.ZoneId;
@@ -638,16 +639,13 @@ public class IcebergUtils {
                 return value.toString();
             case DATE:
                 // Iceberg date is stored as days since epoch
-                LocalDateTime date = LocalDateTime.ofEpochSecond((Integer) value * 24 * 3600L, 0,
-                        ZoneId.systemDefault().getRules().getOffset(Instant.now()));
+                LocalDate date = LocalDate.ofEpochDay((Integer) value);
                 return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
             case TIME:
                 // Iceberg time is stored as microseconds since midnight
                 long micros = (Long) value;
-                long seconds = micros / 1_000_000;
-                int nanos = (int) ((micros % 1_000_000) * 1000);
-                LocalDateTime time = LocalDateTime.of(1970, Month.JANUARY, 1, 0, 0, 0, nanos);
-                time = time.plusSeconds(seconds);
+                LocalDateTime time = LocalDateTime.ofEpochSecond(micros / 1_000_000, (int) (micros % 1_000_000) * 1000,
+                        ZoneId.systemDefault().getRules().getOffset(Instant.now()));
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP:
                 // Iceberg timestamp is stored as microseconds since epoch
@@ -657,8 +655,7 @@ public class IcebergUtils {
                         ZoneId.systemDefault());
                 return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
-                throw new UnsupportedOperationException(
-                        "Unsupported type for serializePartitionValue: " + type);
+                throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
         }
     }
 
