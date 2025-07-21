@@ -41,7 +41,7 @@ void DataTypeTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 bool DataTypeTimeV2::equals(const IDataType& rhs) const {
-    return typeid(rhs) == typeid(*this);
+    return typeid(rhs) == typeid(*this) && _scale == assert_cast<const DataTypeTimeV2&>(rhs)._scale;
 }
 
 size_t DataTypeTimeV2::number_length() const {
