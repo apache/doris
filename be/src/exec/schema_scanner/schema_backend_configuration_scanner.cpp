@@ -53,10 +53,9 @@ Status SchemaBackendConfigurationScanner::start(doris::RuntimeState* state) {
     RETURN_IF_ERROR(SchemaHelper::check_current_user_privilege(master_addr.hostname,
                                                                master_addr.port, request, &result));
 
-    if (!result.check_res) {
-        return Status::NotAuthorized("you need access privilege as least ADMIN");
+    if (result.check_res) {
+        _config_infos = config::get_config_info();
     }
-    _config_infos = config::get_config_info();
     return Status::OK();
 }
 
