@@ -68,14 +68,12 @@ import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
-import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -335,15 +333,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         split.setTargetSplitSize(targetSplitSize);
         if (isPartitionedTable) {
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
-            Map<String, String> partitionValues = new HashMap<>();
-            List<NestedField> fileds = partitionData.getPartitionType().asNestedType().fields();
-            for (int i = 0; i < fileds.size(); i++) {
-                NestedField field = fileds.get(i);
-                Object value = partitionData.get(i);
-                String partitionString = IcebergUtils.toPartitionString(field.type(), value);
-                partitionValues.put(field.name(), partitionString);
-            }
-            split.setIcebergPartitionValues(partitionValues);
+            split.setIcebergPartitionValues(IcebergUtils.getPartitionInfoMap(partitionData));
             // Counts the number of partitions read
             partitionPathSet.add(partitionData.toString());
         }

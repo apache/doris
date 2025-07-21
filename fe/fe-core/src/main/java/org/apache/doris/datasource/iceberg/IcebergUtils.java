@@ -78,6 +78,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionsTable;
@@ -119,6 +120,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -602,17 +604,26 @@ public class IcebergUtils {
         }
     }
 
-    private static final String HIVE_NULL = "__HIVE_DEFAULT_PARTITION__";
+    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData) {
+        Map<String, String> partitionInfoMap = new HashMap<>();
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            Object value = partitionData.get(i);
+            try {
+                String partitionString = serializePartitionValue(field.type(), value);
+                partitionInfoMap.put(field.name(), partitionString);
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize partition value for field {}: {}", field.name(), e.getMessage());
+                return null;
+            }
+        }
+        return partitionInfoMap;
+    }
 
-    /**
-     * Convert Iceberg partition value to string.
-     * @param type
-     * @param value
-     * @return
-     */
-    public static String toPartitionString(org.apache.iceberg.types.Type type, Object value) {
+    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value) {
         if (value == null) {
-            return HIVE_NULL;
+            return "\\N";
         }
 
         switch (type.typeId()) {
@@ -625,17 +636,29 @@ public class IcebergUtils {
             case UUID:
             case DECIMAL:
                 return value.toString();
-            case FIXED:
-            case BINARY:
-                if (value instanceof byte[]) {
-                    return new String((byte[]) value, java.nio.charset.StandardCharsets.UTF_8);
-                }
-                return value.toString();
             case DATE:
-                return value.toString();
+                // Iceberg date is stored as days since epoch
+                LocalDateTime date = LocalDateTime.ofEpochSecond((Integer) value * 24 * 3600L, 0,
+                        ZoneId.systemDefault().getRules().getOffset(Instant.now()));
+                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            case TIME:
+                // Iceberg time is stored as microseconds since midnight
+                long micros = (Long) value;
+                long seconds = micros / 1_000_000;
+                int nanos = (int) ((micros % 1_000_000) * 1000);
+                LocalDateTime time = LocalDateTime.of(1970, Month.JANUARY, 1, 0, 0, 0, nanos);
+                time = time.plusSeconds(seconds);
+                return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP:
+                // Iceberg timestamp is stored as microseconds since epoch
+                long timestampMicros = (Long) value;
+                LocalDateTime timestamp = LocalDateTime.ofInstant(
+                        Instant.ofEpochSecond(timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000),
+                        ZoneId.systemDefault());
+                return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
                 throw new UnsupportedOperationException(
-                        "Unsupported type for toPartitionString: " + type);
+                        "Unsupported type for serializePartitionValue: " + type);
         }
     }
 
