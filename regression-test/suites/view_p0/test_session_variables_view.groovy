@@ -63,6 +63,7 @@ suite("test_session_variables_view","view") {
 
     order_qt_view_2 "SELECT * FROM ${viewName}"
 
-    sql """drop table if exists `${tableName}`"""
-    sql """drop materialized view if exists ${viewName};"""
+
+//     sql """drop table if exists `${tableName}`"""
+//     sql """drop view if exists ${viewName};"""
 }
