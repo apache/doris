@@ -608,6 +608,10 @@ bool MemTable::need_flush() const {
         auto update_columns_size = _num_columns;
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > 1048576 ? max_size : 1048576;
+        //When updating specific fields across an entire large table, the need to complete entire row data may cause
+        //massive memory consumption during mem table flushing. To alleviate this situation,
+        //a row count threshold has been implemented: upon reaching a certain number of imported rows,
+        //the system triggers flushing to reduce memory usage. However, this approach may generate more smaller data files.
         need_flush = _enable_unique_key_mow && _input_mutable_block.rows() > config::memtable_flush_row_count_limit;
     }
     return memory_usage() >= max_size || need_flush;
