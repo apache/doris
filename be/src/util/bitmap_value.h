@@ -664,15 +664,6 @@ public:
      * computes the logical or (union) between "n" bitmaps (referenced by a
      * pointer).
      */
-    // static Roaring64Map fastunion(size_t n, const Roaring64Map** inputs) {
-    //     Roaring64Map ans;
-    //     // not particularly fast
-    //     for (size_t lcv = 0; lcv < n; ++lcv) {
-    //         ans |= *(inputs[lcv]);
-    //     }
-    //     return ans;
-    // }
-
     static Roaring64Map fastunion(size_t n, const Roaring64Map** inputs) {
         struct pq_entry {
             phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator iterator;
