@@ -502,7 +502,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // write including columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
-    size_t segment_start_pos = 0;
+    size_t segment_start_pos;
     for (auto cid : including_cids) {
         // here we get segment column row num before append data.
         segment_start_pos = _column_writers[cid]->get_next_rowid();

@@ -461,7 +461,7 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
 Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
                                   bool with_seq_col,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                  RowLocation* row_location, int64_t version,
+                                  RowLocation* row_location, uint32_t version,
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
                                   std::string* encoded_seq_value, OlapReaderStatistics* stats,
@@ -637,9 +637,9 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
     RETURN_IF_ERROR(seg->load_pk_index_and_bf(nullptr)); // We need index blocks to iterate
     const auto* pk_idx = seg->get_primary_key_index();
-    int64_t total = pk_idx->num_rows();
+    int total = pk_idx->num_rows();
     uint32_t row_id = 0;
-    int64_t remaining = total;
+    int32_t remaining = total;
     bool exact_match = false;
     std::string last_key;
     int batch_size = 1024;
@@ -651,7 +651,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
-        size_t num_to_read = std::min<int64_t>(batch_size, remaining);
+        size_t num_to_read = std::min(batch_size, remaining);
         auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                 pk_idx->type_info()->type(), 1, 0);
         auto index_column = index_type->create_column();
@@ -719,11 +719,12 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             Status st = Status::OK();
             if (tablet_delete_bitmap == nullptr) {
                 st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                    dummy_version.first - 1, segment_caches, &rowset_find);
+                                    cast_set<uint32_t>(dummy_version.first - 1), segment_caches,
+                                    &rowset_find);
             } else {
                 st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                    dummy_version.first - 1, segment_caches, &rowset_find, true,
-                                    nullptr, nullptr, tablet_delete_bitmap);
+                                    cast_set<uint32_t>(dummy_version.first - 1), segment_caches,
+                                    &rowset_find, true, nullptr, nullptr, tablet_delete_bitmap);
             }
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
