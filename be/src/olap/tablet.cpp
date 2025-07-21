@@ -721,7 +721,7 @@ void Tablet::delete_expired_stale_rowset() {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // Compute the end time to delete rowsets, when a expired rowset createtime less then this time, it will be deleted.
         int64_t expired_stale_sweep_endtime =
-                cast_set<int64_t>(::difftime(now, config::tablet_rowset_stale_sweep_time_sec));
+                static_cast<int64_t>(::difftime(now, config::tablet_rowset_stale_sweep_time_sec));
         if (config::tablet_rowset_stale_sweep_by_size) {
             expired_stale_sweep_endtime = now;
         }
@@ -1784,12 +1784,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         Status res = compaction->prepare_compact();
         if (!config::disable_compaction_trace_log &&
-            cast_set<double>(watch.elapsed_time()) / 1e9 >
+            static_cast<double>(watch.elapsed_time()) / 1e9 >
                     config::cumulative_compaction_trace_threshold) {
             std::stringstream ss;
             compaction->runtime_profile()->pretty_print(&ss);
             LOG(WARNING) << "prepare cumulative compaction cost "
-                         << cast_set<double>(watch.elapsed_time()) / 1e9 << std::endl
+                         << static_cast<double>(watch.elapsed_time()) / 1e9 << std::endl
                          << ss.str();
         }
 
@@ -1820,12 +1820,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
         Status res = compaction->prepare_compact();
         if (!config::disable_compaction_trace_log &&
-            cast_set<double>(watch.elapsed_time()) / 1e9 >
+            static_cast<double>(watch.elapsed_time()) / 1e9 >
                     config::base_compaction_trace_threshold) {
             std::stringstream ss;
             compaction->runtime_profile()->pretty_print(&ss);
             LOG(WARNING) << "prepare base compaction cost "
-                         << cast_set<double>(watch.elapsed_time()) / 1e9 << std::endl
+                         << static_cast<double>(watch.elapsed_time()) / 1e9 << std::endl
                          << ss.str();
         }
 
@@ -1933,10 +1933,10 @@ void Tablet::execute_compaction(CompactionMixin& compaction) {
     if (!config::disable_compaction_trace_log) {
         auto need_trace = [&compaction, &watch] {
             return compaction.compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION
-                           ? cast_set<double>(watch.elapsed_time()) / 1e9 >
+                           ? static_cast<double>(watch.elapsed_time()) / 1e9 >
                                      config::cumulative_compaction_trace_threshold
                    : compaction.compaction_type() == ReaderType::READER_BASE_COMPACTION
-                           ? cast_set<double>(watch.elapsed_time()) / 1e9 >
+                           ? static_cast<double>(watch.elapsed_time()) / 1e9 >
                                      config::base_compaction_trace_threshold
                            : false;
         };
@@ -1944,7 +1944,7 @@ void Tablet::execute_compaction(CompactionMixin& compaction) {
             std::stringstream ss;
             compaction.runtime_profile()->pretty_print(&ss);
             LOG(WARNING) << "execute " << compaction.compaction_name() << " cost "
-                         << cast_set<double>(watch.elapsed_time()) / 1e9 << std::endl
+                         << static_cast<double>(watch.elapsed_time()) / 1e9 << std::endl
                          << ss.str();
         }
     }
@@ -2135,7 +2135,7 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
               << " to " << storage_resource.fs->root_path().native()
               << ", tablet_id=" << tablet_id() << ", duration=" << duration.count()
               << ", capacity=" << old_rowset->total_disk_size()
-              << ", tp=" << cast_set<double>(old_rowset->total_disk_size()) / duration.count()
+              << ", tp=" << static_cast<double>(old_rowset->total_disk_size()) / duration.count()
               << ", old rowset_id=" << old_rowset->rowset_id().to_string();
 
     // gen a new rowset
