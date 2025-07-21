@@ -3274,7 +3274,7 @@ struct FormatRoundDoubleImpl {
         //  Find the position of the decimal point
         size_t dot_pos = formatted_num.find('.');
         if (dot_pos == std::string::npos) {
-            dot_pos = formatted_num.size(); // 没有小数点
+            dot_pos = formatted_num.size();
         }
 
         // Handle the integer part
