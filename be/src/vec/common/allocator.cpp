@@ -95,7 +95,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
         return;
     }
 #endif
-    if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0) {
+    if (UNLIKELY(doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0)) {
         return;
     }
 

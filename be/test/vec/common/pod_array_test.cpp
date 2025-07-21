@@ -648,7 +648,7 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         size_t c_res_mem = 0;
 
         auto tracking_size = [&array, &c_res_mem](size_t c_end_new) {
-            return (((c_end_new - c_res_mem) >> 16) << 16) + (array.capacity_bytes() >> 3);
+            return (((c_end_new - c_res_mem) >> 16) << 16) + (array.allocated_bytes() >> 3);
         };
 
         auto check_memory_growth = [&t, &mem_consumption, &c_res_mem](size_t mem_growth) {
@@ -666,8 +666,8 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         array.push_back(1);
         EXPECT_EQ(array.size(), 1);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        // c_end_new: 8, c_res_mem: 0, c_end_of_storage: 4064, allocated_bytes: 32, capacity_bytes: 4096, res_mem_growth: 4064
-        check_memory_growth(array.capacity_bytes());
+        // c_end_new: 8, c_res_mem: 0, c_end_of_storage: 4064, res_mem_growth: 4064
+        check_memory_growth(array.allocated_bytes());
 
         array.push_back(2);
         EXPECT_EQ(array.size(), 2);
@@ -677,7 +677,7 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         array.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t));
         EXPECT_EQ(array.size(), PRE_GROWTH_SIZE / sizeof(uint64_t));
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        // c_end_new: 262144, c_res_mem: 4064, c_end_of_storage: 524256, allocated_bytes: 4096, capacity_bytes: 524288, res_mem_growth: 262144
+        // c_end_new: 262144, c_res_mem: 4064, c_end_of_storage: 524256, res_mem_growth: 262144
         check_memory_growth(tracking_size(PRE_GROWTH_SIZE));
 
         array.push_back(3);
@@ -693,7 +693,7 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         array.resize((PRE_GROWTH_SIZE / sizeof(uint64_t)) * 3);
         EXPECT_EQ(array.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 3);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        //  c_end_new: 786432, c_res_mem: 266208, c_end_of_storage: 1048544, allocated_bytes: 266240, capacity_bytes: 1048576, res_mem_growth: 589824
+        //  c_end_new: 786432, c_res_mem: 266208, c_end_of_storage: 1048544, res_mem_growth: 589824
         check_memory_growth(tracking_size(PRE_GROWTH_SIZE * 3));
 
         array.push_back_without_reserve(11);
@@ -704,7 +704,7 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         array.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t) * 6, 2);
         EXPECT_EQ(array.size(), PRE_GROWTH_SIZE / sizeof(uint64_t) * 6);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        // c_end_new: 1572864, c_res_mem: 856032, c_end_of_storage: 2097120, allocated_bytes: 856064, capacity_bytes: 2097152, res_mem_growth: 917504
+        // c_end_new: 1572864, c_res_mem: 856032, c_end_of_storage: 2097120, res_mem_growth: 917504
         check_memory_growth(tracking_size(PRE_GROWTH_SIZE * 6));
 
         array.push_back_without_reserve(22);
@@ -734,28 +734,27 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         array.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t) * 7, 3);
         EXPECT_EQ(array.size(), PRE_GROWTH_SIZE / sizeof(uint64_t) * 7);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        // c_end_new: 1835008, c_res_mem: 1773536, c_end_of_storage: 2097120, allocated_bytes: 1773568, capacity_bytes: 2097152, res_mem_growth: 262144,
+        // c_end_new: 1835008, c_res_mem: 1773536, c_end_of_storage: 2097120, res_mem_growth: 262144,
         check_memory_growth(tracking_size(PRE_GROWTH_SIZE * 7));
 
         {
             vectorized::PaddedPODArray<uint64_t, 32> array2;
             array2.push_back(3);
             doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-            // c_end_new: 8, c_res_mem: 0, c_end_of_storage: 8, allocated_bytes: 32, capacity_bytes: 40, res_mem_growth: 8
+            // c_end_new: 8, c_res_mem: 0, c_end_of_storage: 8, res_mem_growth: 8
             EXPECT_EQ(t->consumption(),
-                      mem_consumption + array2.allocated_bytes()); // 40 = array2.capacity_bytes()
+                      mem_consumption + array2.allocated_bytes()); // 40 = array2.allocated_bytes()
             array2.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t), 3);
             doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-            // c_end_new: 262144, c_res_mem: 8, c_end_of_storage: 524256, allocated_bytes: 40, capacity_bytes: 524288, res_mem_growth: 262144
-            EXPECT_EQ(
-                    t->consumption(),
-                    mem_consumption +
-                            array2.allocated_bytes()); // 40 + PRE_GROWTH_SIZE = array2.capacity_bytes()
+            // c_end_new: 262144, c_res_mem: 8, c_end_of_storage: 524256, res_mem_growth: 262144
+            EXPECT_EQ(t->consumption(),
+                      mem_consumption + 40 +
+                              PRE_GROWTH_SIZE); // 40 + PRE_GROWTH_SIZE = array2.c_res_mem
             array.insert(array2.begin(), array2.end());
             doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-            // c_end_new: 2097152, c_res_mem: 2035680, c_end_of_storage: 4194272, allocated_bytes: 2035712, capacity_bytes: 4194304, res_mem_growth: 524288
-            EXPECT_EQ(t->consumption(), mem_consumption + tracking_size(PRE_GROWTH_SIZE * 8) +
-                                                array2.allocated_bytes());
+            // c_end_new: 2097152, c_res_mem: 2035680, c_end_of_storage: 4194272, res_mem_growth: 524288
+            EXPECT_EQ(t->consumption(),
+                      mem_consumption + tracking_size(PRE_GROWTH_SIZE * 8) + 40 + PRE_GROWTH_SIZE);
         }
         EXPECT_EQ(array.size(), PRE_GROWTH_SIZE / sizeof(uint64_t) * 8);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
@@ -764,14 +763,14 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         {
             vectorized::PaddedPODArray<uint64_t, 32> array2;
             array2.resize_fill((PRE_GROWTH_SIZE / sizeof(uint64_t)) * 7, 3);
-            // c_end_new: 1835008, c_res_mem: 0, c_end_of_storage: 2097120, allocated_bytes: 32, capacity_bytes: 2097152, res_mem_growth: 2097120
+            // c_end_new: 1835008, c_res_mem: 0, c_end_of_storage: 2097120, res_mem_growth: 2097120
             array.insert_small_allow_read_write_overflow15(array2.begin(), array2.end());
-            // c_end_new: 3932160, c_res_mem: 2559968, c_end_of_storage: 4194272, allocated_bytes: 2560000, capacity_bytes: 4194304, res_mem_growth: 1634304
+            // c_end_new: 3932160, c_res_mem: 2559968, c_end_of_storage: 4194272, res_mem_growth: 1634304
         }
         EXPECT_EQ(array.size(), PRE_GROWTH_SIZE / sizeof(uint64_t) * 15);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
         check_memory_growth(
-                array.capacity_bytes() -
+                array.allocated_bytes() -
                 mem_consumption); // array.capacity > tracking_size(PRE_GROWTH_SIZE * 15)
 
         {
@@ -786,7 +785,7 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         array.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t) * 16, 4);
         EXPECT_EQ(array.size(), PRE_GROWTH_SIZE / sizeof(uint64_t) * 16);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        // c_end_new: 4194304, c_res_mem: 4194272, c_end_of_storage: 8388576, allocated_bytes: 4194304, capacity_bytes: 8388608, res_mem_growth: 1048576
+        // c_end_new: 4194304, c_res_mem: 4194272, c_end_of_storage: 8388576, res_mem_growth: 1048576
         check_memory_growth(tracking_size(PRE_GROWTH_SIZE * 16));
 
         {
@@ -841,13 +840,13 @@ TEST(PODArrayTest, PODArrayTrackingMemory) {
         array.push_back(1);
         EXPECT_EQ(array.size(), 1);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        // reset_resident_memory, c_end_new: 8, c_res_mem: 0, c_end_of_storage: 32, allocated_bytes: 0, capacity_bytes: 32, res_mem_growth: 32
-        EXPECT_EQ(t->consumption(), array.capacity_bytes());
+        // reset_resident_memory, c_end_new: 8, c_res_mem: 0, c_end_of_storage: 32, res_mem_growth: 32
+        EXPECT_EQ(t->consumption(), array.allocated_bytes());
 
         array.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t), 1);
         EXPECT_EQ(array.size(), PRE_GROWTH_SIZE / sizeof(uint64_t));
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        // reset_resident_memory, c_end_new: 262144, c_res_mem: 32, c_end_of_storage: 262144, allocated_bytes: 32, capacity_bytes: 262144, res_mem_growth: 262112
+        // reset_resident_memory, c_end_new: 262144, c_res_mem: 32, c_end_of_storage: 262144, res_mem_growth: 262112
         EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE);
 
         // test swap
@@ -858,7 +857,7 @@ TEST(PODArrayTest, PODArrayTrackingMemory) {
             array2.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t) * 2, 1);
             EXPECT_EQ(array2.size(), PRE_GROWTH_SIZE / sizeof(uint64_t) * 2);
             doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-            // reset_resident_memory, c_end_new: 524288, c_res_mem: 0, c_end_of_storage: 524288, allocated_bytes: 0, capacity_bytes: 524288, res_mem_growth: 524288
+            // reset_resident_memory, c_end_new: 524288, c_res_mem: 0, c_end_of_storage: 524288, res_mem_growth: 524288
             EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 3);
             new_capacity = array2.capacity();
             new_size = array2.size();

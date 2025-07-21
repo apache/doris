@@ -176,17 +176,17 @@ protected:
         // Premise conditions:
         //  - c_res_mem <= c_end_of_storage
         //  - c_end_new > c_res_mem
-        //  - If padding is not a power of 2, such as 24, capacity_bytes() will also not be a power of 2.
+        //  - If padding is not a power of 2, such as 24, allocated_bytes() will also not be a power of 2.
         //
-        // If capacity_bytes <= 256K, res_mem_growth = c_end_of_storage - c_res_mem.
+        // If allocated_bytes <= 256K, res_mem_growth = c_end_of_storage - c_res_mem.
         //
         // If capacity >= 512K:
         //      - If `c_end_of_storage - c_res_mem < TrackingGrowthMinSize`, then tracking to c_end_of_storage.
         //      - `c_end_new - c_res_mem` is the size of the physical memory growth,
         //        which is also the minimum tracking size of this time,
         //        `(((c_end_new - c_res_mem) >> 16) << 16)` is aligned down to 64K,
-        //        assuming `capacity_bytes >= 512K`, so `(capacity_bytes >> 3)` is at least 64K,
-        //        so `(((c_end_new - c_res_mem) >> 16) << 16) + (capacity_bytes() >> 3)`
+        //        assuming `allocated_bytes >= 512K`, so `(allocated_bytes >> 3)` is at least 64K,
+        //        so `(((c_end_new - c_res_mem) >> 16) << 16) + (allocated_bytes() >> 3)`
         //        must be greater than `c_end_new - c_res_mem`.
         //
         //        For example:
@@ -195,25 +195,24 @@ protected:
         //           the second time `c_end_of_storage - c_res_mem < TrackingGrowthMinSize` is true,
         //           so it will tracking to c_end_of_storage.
         //         - capacity > 32M, `(((c_end_new - c_res_mem) >> 16) << 16)` align the increased
-        //           physical memory size down to 64k, then add `(capacity_bytes() >> 3)` equals 2M,
+        //           physical memory size down to 64k, then add `(allocated_bytes() >> 3)` equals 2M,
         //           so `reset_resident_memory` is tracking an additional 2M,
         //           after that, physical memory growth within 2M does not need to reset_resident_memory again.
         //
         // so, when PODArray is expanded by power of 2,
         // the memory is checked and tracked up to 8 times between each expansion,
-        // because each time additional tracking `(capacity_bytes() >> 3)`.
+        // because each time additional tracking `(allocated_bytes() >> 3)`.
         // after each reset_resident_memory, tracking_res_memory >= used_bytes;
         int64_t res_mem_growth =
                 c_end_of_storage - c_res_mem < TrackingGrowthMinSize
                         ? c_end_of_storage - c_res_mem
                         : std::min(static_cast<size_t>(c_end_of_storage - c_res_mem),
                                    static_cast<size_t>((((c_end_new - c_res_mem) >> 16) << 16) +
-                                                       (capacity_bytes() >> 3)));
+                                                       (allocated_bytes() >> 3)));
         DCHECK(res_mem_growth > 0) << ", c_end_new: " << (c_end_new - c_start)
                                    << ", c_res_mem: " << (c_res_mem - c_start)
                                    << ", c_end_of_storage: " << (c_end_of_storage - c_start)
                                    << ", allocated_bytes: " << allocated_bytes()
-                                   << ", capacity_bytes: " << capacity_bytes()
                                    << ", res_mem_growth: " << res_mem_growth;
         check_memory(res_mem_growth);
         CONSUME_THREAD_MEM_TRACKER(res_mem_growth);
@@ -249,7 +248,7 @@ protected:
     void dealloc() {
         if (c_start == null) return;
         unprotect();
-        RELEASE_THREAD_MEM_TRACKER(allocated_bytes());
+        RELEASE_THREAD_MEM_TRACKER((c_res_mem - c_start + pad_right + pad_left));
         TAllocator::free(c_start - pad_left, allocated_bytes());
     }
 
@@ -302,14 +301,6 @@ protected:
             realloc(allocated_bytes() * 2, std::forward<TAllocatorParams>(allocator_params)...);
     }
 
-    /// Virtual memory allocated from Allocator, usually only used by PODArray itself.
-    size_t capacity_bytes() const {
-        if (c_end_of_storage == null) {
-            return 0;
-        }
-        return c_end_of_storage - c_start + pad_right + pad_left;
-    }
-
 #ifndef NDEBUG
     /// Make memory region readonly with mprotect if it is large enough.
     /// The operation is slow and performed only for debug builds.
@@ -339,12 +330,11 @@ public:
     size_t capacity() const { return (c_end_of_storage - c_start) / ELEMENT_SIZE; }
 
     /// This method is safe to use only for information about memory usage.
-    /// The actual memory used, which is usually less than the virtual memory allocated from the Allocator.
     size_t allocated_bytes() const {
-        if (c_res_mem == null) {
+        if (c_end_of_storage == null) {
             return 0;
         }
-        return c_res_mem - c_start + pad_right + pad_left;
+        return c_end_of_storage - c_start + pad_right + pad_left;
     }
 
     void clear() { c_end = c_start; }
