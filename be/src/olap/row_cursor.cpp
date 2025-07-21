@@ -97,7 +97,8 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
             _variable_len += scan_keys[cid].length();
         } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR ||
                    type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            _variable_len += std::max(scan_keys[cid].length(), column.length());
+            _variable_len +=
+                    std::max(scan_keys[cid].length(), static_cast<size_t>(column.length()));
         } else if (type == FieldType::OLAP_FIELD_TYPE_STRING) {
             ++_string_field_count;
         }
@@ -120,7 +121,7 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
         } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
             Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             slice->data = variable_ptr;
-            slice->size = std::max(scan_keys[cid].length(), column.length());
+            slice->size = std::max(scan_keys[cid].length(), static_cast<size_t>(column.length()));
             variable_ptr += slice->size;
         } else if (type == FieldType::OLAP_FIELD_TYPE_STRING) {
             _schema->mutable_column(cid)->set_long_text_buf(long_text_ptr);
