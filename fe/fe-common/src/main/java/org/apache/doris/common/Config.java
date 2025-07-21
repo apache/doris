@@ -253,7 +253,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {
             "攒批写 EditLog。", "Batch EditLog writing"})
-    public static boolean enable_batch_editlog = false;
+    public static boolean enable_batch_editlog = true;
 
     @ConfField(description = {"元数据同步的容忍延迟时间，单位为秒。如果元数据的延迟超过这个值，非主 FE 会停止提供服务",
             "The toleration delay time of meta data synchronization, in seconds. "
@@ -560,7 +560,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"是否启用并行发布版本",
             "Whether to enable parallel publish version"})
-    public static boolean enable_parallel_publish_version = false;
+    public static boolean enable_parallel_publish_version = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",

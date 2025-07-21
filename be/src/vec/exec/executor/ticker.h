@@ -15,20 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf_sample.h"
+#pragma once
+#include <atomic>
+#include <chrono>
+#include <mutex>
 
-namespace doris_udf {
+namespace doris {
+namespace vectorized {
 
-IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2) {
-    if (arg1.is_null || arg2.is_null) {
-        return IntVal::null();
+class Ticker {
+public:
+    virtual ~Ticker() = default;
+
+    /**
+     * Returns the number of nanoseconds since a fixed reference point
+     */
+    virtual int64_t read() const = 0;
+
+protected:
+    Ticker() = default;
+};
+
+class SystemTicker : public Ticker {
+public:
+    int64_t read() const override {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                       std::chrono::steady_clock::now().time_since_epoch())
+                .count();
     }
-    return {arg1.val + arg2.val};
-}
+};
 
-/// --- Prepare / Close Functions ---
-/// ---------------------------------
-void AddUdfPrepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
-void AddUdfClose(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
-
-}
+} // namespace vectorized
+} // namespace doris

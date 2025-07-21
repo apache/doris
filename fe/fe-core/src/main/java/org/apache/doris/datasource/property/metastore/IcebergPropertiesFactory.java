@@ -29,8 +29,8 @@ public class IcebergPropertiesFactory implements MetastorePropertiesFactory {
             new HashMap<>();
 
     static {
+        register("rest", IcebergRestProperties::new);
         register("glue", IcebergGlueMetaStoreProperties::new);
-        //register("rest", HMSProperties::new);
         register("hms", IcebergHMSMetaStoreProperties::new);
         register("hadoop", IcebergFileSystemMetaStoreProperties::new);
         register("s3tables", IcebergS3TablesMetaStoreProperties::new);
