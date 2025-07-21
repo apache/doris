@@ -25,6 +25,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 // cast bool, integer, float to double, will not overflow
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeNumber<FromDataType> && IsDataTypeFloat<ToDataType>)
@@ -96,4 +97,5 @@ WrapperType create_float_wrapper(FunctionContext* context, const DataTypePtr& fr
     };
 }
 } // namespace CastWrapper
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

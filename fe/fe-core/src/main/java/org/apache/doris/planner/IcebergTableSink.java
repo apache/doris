@@ -19,8 +19,10 @@ package org.apache.doris.planner;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergVendedCredentialsProvider;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
@@ -43,7 +45,6 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.types.Types;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -129,9 +130,12 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setCompressionType(getTFileCompressType(IcebergUtils.getFileCompress(icebergTable)));
 
         // hadoop config
-        HashMap<String, String> props = new HashMap<>(icebergTable.properties());
-        Map<String, String> catalogProps = targetTable.getCatalog().getProperties();
-        props.putAll(catalogProps);
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
+        Map<String, String> props = IcebergVendedCredentialsProvider.getBackendLocationProperties(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                icebergTable
+        );
         tSink.setHadoopConfig(props);
 
         // location

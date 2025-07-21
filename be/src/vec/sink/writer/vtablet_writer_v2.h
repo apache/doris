@@ -148,17 +148,27 @@ private:
 
     void _calc_tablets_to_commit();
 
-    std::unordered_set<std::shared_ptr<LoadStreamStub>> _incremental_streams();
-
     std::unordered_set<std::shared_ptr<LoadStreamStub>> _non_incremental_streams();
 
-    Status _close_wait(std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams);
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> _all_streams();
+
+    Status _close_wait(std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams,
+                       bool need_wait_after_quorum_success);
+
+    bool _quorum_success(
+            const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams);
+
+    int _load_required_replicas_num(int64_t tablet_id);
 
     Status _check_timeout();
 
     Status _check_streams_finish(
             std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams, Status& status,
             const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node);
+
+    int64_t _calc_max_wait_time_ms(
+            const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node,
+            const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams);
 
     void _cancel(Status status);
 
@@ -244,6 +254,8 @@ private:
 
     // tablet_id -> <total replicas num, load required replicas num>
     std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
+    std::mutex _write_tablets_lock;
+    std::unordered_set<int64_t> _write_tablets;
 };
 
 } // namespace vectorized
