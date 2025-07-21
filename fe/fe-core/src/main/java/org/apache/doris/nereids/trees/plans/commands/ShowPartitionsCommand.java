@@ -24,7 +24,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -47,8 +46,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -214,8 +211,7 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog)
-                || catalog instanceof PaimonExternalCatalog) {
+                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsCommand",
                     catalog.getType()));
         }
@@ -293,13 +289,6 @@ public class ShowPartitionsCommand extends ShowCommand {
             return;
         }
 
-        if (table instanceof PaimonExternalTable) {
-            if (((PaimonExternalTable) table).getPartitionType(Optional.empty()).equals(PartitionType.UNPARTITIONED)) {
-                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
-            }
-            return;
-        }
-
         table.readLock();
         try {
             // build proc path
@@ -350,34 +339,6 @@ public class ShowPartitionsCommand extends ShowCommand {
         IcebergExternalTable icebergTable = (IcebergExternalTable) icebergCatalog.getDb(db).get().getTable(tbl).get();
 
         Map<String, PartitionItem> partitions = icebergTable.getAndCopyPartitionItems(Optional.empty());
-        List<List<String>> rows = new ArrayList<>();
-        for (Map.Entry<String, PartitionItem> entry : partitions.entrySet()) {
-            List<String> row = new ArrayList<>();
-            Range<PartitionKey> items = entry.getValue().getItems();
-            row.add(entry.getKey());
-            row.add(items.lowerEndpoint().toString());
-            row.add(items.upperEndpoint().toString());
-            rows.add(row);
-        }
-        // sort by partition name
-        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
-            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
-        } else {
-            rows.sort(Comparator.comparing(x -> x.get(0)));
-        }
-
-        rows = applyLimit(limit, offset, rows);
-
-        return new ShowResultSet(getMetaData(), rows);
-    }
-
-    private ShowResultSet handleShowPaimonTablePartitions() {
-        PaimonExternalCatalog paimonCatalog = (PaimonExternalCatalog) catalog;
-        String db = ClusterNamespace.getNameFromFullName(tableName.getDb());
-        String tbl = tableName.getTbl();
-        PaimonExternalTable paimonTable = (PaimonExternalTable) paimonCatalog.getDb(db).get().getTable(tbl).get();
-
-        Map<String, PartitionItem> partitions = paimonTable.getAndCopyPartitionItems(Optional.empty());
         List<List<String>> rows = new ArrayList<>();
         for (Map.Entry<String, PartitionItem> entry : partitions.entrySet()) {
             List<String> row = new ArrayList<>();
@@ -485,7 +446,7 @@ public class ShowPartitionsCommand extends ShowCommand {
             for (String col : result.getColumnNames()) {
                 builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
             }
-        } else if (catalog instanceof IcebergExternalCatalog || catalog instanceof PaimonExternalCatalog) {
+        } else if (catalog instanceof IcebergExternalCatalog) {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
             builder.addColumn(new Column("Lower Bound", ScalarType.createVarchar(100)));
             builder.addColumn(new Column("Upper Bound", ScalarType.createVarchar(100)));
