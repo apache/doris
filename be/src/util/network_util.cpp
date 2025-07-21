@@ -37,6 +37,8 @@
 #include <cstdint>
 #include <sstream>
 
+#include "common/cast_set.h"
+
 #ifdef __APPLE__
 #ifndef HOST_NAME_MAX
 #define HOST_NAME_MAX MAXHOSTNAMELEN
