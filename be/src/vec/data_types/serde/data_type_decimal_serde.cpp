@@ -31,11 +31,50 @@
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/functions/cast/function_cast.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 // #include "common/compile_check_begin.h"
+
+struct PrecisionScaleArg {
+    UInt32 precision;
+    UInt32 scale;
+};
+
+template <typename DataType, typename Additions = void*>
+StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x, ReadBuffer& rb,
+                                                 Additions additions
+                                                 [[maybe_unused]] = Additions()) {
+    if constexpr (IsDataTypeDecimalV2<DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, precision, scale);
+    }
+
+    if constexpr (std::is_same_v<DataTypeDecimal32, DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, precision, scale);
+    }
+
+    if constexpr (std::is_same_v<DataTypeDecimal64, DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
+    }
+
+    if constexpr (IsDataTypeDecimal128V3<DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, precision, scale);
+    }
+
+    if constexpr (IsDataTypeDecimal256<DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL256>(x, rb, precision, scale);
+    }
+}
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
