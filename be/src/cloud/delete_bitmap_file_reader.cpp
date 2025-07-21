@@ -34,7 +34,7 @@ DeleteBitmapFileReader::~DeleteBitmapFileReader() = default;
 
 Status DeleteBitmapFileReader::init() {
     if (!_storage_resource) {
-        return Status::InternalError("invalid storage resource");
+        return Status::InternalError("invalid storage resource for tablet_id={}", _tablet_id);
     }
     _path = _storage_resource->remote_delete_bitmap_path(_tablet_id, _rowset_id);
     io::FileReaderOptions opts;
