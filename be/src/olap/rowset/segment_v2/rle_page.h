@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/cast_set.h"
 #include "olap/rowset/segment_v2/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
@@ -101,7 +102,7 @@ public:
         // here should Flush first and then encode the count header
         // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();
-        encode_fixed32_le(&_buf[0], static_cast<uint32_t>(_count));
+        encode_fixed32_le(&_buf[0], cast_set<uint32_t>(_count));
         *slice = _buf.build();
         return Status::OK();
     }
@@ -191,9 +192,9 @@ public:
         }
         }
 
-        _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
-                                           static_cast<int>(_data.size - RLE_PAGE_HEADER_SIZE),
-                                           _bit_width);
+        _rle_decoder =
+                RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
+                                    cast_set<int>(_data.size - RLE_PAGE_HEADER_SIZE), _bit_width);
 
         RETURN_IF_ERROR(seek_to_position_in_page(0));
         return Status::OK();
@@ -221,7 +222,7 @@ public:
             _rle_decoder.Skip(nskip);
         } else {
             _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
-                                               static_cast<int>(_data.size - RLE_PAGE_HEADER_SIZE),
+                                               cast_set<int>(_data.size - RLE_PAGE_HEADER_SIZE),
                                                _bit_width);
             _rle_decoder.Skip(pos);
         }

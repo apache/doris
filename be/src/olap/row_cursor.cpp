@@ -25,6 +25,7 @@
 #include <numeric>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -136,11 +137,11 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
 }
 
 Status RowCursor::init(TabletSchemaSPtr schema) {
-    return init(schema->columns(), static_cast<uint32_t>(schema->num_columns()));
+    return init(schema->columns(), cast_set<uint32_t>(schema->num_columns()));
 }
 
 Status RowCursor::init(const std::vector<TabletColumnPtr>& schema) {
-    return init(schema, static_cast<uint32_t>(schema.size()));
+    return init(schema, cast_set<uint32_t>(schema.size()));
 }
 
 Status RowCursor::init(TabletSchemaSPtr schema, uint32_t column_count) {

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/cast_set.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
@@ -61,7 +62,7 @@ public:
     }
 
     Status finish(OwnedSlice* slice) override {
-        encode_fixed32_le((uint8_t*)&_buffer[0], static_cast<uint32_t>(_count));
+        encode_fixed32_le((uint8_t*)&_buffer[0], cast_set<uint32_t>(_count));
         RETURN_IF_CATCH_EXCEPTION({
             if (_count > 0) {
                 _first_value.assign_copy(&_buffer[PLAIN_PAGE_HEADER_SIZE], SIZE_OF_TYPE);
@@ -155,7 +156,7 @@ public:
 
         DCHECK_LE(pos, _num_elems);
 
-        _cur_idx = static_cast<uint32_t>(pos);
+        _cur_idx = cast_set<uint32_t>(pos);
         return Status::OK();
     }
 
