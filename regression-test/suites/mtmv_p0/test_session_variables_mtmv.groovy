@@ -72,7 +72,7 @@ suite("test_session_variables_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
 
-    mv_rewrite_success_without_check_chosen("""SELECT k2,k3 from ${tableName} group by k2""", "mvName")
+    mv_rewrite_success_without_check_chosen("""SELECT k2,k3 from ${tableName} group by k2""", "${mvName}")
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
