@@ -29,6 +29,12 @@
 -- !runtime_filter_partition_pruning_date2 --
 3
 
+-- !runtime_filter_partition_pruning_timestamp1 --
+1
+
+-- !runtime_filter_partition_pruning_timestamp2 --
+2
+
 -- !runtime_filter_partition_pruning_boolean1 --
 3
 
@@ -60,10 +66,16 @@
 4
 
 -- !runtime_filter_partition_pruning_date1 --
-0
+1
 
 -- !runtime_filter_partition_pruning_date2 --
-0
+3
+
+-- !runtime_filter_partition_pruning_timestamp1 --
+1
+
+-- !runtime_filter_partition_pruning_timestamp2 --
+2
 
 -- !runtime_filter_partition_pruning_boolean1 --
 3
