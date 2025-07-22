@@ -207,18 +207,24 @@ public class CloudClusterChecker extends MasterDaemon {
     private void updateIfComputeNodeEndpointChanged(ClusterPB remoteClusterPb, Backend be) {
         // check PublicEndpoint、PrivateEndpoint is changed?
         boolean netChanged = false;
-        String remotePublicEndpoint = remoteClusterPb.getPublicEndpoint();
-        String localPublicEndpoint = be.getTagMap().get(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT);
-        if (!localPublicEndpoint.equals(remotePublicEndpoint)) {
+        String remotePublicEndpoint = node.hasPublicEndpoint() && !node.getPublicEndpoint().isEmpty()
+                ? node.getPublicEndpoint()
+                : remoteClusterPb.getPublicEndpoint();
+        String localPublicEndpoint = be.getTagMap().get(Tag.PUBLIC_ENDPOINT);
+        if ((localPublicEndpoint == null && !Strings.isNullOrEmpty(remotePublicEndpoint))
+                || (localPublicEndpoint != null && !localPublicEndpoint.equals(remotePublicEndpoint))) {
             LOG.info("be {} has changed public_endpoint from {} to {}",
                     be, localPublicEndpoint, remotePublicEndpoint);
             be.getTagMap().put(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, remotePublicEndpoint);
             netChanged = true;
         }
 
-        String remotePrivateEndpoint = remoteClusterPb.getPrivateEndpoint();
-        String localPrivateEndpoint = be.getTagMap().get(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT);
-        if (!localPrivateEndpoint.equals(remotePrivateEndpoint)) {
+        String remotePrivateEndpoint = node.hasPrivateEndpoint() && !node.getPrivateEndpoint().isEmpty()
+                ? node.getPrivateEndpoint()
+                : remoteClusterPb.getPrivateEndpoint();
+        String localPrivateEndpoint = be.getTagMap().get(Tag.PRIVATE_ENDPOINT);
+        if (localPrivateEndpoint == null && !Strings.isNullOrEmpty(remotePrivateEndpoint)
+                || (localPrivateEndpoint != null && !localPrivateEndpoint.equals(remotePrivateEndpoint))) {
             LOG.info("be {} has changed private_endpoint from {} to {}",
                     be, localPrivateEndpoint, remotePrivateEndpoint);
             be.getTagMap().put(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, remotePrivateEndpoint);
@@ -226,7 +232,7 @@ public class CloudClusterChecker extends MasterDaemon {
         }
         if (netChanged) {
             // edit log
-            Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
+            Env.getCurrentEnv().getEditLog().logModifyBackend(be);
         }
     }
 
