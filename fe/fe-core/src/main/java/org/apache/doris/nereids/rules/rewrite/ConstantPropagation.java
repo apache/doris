@@ -46,7 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -225,13 +225,6 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
     }
 
     @Override
-    public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, ExpressionRewriteContext context) {
-        repeat = visitChildren(this, repeat, context);
-        // TODO: process the repeat like agg ?
-        return repeat;
-    }
-
-    @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, ExpressionRewriteContext context) {
         // Combine all the join conjuncts together, may infer more constant relations.
         // Then after rewrite the combine conjuncts, we need split the rewritten expression into hash/other/mark
@@ -297,23 +290,24 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
                 join.children(), join.getJoinReorderContext());
     }
 
-    // for sql: create table t as select cast('1' as varchar(30))
-    // the select will add a parent plan: result sink. the result sink contains a output slot reference, and its
-    // data type is varchar(30),  but if replace the slot reference with a varchar literal '1', then the data type info
-    // varchar(30) will lost, because varchar literal '1' data type is always varchar(1), so t's column will get
-    // a error type.
-    // so we don't rewrite logical sink then.
-    // @Override
-    // public Plan visitLogicalSink(LogicalSink<? extends Plan> sink, ExpressionRewriteContext context) {
-    //     sink = visitChildren(this, sink, context);
-    //     Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>> childEqualTrait
-    //     = getChildEqualSetAndConstants(sink, context);
-    //     List<NamedExpression> newOutputExprs = sink.getOutputExprs().stream()
-    //             .map(expr ->
-    //                     replaceNameExpressionConstants(expr, context, childEqualTrait.first, childEqualTrait.second))
-    //             .collect(ImmutableList.toImmutableList());
-    //     return newOutputExprs.equals(sink.getOutputExprs()) ? sink : sink.withOutputExprs(newOutputExprs);
-    // }
+    @Override
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> sink, ExpressionRewriteContext context) {
+        sink = visitChildren(this, sink, context);
+        // // for sql: create table t as select cast('1' as varchar(30))
+        // // the select will add a parent plan: result sink. the result sink contains a output slot reference, and its
+        // // data type is varchar(30),  but if replace the slot reference with a varchar literal '1', then the data type info
+        // // varchar(30) will lost, because varchar literal '1' data type is always varchar(1), so t's column will get
+        // // a error type.
+        // // so we don't rewrite logical sink then.
+        // Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>> childEqualTrait
+        //         = getChildEqualSetAndConstants(sink, context);
+        // List<NamedExpression> newOutputExprs = sink.getOutputExprs().stream()
+        //         .map(expr ->
+        //                 replaceNameExpressionConstants(expr, context, childEqualTrait.first, childEqualTrait.second))
+        //         .collect(ImmutableList.toImmutableList());
+        // return newOutputExprs.equals(sink.getOutputExprs()) ? sink : sink.withOutputExprs(newOutputExprs);
+        return sink;
+    }
 
     /**
      * replace constants and rewrite expression.
