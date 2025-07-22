@@ -190,8 +190,8 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                                              },
                                              [&](auto&& hash_map_context) {
                                                  size_to_reserve += hash_map_context.estimated_size(
-                                                         raw_ptrs, block.rows(), true, true,
-                                                         bucket_size);
+                                                         raw_ptrs, (uint32_t)block.rows(), true,
+                                                         true, bucket_size);
                                              }},
                        _shared_state->hash_table_variant_vector.front()->method_variant);
         }
@@ -355,7 +355,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     DCHECK(_should_build_hash_table);
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     SCOPED_TIMER(_build_table_timer);
-    size_t rows = block.rows();
+    auto rows = (uint32_t)block.rows();
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
     }
@@ -389,7 +389,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     _set_build_side_has_external_nullmap(block, _build_col_ids);
     if (_build_side_has_external_nullmap) {
         null_map_val = vectorized::ColumnUInt8::create();
-        null_map_val->get_data().assign(rows, (uint8_t)0);
+        null_map_val->get_data().assign((size_t)rows, (uint8_t)0);
     }
 
     // Get the key column that needs to be built

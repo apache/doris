@@ -65,7 +65,7 @@ protected:
     }
 
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                  vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+                                  vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
     vectorized::Arena _agg_arena_pool;
