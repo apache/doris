@@ -74,7 +74,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -377,10 +376,6 @@ public class HudiScanNode extends HiveScanNode {
 
 
         if (canUseNativeReader()) {
-            Map<String, String> partitionValues = new HashMap<>();
-            for (int i = 0; i < partition.getPartitionValues().size(); i++) {
-                partitionValues.put(partition.getColumns().get(i).getName(), partition.getPartitionValues().get(i));
-            }
             fsView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
                 noLogsSplitNum.incrementAndGet();
                 String filePath = baseFile.getPath();
@@ -391,7 +386,9 @@ public class HudiScanNode extends HiveScanNode {
                 HudiSplit hudiSplit = new HudiSplit(locationPath, 0, fileSize, fileSize,
                         new String[0], partition.getPartitionValues());
                 hudiSplit.setTableFormatType(TableFormatType.HUDI);
-                hudiSplit.setHudiPartitionValues(partitionValues);
+                if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
+                    hudiSplit.setHudiPartitionValues(HudiUtils.getHudiPartitionInfoMap(hmsTable, partition));
+                }
                 splits.add(hudiSplit);
             });
         } else {
