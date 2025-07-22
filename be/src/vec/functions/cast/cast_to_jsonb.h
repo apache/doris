@@ -355,10 +355,25 @@ struct ConvertImplFromJsonb {
     }
 };
 
+inline bool can_cast_json_type(PrimitiveType pt) {
+    return is_int_or_bool(pt) || is_float_or_double(pt) || is_string_type(pt) || is_decimal(pt) ||
+           pt == TYPE_ARRAY || pt == TYPE_STRUCT;
+}
+
 // check jsonb value type and get to_type value
 WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
                                            const DataTypePtr& to_type,
                                            bool jsonb_string_as_string) {
+    if (!can_cast_json_type(to_type->get_primitive_type())) {
+        return create_unsupport_wrapper(
+                fmt::format("CAST AS JSONB can only be performed between "
+                            "JSONB, String, Number, Boolean, Array, Struct types. "
+                            "Got {} to {}",
+                            from_type.get_name(), to_type->get_name())
+
+        );
+    }
+
     switch (to_type->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return &ConvertImplFromJsonb<PrimitiveType::TYPE_BOOLEAN, ColumnUInt8,
@@ -398,6 +413,13 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
 // use jsonb writer to create jsonb value
 WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
                                          bool string_as_jsonb_string) {
+    if (!can_cast_json_type(from_type->get_primitive_type())) {
+        return create_unsupport_wrapper(
+                fmt::format("CAST AS JSONB can only be performed between "
+                            "JSONB, String, Number, Boolean, Array, Struct types. "
+                            "Got {} to {}",
+                            from_type->get_name(), to_type.get_name()));
+    }
     switch (from_type->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
