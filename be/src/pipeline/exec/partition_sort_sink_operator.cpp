@@ -218,7 +218,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         using AggState = typename HashMethodType::State;
 
                         AggState state(key_columns);
-                        size_t num_rows = input_block->rows();
+                        uint32_t num_rows = (uint32_t)input_block->rows();
                         agg_method.init_serialized_keys(key_columns, num_rows);
 
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
