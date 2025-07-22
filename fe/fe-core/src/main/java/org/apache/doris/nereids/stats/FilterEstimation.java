@@ -47,7 +47,6 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatisticRange;
@@ -56,6 +55,7 @@ import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
 import java.util.List;
@@ -85,7 +85,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
      */
     public Statistics estimate(Expression expression, Statistics inputStats) {
         Statistics outputStats = expression.accept(this, new EstimationContext(inputStats));
-        if (outputStats.getRowCount() == 0 && inputStats.getDeltaRowCount() > 0) {
+        if (outputStats.getRowCount() <= RANGE_SELECTIVITY_THRESHOLD * inputStats.getRowCount()
+                && inputStats.getDeltaRowCount() > 0) {
             StatisticsBuilder deltaStats = new StatisticsBuilder();
             deltaStats.setDeltaRowCount(0);
             deltaStats.setRowCount(inputStats.getDeltaRowCount());
@@ -100,7 +101,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 for (Expression conjunct : conjuncts) {
                     if (conjunct instanceof ComparisonPredicate) {
                         Statistics partial = conjunct.accept(this, new EstimationContext(inputStats));
-                        if (partial.getRowCount() == 0) {
+                        if (partial.getRowCount() <= RANGE_SELECTIVITY_THRESHOLD * inputStats.getRowCount()) {
                             for (Slot slot : conjunct.getInputSlots()) {
                                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
                             }
@@ -191,35 +192,266 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 return context.statistics;
             }
         }
-        ColumnStatistic statsForLeft = ExpressionEstimation.estimate(left, context.statistics);
-        ColumnStatistic statsForRight = ExpressionEstimation.estimate(right, context.statistics);
+
         if (!left.isConstant() && !right.isConstant()) {
-            return estimateColumnToColumn(cp, context, statsForLeft, statsForRight);
+            return estimateColumnToColumn(cp, context);
         } else {
-            return estimateColumnToConstant(cp, statsForLeft, statsForRight, context);
+            if (left.isConstant()) {
+                cp = cp.commute();
+            }
+            return estimateColumnToConstant(cp, context);
         }
     }
 
-    private Statistics estimateColumnLessThanConstant(ComparisonPredicate cp, DataType dataType,
-            ColumnStatistic statsForLeft, ColumnStatistic statsForRight, EstimationContext context) {
-        StatisticRange constantRange = new StatisticRange(statsForLeft.minValue, statsForLeft.minExpr,
-                statsForRight.maxValue, statsForRight.maxExpr, statsForLeft.ndv, dataType);
-        return estimateColumnToConstantRange(cp, dataType, statsForLeft, constantRange, context);
+    private Statistics estimateColumnLessThanConstant(LessThan cp, DataType dataType,
+            ColumnStatistic leftStats, ColumnStatistic rightStats, EstimationContext context) {
+        Preconditions.checkArgument(cp.right().isConstant(), "right hand should be const: " + cp.right());
+        if (leftStats.isUnKnown || rightStats.isUnKnown) {
+            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+        }
+        Preconditions.checkArgument(rightStats.minValue == rightStats.maxValue,
+                "stats for const is not valid: " + rightStats);
+
+        double selectivity;
+        ColumnStatisticBuilder filterKeyColStatsBuilder = new ColumnStatisticBuilder(leftStats);
+        if (leftStats.minValue >= rightStats.maxValue) {
+            filterKeyColStatsBuilder.setMinExpr(null)
+                    .setMinValue(Double.NEGATIVE_INFINITY)
+                    .setMaxExpr(rightStats.maxExpr)
+                    .setMaxValue(rightStats.maxValue)
+                    .setNdv(0.0);
+            selectivity = 0.0;
+        } else if (leftStats.maxValue < rightStats.maxValue) {
+            selectivity = 1.0;
+        } else {
+            filterKeyColStatsBuilder
+                    .setMaxValue(rightStats.maxValue)
+                    .setMaxExpr(rightStats.maxExpr);
+            if (dataType instanceof RangeScalable
+                    && Double.isFinite(leftStats.maxValue)
+                    && Double.isFinite(leftStats.minValue)) {
+                selectivity = dataType.rangeLength(rightStats.maxValue, leftStats.minValue)
+                        / dataType.rangeLength(leftStats.maxValue, leftStats.minValue);
+            } else {
+                selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
+            }
+        }
+
+        Map<Literal, Float> matchedHotValues = new HashMap<>();
+        Map<Literal, Float> missMatchedHotValues = new HashMap<>();
+        if (leftStats.getHotValues() != null) {
+            for (Literal key : leftStats.getHotValues().keySet()) {
+                if (key.getDouble() < rightStats.maxValue) {
+                    matchedHotValues.put(key, leftStats.getHotValues().get(key));
+                } else {
+                    missMatchedHotValues.put(key, leftStats.getHotValues().get(key));
+                }
+            }
+        }
+        return computeRangeFilterStatistics(cp, leftStats, context, selectivity,
+                filterKeyColStatsBuilder, matchedHotValues,
+                missMatchedHotValues);
     }
 
-    private Statistics estimateColumnGreaterThanConstant(ComparisonPredicate cp, DataType dataType,
-            ColumnStatistic statsForLeft, ColumnStatistic statsForRight, EstimationContext context) {
-        StatisticRange constantRange = new StatisticRange(statsForRight.minValue, statsForRight.minExpr,
-                statsForLeft.maxValue, statsForLeft.maxExpr, statsForLeft.ndv, dataType);
-        return estimateColumnToConstantRange(cp, dataType, statsForLeft, constantRange, context);
-    }
-
-    private Statistics estimateColumnToConstant(ComparisonPredicate cp,
-            ColumnStatistic statsForLeft, ColumnStatistic statsForRight, EstimationContext context) {
-        if (statsForLeft.isUnKnown) {
+    private Statistics estimateColumnLessThanEqualConstant(LessThanEqual cp, DataType dataType,
+            ColumnStatistic leftStats, ColumnStatistic rightStats, EstimationContext context) {
+        Preconditions.checkArgument(cp.right().isConstant(), "right hand should be const: " + cp.right());
+        if (leftStats.isUnKnown || rightStats.isUnKnown) {
             return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
         }
 
+        double selectivity;
+        ColumnStatisticBuilder filterKeyColStatsBuilder = new ColumnStatisticBuilder(leftStats);
+        if (leftStats.minValue > rightStats.maxValue) {
+            filterKeyColStatsBuilder.setMinExpr(null)
+                    .setMinValue(Double.NEGATIVE_INFINITY)
+                    .setMaxExpr(rightStats.maxExpr)
+                    .setMaxValue(rightStats.maxValue)
+                    .setNdv(0.0);
+            selectivity = 0.0;
+        } else if (leftStats.maxValue <= rightStats.maxValue) {
+            selectivity = 1.0;
+        } else {
+            filterKeyColStatsBuilder
+                    .setMaxValue(rightStats.maxValue)
+                    .setMaxExpr(rightStats.maxExpr);
+            if (dataType instanceof RangeScalable
+                    && Double.isFinite(leftStats.maxValue)
+                    && Double.isFinite(leftStats.minValue)) {
+                if (rightStats.maxValue == leftStats.minValue) {
+                    selectivity = 1.0 / leftStats.ndv;
+                } else {
+                    selectivity = dataType.rangeLength(rightStats.maxValue, leftStats.minValue)
+                            / dataType.rangeLength(leftStats.maxValue, leftStats.minValue);
+                }
+            } else {
+                selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
+            }
+        }
+
+        Map<Literal, Float> matchedHotValues = new HashMap<>();
+        Map<Literal, Float> missMatchedHotValues = new HashMap<>();
+        if (leftStats.getHotValues() != null) {
+            for (Literal key : leftStats.getHotValues().keySet()) {
+                if (key.getDouble() <= rightStats.maxValue) {
+                    matchedHotValues.put(key, leftStats.getHotValues().get(key));
+                } else {
+                    missMatchedHotValues.put(key, leftStats.getHotValues().get(key));
+                }
+            }
+        }
+        return computeRangeFilterStatistics(cp, leftStats, context, selectivity,
+                filterKeyColStatsBuilder, matchedHotValues,
+                missMatchedHotValues);
+    }
+
+    private Statistics estimateColumnGreaterThanConstant(GreaterThan cp, DataType dataType,
+            ColumnStatistic leftStats, ColumnStatistic rightStats, EstimationContext context) {
+        Preconditions.checkArgument(cp.right().isConstant(), "right hand should be const: " + cp.right());
+        if (leftStats.isUnKnown || rightStats.isUnKnown) {
+            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+        }
+        Preconditions.checkArgument(rightStats.minValue == rightStats.maxValue,
+                "stats for const is not valid: " + rightStats);
+
+        double selectivity;
+        ColumnStatisticBuilder filterKeyColStatsBuilder = new ColumnStatisticBuilder(leftStats);
+        if (leftStats.minValue > rightStats.maxValue) {
+            selectivity = 1.0;
+        } else if (leftStats.maxValue <= rightStats.maxValue) {
+            filterKeyColStatsBuilder
+                    .setMaxExpr(null)
+                    .setMaxValue(Double.POSITIVE_INFINITY)
+                    .setMinExpr(rightStats.maxExpr)
+                    .setMinValue(rightStats.maxValue);
+            selectivity = 0.0;
+        } else {
+            filterKeyColStatsBuilder
+                    .setMinValue(rightStats.maxValue)
+                    .setMinExpr(rightStats.maxExpr);
+            if (dataType instanceof RangeScalable
+                    && Double.isFinite(leftStats.maxValue)
+                    && Double.isFinite(leftStats.minValue)) {
+                selectivity = (dataType.rangeLength(leftStats.maxValue, rightStats.maxValue))
+                        / dataType.rangeLength(leftStats.maxValue, leftStats.minValue);
+            } else {
+                selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
+            }
+        }
+
+        Map<Literal, Float> matchedHotValues = new HashMap<>();
+        Map<Literal, Float> missMatchedHotValues = new HashMap<>();
+        if (leftStats.getHotValues() != null) {
+            for (Literal key : leftStats.getHotValues().keySet()) {
+                if (key.getDouble() > rightStats.maxValue) {
+                    matchedHotValues.put(key, leftStats.getHotValues().get(key));
+                } else {
+                    missMatchedHotValues.put(key, leftStats.getHotValues().get(key));
+                }
+            }
+        }
+
+        return computeRangeFilterStatistics(cp, leftStats, context, selectivity,
+                filterKeyColStatsBuilder, matchedHotValues,
+                missMatchedHotValues);
+    }
+
+    private Statistics estimateColumnGreaterThanEqualConstant(GreaterThanEqual cp, DataType dataType,
+            ColumnStatistic leftStats, ColumnStatistic rightStats, EstimationContext context) {
+        Preconditions.checkArgument(cp.right().isConstant(), "right hand should be const: " + cp.right());
+        if (leftStats.isUnKnown || rightStats.isUnKnown) {
+            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+        }
+        Preconditions.checkArgument(rightStats.minValue == rightStats.maxValue,
+                "stats for const is not valid: " + rightStats);
+
+        double selectivity;
+        ColumnStatisticBuilder filterKeyColStatsBuilder = new ColumnStatisticBuilder(leftStats);
+        if (leftStats.minValue >= rightStats.maxValue) {
+            selectivity = 1.0;
+        } else if (leftStats.maxValue < rightStats.minValue) {
+            filterKeyColStatsBuilder
+                    .setMaxExpr(null)
+                    .setMaxValue(Double.POSITIVE_INFINITY)
+                    .setMinExpr(rightStats.maxExpr)
+                    .setMinValue(rightStats.maxValue);
+            selectivity = 0.0;
+        } else {
+            filterKeyColStatsBuilder
+                    .setMinValue(rightStats.maxValue)
+                    .setMinExpr(rightStats.maxExpr);
+            if (dataType instanceof RangeScalable
+                    && Double.isFinite(leftStats.maxValue)
+                    && Double.isFinite(leftStats.minValue)) {
+                if (leftStats.maxValue == rightStats.maxValue) {
+                    selectivity = 1.0 / leftStats.ndv;
+                } else {
+                    selectivity = dataType.rangeLength(leftStats.maxValue, rightStats.maxValue)
+                            / dataType.rangeLength(leftStats.maxValue, leftStats.minValue);
+                }
+            } else {
+                selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
+            }
+        }
+
+        Map<Literal, Float> matchedHotValues = new HashMap<>();
+        Map<Literal, Float> missMatchedHotValues = new HashMap<>();
+        if (leftStats.getHotValues() != null) {
+            for (Literal key : leftStats.getHotValues().keySet()) {
+                if (key.getDouble() >= rightStats.maxValue) {
+                    matchedHotValues.put(key, leftStats.getHotValues().get(key));
+                } else {
+                    missMatchedHotValues.put(key, leftStats.getHotValues().get(key));
+                }
+            }
+        }
+
+        return computeRangeFilterStatistics(cp, leftStats, context, selectivity,
+                filterKeyColStatsBuilder, matchedHotValues,
+                missMatchedHotValues);
+    }
+
+    @NotNull
+    private Statistics computeRangeFilterStatistics(ComparisonPredicate cp, ColumnStatistic leftStats,
+            EstimationContext context,
+            double selectivity, ColumnStatisticBuilder filterKeyColStatsBuilder, Map<Literal, Float> matchedHotValues,
+            Map<Literal, Float> missMatchedHotValues) {
+        double matchedHotValueRatio = matchedHotValues.values().stream().mapToDouble(x -> x).sum()
+                / ColumnStatistic.ONE_HUNDRED;
+        double nonHotValueRatio = 1.0 - matchedHotValueRatio
+                - missMatchedHotValues.values().stream().mapToDouble(x -> x).sum()
+                / ColumnStatistic.ONE_HUNDRED;
+
+        if (matchedHotValues.isEmpty()) {
+            selectivity = nonHotValueRatio * selectivity;
+            filterKeyColStatsBuilder.setHotValues(null);
+        } else {
+            selectivity = nonHotValueRatio * selectivity + matchedHotValueRatio;
+            filterKeyColStatsBuilder.setHotValues(matchedHotValues);
+        }
+        filterKeyColStatsBuilder.setNdv(leftStats.ndv * selectivity);
+        filterKeyColStatsBuilder.setNumNulls(0);
+        selectivity = getNotNullSelectivity(leftStats.numNulls,
+                context.statistics.getRowCount(), leftStats.ndv, selectivity);
+        selectivity = Math.max(selectivity, RANGE_SELECTIVITY_THRESHOLD);
+        selectivity = Math.min(selectivity, 1.0);
+        Statistics filterStatistics = context.statistics.withSel(selectivity);
+        filterStatistics.addColumnStats(cp.left(), filterKeyColStatsBuilder.build());
+        filterStatistics.normalizeColumnStatistics(context.statistics.getRowCount(), true);
+        return filterStatistics;
+    }
+
+    private Statistics estimateColumnToConstant(ComparisonPredicate cp, EstimationContext context) {
+        ColumnStatistic statsForLeft = ExpressionEstimation.estimate(cp.left(), context.statistics);
+        ColumnStatistic statsForRight = ExpressionEstimation.estimate(cp.right(), context.statistics);
+        if (statsForLeft.isUnKnown) {
+            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+        }
+        // A > cast (1 as xxx), min/max of cast is +infinity/-infinity
+        // regard the stats for cast as UNKNOWN
+        if (statsForRight.minValue != statsForRight.maxValue || statsForRight.isMinMaxInvalid()) {
+            statsForRight = ColumnStatistic.UNKNOWN;
+        }
         if (cp instanceof EqualPredicate) {
             return estimateColumnEqualToConstant(cp, statsForLeft, statsForRight, context);
         } else {
@@ -246,11 +478,18 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             }
 
             Statistics result;
-            if (cp instanceof LessThan || cp instanceof LessThanEqual) {
-                result = estimateColumnLessThanConstant(cp, compareType, statsForLeftMayConverted,
+            if (cp instanceof LessThan) {
+                result = estimateColumnLessThanConstant((LessThan) cp, compareType, statsForLeftMayConverted,
                         statsForRightMayConverted, context);
-            } else if (cp instanceof GreaterThan || cp instanceof GreaterThanEqual) {
-                result = estimateColumnGreaterThanConstant(cp, compareType, statsForLeftMayConverted,
+            } else if (cp instanceof LessThanEqual) {
+                result = estimateColumnLessThanEqualConstant((LessThanEqual) cp, compareType, statsForLeftMayConverted,
+                        statsForRightMayConverted, context);
+            } else if (cp instanceof GreaterThan) {
+                result = estimateColumnGreaterThanConstant((GreaterThan) cp, compareType, statsForLeftMayConverted,
+                        statsForRightMayConverted, context);
+            } else if (cp instanceof GreaterThanEqual) {
+                result = estimateColumnGreaterThanEqualConstant((GreaterThanEqual) cp,
+                        compareType, statsForLeftMayConverted,
                         statsForRightMayConverted, context);
             } else {
                 throw new RuntimeException(String.format("Unexpected expression : %s", cp.toSql()));
@@ -381,10 +620,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return equalStats;
     }
 
-    private Statistics estimateColumnToColumn(ComparisonPredicate cp, EstimationContext context,
-            ColumnStatistic statsForLeft, ColumnStatistic statsForRight) {
+    private Statistics estimateColumnToColumn(ComparisonPredicate cp, EstimationContext context) {
         Expression left = cp.left();
         Expression right = cp.right();
+        ColumnStatistic statsForLeft = ExpressionEstimation.estimate(left, context.statistics);
+        ColumnStatistic statsForRight = ExpressionEstimation.estimate(right, context.statistics);
         if (cp instanceof EqualPredicate) {
             return estimateColumnEqualToColumn(left, statsForLeft, right, statsForRight,
                     cp instanceof NullSafeEqual, context);
@@ -653,93 +893,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return true;
         }
         return false;
-    }
-
-    private Statistics estimateColumnToConstantRange(ComparisonPredicate cp,
-            DataType dataType,
-            ColumnStatistic leftStats,
-            StatisticRange rightRange, EstimationContext context) {
-        Expression leftExpr = cp.left();
-        StatisticRange leftRange = new StatisticRange(leftStats.minValue, leftStats.minExpr,
-                leftStats.maxValue, leftStats.maxExpr, leftStats.ndv, dataType);
-        ColumnStatisticBuilder leftColumnStatisticBuilder;
-        Statistics updatedStatistics;
-
-        StatisticRange intersectRange = leftRange.intersect(rightRange, true);
-
-        if (intersectRange.isEmpty()) {
-            leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
-                    .setMinValue(Double.NEGATIVE_INFINITY)
-                    .setMinExpr(null)
-                    .setMaxValue(Double.POSITIVE_INFINITY)
-                    .setMaxExpr(null)
-                    .setNdv(0)
-                    .setNumNulls(0);
-            updatedStatistics = context.statistics.withRowCount(0);
-        } else {
-            double sel;
-            Map<Literal, Float> matchedHotValues = new HashMap<>();
-            Map<Literal, Float> missMatchedHotValues = new HashMap<>();
-            if (leftStats.getHotValues() != null) {
-                for (Literal key : leftStats.getHotValues().keySet()) {
-                    if (rangeCovers(intersectRange, key, cp)) {
-                        matchedHotValues.put(key, leftStats.getHotValues().get(key));
-                    } else {
-                        missMatchedHotValues.put(key, leftStats.getHotValues().get(key));
-                    }
-                }
-            }
-            double matchedHotValueRatio = matchedHotValues.values().stream().mapToDouble(x -> x).sum()
-                    / ColumnStatistic.ONE_HUNDRED;
-            double nonHotValueRatio = 1.0 - matchedHotValueRatio
-                    - missMatchedHotValues.values().stream().mapToDouble(x -> x).sum()
-                            / ColumnStatistic.ONE_HUNDRED;
-            if (SessionVariable.isFeDebug()) {
-                Preconditions.checkArgument(nonHotValueRatio >= 0.0,
-                        "sel < 0, derive stats for " + cp.toSql());
-            }
-            if (dataType instanceof RangeScalable) {
-                sel = leftRange.getDistinctValues() == 0.0 ? 0.0
-                        : intersectRange.getDistinctValues() / leftRange.getDistinctValues();
-                leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
-                        .setMinValue(intersectRange.getLow())
-                        .setMinExpr(intersectRange.getLowExpr())
-                        .setMaxValue(intersectRange.getHigh())
-                        .setMaxExpr(intersectRange.getHighExpr())
-                        .setNdv(intersectRange.getDistinctValues())
-                        .setNumNulls(0)
-                        .setHotValues(matchedHotValues.isEmpty() ? null : matchedHotValues);
-            } else {
-                sel = DEFAULT_INEQUALITY_COEFFICIENT;
-                leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
-                        .setMinValue(intersectRange.getLow())
-                        .setMinExpr(intersectRange.getLowExpr())
-                        .setMaxValue(intersectRange.getHigh())
-                        .setMaxExpr(intersectRange.getHighExpr())
-                        .setNdv(Math.max(1, Math.min(leftStats.ndv * DEFAULT_INEQUALITY_COEFFICIENT,
-                                intersectRange.getDistinctValues())))
-                        .setNumNulls(0)
-                        .setHotValues(matchedHotValues.isEmpty() ? null : matchedHotValues);
-            }
-            if (leftStats.getHotValues() != null) {
-                if (matchedHotValues.isEmpty()) {
-                    sel = nonHotValueRatio * sel;
-                } else {
-                    sel = nonHotValueRatio * sel + matchedHotValueRatio;
-                }
-            }
-            sel = Math.max(sel, RANGE_SELECTIVITY_THRESHOLD);
-            sel = Math.min(sel, 1.0);
-            sel = getNotNullSelectivity(leftStats.numNulls, context.statistics.getRowCount(), leftStats.ndv, sel);
-            updatedStatistics = context.statistics.withSel(sel);
-        }
-        updatedStatistics.addColumnStats(leftExpr, leftColumnStatisticBuilder.build());
-        context.addKeyIfSlot(leftExpr);
-        leftExpr.accept(new ColumnStatsAdjustVisitor(), updatedStatistics);
-        // normalize column statistics here to sync numNulls by proportion and ndv by current row count
-        updatedStatistics.normalizeColumnStatistics(context.statistics.getRowCount(), true);
-
-        return updatedStatistics;
     }
 
     private Statistics estimateColumnEqualToColumn(Expression leftExpr, ColumnStatistic leftStats,

@@ -335,6 +335,7 @@ class FilterEstimationTest {
     // a belongs to [0, 500]
     @Test
     public void test3() {
+        double rowCount = 1000;
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         IntegerLiteral int500 = new IntegerLiteral(500);
         GreaterThanEqual ge = new GreaterThanEqual(a, int500);
@@ -342,41 +343,45 @@ class FilterEstimationTest {
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
                 .setAvgSizeByte(4)
-                .setNumNulls(500)
+                .setNumNulls(100)
                 .setMinValue(0)
                 .setMaxValue(500);
         slotToColumnStat.put(a, builder.build());
-        Statistics stat = new Statistics(1000, slotToColumnStat);
+        Statistics stat = new Statistics(rowCount, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(ge, stat);
-        Assertions.assertEquals(1000 * (500.0 / 1000) * (1.0 / 500), expected.getRowCount());
+        Assertions.assertEquals(rowCount
+                * (1.0 / 500) * (1 - builder.getNumNulls() / rowCount), expected.getRowCount(), 0.1);
     }
 
     // a <= 500
     // a belongs to [500, 1000]
     @Test
     public void test4() {
+        double rowCount = 1000;
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         IntegerLiteral int500 = new IntegerLiteral(500);
         LessThanEqual le = new LessThanEqual(a, int500);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
-        ColumnStatisticBuilder builder1 = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
                 .setAvgSizeByte(4)
-                .setNumNulls(500)
+                .setNumNulls(100)
                 .setMinValue(500)
                 .setMaxValue(1000);
-        slotToColumnStat.put(a, builder1.build());
+        slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(le, stat);
-        Assertions.assertEquals(1000 * (500.0 / 1000) * (1.0 / 500), expected.getRowCount());
+        Assertions.assertEquals(rowCount
+                * (1.0 / 500) * (1 - builder.getNumNulls() / rowCount), expected.getRowCount(), 0.1);
     }
 
     // a < 500
     // a belongs to [500, 1000]
     @Test
     public void test5() {
+        double rowCount = 1000;
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         IntegerLiteral int500 = new IntegerLiteral(500);
         LessThan less = new LessThan(a, int500);
@@ -388,16 +393,17 @@ class FilterEstimationTest {
                 .setMinValue(500)
                 .setMaxValue(1000);
         slotToColumnStat.put(a, builder.build());
-        Statistics stat = new Statistics(1000, slotToColumnStat);
+        Statistics stat = new Statistics(rowCount, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(less, stat);
-        Assertions.assertEquals(1, expected.getRowCount());
+        Assertions.assertEquals(FilterEstimation.RANGE_SELECTIVITY_THRESHOLD * rowCount, expected.getRowCount());
     }
 
     // a > 1000
     // a belongs to [500, 1000]
     @Test
     public void test6() {
+        double rowCount = 1000;
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         IntegerLiteral int1000 = new IntegerLiteral(1000);
         GreaterThan ge = new GreaterThan(a, int1000);
@@ -409,10 +415,10 @@ class FilterEstimationTest {
                 .setMinValue(500)
                 .setMaxValue(1000);
         slotToColumnStat.put(a, builder.build());
-        Statistics stat = new Statistics(1000, slotToColumnStat);
+        Statistics stat = new Statistics(rowCount, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(ge, stat);
-        Assertions.assertEquals(1, expected.getRowCount());
+        Assertions.assertEquals(FilterEstimation.RANGE_SELECTIVITY_THRESHOLD * rowCount, expected.getRowCount());
     }
 
     // a > b
@@ -668,6 +674,7 @@ class FilterEstimationTest {
 
     @Test
     public void testFilterOutofMinMax() {
+        double origNdv = 1000;
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
@@ -675,19 +682,19 @@ class FilterEstimationTest {
         GreaterThan ge = new GreaterThan(c, i300);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builderA = new ColumnStatisticBuilder(1000)
-                .setNdv(1000)
+                .setNdv(origNdv)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(1000)
                 .setMaxValue(10000);
         ColumnStatisticBuilder builderB = new ColumnStatisticBuilder(1000)
-                .setNdv(100)
+                .setNdv(origNdv)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(500);
         ColumnStatisticBuilder builderC = new ColumnStatisticBuilder(1000)
-                .setNdv(100)
+                .setNdv(origNdv)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
@@ -699,12 +706,12 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics estimated = filterEstimation.estimate(ge, stat);
         ColumnStatistic statsA = estimated.findColumnStatistics(a);
-        Assertions.assertEquals(0, statsA.ndv);
+        Assertions.assertEquals(FilterEstimation.RANGE_SELECTIVITY_THRESHOLD * origNdv, statsA.ndv);
         ColumnStatistic statsB = estimated.findColumnStatistics(b);
-        Assertions.assertEquals(0, statsB.ndv);
+        Assertions.assertEquals(FilterEstimation.RANGE_SELECTIVITY_THRESHOLD * origNdv, statsB.ndv);
         ColumnStatistic statsC = estimated.findColumnStatistics(c);
         Assertions.assertEquals(0, statsC.ndv);
-        Assertions.assertTrue(Double.isInfinite(statsC.minValue));
+        Assertions.assertEquals(300, statsC.minValue, 0.1);
         Assertions.assertTrue(Double.isInfinite(statsC.maxValue));
     }
 
@@ -1233,7 +1240,7 @@ class FilterEstimationTest {
     }
 
     /**
-     * a >= 1 or a <= 2
+     * a >= 2 or a <= 1
      */
     @Test
     public void testNumNullsOr() {
@@ -1253,7 +1260,7 @@ class FilterEstimationTest {
         stats.addColumnStats(a, builder.build());
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(or, stats);
-        Assertions.assertEquals(result.getRowCount(), 2.0, 0.01);
+        Assertions.assertEquals(2.0, result.getRowCount(), 0.01);
     }
 
     /**
@@ -1278,7 +1285,7 @@ class FilterEstimationTest {
         stats.addColumnStats(a, builder.build());
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(or, stats);
-        Assertions.assertEquals(result.getRowCount(), 10.0, 0.01);
+        Assertions.assertEquals(10.0, result.getRowCount(), 0.01);
     }
 
     @Test
@@ -1716,7 +1723,7 @@ class FilterEstimationTest {
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((1 / iaStats.ndv * (1 - 0.3 - 0.3)) * rowCount, stats.getRowCount(), 0.1);
+                Assertions.assertEquals(FilterEstimation.RANGE_SELECTIVITY_THRESHOLD * rowCount, stats.getRowCount(), 0.1);
             }
             {
                 Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia >= 10");
@@ -1753,7 +1760,7 @@ class FilterEstimationTest {
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((1 / iaStats.ndv * (1 - 0.3 - 0.3)) * rowCount, stats.getRowCount(), 0.1);
+                Assertions.assertEquals(FilterEstimation.RANGE_SELECTIVITY_THRESHOLD * rowCount, stats.getRowCount(), 0.1);
             }
             {
                 Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia <= 0");
