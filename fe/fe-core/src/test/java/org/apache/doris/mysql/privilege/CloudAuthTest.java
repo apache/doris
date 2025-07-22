@@ -17,36 +17,52 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.DropUserStmt;
+import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
-public class CloudAuthTest {
+import java.util.List;
+import java.util.Optional;
+
+public class CloudAuthTest extends TestWithFeService {
 
     private Auth auth;
     private AccessControllerManager accessManager;
     @Mocked
     public CloudEnv env;
-    @Mocked
-    private Analyzer analyzer;
     @Mocked
     private EditLog editLog;
     @Mocked
@@ -59,11 +75,6 @@ public class CloudAuthTest {
         accessManager = new AccessControllerManager(auth);
         new Expectations() {
             {
-
-                analyzer.getDefaultCatalog();
-                minTimes = 0;
-                result = InternalCatalog.INTERNAL_CATALOG_NAME;
-
                 Env.getCurrentEnv();
                 minTimes = 0;
                 result = env;
@@ -106,56 +117,38 @@ public class CloudAuthTest {
                 Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
-
-                // systemInfoService.addComputeGroup(anyString, (ComputeGroup) any);
-                // minTimes = 0;
             }
         };
 
     }
 
-    private void dropUser(UserIdentity userIdentity) throws UserException {
-        DropUserStmt dropUserStmt = new DropUserStmt(userIdentity);
-        dropUserStmt.analyze(analyzer);
-        auth.dropUser(dropUserStmt);
-    }
-
-    /*
-    public ShowResultSet testShowGrants(UserIdentity userIdent) throws AnalysisException {
-        ShowGrantsStmt stmt = new ShowGrantsStmt(userIdent, false);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        return executor.execute();
-    }
-     */
-
     @Test
-    public void testComputeGroup() throws UserException {
+    public void testComputeGroup() throws Exception {
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
-        // String role = "role0";
-        // String computeGroup1 = "cg1";
-        // ResourcePattern resourcePattern = new ResourcePattern(computeGroup1, ResourceTypeEnum.CLUSTER);
-        // String anyResource = "%";
-        // ResourcePattern anyResourcePattern = new ResourcePattern(anyResource, ResourceTypeEnum.CLUSTER);
-        //List<AccessPrivilegeWithCols> usagePrivileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
+        String computeGroup1 = "cg1";
+        ResourcePattern resourcePattern = new ResourcePattern(computeGroup1, ResourceTypeEnum.CLUSTER);
+        CreateRoleCommand createRoleCommand = new CreateRoleCommand(false, "role0", "");
+        createRoleCommand.run(connectContext, null);
+        List<AccessPrivilegeWithCols> usagePrivileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
 
         // ------ grant|revoke cluster to|from user ------
         // 1. create user with no role
-        CreateUserInfo createUserInfo = new CreateUserInfo(false, userDesc, "admin", null, "");
+        CreateUserInfo createUserInfo = new CreateUserInfo(false, userDesc, "role0", null, "");
         try {
             createUserInfo.validate();
             auth.createUser(createUserInfo);
-        } catch (UserException e) {
+        } catch (Exception e) {
             e.printStackTrace();
             Assert.fail();
         }
         // 2. grant usage_priv on cluster 'cg1' to 'testUser'@'%'
-        GrantResourcePrivilegeCommand grantResourcePrivilegeCommand = new GrantResourcePrivilegeCommand(userIdentity, null, resourcePattern, usagePrivileges,
-                ResourceTypeEnum.CLUSTER);
+        GrantResourcePrivilegeCommand grantResourcePrivilegeCommand = new GrantResourcePrivilegeCommand(usagePrivileges,
+                Optional.of(resourcePattern), Optional.empty(), Optional.of("role0"), Optional.of(userIdentity));
         try {
-            grantStmt.analyze(analyzer);
-            auth.grant(grantStmt);
-        } catch (UserException e) {
+            grantResourcePrivilegeCommand.validate();
+            auth.grantResourcePrivilegeCommand(grantResourcePrivilegeCommand);
+        } catch (Exception e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -163,14 +156,13 @@ public class CloudAuthTest {
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
-        /*
         // 3. revoke usage_priv on cluster 'cg1' from 'testUser'@'%'
-        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges,
-                ResourceTypeEnum.CLUSTER);
+        RevokeResourcePrivilegeCommand revokeResourcePrivilegeCommand = new RevokeResourcePrivilegeCommand(usagePrivileges,
+                Optional.of(resourcePattern), Optional.empty(), Optional.of("role0"), Optional.of(userIdentity));
         try {
-            revokeStmt.analyze(analyzer);
-            auth.revoke(revokeStmt);
-        } catch (UserException e) {
+            revokeResourcePrivilegeCommand.validate();
+            auth.revokeResourcePrivilegeCommand(revokeResourcePrivilegeCommand);
+        } catch (Exception e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -182,111 +174,82 @@ public class CloudAuthTest {
             List<AccessPrivilegeWithCols> notAllowedPrivileges = Lists
                     .newArrayList(new AccessPrivilegeWithCols(
                     AccessPrivilege.fromName(Privilege.notBelongToResourcePrivileges[i].getName())));
-            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges,
-                ResourceTypeEnum.GENERAL);
+            grantResourcePrivilegeCommand = new GrantResourcePrivilegeCommand(notAllowedPrivileges,
+                    Optional.of(resourcePattern), Optional.empty(), Optional.of(""), Optional.of(userIdentity));
             try {
-                grantStmt.analyze(analyzer);
+                grantResourcePrivilegeCommand.validate();
                 Assert.fail(String.format("Can not grant/revoke %s to/from any other users or roles",
                         Privilege.notBelongToWorkloadGroupPrivileges[i]));
-            } catch (UserException e) {
+            } catch (AnalysisException e) {
                 e.printStackTrace();
             }
         }
         // 4. drop user
-        DropUserStmt dropUserStmt = new DropUserStmt(userIdentity);
+        DropUserCommand dropUserCommand = new DropUserCommand(userIdentity, true);
         try {
-            dropUserStmt.analyze(analyzer);
-            auth.dropUser(dropUserStmt);
-        } catch (UserException e) {
+            dropUserCommand.doRun(connectContext, null);
+        } catch (Exception e) {
             e.printStackTrace();
             Assert.fail();
         }
 
-        // ------ grant|revoke resource to|from role ------
+        // ------ grant|revoke cluster to|from role ------
         // 1. create role
-        CreateRoleStmt roleStmt = new CreateRoleStmt(role);
-        try {
-            roleStmt.analyze(analyzer);
-            auth.createRole(roleStmt);
-        } catch (UserException e1) {
-            e1.printStackTrace();
-            Assert.fail();
-        }
-        // grant usage_priv on cluster 'cg1' to role 'role0'
-        grantStmt = new GrantStmt(null, role, resourcePattern, usagePrivileges, ResourceTypeEnum.CLUSTER);
-        try {
-            grantStmt.analyze(analyzer);
-            auth.grant(grantStmt);
-        } catch (UserException e1) {
-            e1.printStackTrace();
-            Assert.fail();
-        }
+        String createRoleSql = "CREATE ROLE role1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalRolePlan1 = nereidsParser.parseSingle(createRoleSql);
+        Assertions.assertDoesNotThrow(() -> ((CreateRoleCommand) logicalRolePlan1).run(connectContext, null));
+        String grantCgPrivilegeSql = "GRANT usage_priv ON cluster 'cg1' to role 'role1'";
+        LogicalPlan plan = nereidsParser.parseSingle(grantCgPrivilegeSql);
+        Assertions.assertTrue(plan instanceof GrantResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) plan).run(connectContext, null));
 
         // 2. create user with role
-        createUserStmt = new CreateUserStmt(false, userDesc, role);
-        try {
-            createUserStmt.analyze(analyzer);
-            auth.createUser(createUserStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup1,
-                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        UserIdentity userWithRole = new UserIdentity("test_user1", "%");
+        userWithRole.analyze();
+        CreateUserCommand createUserCommand1 = new CreateUserCommand(new CreateUserInfo(false, new UserDesc(userWithRole), "role1", null, null));
+        CreateUserInfo info2 = createUserCommand1.getInfo();
+        Assertions.assertDoesNotThrow(() -> info2.validate());
+        Assertions.assertEquals(new String(info2.getRole()), "role1");
+        Env.getCurrentEnv().getAuth().createUser(createUserCommand1.getInfo());
+        Assert.assertTrue(accessManager.checkCloudPriv(userWithRole, "cg1",
+                PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userWithRole, PrivPredicate.USAGE));
 
-        // 3. revoke usage_priv on cluster 'cg1' from role 'role0'
-        revokeStmt = new RevokeStmt(null, role, resourcePattern, usagePrivileges, ResourceTypeEnum.CLUSTER);
-        try {
-            revokeStmt.analyze(analyzer);
-            auth.revoke(revokeStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        // 3. revoke usage_priv on cluster 'cg1' from role 'role1'
+        String revokeSql = "REVOKE USAGE_PRIV ON CLUSTER 'cg1' FROM ROLE 'role1';";
+        LogicalPlan revokeplan1 = nereidsParser.parseSingle(revokeSql);
+        Assertions.assertTrue(revokeplan1 instanceof RevokeResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeplan1).run(connectContext, null));
         // also revoke from user with this role
-        Assert.assertFalse(accessManager.checkResourcePriv(userIdentity, computeGroup1, PrivPredicate.USAGE));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkResourcePriv(userWithRole, "cg1", PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userWithRole, PrivPredicate.USAGE));
 
         // 4. drop user and role
-        dropUserStmt = new DropUserStmt(userIdentity);
-        try {
-            dropUserStmt.analyze(analyzer);
-            auth.dropUser(dropUserStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        DropRoleStmt dropRoleStmt = new DropRoleStmt(role);
-        try {
-            dropRoleStmt.analyze(analyzer);
-            auth.dropRole(dropRoleStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        String dropUserSql = "DROP USER test_user1";
+        LogicalPlan dropplan1 = nereidsParser.parseSingle(dropUserSql);
+        Assertions.assertTrue(dropplan1 instanceof DropUserCommand);
+        Assertions.assertDoesNotThrow(() -> ((DropUserCommand) dropplan1).run(connectContext, null));
+
+        String dropRoleSql = "DROP Role role1";
+        LogicalPlan dropRolePlan1 = nereidsParser.parseSingle(dropRoleSql);
+        Assertions.assertTrue(dropRolePlan1 instanceof DropRoleCommand);
+        Assertions.assertDoesNotThrow(() -> ((DropRoleCommand) dropRolePlan1).run(connectContext, null));
+
 
         // ------ grant|revoke any compute group to|from user ------
         // 1. create user with no role
-        createUserStmt = new CreateUserStmt(false, userDesc, null);
-        try {
-            createUserStmt.analyze(analyzer);
-            auth.createUser(createUserStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        String createUserSql1 = "CREATE USER testUser";
+        LogicalPlan createUserPlan1 = nereidsParser.parseSingle(createUserSql1);
+        Assertions.assertTrue(createUserPlan1 instanceof CreateUserCommand);
+        Assertions.assertDoesNotThrow(() -> ((CreateUserCommand) createUserPlan1).run(connectContext, null));
 
         // 2. grant usage_priv on cluster '*' to 'testUser'@'%'
-        grantStmt = new GrantStmt(userIdentity, null, anyResourcePattern, usagePrivileges, ResourceTypeEnum.CLUSTER);
-        try {
-            grantStmt.analyze(analyzer);
-            auth.grant(grantStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup1,
+        String grantAnyCgUser = "grant usage_priv on cluster '*' to 'testUser'@'%'";
+        LogicalPlan grantAnyPlan1 = nereidsParser.parseSingle(grantAnyCgUser);
+        Assertions.assertTrue(grantAnyPlan1 instanceof GrantResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) grantAnyPlan1).run(connectContext, null));
+        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         // anyResource not belong to global auth
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
@@ -294,192 +257,131 @@ public class CloudAuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 3. revoke usage_priv on cluster '*' from 'testUser'@'%'
-        revokeStmt = new RevokeStmt(userIdentity, null, anyResourcePattern, usagePrivileges, ResourceTypeEnum.CLUSTER);
-        try {
-            revokeStmt.analyze(analyzer);
-            auth.revoke(revokeStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        Assert.assertFalse(accessManager.checkCloudPriv(userIdentity, computeGroup1,
+        String revokeAnyCgUser = "revoke usage_priv on cluster '*' from 'testUser'@'%'";
+        LogicalPlan revokeAnyPlan1 = nereidsParser.parseSingle(revokeAnyCgUser);
+        Assertions.assertTrue(revokeAnyPlan1 instanceof RevokeResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> (RevokeResourcePrivilegeCommand) revokeAnyPlan1).run(connectContext, null);
+        Assert.assertFalse(accessManager.checkCloudPriv(userIdentity, "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 4. drop user
-        dropUserStmt = new DropUserStmt(userIdentity);
-        try {
-            dropUserStmt.analyze(analyzer);
-            auth.dropUser(dropUserStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        String dropUserSql1 = "DROP USER testUser";
+        LogicalPlan dropplan2 = nereidsParser.parseSingle(dropUserSql1);
+        Assertions.assertTrue(dropplan2 instanceof DropUserCommand);
+        Assertions.assertDoesNotThrow(() -> ((DropUserCommand) dropplan2).run(connectContext, null));
 
         // ------ grant|revoke any cluster to|from role ------
         // 1. create role
-        roleStmt = new CreateRoleStmt(role);
-        try {
-            roleStmt.analyze(analyzer);
-            auth.createRole(roleStmt);
-        } catch (UserException e1) {
-            e1.printStackTrace();
-            Assert.fail();
-        }
+        String createRoleSql1 = "CREATE Role role1";
+        LogicalPlan logicalRolePlan2 = nereidsParser.parseSingle(createRoleSql1);
+        Assertions.assertDoesNotThrow(() -> ((CreateRoleCommand) logicalRolePlan2).run(connectContext, null));
+
         // grant usage_priv on cluster '*' to role 'role0'
-        grantStmt = new GrantStmt(null, role, anyResourcePattern, usagePrivileges, ResourceTypeEnum.CLUSTER);
-        try {
-            grantStmt.analyze(analyzer);
-            auth.grant(grantStmt);
-        } catch (UserException e1) {
-            e1.printStackTrace();
-            Assert.fail();
-        }
+        String grantAnySql = "grant usage_priv on cluster '*' to role 'role1'";
+        LogicalPlan grantAnyPlan2 = nereidsParser.parseSingle(grantAnySql);
+        Assertions.assertTrue(grantAnyPlan2 instanceof GrantResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) grantAnyPlan2).run(connectContext, null));
 
         // 2. create user with role
-        createUserStmt = new CreateUserStmt(false, userDesc, role);
-        try {
-            createUserStmt.analyze(analyzer);
-            auth.createUser(createUserStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup1,
-                PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        String createUserSql3 = "CREATE USER testUser3 default role 'role1'";
+        LogicalPlan createUserPlan3 = nereidsParser.parseSingle(createUserSql3);
+        Assertions.assertTrue(createUserPlan3 instanceof CreateUserCommand);
+        Assertions.assertDoesNotThrow(() -> ((CreateUserCommand) createUserPlan3).run(connectContext, null));
 
-        // 3. revoke usage_priv on cluster '*' from role 'role0'
-        revokeStmt = new RevokeStmt(null, role, anyResourcePattern, usagePrivileges, ResourceTypeEnum.CLUSTER);
-        try {
-            revokeStmt.analyze(analyzer);
-            auth.revoke(revokeStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser3", "%"), computeGroup1,
+                PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
+        Assert.assertFalse(accessManager.checkGlobalPriv(new UserIdentity("testUser3", "%"), PrivPredicate.USAGE));
+
+        // 3. revoke usage_priv on cluster '*' from role 'role1'
+        String revokeCgRoleSql = "revoke usage_priv on cluster '*' from role 'role1'";
+        LogicalPlan revokeCgRolePlan = nereidsParser.parseSingle(revokeCgRoleSql);
+        Assertions.assertTrue(revokeCgRolePlan instanceof RevokeResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeCgRolePlan).run(connectContext, null));
+
         // also revoke from user with this role
         Assert.assertFalse(accessManager.checkResourcePriv(userIdentity, computeGroup1, PrivPredicate.USAGE));
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 4. drop user and role
-        dropUserStmt = new DropUserStmt(userIdentity);
-        try {
-            dropUserStmt.analyze(analyzer);
-            auth.dropUser(dropUserStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        dropRoleStmt = new DropRoleStmt(role);
-        try {
-            dropRoleStmt.analyze(analyzer);
-            auth.dropRole(dropRoleStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        String dropUserSql2 = "DROP USER testUser3";
+        LogicalPlan dropplan3 = nereidsParser.parseSingle(dropUserSql2);
+        Assertions.assertTrue(dropplan3 instanceof DropUserCommand);
+        Assertions.assertDoesNotThrow(() -> ((DropUserCommand) dropplan3).run(connectContext, null));
+
+        String dropRoleSql2 = "DROP Role role1";
+        LogicalPlan dropRolePlan2 = nereidsParser.parseSingle(dropRoleSql2);
+        Assertions.assertTrue(dropRolePlan2 instanceof DropRoleCommand);
+        Assertions.assertDoesNotThrow(() -> ((DropRoleCommand) dropRolePlan2).run(connectContext, null));
+
 
         // ------ error case ------
-        boolean hasException = false;
-        createUserStmt = new CreateUserStmt(false, userDesc, null);
-        try {
-            createUserStmt.analyze(analyzer);
-            auth.createUser(createUserStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        String createUserSql4 = "CREATE USER testUser4";
+        LogicalPlan createUserPlan4 = nereidsParser.parseSingle(createUserSql4);
+        Assertions.assertTrue(createUserPlan4 instanceof CreateUserCommand);
+        Assertions.assertDoesNotThrow(() -> ((CreateUserCommand) createUserPlan4).run(connectContext, null));
 
         // 1. grant db table priv to cluster
-        List<AccessPrivilegeWithCols> privileges = Lists
-                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
-        grantStmt = new GrantStmt(userIdentity, null, resourcePattern, privileges, ResourceTypeEnum.GENERAL);
-        hasException = false;
-        try {
-            grantStmt.analyze(analyzer);
-            auth.grant(grantStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            hasException = true;
-        }
-        Assert.assertTrue(hasException);
+        String errSql4 = "grant SELECT_PRIV on cluster 'test' to 'testUser4'";
+        LogicalPlan errPlan4 = nereidsParser.parseSingle(errSql4);
+        Assertions.assertTrue(errPlan4 instanceof GrantResourcePrivilegeCommand);
+        Assertions.assertThrowsExactly(AnalysisException.class, () -> ((GrantResourcePrivilegeCommand) errPlan4).run(connectContext, null));
 
         // 2. grant cluster priv to db table
-        TablePattern tablePattern = new TablePattern("db1", "*");
-        GrantStmt grantStmt2 = new GrantStmt(userIdentity, null, tablePattern, usagePrivileges);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke Usage_priv to/from any other users or roles",
-                () -> grantStmt2.analyze(analyzer));
+        String errSql5 = "grant usage_priv on db1.* to 'testUser4'";
+        LogicalPlan errPlan5 = nereidsParser.parseSingle(errSql5);
+        Assertions.assertTrue(errPlan5 instanceof GrantTablePrivilegeCommand);
+        Assertions.assertThrowsExactly(AnalysisException.class, () -> ((GrantTablePrivilegeCommand) errPlan5).run(connectContext, null));
 
         // 3. grant cluster prov to role on db.table
-        tablePattern = new TablePattern("db1", "*");
-        GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke Usage_priv to/from any other users or roles",
-                () -> grantStmt3.analyze(analyzer));
+        String errSql6 = "grant usage_priv on db1.* to ROLE 'test_role'";
+        LogicalPlan errPlan6 = nereidsParser.parseSingle(errSql6);
+        Assertions.assertTrue(errPlan6 instanceof GrantTablePrivilegeCommand);
+        Assertions.assertThrowsExactly(AnalysisException.class, () -> ((GrantTablePrivilegeCommand) errPlan6).run(connectContext, null));
 
         // 4.drop user
-        dropUser(userIdentity);
+        String dropUserSql5 = "DROP USER testUser4";
+        LogicalPlan dropplan5 = nereidsParser.parseSingle(dropUserSql5);
+        Assertions.assertTrue(dropplan5 instanceof DropUserCommand);
+        Assertions.assertDoesNotThrow(() -> ((DropUserCommand) dropplan5).run(connectContext, null));
     }
 
     @Test
-    public void testVirtualComputeGroup() throws UserException {
-        UserIdentity userIdentity = new UserIdentity("testUser", "%");
-        // String role = "role0";
-        String computeGroup1 = "cg1";
-        ResourcePattern resourcePattern1 = new ResourcePattern(computeGroup1, ResourceTypeEnum.CLUSTER);
-        String computeGroup2 = "cg2";
-        ResourcePattern resourcePattern2 = new ResourcePattern(computeGroup2, ResourceTypeEnum.CLUSTER);
-        String virtualComputeGroup = "vcg";
-        ResourcePattern resourcePatternVcg = new ResourcePattern(virtualComputeGroup, ResourceTypeEnum.CLUSTER);
-
-        List<AccessPrivilegeWithCols> usagePrivileges = Lists
-                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
-
-        UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
-
-        // create user with no role
-        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
-        try {
-            createUserStmt.analyze(analyzer);
-            auth.createUser(createUserStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-
+    public void testVirtualComputeGroup() throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        String createUserSql1 = "CREATE USER testUser";
+        LogicalPlan createUserPlan1 = nereidsParser.parseSingle(createUserSql1);
+        Assertions.assertTrue(createUserPlan1 instanceof CreateUserCommand);
+        Assertions.assertDoesNotThrow(() -> ((CreateUserCommand) createUserPlan1).run(connectContext, null));
         // -------------------- case 1 -------------------------
         // grant usage_priv on cluster 'vcg' to 'testUser'@'%'
-        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePatternVcg, usagePrivileges,
-                ResourceTypeEnum.CLUSTER);
-        try {
-            grantStmt.analyze(analyzer);
-            auth.grant(grantStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        String grantVcgUser = "grant usage_priv on cluster 'vcg' to 'testUser'@'%'";
+        LogicalPlan grantAnyPlan1 = nereidsParser.parseSingle(grantVcgUser);
+        Assertions.assertTrue(grantAnyPlan1 instanceof GrantResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) grantAnyPlan1).run(connectContext, null));
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "vcg",
+                PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         // create vcg, sub cg(cg1, cg2), add to systemInfoService
-        ComputeGroup vcg  = new ComputeGroup("vcg_id", virtualComputeGroup, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        vcg.setSubComputeGroups(Lists.newArrayList(computeGroup2, computeGroup1));
-        systemInfoService.addComputeGroup(virtualComputeGroup, vcg);
+        ComputeGroup vcg  = new ComputeGroup("vcg_id", "vcg", ComputeGroup.ComputeTypeEnum.VIRTUAL);
+        vcg.setSubComputeGroups(Lists.newArrayList("cg2", "cg1"));
+        systemInfoService.addComputeGroup("vcg_id", vcg);
         ComputeGroup.Policy policy = new ComputeGroup.Policy();
-        policy.setActiveComputeGroup(computeGroup1);
-        policy.setStandbyComputeGroup(computeGroup2);
+        policy.setActiveComputeGroup("cg1");
+        policy.setStandbyComputeGroup("cg2");
         vcg.setPolicy(policy);
 
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, virtualComputeGroup,
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "vcg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
 
         // testUser has vcg, but not have cg1,cg2, he can use cg1,cg2
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup1,
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup2,
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg2",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        ShowResultSet showResultSet = testShowGrants(userIdentity);
+        ShowGrantsCommand sg = new ShowGrantsCommand(new UserIdentity("testUser", "%"), false);
+        ShowResultSet showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(10));
         // compute group field
@@ -487,19 +389,17 @@ public class CloudAuthTest {
 
         // -------------------- case 2 -------------------------
         // grant usage_priv on cluster 'cg1' to 'testUser'@'%'
-        grantStmt = new GrantStmt(userIdentity, null, resourcePattern1, usagePrivileges,
-            ResourceTypeEnum.CLUSTER);
-        try {
-            grantStmt.analyze(analyzer);
-            auth.grant(grantStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        // testUser can use cg1, because he has vcg,cg1 auth
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup1,
+        String grantVcgUser2 = "grant usage_priv on cluster 'cg1' to 'testUser'@'%'";
+        LogicalPlan grantAnyPlan2 = nereidsParser.parseSingle(grantVcgUser2);
+        Assertions.assertTrue(grantAnyPlan2 instanceof GrantResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) grantAnyPlan2).run(connectContext, null));
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        showResultSet = testShowGrants(userIdentity);
+
+        // testUser can use cg1, because he has vcg,cg1 auth
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
+                PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
+        showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("cg1: Cluster_usage_priv; vcg: Cluster_usage_priv",
                 showResultSet.getResultRows().get(0).get(10));
@@ -508,19 +408,15 @@ public class CloudAuthTest {
                 showResultSet.getResultRows().get(0).get(14));
 
         // revoke cg1 from test user
-        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern1, usagePrivileges,
-                ResourceTypeEnum.CLUSTER);
-        try {
-            revokeStmt.analyze(analyzer);
-            auth.revoke(revokeStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        String revokeCgSql1 = "revoke usage_priv on cluster 'cg1' from 'testUser'@'%'";
+        LogicalPlan revokeplan1 = nereidsParser.parseSingle(revokeCgSql1);
+        Assertions.assertTrue(revokeplan1 instanceof RevokeResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeplan1).run(connectContext, null));
+
         // testUser can use cg1, because he has vcg auth
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup1,
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        showResultSet = testShowGrants(userIdentity);
+        showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("vcg: Cluster_usage_priv",
                 showResultSet.getResultRows().get(0).get(10));
@@ -529,37 +425,29 @@ public class CloudAuthTest {
                 showResultSet.getResultRows().get(0).get(14));
 
         // grant cg2 to user
-        grantStmt = new GrantStmt(userIdentity, null, resourcePattern2, usagePrivileges,
-                ResourceTypeEnum.CLUSTER);
-        try {
-            grantStmt.analyze(analyzer);
-            auth.grant(grantStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        String grantVcgUser3 = "grant usage_priv on cluster 'cg2' to 'testUser'@'%'";
+        LogicalPlan grantAnyPlan3 = nereidsParser.parseSingle(grantVcgUser3);
+        Assertions.assertTrue(grantAnyPlan3 instanceof GrantResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) grantAnyPlan3).run(connectContext, null));
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
+                PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
 
         // revoke vcg from test user
-        revokeStmt = new RevokeStmt(userIdentity, null, resourcePatternVcg, usagePrivileges,
-                ResourceTypeEnum.CLUSTER);
-        try {
-            revokeStmt.analyze(analyzer);
-            auth.revoke(revokeStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        String revokeCgSql2 = "revoke usage_priv on cluster 'vcg' from 'testUser'";
+        LogicalPlan revokeplan2 = nereidsParser.parseSingle(revokeCgSql2);
+        Assertions.assertTrue(revokeplan2 instanceof RevokeResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeplan2).run(connectContext, null));
 
         // currently, user has cg2 auth, not have vcg auth
-        Assert.assertFalse(accessManager.checkCloudPriv(userIdentity, virtualComputeGroup,
+        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "vcg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
 
         // testUser has cg2, but not have vcg, he can use cg2, can't use cg1, vcg
-        Assert.assertFalse(accessManager.checkCloudPriv(userIdentity, computeGroup1,
+        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup2,
+        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg2",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        showResultSet = testShowGrants(userIdentity);
+        showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("cg2: Cluster_usage_priv",
                 showResultSet.getResultRows().get(0).get(10));
@@ -567,42 +455,36 @@ public class CloudAuthTest {
         Assert.assertEquals("cg2: Cluster_usage_priv",
                 showResultSet.getResultRows().get(0).get(14));
         // revoke cg2 from user
-        revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern2, usagePrivileges,
-                ResourceTypeEnum.CLUSTER);
-        try {
-            revokeStmt.analyze(analyzer);
-            auth.revoke(revokeStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+
+        String revokeCgSql3 = "revoke usage_priv on cluster 'cg2' from 'testUser'";
+        LogicalPlan revokeplan3 = nereidsParser.parseSingle(revokeCgSql3);
+        Assertions.assertTrue(revokeplan3 instanceof RevokeResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeplan3).run(connectContext, null));
 
         // revoke vcg from user, he can't use it
-        revokeStmt = new RevokeStmt(userIdentity, null, resourcePatternVcg, usagePrivileges,
-                ResourceTypeEnum.CLUSTER);
-        try {
-            revokeStmt.analyze(analyzer);
-            auth.revoke(revokeStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        Assert.assertFalse(accessManager.checkCloudPriv(userIdentity, virtualComputeGroup,
+        String revokeCgSql4 = "revoke usage_priv on cluster 'vcg' from 'testUser'";
+        LogicalPlan revokeplan4 = nereidsParser.parseSingle(revokeCgSql4);
+        Assertions.assertTrue(revokeplan4 instanceof RevokeResourcePrivilegeCommand);
+        Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeplan4).run(connectContext, null));
+
+        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "vcg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
 
         // testUser after revoke vcg, not have cg1,cg2, it should can use, vcg,cg1,cg2
-        Assert.assertFalse(accessManager.checkCloudPriv(userIdentity, computeGroup1,
+        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkCloudPriv(userIdentity, computeGroup2,
+        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg2",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        showResultSet = testShowGrants(userIdentity);
+        showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(10));
         // compute group field
         Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(14));
 
         // drop user
-        dropUser(userIdentity);
-        */
+        String dropUserSql5 = "DROP USER testUser";
+        LogicalPlan dropplan5 = nereidsParser.parseSingle(dropUserSql5);
+        Assertions.assertTrue(dropplan5 instanceof DropUserCommand);
+        Assertions.assertDoesNotThrow(() -> ((DropUserCommand) dropplan5).run(connectContext, null));
     }
 }
