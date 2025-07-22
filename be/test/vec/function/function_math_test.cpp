@@ -820,15 +820,18 @@ TEST(MathFunctionTest, lcm_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_TINYINT};
 
-        DataSet data_set = {{{TINYINT(2), TINYINT(4)}, SMALLINT(4)}, {{TINYINT(2), Null()}, Null()}};
+        DataSet data_set = {{{TINYINT(2), TINYINT(4)}, SMALLINT(4)},
+                            {{TINYINT(2), Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
     }
 
-        {
+    {
         InputTypeSet input_types = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT};
 
-        DataSet data_set = {{{SMALLINT(2), SMALLINT(4)}, INT(4)}, {{SMALLINT(2), Null()}, Null()}};
+        DataSet data_set = {{{SMALLINT(2), SMALLINT(4)}, INT(4)},
+                            {{SMALLINT(-32768), SMALLINT(16384)}, INT(32768)},
+                            {{SMALLINT(2), Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
@@ -847,19 +850,19 @@ TEST(MathFunctionTest, lcm_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_BIGINT};
 
-        DataSet data_set = {{{BIGINT(2), BIGINT(4)}, BIGINT(4)}, {{BIGINT(2), Null()}, Null()}};
+        DataSet data_set = {{{BIGINT(2), BIGINT(4)}, LARGEINT(4)}, {{BIGINT(2), Null()}, Null()}};
 
-        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
     }
 
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_LARGEINT};
 
-        DataSet data_set = {{{LARGEINT(2), LARGEINT(4)}, LARGEINT(4)}, {{LARGEINT(2), Null()}, Null()}};
+        DataSet data_set = {{{LARGEINT(2), LARGEINT(4)}, LARGEINT(4)},
+                            {{LARGEINT(2), Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
     }
-
 }
 
 } // namespace doris::vectorized

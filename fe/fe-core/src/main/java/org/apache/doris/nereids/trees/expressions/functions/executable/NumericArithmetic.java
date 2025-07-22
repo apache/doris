@@ -706,7 +706,7 @@ public class NumericArithmetic {
     public static Expression even(DoubleLiteral first) {
         double mag = Math.abs(first.getValue());
         double evenMag = 2 * Math.ceil(mag / 2);
-        double value = Math.copySign(evenMag, mag);
+        double value = Math.copySign(evenMag, first.getValue());
         return checkOutputBoundary(new DoubleLiteral(value));
     }
 
@@ -774,7 +774,7 @@ public class NumericArithmetic {
         BigInteger a = new BigInteger(first.getValue().toString());
         BigInteger b = new BigInteger(second.getValue().toString());
         Long g = ArithmeticUtils.gcd(first.getValue(), second.getValue());
-        return new LargeIntLiteral(a.multiply(b).divide(new BigInteger(g.toString())));
+        return abs(new LargeIntLiteral(a.multiply(b).divide(new BigInteger(g.toString()))));
     }
 
     /**

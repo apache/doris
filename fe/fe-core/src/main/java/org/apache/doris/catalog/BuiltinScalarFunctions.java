@@ -202,14 +202,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMilliseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
-<<<<<<< HEAD
-=======
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonString;
->>>>>>> [Enhancement](function) Support signbit, even, gcd, lcm
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
@@ -692,10 +685,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FromUnixtime.class, "from_unixtime"),
             scalar(G.class, "g"),
             scalar(Gcd.class, "gcd"),
-            scalar(GetJsonBigInt.class, "get_json_bigint"),
-            scalar(GetJsonDouble.class, "get_json_double"),
-            scalar(GetJsonInt.class, "get_json_int"),
-            scalar(GetJsonString.class, "get_json_string"),
             scalar(Greatest.class, "greatest"),
             scalar(Grouping.class, "grouping"),
             scalar(GroupingId.class, "grouping_id"),

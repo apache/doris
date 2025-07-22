@@ -631,13 +631,15 @@ private:
         auto res = result_column_type::create(1);
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(1, 0);
-            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
-                                              column_right_ptr->template get_value<parameter_cpp_type>(),
-                                              null_map->get_element(0));
+            res->get_element(0) =
+                    Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
+                                column_right_ptr->template get_value<parameter_cpp_type>(),
+                                null_map->get_element(0));
             column_result = ColumnNullable::create(std::move(res), std::move(null_map));
         } else {
-            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
-                                              column_right_ptr->template get_value<parameter_cpp_type>());
+            res->get_element(0) =
+                    Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
+                                column_right_ptr->template get_value<parameter_cpp_type>());
             column_result = std::move(res);
         }
 
@@ -656,7 +658,8 @@ private:
             auto& n = null_map->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<parameter_cpp_type>(), n[i]);
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<parameter_cpp_type>(),
+                                   n[i]);
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
@@ -664,7 +667,8 @@ private:
             auto& c = column_result->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<parameter_cpp_type>());
+                c[i] = Impl::apply(a[i],
+                                   column_right_ptr->template get_value<parameter_cpp_type>());
             }
             return column_result;
         }
@@ -673,7 +677,8 @@ private:
     ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
 
-        const auto* column_right_ptr = assert_cast<const parameter_column_type*>(column_right.get());
+        const auto* column_right_ptr =
+                assert_cast<const parameter_column_type*>(column_right.get());
         auto column_result = result_column_type::create(column_right->size());
 
         if constexpr (Impl::is_nullable) {
@@ -683,7 +688,8 @@ private:
             auto& n = null_map->get_data();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(), b[i], n[i]);
+                c[i] = Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(), b[i],
+                                   n[i]);
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
@@ -838,22 +844,22 @@ struct GcdImpl {
     static constexpr bool need_replace_null_data_to_default = false;
     static constexpr bool is_nullable = false;
 
-    static inline typename PrimitiveTypeTraits<return_type>::CppType apply(parameter_cpp_type a, parameter_cpp_type b) {
-        return static_cast<typename PrimitiveTypeTraits<return_type>::CppType >(
-                std::gcd(a, b));
+    static DataTypes get_variadic_argument_types() {
+        using datatype = typename PrimitiveTypeTraits<A>::DataType;
+        return {std::make_shared<datatype>(), std::make_shared<datatype>()};
     }
 
-    static DataTypes get_variadic_argument_types() {    
-        using datatype = typename PrimitiveTypeTraits<A>::DataType;          
-        return {std::make_shared<datatype>(), std::make_shared<datatype>()};                                            
-    }  
+    static inline typename PrimitiveTypeTraits<return_type>::CppType apply(parameter_cpp_type a,
+                                                                           parameter_cpp_type b) {
+        return static_cast<typename PrimitiveTypeTraits<return_type>::CppType>(std::gcd(a, b));
+    }
 };
 
 template <typename A>
 struct ResultOfLcm {
-    static constexpr PrimitiveType Type = NumberTraits::Construct < std::is_signed_v<A>,
-                                   false,
-                                   NumberTraits::next_size(sizeof(A)) > ::Type;
+    static constexpr size_t size = std::min<size_t>(16, sizeof(A) * 2);
+    static constexpr PrimitiveType Type =
+            NumberTraits::Construct<std::is_signed_v<A>, false, size>::Type;
 };
 
 template <PrimitiveType A>
@@ -868,23 +874,19 @@ struct LcmImpl {
     static constexpr bool need_replace_null_data_to_default = false;
     static constexpr bool is_nullable = false;
 
-
-    static inline typename PrimitiveTypeTraits<return_type>::ColumnItemType apply(parameter_cpp_type a, parameter_cpp_type b) {
-            return static_cast<typename PrimitiveTypeTraits<return_type>::ColumnItemType>(
-                    std::lcm(a, b));
+    static DataTypes get_variadic_argument_types() {
+        using datatype = typename PrimitiveTypeTraits<A>::DataType;
+        return {std::make_shared<datatype>(), std::make_shared<datatype>()};
     }
 
-    static DataTypes get_variadic_argument_types() {    
-        using datatype = typename PrimitiveTypeTraits<A>::DataType;          
-        return {std::make_shared<datatype>(), std::make_shared<datatype>()};                                            
-    } 
+    static inline typename PrimitiveTypeTraits<return_type>::CppType apply(parameter_cpp_type a,
+                                                                           parameter_cpp_type b) {
+        // because {{SMALLINT(-32768), SMALLINT(16384)}, INT(32768)}, need to update parameter_cpp_type
+        using real_parameter_type = typename PrimitiveTypeTraits<return_type>::CppType;
+        return static_cast<typename PrimitiveTypeTraits<return_type>::CppType>(
+                std::lcm(static_cast<real_parameter_type>(a), static_cast<real_parameter_type>(b)));
+    }
 };
-
-// struct LcmName {
-//     static constexpr auto name = "lcm";
-// };
-
-// using FunctionLcm = FunctionBinaryArithmetic<LcmImpl, LcmName, true>;
 
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
