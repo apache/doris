@@ -52,7 +52,7 @@ arrow::Status ArrowFlightBatchReaderBase::_return_invalid_status(const std::stri
                         _packet_seq, _statement->result_addr.hostname, _statement->result_addr.port,
                         print_id(_statement->query_id));
     LOG(WARNING) << status_msg;
-    return arrow::Status::Invalid(status_msg);
+    return arrow::Status::Invalid("11111111test 1");
 }
 
 ArrowFlightBatchReaderBase::~ArrowFlightBatchReaderBase() {
@@ -100,7 +100,7 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
             ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer));
     std::shared_ptr<vectorized::Block> result;
     auto st = arrow_buffer->get_arrow_batch(&result);
-    st.prepend("ArrowFlightBatchLocalReader fetch arrow data failed");
+    st.prepend("ArrowFlightBatchLocalReader fetch arrow data failed, ");
     ARROW_RETURN_NOT_OK(to_arrow_status(st));
     if (result == nullptr) {
         // eof, normal path end
@@ -112,7 +112,7 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
         SCOPED_ATOMIC_TIMER(&_convert_arrow_batch_timer);
         st = convert_to_arrow_batch(*result, _schema, arrow::default_memory_pool(), out,
                                     _timezone_obj);
-        st.prepend("ArrowFlightBatchLocalReader convert block to arrow batch failed");
+        st.prepend("ArrowFlightBatchLocalReader convert block to arrow batch failed, ");
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
     }
 
@@ -148,7 +148,7 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchRemoteReader>> ArrowFlightBatchRem
                 statement->result_addr.hostname, statement->result_addr.port,
                 print_id(statement->query_id));
         LOG(WARNING) << msg;
-        return arrow::Status::Invalid(msg);
+        return arrow::Status::Invalid("11111111test 2");
     }
 
     std::shared_ptr<ArrowFlightBatchRemoteReader> result(
@@ -302,7 +302,7 @@ arrow::Status ArrowFlightBatchRemoteReader::ReadNextImpl(std::shared_ptr<arrow::
         SCOPED_ATOMIC_TIMER(&_convert_arrow_batch_timer);
         auto st = convert_to_arrow_batch(*_block, _schema, arrow::default_memory_pool(), out,
                                          _timezone_obj);
-        st.prepend("ArrowFlightBatchRemoteReader convert block to arrow batch failed");
+        st.prepend("ArrowFlightBatchRemoteReader convert block to arrow batch failed, ");
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
     }
     _block = nullptr;
