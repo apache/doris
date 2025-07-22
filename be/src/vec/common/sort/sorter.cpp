@@ -91,12 +91,12 @@ Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int ba
                                          bool* eos) {
     DCHECK(_sorted_blocks.empty());
     DCHECK(unsorted_block()->empty());
-    RETURN_IF_ERROR(_merge_sort_read_impl(batch_size, block, eos));
+    _merge_sort_read_impl(batch_size, block, eos);
     return Status::OK();
 }
 
-Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized::Block* block,
-                                               bool* eos) {
+void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized::Block* block,
+                                             bool* eos) {
     size_t num_columns = unsorted_block()->columns();
 
     MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
@@ -129,11 +129,7 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
     }
 
     block->set_columns(std::move(merged_columns));
-
-    if (merged_rows == 0) {
-        *eos = true;
-    }
-    return Status::OK();
+    *eos = merged_rows == 0;
 }
 
 Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
