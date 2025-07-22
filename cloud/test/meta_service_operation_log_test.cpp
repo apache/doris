@@ -539,6 +539,7 @@ TEST(MetaServiceOperationLogTest, CommitTxn) {
         ASSERT_EQ(commit_log.recycle_txn().label(), label);
         ASSERT_GT(commit_log.tablet_to_partition_map_size(), 0);
         ASSERT_GT(commit_log.partition_version_map_size(), 0);
+        ASSERT_EQ(commit_log.db_id(), db_id);
 
         // Verify tablet to partition mapping
         for (const auto& [tablet_id, partition_id_in_map] : commit_log.tablet_to_partition_map()) {
@@ -688,6 +689,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnEventually) {
         ASSERT_EQ(commit_log.recycle_txn().label(), label);
         ASSERT_GT(commit_log.tablet_to_partition_map_size(), 0);
         ASSERT_GT(commit_log.partition_version_map_size(), 0);
+        ASSERT_EQ(commit_log.db_id(), db_id);
     }
 
     {
@@ -938,6 +940,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         ASSERT_EQ(commit_log.recycle_txn().label(), label);
         ASSERT_GT(commit_log.tablet_to_partition_map_size(), 0);
         ASSERT_GT(commit_log.partition_version_map_size(), 0);
+        ASSERT_EQ(commit_log.db_id(), db_id);
 
         // Verify tablet to partition mapping
         for (const auto& [tablet_id, partition_id_in_map] : commit_log.tablet_to_partition_map()) {
