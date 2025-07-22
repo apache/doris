@@ -403,6 +403,7 @@ public enum PrimitiveType {
         builder.put(DATETIMEV2, DATETIME);
         builder.put(DATETIMEV2, DATEV2);
         builder.put(DATETIMEV2, DATETIMEV2);
+        builder.put(DATETIMEV2, TIMEV2);
         builder.put(DATETIMEV2, DECIMALV2);
         builder.put(DATETIMEV2, DECIMAL32);
         builder.put(DATETIMEV2, DECIMAL64);

@@ -16,7 +16,12 @@
 // under the License.
 
 suite("test_cast_time_to_datetime") {
-    def result1 = sql """ select datediff(now(), from_unixtime(cast(1742194502 as bigint),'yyyy-MM-dd HH:mm:ss')); """
-    def result2 = sql """ select datediff(current_time(), from_unixtime(cast(1742194502 as bigint),'yyyy-MM-dd HH:mm:ss')); """
-    assertEquals(result1[0][0], result2[0][0], "The results of the two SQL queries should be the same.")
+    qt_sql "select cast(cast('0000-01-01 12:12:12' as datetime) as time);"
+    qt_sql "select cast(cast('2000-02-03 12:12:12' as datetime) as time);"
+    qt_sql "select cast(cast('2000-02-03 12:12:12.123456' as datetime(6)) as time(4));"
+    qt_sql "select cast(cast(cast('2020-12-12 12:12:12' as time) as datetime) as time);"
+    qt_sql "select time_to_sec(cast('2002-05-30 10:10:20' as datetime));"
+    def res = sql "select date_format(cast(cast('2000-02-03 12:12:12.123456' as datetime(6)) as time(4)), '%b %e %Y %l:%i%p');"
+    // check final 7 char of res[0][0] is 12:12PM
+    assertEquals("12:12PM", res[0][0].substring(res[0][0].length() - 7))
 }

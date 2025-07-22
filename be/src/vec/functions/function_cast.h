@@ -24,16 +24,13 @@
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
-#include <atomic>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <iterator>
 #include <limits>
 #include <memory>
 #include <ostream>
@@ -91,22 +88,16 @@
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/io/reader_buffer.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
-#include "vec/utils/util.hpp"
 
 class DateLUTImpl;
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 template <typename T>
 class ColumnDecimal;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 /** Type conversion functions.
   * toType - conversion in "natural way";
   */
@@ -423,11 +414,58 @@ struct ConvertImpl {
                         }
                     } else {
                         if constexpr (IsDateTimeV2Type<FromDataType>) {
-                            static_cast_set(
-                                    vec_to[i],
-                                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
-                                            vec_from[i])
-                                            .to_int64());
+                            if constexpr (std::is_same_v<ToDataType, DataTypeTimeV2>) {
+                                // datetimev2 to timev2
+                                auto dtmv2 = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                                        col_from->get_data()[i]);
+
+                                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
+                                        block.get_by_position(arguments[0]).type.get());
+                                auto scale = type->get_scale();
+                                const auto* to_type = assert_cast<const DataTypeTimeV2*>(
+                                        block.get_by_position(result).type.get());
+                                UInt32 to_scale = to_type->get_scale();
+
+                                uint32_t hour = dtmv2.hour();
+                                uint32_t minute = dtmv2.minute();
+                                uint32_t second = dtmv2.second();
+                                uint32_t microseconds = dtmv2.microsecond();
+                                if (to_scale < scale) { // need to round
+                                    // e.g. scale reduce to 4, means we need to round the last 2 digits
+                                    // 999956: 56 > 100/2, then round up to 1000000
+                                    uint32_t divisor = common::exp10_i64(6 - to_scale);
+                                    uint32_t remainder = microseconds % divisor;
+                                    microseconds = (microseconds / divisor) * divisor;
+                                    if (remainder >= divisor / 2) {
+                                        // do rounding up
+                                        microseconds += divisor;
+                                    }
+                                }
+
+                                // carry on if microseconds >= 1000000
+                                if (microseconds >= 1000000) {
+                                    microseconds -= 1000000;
+                                    second += 1;
+                                    if (second >= 60) {
+                                        second -= 60;
+                                        minute += 1;
+                                        if (minute >= 60) {
+                                            minute -= 60;
+                                            hour += 1;
+                                        }
+                                    }
+                                }
+
+                                auto time = TimeValue::limit_with_bound(
+                                        TimeValue::make_time(hour, minute, second, microseconds));
+                                col_to->get_data()[i] = time;
+                            } else {
+                                static_cast_set(
+                                        vec_to[i],
+                                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
+                                                vec_from[i])
+                                                .to_int64());
+                            }
                         } else {
                             static_cast_set(vec_to[i],
                                             reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
@@ -1711,10 +1749,10 @@ public:
 };
 
 template <typename ToDataType, typename Name>
-class FunctionConvertToTimeType : public IFunction {
+class FunctionConvertFromTimeType : public IFunction {
 public:
     static constexpr auto name = Name::name;
-    static FunctionPtr create() { return std::make_shared<FunctionConvertToTimeType>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionConvertFromTimeType>(); }
 
     String get_name() const override { return name; }
 
@@ -1812,7 +1850,7 @@ private:
                            check_and_get_data_type<DataTypeDate>(from_type.get()) ||
                            check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
                            check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
-            function = FunctionConvertToTimeType<DataType, NameCast>::create();
+            function = FunctionConvertFromTimeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();
         }
