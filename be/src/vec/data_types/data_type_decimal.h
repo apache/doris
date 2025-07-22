@@ -723,7 +723,8 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
                     }
                 }
                 FromFieldType tmp = src[i] * static_cast<FromFieldType>(multiplier.value);
-                if (tmp <= FromFieldType(min_result.value) || tmp >= FromFieldType(max_result.value)) {
+                if (tmp <= FromFieldType(min_result.value) ||
+                    tmp >= FromFieldType(max_result.value)) {
                     if constexpr (result_is_nullable) {
                         null_map[i] = 1;
                         continue;

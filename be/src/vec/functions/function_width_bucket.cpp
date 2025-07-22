@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -90,11 +91,12 @@ public:
     }
 
 private:
-    template <typename ColumnType>
+    template <PrimitiveType PT>
     void _execute(const IColumn& expr_column, const IColumn& min_value_column,
                   const IColumn& max_value_column, const int64_t num_buckets,
                   IColumn& nested_column) const {
-        /*
+        using ColumnType = PrimitiveTypeTraits<PT>::ColumnType;
+        using ColumnItemType = PrimitiveTypeTraits<PT>::ColumnItemType;
         const auto& expr_column_concrete = assert_cast<const ColumnType&>(expr_column);
         const auto& min_value_column_concrete = assert_cast<const ColumnType&>(min_value_column);
         const auto& max_value_column_concrete = assert_cast<const ColumnType&>(max_value_column);
@@ -110,16 +112,19 @@ private:
             } else if (expr_column_concrete.get_data()[i] >= max_value) {
                 nested_column_concrete.get_data()[i] = num_buckets + 1;
             } else {
-                if ((max_value - min_value) / num_buckets == 0) {
+                if ((max_value - min_value) / ColumnItemType(num_buckets) == ColumnItemType(0)) {
                     continue;
                 }
-                auto average_value = (max_value - min_value) / (1.0 * num_buckets);
-                nested_column_concrete.get_data()[i] =
-                        (int64_t)(1 +
-                                  (expr_column_concrete.get_data()[i] - min_value) / average_value);
+                auto average_value = (max_value - min_value) / ColumnItemType(num_buckets);
+                auto result = (ColumnItemType(1) +
+                               (expr_column_concrete.get_data()[i] - min_value) / average_value);
+                if constexpr (is_decimal(PT)) {
+                    nested_column_concrete.get_data()[i] = result.value;
+                } else {
+                    nested_column_concrete.get_data()[i] = int64_t(result);
+                }
             }
         }
-            */
     }
 
     void _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
@@ -127,64 +132,67 @@ private:
                           IColumn& nested_column_column, DataTypePtr& expr_type) const {
         switch (expr_type->get_primitive_type()) {
         case PrimitiveType::TYPE_TINYINT:
-            _execute<ColumnInt8>(expr_column, min_value_column, max_value_column, num_buckets,
-                                 nested_column_column);
+            _execute<PrimitiveType::TYPE_TINYINT>(expr_column, min_value_column, max_value_column,
+                                                  num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_SMALLINT:
-            _execute<ColumnInt16>(expr_column, min_value_column, max_value_column, num_buckets,
-                                  nested_column_column);
+            _execute<PrimitiveType::TYPE_SMALLINT>(expr_column, min_value_column, max_value_column,
+                                                   num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_INT:
-            _execute<ColumnInt32>(expr_column, min_value_column, max_value_column, num_buckets,
-                                  nested_column_column);
+            _execute<PrimitiveType::TYPE_INT>(expr_column, min_value_column, max_value_column,
+                                              num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_BIGINT:
-            _execute<ColumnInt64>(expr_column, min_value_column, max_value_column, num_buckets,
-                                  nested_column_column);
+            _execute<PrimitiveType::TYPE_BIGINT>(expr_column, min_value_column, max_value_column,
+                                                 num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_FLOAT:
-            _execute<ColumnFloat32>(expr_column, min_value_column, max_value_column, num_buckets,
-                                    nested_column_column);
+            _execute<PrimitiveType::TYPE_FLOAT>(expr_column, min_value_column, max_value_column,
+                                                num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_DOUBLE:
-            _execute<ColumnFloat64>(expr_column, min_value_column, max_value_column, num_buckets,
-                                    nested_column_column);
+            _execute<PrimitiveType::TYPE_DOUBLE>(expr_column, min_value_column, max_value_column,
+                                                 num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_DECIMAL32:
-            _execute<ColumnDecimal32>(expr_column, min_value_column, max_value_column, num_buckets,
-                                      nested_column_column);
+            _execute<PrimitiveType::TYPE_DECIMAL32>(expr_column, min_value_column, max_value_column,
+                                                    num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_DECIMAL64:
-            _execute<ColumnDecimal64>(expr_column, min_value_column, max_value_column, num_buckets,
-                                      nested_column_column);
+            _execute<PrimitiveType::TYPE_DECIMAL64>(expr_column, min_value_column, max_value_column,
+                                                    num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_DECIMALV2:
-            _execute<ColumnDecimal128V2>(expr_column, min_value_column, max_value_column,
-                                         num_buckets, nested_column_column);
+            _execute<PrimitiveType::TYPE_DECIMALV2>(expr_column, min_value_column, max_value_column,
+                                                    num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_DECIMAL128I:
-            _execute<ColumnDecimal128V3>(expr_column, min_value_column, max_value_column,
-                                         num_buckets, nested_column_column);
+            _execute<PrimitiveType::TYPE_DECIMAL128I>(expr_column, min_value_column,
+                                                      max_value_column, num_buckets,
+                                                      nested_column_column);
             break;
         case PrimitiveType::TYPE_DECIMAL256:
-            _execute<ColumnDecimal256>(expr_column, min_value_column, max_value_column, num_buckets,
-                                       nested_column_column);
+            _execute<PrimitiveType::TYPE_DECIMAL256>(expr_column, min_value_column,
+                                                     max_value_column, num_buckets,
+                                                     nested_column_column);
             break;
         case PrimitiveType::TYPE_DATE:
-            _execute<ColumnDate>(expr_column, min_value_column, max_value_column, num_buckets,
-                                 nested_column_column);
+            _execute<PrimitiveType::TYPE_DATE>(expr_column, min_value_column, max_value_column,
+                                               num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_DATEV2:
-            _execute<ColumnDateV2>(expr_column, min_value_column, max_value_column, num_buckets,
-                                   nested_column_column);
+            _execute<PrimitiveType::TYPE_DATEV2>(expr_column, min_value_column, max_value_column,
+                                                 num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_DATETIME:
-            _execute<ColumnDateTime>(expr_column, min_value_column, max_value_column, num_buckets,
-                                     nested_column_column);
+            _execute<PrimitiveType::TYPE_DATETIME>(expr_column, min_value_column, max_value_column,
+                                                   num_buckets, nested_column_column);
             break;
         case PrimitiveType::TYPE_DATETIMEV2:
-            _execute<ColumnDateTimeV2>(expr_column, min_value_column, max_value_column, num_buckets,
-                                       nested_column_column);
+            _execute<PrimitiveType::TYPE_DATETIMEV2>(expr_column, min_value_column,
+                                                     max_value_column, num_buckets,
+                                                     nested_column_column);
             break;
         default:
             break;
