@@ -277,6 +277,7 @@ public:
 
     void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
                   std::vector<int>& rows, Arena&) const override {
+        // now this only for bitmap_union function
         if constexpr (std::is_same_v<Op, AggregateFunctionBitmapUnionOp>) {
             const auto& column = assert_cast<const ColVecType&>(*columns[0]);
             std::vector<const BitmapValue*> values;
@@ -289,6 +290,7 @@ public:
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
                          const IColumn** columns, Arena& arena, bool has_null) override {
+        // now this only for bitmap_union function
         if constexpr (std::is_same_v<Op, AggregateFunctionBitmapUnionOp>) {
             const auto& column = assert_cast<const ColVecType&>(*columns[0]);
             std::vector<const BitmapValue*> values;
@@ -370,6 +372,7 @@ public:
 
     void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
                   std::vector<int>& rows, Arena&) const override {
+        // now this only for bitmap_union_count function
         if constexpr (arg_is_nullable && std::is_same_v<ColVecType, ColumnBitmap>) {
             const auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
             const auto& column =
@@ -393,6 +396,7 @@ public:
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
+        // now this only for bitmap_union_count function
         if constexpr (std::is_same_v<ColVecType, ColumnBitmap>) {
             auto lambda_function = [&](const IColumn& data_column, const NullMap* null_map) {
                 const auto& column = assert_cast<const ColVecType&>(data_column);
