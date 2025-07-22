@@ -144,7 +144,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                             ? (NamedExpression) expression : new Alias(expression));
                 }
                 if (isRewrittenQueryExpressionValid) {
-                    return new LogicalProject<>(projects, tempRewritedPlan);
+                    return new LogicalProject<>(projects, tempRewritedPlan,
+                            tempRewritedPlan.getHintContext());
                 }
             }
             // if fails, record the reason and then try to roll up aggregate function
@@ -266,10 +267,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 }
             }
             LogicalRepeat<Plan> repeat = new LogicalRepeat<>(rewrittenGroupSetsExpressions,
-                    finalOutputExpressions, tempRewritedPlan);
+                    finalOutputExpressions, tempRewritedPlan, tempRewritedPlan.getHintContext());
             return NormalizeRepeat.doNormalize(repeat);
         }
-        return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan);
+        return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan,
+                tempRewritedPlan.getHintContext());
     }
 
     /**
@@ -563,7 +565,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             viewProjects.add(chosenExpression instanceof NamedExpression
                     ? (NamedExpression) chosenExpression : new Alias(chosenExpression));
         }
-        LogicalProject<LogicalAggregate<Plan>> viewProject = new LogicalProject<>(viewProjects, viewAggregate);
+        LogicalProject<LogicalAggregate<Plan>> viewProject = new LogicalProject<>(viewProjects, viewAggregate,
+                viewAggregate.getHintContext());
         // try to eliminate view group by expression which is not in query group by expression
         Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                 childContext -> {

@@ -42,7 +42,8 @@ public class EliminateDistinctConstant extends OneAnalysisRuleFactory {
                         .when(LogicalProject::isDistinct)
                         .when(project -> project.getProjects().stream().allMatch(Expression::isConstant))
                         .then(project -> new LogicalProject(project.getProjects(), new LogicalLimit<>(1, 0,
-                                LimitPhase.ORIGIN, project.child())))
+                                LimitPhase.ORIGIN, project.child(), project.getHintContext()),
+                                project.getHintContext()))
         );
     }
 }

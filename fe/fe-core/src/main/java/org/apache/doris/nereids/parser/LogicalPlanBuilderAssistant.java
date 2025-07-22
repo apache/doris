@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -106,6 +107,6 @@ public class LogicalPlanBuilderAssistant {
      * Wrap plan withCheckPolicy.
      */
     public static LogicalPlan withCheckPolicy(LogicalPlan plan) {
-        return new LogicalCheckPolicy<>(plan);
+        return new LogicalCheckPolicy<>(plan, Optional.empty());
     }
 }

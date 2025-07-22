@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -46,8 +47,10 @@ public class PhysicalIntersect extends PhysicalSetOperation {
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             LogicalProperties logicalProperties,
-            List<Plan> children) {
-        super(PlanType.PHYSICAL_INTERSECT, qualifier, outputs, childrenOutputs, logicalProperties, children);
+            List<Plan> children,
+            Optional<HintContext> hintContext) {
+        super(PlanType.PHYSICAL_INTERSECT, qualifier, outputs, childrenOutputs, logicalProperties, children,
+                hintContext);
     }
 
     public PhysicalIntersect(Qualifier qualifier,
@@ -55,18 +58,19 @@ public class PhysicalIntersect extends PhysicalSetOperation {
             List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
-            List<Plan> children) {
+            List<Plan> children,
+            Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_INTERSECT, qualifier, outputs, childrenOutputs,
-                groupExpression, logicalProperties, children);
+                groupExpression, logicalProperties, children, hintContext);
     }
 
     public PhysicalIntersect(Qualifier qualifier, List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics,
-            List<Plan> children) {
+            List<Plan> children, Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_INTERSECT, qualifier, outputs, childrenOutputs,
-                groupExpression, logicalProperties, physicalProperties, statistics, children);
+                groupExpression, logicalProperties, physicalProperties, statistics, children, hintContext);
     }
 
     @Override
@@ -87,34 +91,35 @@ public class PhysicalIntersect extends PhysicalSetOperation {
 
     @Override
     public PhysicalIntersect withChildren(List<Plan> children) {
-        return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs, getLogicalProperties(), children);
+        return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs, getLogicalProperties(), children,
+                hintContext);
     }
 
     @Override
     public PhysicalIntersect withGroupExpression(
             Optional<GroupExpression> groupExpression) {
         return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
-                groupExpression, getLogicalProperties(), children);
+                groupExpression, getLogicalProperties(), children, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
-                groupExpression, logicalProperties.get(), children);
+                groupExpression, logicalProperties.get(), children, hintContext);
     }
 
     @Override
     public PhysicalIntersect withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
-                Optional.empty(), getLogicalProperties(), physicalProperties, statistics, children);
+                Optional.empty(), getLogicalProperties(), physicalProperties, statistics, children, hintContext);
     }
 
     @Override
     public PhysicalIntersect resetLogicalProperties() {
         return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
-                Optional.empty(), null, physicalProperties, statistics, children);
+                Optional.empty(), null, physicalProperties, statistics, children, hintContext);
     }
 
     Map<Slot, Slot> constructReplaceMap() {

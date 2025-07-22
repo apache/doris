@@ -25,7 +25,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[warehouse]
 
 Hint log:
-Used: leading(inventory item date_dim warehouse )
-UnUsed:
+Used: leading(inventory item date_dim warehouse)
+UnUsed: 
 SyntaxError:
 

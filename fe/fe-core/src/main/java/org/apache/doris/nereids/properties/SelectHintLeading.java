@@ -31,12 +31,20 @@ import java.util.stream.Collectors;
 public class SelectHintLeading extends SelectHint {
     // e.g. query_timeout='1800', exec_mem_limit='2147483648'
     private final List<String> parameters;
+    private final String originalLeadingText;
+
     private final Map<String, DistributeHint> strToHint;
 
-    public SelectHintLeading(String hintName, List<String> parameters, Map<String, DistributeHint> strToHint) {
-        super(hintName);
+    public SelectHintLeading(String hintName, List<String> parameters, Map<String, DistributeHint> strToHint,
+            String originalLeadingText, String err) {
+        super(hintName, err);
         this.parameters = parameters;
         this.strToHint = strToHint;
+        this.originalLeadingText = originalLeadingText;
+    }
+
+    public SelectHintLeading(String hintName, List<String> parameters) {
+        this(hintName, parameters, null, null, null);
     }
 
     public List<String> getParameters() {
@@ -49,19 +57,13 @@ public class SelectHintLeading extends SelectHint {
 
     @Override
     public String toString() {
-        List<String> newParameters = new ArrayList<>();
-        for (String param : parameters) {
-            if (param.startsWith("shuffle")) {
-                newParameters.add("shuffle");
-            } else if (param.startsWith("broadcast")) {
-                newParameters.add("broadcast");
-            } else {
-                newParameters.add(param);
-            }
+        if (originalLeadingText != null) {
+            return originalLeadingText;
+        } else {
+            String leadingString = parameters
+                    .stream()
+                    .collect(Collectors.joining(" "));
+            return super.getHintName() + "(" + leadingString + ")";
         }
-        String leadingString = newParameters
-                .stream()
-                .collect(Collectors.joining(" "));
-        return super.getHintName() + "(" + leadingString + ")";
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
@@ -91,7 +92,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                         && ExpressionUtils.collect(repeat.getOutputExpressions(),
                         GroupingScalarFunction.class::isInstance).isEmpty()) {
                     return new LogicalAggregate<>(repeat.getGroupByExpressions(),
-                            repeat.getOutputExpressions(), repeat.child());
+                            repeat.getOutputExpressions(), repeat.child(), repeat.getHintContext());
                 }
                 return doNormalize(repeat);
             })
@@ -204,7 +205,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
             pushedProject = Sets.union(pushedProject, missingSlots);
         }
 
-        Plan normalizedChild = pushDownProject(pushedProject, repeat.child());
+        Plan normalizedChild = pushDownProject(pushedProject, repeat.child(), repeat.getHintContext());
 
         LogicalRepeat<Plan> normalizedRepeat = repeat.withNormalizedExpr(
                 (List) normalizedGroupingSets, (List) normalizedRepeatOutput, normalizedChild);
@@ -216,7 +217,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
 
         normalizedAggOutput = getExprIdUnchangedNormalizedAggOutput(normalizedAggOutput, repeat.getOutputExpressions());
         return new LogicalAggregate<>(normalizedAggGroupBy, (List) normalizedAggOutput,
-                Optional.of(normalizedRepeat), normalizedRepeat);
+                Optional.of(normalizedRepeat), normalizedRepeat, repeat.getHintContext());
     }
 
     private static Set<Expression> collectNeedToSlotGroupingExpr(LogicalRepeat<Plan> repeat) {
@@ -258,9 +259,10 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .build();
     }
 
-    private static Plan pushDownProject(Set<NamedExpression> pushedExprs, Plan originBottomPlan) {
+    private static Plan pushDownProject(Set<NamedExpression> pushedExprs, Plan originBottomPlan,
+            Optional<HintContext> hintContext) {
         if (!pushedExprs.equals(originBottomPlan.getOutputSet()) && !pushedExprs.isEmpty()) {
-            return new LogicalProject<>(ImmutableList.copyOf(pushedExprs), originBottomPlan);
+            return new LogicalProject<>(ImmutableList.copyOf(pushedExprs), originBottomPlan, hintContext);
         }
         return originBottomPlan;
     }
@@ -375,7 +377,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         List<Slot> originSlots = repeat.child().getOutput();
         ImmutableList<NamedExpression> newProjects =
                 ImmutableList.<NamedExpression>builder().addAll(originSlots).addAll(newAliases).build();
-        LogicalProject<Plan> newLogicalProject = new LogicalProject<>(newProjects, repeat.child());
+        LogicalProject<Plan> newLogicalProject = new LogicalProject<>(newProjects, repeat.child(),
+                repeat.getHintContext());
         repeat = repeat.withChildren(ImmutableList.of(newLogicalProject));
 
         // modify repeat outputs

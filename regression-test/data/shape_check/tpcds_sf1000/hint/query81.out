@@ -42,7 +42,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 Hint log:
-Used: leading(catalog_returns date_dim customer_address ) leading(customer customer_address ctr1 )
-UnUsed:
+Used: leading(catalog_returns date_dim customer_address) leading(customer customer_address ctr1)
+UnUsed: 
 SyntaxError:
 

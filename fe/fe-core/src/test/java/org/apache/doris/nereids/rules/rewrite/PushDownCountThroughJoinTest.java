@@ -37,6 +37,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 class PushDownCountThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
@@ -91,7 +93,7 @@ class PushDownCountThroughJoinTest implements MemoPatternMatchSupported {
     @Test
     void testSumAndDataType() {
         LogicalOlapScan salary1 = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
-                PlanConstructor.salary, ImmutableList.of(""));
+                PlanConstructor.salary, ImmutableList.of(""), Optional.empty());
         Alias sum = new Sum(salary1.getOutput().get(2)).alias("sum");
         LogicalPlan plan = new LogicalPlanBuilder(salary1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))

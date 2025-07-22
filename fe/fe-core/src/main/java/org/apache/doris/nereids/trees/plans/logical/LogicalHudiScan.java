@@ -27,6 +27,7 @@ import org.apache.doris.datasource.hudi.source.EmptyIncrementalRelation;
 import org.apache.doris.datasource.hudi.source.IncrementalRelation;
 import org.apache.doris.datasource.hudi.source.MORIncrementalRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
@@ -73,9 +74,9 @@ public class LogicalHudiScan extends LogicalFileScan {
             SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
-            Collection<Slot> operativeSlots) {
+            Collection<Slot> operativeSlots, Optional<HintContext> hintContext) {
         super(id, table, qualifier, groupExpression, logicalProperties,
-                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams);
+                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams, hintContext);
         Objects.requireNonNull(scanParams, "scanParams should not null");
         Objects.requireNonNull(incrementalRelation, "incrementalRelation should not null");
         this.incrementalRelation = incrementalRelation;
@@ -84,10 +85,10 @@ public class LogicalHudiScan extends LogicalFileScan {
     public LogicalHudiScan(RelationId id, ExternalTable table, List<String> qualifier,
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
             Collection<Slot> operativeSlots,
-            Optional<TableScanParams> scanParams) {
+            Optional<TableScanParams> scanParams, Optional<HintContext> hintContext) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 ((HMSExternalTable) table).initHudiSelectedPartitions(tableSnapshot), tableSample, tableSnapshot,
-                scanParams, Optional.empty(), operativeSlots);
+                scanParams, Optional.empty(), operativeSlots, hintContext);
     }
 
     public Optional<IncrementalRelation> getIncrementalRelation() {
@@ -135,28 +136,28 @@ public class LogicalHudiScan extends LogicalFileScan {
     public LogicalHudiScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier, groupExpression,
                 Optional.of(getLogicalProperties()), selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation, operativeSlots);
+                scanParams, incrementalRelation, operativeSlots, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+                                                 Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
                 groupExpression, logicalProperties, selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation, operativeSlots);
+                scanParams, incrementalRelation, operativeSlots, hintContext);
     }
 
     public LogicalHudiScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
                 Optional.of(getLogicalProperties()), selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation, operativeSlots);
+                scanParams, incrementalRelation, operativeSlots, hintContext);
     }
 
     @Override
     public LogicalHudiScan withRelationId(RelationId relationId) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
                 Optional.empty(), selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation, operativeSlots);
+                scanParams, incrementalRelation, operativeSlots, hintContext);
     }
 
     @Override
@@ -169,7 +170,15 @@ public class LogicalHudiScan extends LogicalFileScan {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
                 groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
-                operativeSlots);
+                operativeSlots, hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+                groupExpression, Optional.of(getLogicalProperties()),
+                selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
+                operativeSlots, hintContext);
     }
 
     /**
@@ -209,18 +218,18 @@ public class LogicalHudiScan extends LogicalFileScan {
                     newIncrementalRelation = Optional.of(new EmptyIncrementalRelation(optParams));
                 } else if (isCowOrRoTable) {
                     newIncrementalRelation = Optional.of(new COWIncrementalRelation(
-                        optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
+                            optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
                 } else {
                     newIncrementalRelation = Optional.of(new MORIncrementalRelation(
-                        optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
+                            optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
                 }
             } catch (Exception e) {
                 throw new AnalysisException(
-                    "Failed to create incremental relation for table: " + table.getFullQualifiers(), e);
+                        "Failed to create incremental relation for table: " + table.getFullQualifiers(), e);
             }
         }
         return new LogicalHudiScan(relationId, table, qualifier, Optional.empty(),
-            Optional.empty(), selectedPartitions, tableSample, tableSnapshot,
-            optScanParams, newIncrementalRelation, operativeSlots);
+                Optional.empty(), selectedPartitions, tableSample, tableSnapshot,
+                optScanParams, newIncrementalRelation, operativeSlots, hintContext);
     }
 }

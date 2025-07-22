@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -140,48 +141,50 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     private final Map<String, Set<List<String>>> colToSubPathsMap;
     private final Map<Slot, Map<List<String>, SlotReference>> subPathToSlotMap;
 
-    public LogicalOlapScan(RelationId id, OlapTable table) {
-        this(id, table, ImmutableList.of());
+    public LogicalOlapScan(RelationId id, OlapTable table, Optional<HintContext> hintContext) {
+        this(id, table, ImmutableList.of(), hintContext);
     }
 
     /**
      * LogicalOlapScan construct method
      */
-    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier) {
+    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, Optional<HintContext> hintContext) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false,
                 ImmutableList.of(),
                 -1, false, PreAggStatus.unset(), ImmutableList.of(), ImmutableList.of(),
                 Maps.newHashMap(), Optional.empty(), false, ImmutableMap.of(),
-                ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), hintContext);
     }
 
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
-            List<String> hints, Optional<TableSample> tableSample, Collection<Slot> operativeSlots) {
+            List<String> hints, Optional<TableSample> tableSample, Collection<Slot> operativeSlots,
+            Optional<HintContext> hintContext) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false, tabletIds,
                 -1, false, PreAggStatus.unset(), ImmutableList.of(), hints, Maps.newHashMap(),
-                tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots);
+                tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots, hintContext);
     }
 
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions,
-            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, List<Slot> operativeSlots) {
+            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, List<Slot> operativeSlots,
+            Optional<HintContext> hintContext) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 // must use specifiedPartitions here for prune partition by sql like 'select * from t partition p1'
                 specifiedPartitions, false, tabletIds,
                 -1, false, PreAggStatus.unset(), specifiedPartitions, hints, Maps.newHashMap(),
-                tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots);
+                tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots, hintContext);
     }
 
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
                            List<Long> selectedPartitionIds, long selectedIndexId, PreAggStatus preAggStatus,
                            List<Long> specifiedPartitions, List<String> hints, Optional<TableSample> tableSample,
-                           Collection<Slot> operativeSlots) {
+                           Collection<Slot> operativeSlots, Optional<HintContext> hintContext) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 selectedPartitionIds, false, tabletIds,
                 selectedIndexId, true, preAggStatus,
                 specifiedPartitions, hints, Maps.newHashMap(), tableSample, true, ImmutableMap.of(),
-                ImmutableList.of(), operativeSlots);
+                ImmutableList.of(), operativeSlots, hintContext);
     }
 
     /**
@@ -195,9 +198,9 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             List<String> hints, Map<Pair<Long, String>, Slot> cacheSlotWithSlotName,
             Optional<TableSample> tableSample, boolean directMvScan,
             Map<String, Set<List<String>>> colToSubPathsMap, List<Long> specifiedTabletIds,
-            Collection<Slot> operativeSlots) {
+            Collection<Slot> operativeSlots, Optional<HintContext> hintContext) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
-                groupExpression, logicalProperties, operativeSlots);
+                groupExpression, logicalProperties, operativeSlots, hintContext);
         Preconditions.checkArgument(selectedPartitionIds != null,
                 "selectedPartitionIds can not be null");
         this.selectedTabletIds = Utils.fastToImmutableList(selectedTabletIds);
@@ -307,7 +310,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
-                operativeSlots);
+                operativeSlots, hintContext);
     }
 
     @Override
@@ -317,7 +320,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
-                operativeSlots);
+                operativeSlots, hintContext);
     }
 
     /**
@@ -329,7 +332,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, true, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
-                operativeSlots);
+                operativeSlots, hintContext);
     }
 
     public LogicalOlapScan withMaterializedIndexSelected(long indexId) {
@@ -337,7 +340,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 indexId, true, PreAggStatus.unset(), manuallySpecifiedPartitions, hints, cacheSlotWithSlotName,
-                tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots);
+                tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, hintContext);
     }
 
     /**
@@ -349,7 +352,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
-                operativeSlots);
+                operativeSlots, hintContext);
     }
 
     /**
@@ -361,7 +364,17 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
-                operativeSlots);
+                operativeSlots, hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
+                operativeSlots, hintContext);
     }
 
     /**
@@ -373,7 +386,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
-                operativeSlots);
+                operativeSlots, hintContext);
     }
 
     /**
@@ -385,7 +398,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
-                operativeSlots);
+                operativeSlots, hintContext);
     }
 
     @Override
@@ -396,7 +409,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, false, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, Maps.newHashMap(), tableSample, directMvScan, colToSubPathsMap, selectedTabletIds,
-                operativeSlots);
+                operativeSlots, hintContext);
     }
 
     @Override
@@ -702,7 +715,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, colToSubPathsMap,
-                manuallySpecifiedTabletIds, operativeSlots);
+                manuallySpecifiedTabletIds, operativeSlots, hintContext);
     }
 
     Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {

@@ -39,6 +39,6 @@ public class AddProjectForJoin extends DefaultPlanRewriter<Void> implements Cust
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, context);
-        return new LogicalProject<>(ImmutableList.copyOf(join.getOutput()), join);
+        return new LogicalProject<>(ImmutableList.copyOf(join.getOutput()), join, join.getHintContext());
     }
 }

@@ -29,7 +29,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[lineitem]
 
 Hint log:
-Used: leading(supplier revenue0 )
-UnUsed:
+Used: leading(supplier revenue0)
+UnUsed: 
 SyntaxError:
 

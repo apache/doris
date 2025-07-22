@@ -49,7 +49,7 @@ public class SubqueryToApplyTest {
         NamedExpression aggregateFunction = new Alias(new ExprId(12345), new Count(slotReference), "count");
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(
-                ImmutableList.of(), ImmutableList.of(aggregateFunction), logicalOlapScan);
+                ImmutableList.of(), ImmutableList.of(aggregateFunction), logicalOlapScan, Optional.empty());
         LogicalPlanBuilder planBuilder = new LogicalPlanBuilder(logicalAggregate);
         LogicalPlan plan = planBuilder.projectAll().build();
         Optional<Expression> correlatedOuterExpr = Optional

@@ -117,7 +117,7 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
                 childOutputSlots.add((SlotReference) childProject.toSlot());
             }
             Plan newChild = ProjectProcessor.tryProcessProject(childProjections.build(), child)
-                    .orElseGet(() -> new LogicalProject<>(childProjections.build(), child));
+                    .orElseGet(() -> new LogicalProject<>(childProjections.build(), child, child.getHintContext()));
             newChildren.add(newChild);
             newRegularChildrenOutput.add(childOutputSlots.build());
         }

@@ -30,7 +30,8 @@ public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory 
         return logicalFilter().then(filter -> new PhysicalFilter<>(
             filter.getConjuncts(),
             filter.getLogicalProperties(),
-            filter.child())
+            filter.child(),
+            filter.getHintContext())
         ).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);
     }
 }

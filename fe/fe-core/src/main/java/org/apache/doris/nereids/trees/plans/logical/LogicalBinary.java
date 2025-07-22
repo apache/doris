@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -38,13 +39,13 @@ public abstract class LogicalBinary<
 
     public LogicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
                              Optional<LogicalProperties> logicalProperties, LEFT_CHILD_TYPE leftChild,
-                             RIGHT_CHILD_TYPE rightChild) {
-        super(type, groupExpression, logicalProperties, leftChild, rightChild);
+                             RIGHT_CHILD_TYPE rightChild, Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, hintContext, leftChild, rightChild);
     }
 
     public LogicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        super(type, groupExpression, logicalProperties, children);
+            Optional<LogicalProperties> logicalProperties, List<Plan> children, Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, children, hintContext);
     }
 
     public abstract List<Slot> computeOutput();

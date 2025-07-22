@@ -34,6 +34,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 class SelectExceptTest extends AnalyzeCheckTestBase implements MemoPatternMatchSupported {
 
     @Override
@@ -56,7 +58,7 @@ class SelectExceptTest extends AnalyzeCheckTestBase implements MemoPatternMatchS
                         new UnboundStar(ImmutableList.of("db", "t1"),
                                 ImmutableList.of(new UnboundSlot("db", "t1", "id")),
                                 ImmutableList.of()
-                        )), false, olapScan);
+                        )), false, olapScan, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(project)
                 .matches(

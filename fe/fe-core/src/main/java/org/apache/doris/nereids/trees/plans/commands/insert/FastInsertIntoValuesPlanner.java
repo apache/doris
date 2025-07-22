@@ -94,7 +94,8 @@ public class FastInsertIntoValuesPlanner extends NereidsPlanner {
                         logicalUnion.getRegularChildrenOutputs(),
                         logicalUnion.getConstantExprsList(),
                         logicalUnion.getLogicalProperties(),
-                        logicalUnion.children()
+                        logicalUnion.children(),
+                        logicalUnion.getHintContext()
                 );
             }
 
@@ -103,7 +104,8 @@ public class FastInsertIntoValuesPlanner extends NereidsPlanner {
                 return new PhysicalOneRowRelation(
                         oneRowRelation.getRelationId(),
                         oneRowRelation.getProjects(),
-                        oneRowRelation.getLogicalProperties());
+                        oneRowRelation.getLogicalProperties(),
+                        oneRowRelation.getHintContext());
             }
 
             @Override
@@ -114,7 +116,8 @@ public class FastInsertIntoValuesPlanner extends NereidsPlanner {
                 return new PhysicalProject<>(
                         logicalProject.getProjects(),
                         logicalProject.getLogicalProperties(),
-                        logicalProject.child()
+                        logicalProject.child(),
+                        logicalProject.getHintContext()
                 );
             }
 

@@ -363,8 +363,10 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                 ImmutableMap.of(aggOut.toSlot(), aggOutExpr));
 
         LogicalFilter<Plan> newFilter = filter.withConjunctsAndChild(conjuncts.get(true), apply.left());
-        LogicalWindow<Plan> newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
-        LogicalFilter<Plan> windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
+        LogicalWindow<Plan> newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter,
+                filter.getHintContext());
+        LogicalFilter<Plan> windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow,
+                filter.getHintContext());
         return windowFilter;
     }
 

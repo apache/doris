@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSupported {
 
@@ -47,9 +48,9 @@ public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSuppo
         SlotReference slotReference = new SlotReference("col1", IntegerType.INSTANCE);
         Alias alias = new Alias(slotReference, "a");
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-        LogicalProject<Plan> logicalProject = new LogicalProject<>(ImmutableList.of(alias), logicalOlapScan);
+        LogicalProject<Plan> logicalProject = new LogicalProject<>(ImmutableList.of(alias), logicalOlapScan, Optional.empty());
         List<OrderKey> orderKeys = ImmutableList.of(new OrderKey(slotReference, true, true));
-        LogicalSort<LogicalProject<Plan>> logicalSort = new LogicalSort<>(orderKeys, logicalProject);
+        LogicalSort<LogicalProject<Plan>> logicalSort = new LogicalSort<>(orderKeys, logicalProject, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), logicalSort)
                 .applyBottomUp(new ReplaceExpressionByChildOutput())
@@ -65,9 +66,9 @@ public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSuppo
         Alias alias = new Alias(slotReference, "a");
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(
-                ImmutableList.of(alias), ImmutableList.of(alias), logicalOlapScan);
+                ImmutableList.of(alias), ImmutableList.of(alias), logicalOlapScan, Optional.empty());
         List<OrderKey> orderKeys = ImmutableList.of(new OrderKey(slotReference, true, true));
-        LogicalSort<LogicalAggregate<Plan>> logicalSort = new LogicalSort<>(orderKeys, logicalAggregate);
+        LogicalSort<LogicalAggregate<Plan>> logicalSort = new LogicalSort<>(orderKeys, logicalAggregate, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), logicalSort)
                 .applyBottomUp(new ReplaceExpressionByChildOutput())
@@ -83,10 +84,10 @@ public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSuppo
         Alias alias = new Alias(slotReference, "a");
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(
-                ImmutableList.of(alias), ImmutableList.of(alias), logicalOlapScan);
-        LogicalHaving<Plan> logicalHaving = new LogicalHaving<>(ImmutableSet.of(BooleanLiteral.TRUE), logicalAggregate);
+                ImmutableList.of(alias), ImmutableList.of(alias), logicalOlapScan, Optional.empty());
+        LogicalHaving<Plan> logicalHaving = new LogicalHaving<>(ImmutableSet.of(BooleanLiteral.TRUE), logicalAggregate, Optional.empty());
         List<OrderKey> orderKeys = ImmutableList.of(new OrderKey(slotReference, true, true));
-        LogicalSort<Plan> logicalSort = new LogicalSort<>(orderKeys, logicalHaving);
+        LogicalSort<Plan> logicalSort = new LogicalSort<>(orderKeys, logicalHaving, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), logicalSort)
                 .applyBottomUp(new ReplaceExpressionByChildOutput())

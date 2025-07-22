@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -41,13 +42,14 @@ public abstract class LogicalRelation extends LogicalLeaf implements Relation {
 
     protected final RelationId relationId;
 
-    public LogicalRelation(RelationId relationId, PlanType type) {
-        this(relationId, type, Optional.empty(), Optional.empty());
+    public LogicalRelation(RelationId relationId, PlanType type, Optional<HintContext> hintContext) {
+        this(relationId, type, Optional.empty(), Optional.empty(), hintContext);
     }
 
     public LogicalRelation(RelationId relationId, PlanType type,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(type, groupExpression, logicalProperties);
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, hintContext);
         this.relationId = relationId;
 
     }

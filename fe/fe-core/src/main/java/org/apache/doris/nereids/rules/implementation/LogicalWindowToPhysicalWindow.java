@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.annotation.DependsRules;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -39,6 +40,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -94,6 +96,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         // todo: optimize the order of partitionKeyGroups when there exist group keys below LogicalWindow
 
         Plan newRoot = logicalWindow.child();
+        Optional<HintContext> hintContext = logicalWindow.getHintContext();
         for (PartitionKeyGroup partitionKeyGroup : partitionKeyGroupList) {
             boolean isSkew = partitionKeyGroup.isSkew();
             for (int i = 0; i < partitionKeyGroup.groups.size(); ++i) {
@@ -103,7 +106,8 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                 // 0 == i && isSkew is because within a partitionKeyGroup, only the bottom-level PhysicalWindow(i=0)
                 // can use the window skew optimization (local sort + shuffle + merge sort). Others cannot because
                 // within the partitionKeyGroup, shuffle isn't needed as the group by keys are identical.
-                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, 0 == i && isSkew);
+                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, 0 == i && isSkew,
+                        hintContext);
             }
         }
         return (PhysicalWindow) newRoot;
@@ -113,28 +117,30 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
      * create PhysicalWindow and PhysicalSort
      * ******************************************************************************************** */
 
-    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup, boolean isSkew) {
+    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup, boolean isSkew,
+            Optional<HintContext> hintContext) {
         // PhysicalSort node for orderKeys; if there exists no orderKey, newRoot = root
         // Plan newRoot = createPhysicalSortNode(root, orderKeyGroup, ctx);
         Plan newRoot = root;
 
         // PhysicalWindow nodes for each different window frame, so at least one PhysicalWindow node will be added
         for (WindowFrameGroup windowFrameGroup : orderKeyGroup.groups) {
-            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, isSkew);
+            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, isSkew, hintContext);
         }
 
         return newRoot;
     }
 
-    private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup, boolean isSkew) {
-        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root);
+    private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup, boolean isSkew,
+            Optional<HintContext> hintContext) {
+        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root, hintContext);
         PhysicalWindow<Plan> physicalWindow = new PhysicalWindow<>(
                 windowFrameGroup,
                 RequireProperties.followParent(),
                 tempLogicalWindow.getWindowExpressions(),
                 isSkew,
                 tempLogicalWindow.getLogicalProperties(),
-                root);
+                root, hintContext);
         return (PhysicalWindow) physicalWindow.withChildren(ImmutableList.of(root));
     }
 

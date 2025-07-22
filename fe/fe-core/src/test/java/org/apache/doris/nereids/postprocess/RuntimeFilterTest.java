@@ -394,7 +394,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         projList.add(loCustkey);
         projList.add(loPartkey);
         projList.add(nullAlias);
-        PhysicalProject projLo = new PhysicalProject(projList, null, lo);
+        PhysicalProject projLo = new PhysicalProject(projList, null, lo, Optional.empty());
 
         PhysicalHashJoin joinLoC = new PhysicalHashJoin(JoinType.INNER_JOIN,
                 ImmutableList.of(new EqualTo(loCustkey, cCustkey)),
@@ -403,7 +403,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 Optional.empty(),
                 null,
                 projLo,
-                projectCustomer
+                projectCustomer, Optional.empty()
                 );
         PhysicalHashJoin joinLoCP = new PhysicalHashJoin(JoinType.INNER_JOIN,
                 ImmutableList.of(new EqualTo(nullAlias.toSlot(), pPartkey)),
@@ -412,7 +412,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 Optional.empty(),
                 null,
                 joinLoC,
-                projectPart
+                projectPart, Optional.empty()
                 );
         checker.getCascadesContext().getConnectContext().getSessionVariable().enableRuntimeFilterPrune = false;
         plan = new PlanPostProcessors(checker.getCascadesContext()).process(joinLoCP);

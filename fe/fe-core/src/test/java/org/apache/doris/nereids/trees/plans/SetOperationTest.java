@@ -32,6 +32,8 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 public class SetOperationTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
@@ -126,7 +128,7 @@ public class SetOperationTest extends TestWithFeService {
         LogicalOneRowRelation first = new LogicalOneRowRelation(
                 RelationId.createGenerator().getNextId(), ImmutableList.of(
                         new Alias(new Concat(new StringLiteral("1"), new StringLiteral("1")))
-        ));
+        ), Optional.empty());
 
         UnboundOneRowRelation second = new UnboundOneRowRelation(
                 RelationId.createGenerator().getNextId(), ImmutableList.of(
@@ -134,16 +136,16 @@ public class SetOperationTest extends TestWithFeService {
                             "concat",
                             ImmutableList.of(new StringLiteral("2"), new StringLiteral("2")))
                     )
-        ));
+        ), Optional.empty());
 
         LogicalOneRowRelation third = new LogicalOneRowRelation(
                 RelationId.createGenerator().getNextId(), ImmutableList.of(
                     new Alias(new Concat(new StringLiteral("3"), new StringLiteral("3")))
-        ));
+        ), Optional.empty());
 
         LogicalUnion union = new LogicalUnion(Qualifier.ALL, ImmutableList.of(
                 first, second, third
-        ));
+        ), Optional.empty());
         PlanChecker.from(connectContext, union)
                 .analyze()
                 .rewrite();

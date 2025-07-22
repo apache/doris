@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class DistributeHintTest extends TPCHTestBase {
@@ -92,7 +93,7 @@ public class DistributeHintTest extends TPCHTestBase {
         }
         Collections.shuffle(leadingParameters);
         System.out.println("LeadingHint: " + leadingParameters.toString());
-        hints.add(new SelectHintLeading("Leading", leadingParameters, ImmutableMap.of()));
+        hints.add(new SelectHintLeading("Leading", leadingParameters, ImmutableMap.of(), null, null));
         return new LogicalSelectHint<>(hints.build(), childPlan);
     }
 
@@ -100,7 +101,7 @@ public class DistributeHintTest extends TPCHTestBase {
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
         Plan plan = withJoinHint ? hyperGraphBuilder.buildJoinPlanWithJoinHint(tableNum, edgeNum) :
                 hyperGraphBuilder.randomBuildPlanWith(tableNum, edgeNum);
-        plan = new LogicalProject(plan.getOutput(), plan);
+        plan = new LogicalProject(plan.getOutput(), plan, Optional.empty());
         Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
         if (!withLeading) {
             CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);

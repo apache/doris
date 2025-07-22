@@ -31,6 +31,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 public class JoinOrderJobTest extends SqlTestBase {
     @Test
     protected void testSimpleSQL() {
@@ -137,7 +139,7 @@ public class JoinOrderJobTest extends SqlTestBase {
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
         Plan plan = hyperGraphBuilder
                 .randomBuildPlanWith(65, 65);
-        plan = new LogicalProject(plan.getOutput(), plan);
+        plan = new LogicalProject(plan.getOutput(), plan, Optional.empty());
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
         Assertions.assertEquals(cascadesContext.getMemo().countMaxContinuousJoin(), 64);
         hyperGraphBuilder.initStats("test", cascadesContext);
@@ -153,7 +155,7 @@ public class JoinOrderJobTest extends SqlTestBase {
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
         Plan plan = hyperGraphBuilder
                 .randomBuildPlanWith(64, 64 * 63 / 2);
-        plan = new LogicalProject(plan.getOutput(), plan);
+        plan = new LogicalProject(plan.getOutput(), plan, Optional.empty());
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
         hyperGraphBuilder.initStats("test", cascadesContext);
         PlanChecker.from(cascadesContext)

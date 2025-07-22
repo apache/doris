@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -52,9 +53,9 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
     private final SlotReference columnIdSlot;
 
     public LogicalDeferMaterializeOlapScan(LogicalOlapScan logicalOlapScan,
-            Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot) {
+            Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot, Optional<HintContext> hintContext) {
         this(logicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
-                logicalOlapScan.getGroupExpression(), Optional.empty());
+                logicalOlapScan.getGroupExpression(), Optional.empty(), hintContext);
     }
 
     /**
@@ -62,9 +63,10 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
      */
     public LogicalDeferMaterializeOlapScan(LogicalOlapScan logicalOlapScan,
             Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Optional<HintContext> hintContext) {
         super(logicalOlapScan.getRelationId(), logicalOlapScan.getType(), logicalOlapScan.getTable(),
-                logicalOlapScan.getQualifier(), groupExpression, logicalProperties);
+                logicalOlapScan.getQualifier(), groupExpression, logicalProperties, hintContext);
         this.logicalOlapScan = Objects.requireNonNull(logicalOlapScan, "logicalOlapScan can not be null");
         this.deferMaterializeSlotIds = ImmutableSet.copyOf(Objects.requireNonNull(deferMaterializeSlotIds,
                 "deferMaterializeSlotIds can not be null"));
@@ -114,7 +116,7 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalDeferMaterializeOlapScan(logicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, Optional.of(getLogicalProperties()));
+                groupExpression, Optional.of(getLogicalProperties()), hintContext);
     }
 
     @Override
@@ -122,13 +124,19 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.isEmpty(), "LogicalDeferMaterializeOlapScan should have no child");
         return new LogicalDeferMaterializeOlapScan(logicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, logicalProperties);
+                groupExpression, logicalProperties, hintContext);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.isEmpty(), "LogicalDeferMaterializeOlapScan should have no child");
         return this;
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalDeferMaterializeOlapScan(logicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
+                groupExpression, Optional.of(getLogicalProperties()), hintContext);
     }
 
     @Override

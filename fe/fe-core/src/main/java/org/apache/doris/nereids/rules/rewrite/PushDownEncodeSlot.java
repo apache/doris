@@ -329,7 +329,7 @@ public class PushDownEncodeSlot extends OneRewriteRuleFactory {
                 List<NamedExpression> projections =
                         notPushedAlias.stream().map(e -> (NamedExpression) e).collect(Collectors.toList());
                 projections.addAll(plan.getOutput());
-                plan = new LogicalProject<>(projections, plan);
+                plan = new LogicalProject<>(projections, plan, plan.getHintContext());
             }
             return plan;
         }
@@ -595,7 +595,7 @@ public class PushDownEncodeSlot extends OneRewriteRuleFactory {
                 List<NamedExpression> projections = new ArrayList<>();
                 projections.addAll(notPushed);
                 projections.addAll(join.getOutput());
-                result = new LogicalProject<Plan>(projections, join);
+                result = new LogicalProject<Plan>(projections, join, join.getHintContext());
             }
             return result;
         }

@@ -136,8 +136,8 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
 
         Set<NamedExpression> normalizedWindowWithAlias = ctxForWindows.pushDownToNamedExpression(normalizedWindows);
         // only need normalized windowExpressions
-        LogicalWindow normalizedLogicalWindow =
-                new LogicalWindow<>(ImmutableList.copyOf(normalizedWindowWithAlias), normalizedChild);
+        LogicalWindow normalizedLogicalWindow = new LogicalWindow<>(ImmutableList.copyOf(normalizedWindowWithAlias),
+                normalizedChild, project.getHintContext());
 
         // 3. handle top projects
         List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs);

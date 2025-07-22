@@ -134,7 +134,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
                         projectsBuilder.add(slot);
                     }
                 }
-                child = new LogicalProject<>(projectsBuilder.build(), child);
+                child = new LogicalProject<>(projectsBuilder.build(), child, child.getHintContext());
                 child = pushPlanUnderAnchor(child);
             }
             CascadesContext rewrittenCtx = CascadesContext.newSubtreeContext(
@@ -214,7 +214,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             for (Expression conjunct : conjuncts) {
                 newConjuncts.addAll(ExpressionUtils.extractConjunction(conjunct));
             }
-            LogicalPlan filter = new LogicalFilter<>(newConjuncts.build(), child);
+            LogicalPlan filter = new LogicalFilter<>(newConjuncts.build(), child, child.getHintContext());
             return pushPlanUnderAnchor(filter);
         }
         return child;

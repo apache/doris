@@ -217,7 +217,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
         hint.setStatus(HintStatus.SUCCESS);
         hint.setSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true));
         return new LogicalJoin<>(join.getJoinType(), newHashJoinConjuncts.build(), join.getOtherJoinConjuncts(),
-                hint, leftProject, rightProject, JoinReorderContext.EMPTY);
+                hint, leftProject, rightProject, JoinReorderContext.EMPTY, join.getHintContext());
     }
 
     // Add a project on top of originPlan, which includes all the original columns plus a case when column.
@@ -233,7 +233,8 @@ public class SaltJoin extends OneRewriteRuleFactory {
                 originPlan.getOutput().size() + 1);
         namedExpressionsBuilder.addAll(originPlan.getOutput());
         namedExpressionsBuilder.add(new Alias(ifExpr, RANDOM_COLUMN_NAME_LEFT + ctx.generateColumnName()));
-        return new LogicalProject<>(Utils.fastToImmutableList(namedExpressionsBuilder.build()), originPlan);
+        return new LogicalProject<>(Utils.fastToImmutableList(namedExpressionsBuilder.build()), originPlan,
+                originPlan.getHintContext());
     }
 
     // if saltedSkewValues is [1,2,null], then ifCondition is "skewExpr in [1,2] or skewExpr is null"
@@ -269,7 +270,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
             namedExpressionsBuilder.addAll(originPlan.getOutput());
             namedExpressionsBuilder.add(new Alias(Literal.convertToTypedLiteral(DEFAULT_SALT_VALUE, type),
                     randomColumnName));
-            return new LogicalProject<>(namedExpressionsBuilder.build(), originPlan);
+            return new LogicalProject<>(namedExpressionsBuilder.build(), originPlan, originPlan.getHintContext());
         }
         // construct LogicalUnion and LogicalGenerate
         // if skew values are: 1 and null, the equal sql is:
@@ -288,17 +289,18 @@ public class SaltJoin extends OneRewriteRuleFactory {
         List<NamedExpression> outputs = ImmutableList.of(new SlotReference(
                 SKEW_VALUE_COLUMN_NAME + ctx.generateColumnName(), skewExpr.getDataType(), saltedSkewValuesHasNull));
         LogicalUnion union = new LogicalUnion(Qualifier.ALL, outputs, ImmutableList.of(), constantExprsList.build(),
-                false, ImmutableList.of());
+                false, ImmutableList.of(), originPlan.getHintContext());
         List<Function> generators = ImmutableList.of(new ExplodeNumbers(new IntegerLiteral(factor)));
         SlotReference generateSlot = new SlotReference(EXPLODE_NUMBER_COLUMN_NAME + ctx.generateColumnName(),
                 IntegerType.INSTANCE, true);
-        LogicalGenerate<Plan> generate = new LogicalGenerate<>(generators, ImmutableList.of(generateSlot), union);
+        LogicalGenerate<Plan> generate = new LogicalGenerate<>(generators, ImmutableList.of(generateSlot), union,
+                originPlan.getHintContext());
         ImmutableList.Builder<NamedExpression> projectsBuilder = ImmutableList.builderWithExpectedSize(
                 union.getOutput().size() + 1);
         projectsBuilder.addAll(union.getOutput());
         projectsBuilder.add(new Alias(new Cast(generateSlot, type)));
         List<NamedExpression> projects = projectsBuilder.build();
-        LogicalProject<Plan> project = new LogicalProject<>(projects, generate);
+        LogicalProject<Plan> project = new LogicalProject<>(projects, generate, originPlan.getHintContext());
         // construct right join
         EqualPredicate equalTo;
         if (saltedSkewValuesHasNull) {
@@ -310,7 +312,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
         JoinReorderContext joinReorderContext = new JoinReorderContext();
         joinReorderContext.setLeadingJoin(true);
         LogicalJoin<Plan, Plan> rightJoin = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN, ImmutableList.of(equalTo),
-                project, originPlan, joinReorderContext);
+                project, originPlan, joinReorderContext, originPlan.getHintContext());
         // construct upper project
         ImmutableList.Builder<NamedExpression> namedExpressionsBuilder = ImmutableList.builderWithExpectedSize(
                 originPlan.getOutput().size() + 1);
@@ -319,7 +321,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
         If ifExpr = new If(new IsNull(castGeneratedSlot), Literal.convertToTypedLiteral(DEFAULT_SALT_VALUE, type),
                 castGeneratedSlot);
         namedExpressionsBuilder.add(new Alias(ifExpr, randomColumnName));
-        return new LogicalProject<>(namedExpressionsBuilder.build(), rightJoin);
+        return new LogicalProject<>(namedExpressionsBuilder.build(), rightJoin, originPlan.getHintContext());
     }
 
     private static int getSaltFactor(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {
@@ -370,9 +372,11 @@ public class SaltJoin extends OneRewriteRuleFactory {
         }
 
         LogicalFilter<Plan> leftFilter =
-                new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(skewConjunct.child(0)))), join.left());
+                new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(skewConjunct.child(0)))), join.left(),
+                        join.getHintContext());
         LogicalFilter<Plan> rightFilter =
-                new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(skewConjunct.child(1)))), join.right());
+                new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(skewConjunct.child(1)))), join.right(),
+                        join.getHintContext());
         DistributeHint hint = join.getDistributeHint();
         switch (join.getJoinType()) {
             case INNER_JOIN:

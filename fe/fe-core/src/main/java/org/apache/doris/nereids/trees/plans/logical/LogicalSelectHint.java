@@ -59,7 +59,7 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     public LogicalSelectHint(ImmutableList<SelectHint> hints,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_SELECT_HINT, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_SELECT_HINT, groupExpression, logicalProperties, child, Optional.empty());
         this.hints = ImmutableList.copyOf(Objects.requireNonNull(hints, "hints can not be null"));
     }
 

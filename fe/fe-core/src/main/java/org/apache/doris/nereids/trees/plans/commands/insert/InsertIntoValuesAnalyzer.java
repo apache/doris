@@ -44,6 +44,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 
 /** InsertIntoValuesAnalyzer */
 public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
@@ -127,9 +128,11 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
                         DataType commonDataType = castedRows.get(0).get(columnId).getDataType();
                         outputs.add(new SlotReference(name, commonDataType, nullables.get(columnId)));
                     }
-                    return new LogicalUnion(Qualifier.ALL, castedRows, ImmutableList.of()).withNewOutputs(outputs);
+                    return new LogicalUnion(Qualifier.ALL, castedRows, ImmutableList.of(), Optional.empty())
+                            .withNewOutputs(outputs);
                 } else if (originConstants.size() == 1) {
-                    return new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(), originConstants.get(0));
+                    return new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(), originConstants.get(0),
+                            Optional.empty());
                 } else {
                     throw new AnalysisException("Illegal inline table with empty constants");
                 }

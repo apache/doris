@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
@@ -65,18 +66,20 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     private final boolean isChecked;
 
-    public LogicalWindow(List<NamedExpression> windowExpressions, CHILD_TYPE child) {
-        this(windowExpressions, false, Optional.empty(), Optional.empty(), child);
+    public LogicalWindow(List<NamedExpression> windowExpressions, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        this(windowExpressions, false, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
-    public LogicalWindow(List<NamedExpression> windowExpressions, boolean isChecked, CHILD_TYPE child) {
-        this(windowExpressions, isChecked, Optional.empty(), Optional.empty(), child);
+    public LogicalWindow(List<NamedExpression> windowExpressions, boolean isChecked, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        this(windowExpressions, isChecked, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     public LogicalWindow(List<NamedExpression> windowExpressions, boolean isChecked,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            CHILD_TYPE child) {
-        super(PlanType.LOGICAL_WINDOW, groupExpression, logicalProperties, child);
+            CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_WINDOW, groupExpression, logicalProperties, child, hintContext);
         this.windowExpressions = ImmutableList.copyOf(Objects.requireNonNull(windowExpressions, "output expressions"
                 + "in LogicalWindow cannot be null"));
         this.isChecked = isChecked;
@@ -97,18 +100,29 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public LogicalWindow<Plan> withExpressionsAndChild(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow<>(windowExpressions, isChecked, child);
+        return new LogicalWindow<>(windowExpressions, isChecked, child, hintContext);
     }
 
     public LogicalWindow<Plan> withChecked(List<NamedExpression> windowExpressions, Plan child) {
         return new LogicalWindow<>(windowExpressions, true, Optional.empty(),
-                Optional.of(getLogicalProperties()), child);
+                Optional.of(getLogicalProperties()), child, hintContext);
     }
 
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalWindow<>(windowExpressions, isChecked, children.get(0));
+        return new LogicalWindow<>(windowExpressions, isChecked, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalWindow<>(windowExpressions, isChecked, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalWindow<>(windowExpressions, isChecked, children.get(0), hintContext);
     }
 
     @Override
@@ -119,14 +133,15 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalWindow<>(windowExpressions, isChecked,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+                groupExpression, Optional.of(getLogicalProperties()), child(), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalWindow<>(windowExpressions, isChecked, groupExpression, logicalProperties, children.get(0));
+        return new LogicalWindow<>(windowExpressions, isChecked, groupExpression, logicalProperties, children.get(0),
+                hintContext);
     }
 
     /**
@@ -320,7 +335,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public Plan pushPartitionLimitThroughWindow(WindowExpression windowFunc,
             long partitionLimit, boolean hasGlobalLimit) {
         LogicalWindow<?> window = (LogicalWindow<?>) withChildren(new LogicalPartitionTopN<>(windowFunc, hasGlobalLimit,
-                partitionLimit, child(0)));
+                partitionLimit, child(0), hintContext));
         return window;
     }
 

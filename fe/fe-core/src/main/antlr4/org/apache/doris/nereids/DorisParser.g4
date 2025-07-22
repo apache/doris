@@ -1283,11 +1283,29 @@ qualifyClause
     : QUALIFY booleanExpression
     ;
 
-selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
+selectHint: hintStatements+=hintStatement (COMMA hintStatements+=hintStatement)* EOF;
 
 hintStatement
-    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
-    | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=multipartIdentifier (COMMA tableList+=multipartIdentifier)* RIGHT_PAREN)?
+    : (LEADING | JOIN_ORDER) LEFT_PAREN tableSpecs RIGHT_PAREN                                                              #leadingHint
+    | (ORDERED | JOIN_FIXED_ORDER)                                                                                          #orderedHint
+    | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=mvIdentifier (COMMA tableList+=mvIdentifier)* RIGHT_PAREN)?               #mvHint
+    | (USE_CBO_RULE | NO_USE_CBO_RULE) (identifierList)?                                                                    #cboRuleHint
+    | SET_VAR (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?                     #setVarHint
+    | QB_NAME LEFT_PAREN identifier? RIGHT_PAREN                                                                            #qbNameHint
+    | (PREAGG_ON | PREAGG_OFF | PREAGGOPEN)                                                                                 #preAggHint
+    ;
+
+tableSpecs
+    : tableSpecPrimary joinTableSpec*
+    ;
+
+joinTableSpec
+    : distributeType? tableSpecPrimary
+    ;
+
+tableSpecPrimary
+    : multipartIdentifier
+    | LEFT_PAREN tableSpecs RIGHT_PAREN
     ;
 
 hintAssignment
@@ -1397,6 +1415,10 @@ multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
     ;
 
+mvIdentifier
+    : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)* (DOT ASTERISK)?
+    ;
+
 // ----------------Create Table Fields----------
 simpleColumnDefs
     : cols+=simpleColumnDef (COMMA cols+=simpleColumnDef)*
@@ -1495,6 +1517,10 @@ namedExpressionSeq
     ;
 
 expression
+    : booleanExpression
+    ;
+
+funcExpression
     : booleanExpression
     | lambdaExpression
     ;
@@ -1605,7 +1631,7 @@ functionCallExpression
               LEFT_PAREN (
                   (DISTINCT|ALL)?
                   (LEFT_BRACKET identifier RIGHT_BRACKET)?
-                  arguments+=expression (COMMA arguments+=expression)*
+                  arguments+=funcExpression (COMMA arguments+=funcExpression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
             (OVER windowSpec)?
@@ -1949,8 +1975,6 @@ nonReserved
     | HASH_MAP
     | HDFS
     | HELP
-    | HINT_END
-    | HINT_START
     | HISTOGRAM
     | HLL_UNION
     | HOSTNAME
@@ -1973,12 +1997,15 @@ nonReserved
     | ISOLATION
     | JOB
     | JOBS
+    | JOIN_FIXED_ORDER
+    | JOIN_ORDER
     | JSON
     | JSONB
     | LABEL
     | LAST
     | LDAP
     | LDAP_ADMIN_PASSWORD
+    | LEADING
     | LEFT_BRACE
     | LESS
     | LEVEL
@@ -2017,6 +2044,8 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NO_USE_MV
+    | NO_USE_CBO_RULE
     | NON_NULLABLE
     | NULLS
     | OF
@@ -2024,6 +2053,7 @@ nonReserved
     | ONLY
     | OPEN
     | OPTIMIZED
+    | ORDERED
     | PARAMETER
     | PARSED
     | PASSWORD
@@ -2043,6 +2073,9 @@ nonReserved
     | PLUGIN
     | PLUGINS
     | POLICY
+    | PREAGG_OFF
+    | PREAGG_ON
+    | PREAGGOPEN
     | PRIVILEGES
     | PROC
     | PROCESS
@@ -2050,6 +2083,7 @@ nonReserved
     | PROFILE
     | PROPERTIES
     | PROPERTY
+    | QB_NAME
     | QUANTILE_STATE
 	| QUANTILE_UNION
 	| QUARTER
@@ -2090,6 +2124,7 @@ nonReserved
     | SECOND
     | SERIALIZABLE
     | SET_SESSION_VARIABLE
+    | SET_VAR
     | SESSION
     | SESSION_USER
     | SHAPE
@@ -2132,6 +2167,8 @@ nonReserved
     | UNSET
     | UP
     | USER
+    | USE_CBO_RULE
+    | USE_MV
     | VALUE
     | VARCHAR
     | VARIABLE

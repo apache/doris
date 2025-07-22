@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -36,18 +37,18 @@ public abstract class LogicalUnary<CHILD_TYPE extends Plan>
         extends AbstractLogicalPlan
         implements UnaryPlan<CHILD_TYPE> {
 
-    protected LogicalUnary(PlanType type, CHILD_TYPE child) {
-        super(type, ImmutableList.of(child));
+    protected LogicalUnary(PlanType type, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(type, ImmutableList.of(child), hintContext);
     }
 
     protected LogicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
-                            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, hintContext, child);
     }
 
     protected LogicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, List<Plan> child) {
-        super(type, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, List<Plan> child, Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, child, hintContext);
     }
 
     public abstract List<Slot> computeOutput();

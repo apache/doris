@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -51,11 +52,17 @@ import java.util.Stack;
  * e.g. set_var(query_timeout='1800', exec_mem_limit='2147483648')
  */
 public class LeadingHint extends Hint {
+    public static final String SHUFFLE = "[shuffle]";
+    public static final String BROADCAST = "[broadcast]";
+    private static final String LEFTPAREN = "(";
+    private static final String RIGHTPAREN = ")";
     private String originalString = "";
 
     private List<String> addJoinParameters;
     private List<String> normalizedParameters;
     private final List<String> tablelist = new ArrayList<>();
+
+    private final Map<Integer, DistributeHint> distributeHints = new HashMap<>();
 
     private final Map<RelationId, LogicalPlan> relationIdToScanMap = Maps.newLinkedHashMap();
 
@@ -84,13 +91,18 @@ public class LeadingHint extends Hint {
      * @param hintName Leading
      * @param parameters table name mixed with left and right brace
      */
-    public LeadingHint(String hintName, List<String> parameters, String originalString,
-            Map<String, DistributeHint> strToHint) {
+    public LeadingHint(String hintName, List<String> parameters, Map<String, DistributeHint> strToHint,
+                       String originalString) {
         super(hintName);
         this.originalString = originalString;
+        this.strToHint.putAll(strToHint);
         addJoinParameters = insertJoinIntoParameters(parameters);
         normalizedParameters = parseIntoReversePolishNotation(addJoinParameters);
-        this.strToHint.putAll(strToHint);
+    }
+
+    public LeadingHint(String hintName, String originalString) {
+        super(hintName);
+        this.originalString = originalString;
     }
 
     /**
@@ -102,14 +114,14 @@ public class LeadingHint extends Hint {
         List<String> output = new ArrayList<>();
 
         for (String item : list) {
-            if (item.startsWith("broadcast") || item.startsWith("shuffle")) {
+            if (item.startsWith(SHUFFLE) || item.startsWith(BROADCAST)) {
                 output.remove(output.size() - 1);
                 output.add(item);
                 continue;
-            } else if (item.equals("{")) {
+            } else if (item.equals(LEFTPAREN)) {
                 output.add(item);
                 continue;
-            } else if (item.equals("}")) {
+            } else if (item.equals(RIGHTPAREN)) {
                 output.remove(output.size() - 1);
                 output.add(item);
             } else {
@@ -131,20 +143,26 @@ public class LeadingHint extends Hint {
         List<String> s2 = new ArrayList<>();
 
         for (String item : list) {
-            if (!(item.startsWith("shuffle") || item.startsWith("broadcast") || item.equals("{")
-                    || item.equals("}") || item.equals("join"))) {
+            if (!(item.startsWith(SHUFFLE) || item.startsWith(BROADCAST) || item.equals(LEFTPAREN)
+                    || item.equals(RIGHTPAREN) || item.equals("join"))) {
                 tablelist.add(item);
                 s2.add(item);
-            } else if (item.equals("{")) {
+            } else if (item.equals(LEFTPAREN)) {
                 s1.push(item);
-            } else if (item.equals("}")) {
-                while (!s1.peek().equals("{")) {
+            } else if (item.equals(RIGHTPAREN)) {
+                while (!s1.peek().equals(LEFTPAREN)) {
                     String pop = s1.pop();
                     s2.add(pop);
                 }
                 s1.pop();
             } else {
-                while (s1.size() != 0 && !s1.peek().equals("{")) {
+                if (item.startsWith(SHUFFLE)) {
+                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.SHUFFLE_RIGHT));
+                } else if (item.startsWith(BROADCAST)) {
+                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.BROADCAST_RIGHT));
+                }
+
+                while (s1.size() != 0 && !s1.peek().equals(LEFTPAREN)) {
                     s2.add(s1.pop());
                 }
                 s1.push(item);
@@ -166,35 +184,7 @@ public class LeadingHint extends Hint {
 
     @Override
     public String getExplainString() {
-        if (!this.isSuccess()) {
-            return originalString;
-        }
-        StringBuilder out = new StringBuilder();
-        for (String parameter : addJoinParameters) {
-            if (parameter.equals("{") || parameter.equals("}") || parameter.equals("[") || parameter.equals("]")) {
-                out.append(parameter + " ");
-            } else if (parameter.startsWith("shuffle") || parameter.startsWith("broadcast")) {
-                DistributeHint distributeHint = strToHint.get(parameter);
-                if (!distributeHint.isSuccess()) {
-                    continue;
-                }
-                if (distributeHint.distributeType.equals(DistributeType.SHUFFLE_RIGHT)) {
-                    out.append("shuffle");
-                    if (distributeHint.getSkewInfo() != null && distributeHint.isSuccessInSkewRewrite()) {
-                        out.append("_skew ");
-                    } else {
-                        out.append(" ");
-                    }
-                } else {
-                    out.append("broadcast ");
-                }
-            } else if (parameter.equals("join")) {
-                continue;
-            } else {
-                out.append(parameter + " ");
-            }
-        }
-        return "leading(" + out.toString() + ")";
+        return originalString;
     }
 
     /**
@@ -512,10 +502,29 @@ public class LeadingHint extends Hint {
         return JoinType.INNER_JOIN;
     }
 
+    private DistributeHint getDistributeJoinHint(String distributeJoinType) {
+        DistributeHint distributeHint = null;
+        if (distributeJoinType.equals("join")) {
+            distributeHint = new DistributeHint(DistributeType.NONE);
+        } else if (distributeJoinType.startsWith(SHUFFLE) || distributeJoinType.startsWith(BROADCAST)) {
+            distributeHint = distributeHints.get(distributeJoinType.hashCode());
+        }
+        distributeHint.setSuccessInLeading(true);
+        if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+            ConnectContext.get().getStatementContext().addHint(distributeHint);
+        }
+        distributeHints.put(0, distributeHint);
+        return distributeHint;
+    }
+
     private LogicalPlan makeJoinPlan(LogicalPlan leftChild, LogicalPlan rightChild, String distributeJoinType) {
         DistributeHint distributeHint = new DistributeHint(DistributeType.NONE);
         if (!distributeJoinType.equals("join")) {
-            distributeHint = strToHint.get(distributeJoinType);
+            distributeHint = strToHint.getOrDefault(distributeJoinType, distributeHint);
+        }
+        distributeHint.setSuccessInLeading(true);
+        if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+            ConnectContext.get().getStatementContext().addHint(distributeHint);
         }
         List<Expression> conditions = getJoinConditions(
                 getFilters(), leftChild, rightChild);
@@ -540,7 +549,7 @@ public class LeadingHint extends Hint {
                 distributeHint,
                 Optional.empty(),
                 leftChild,
-                rightChild, null);
+                rightChild, null, leftChild.getHintContext());
         logicalJoin.getJoinReorderContext().setLeadingJoin(true);
         logicalJoin.setBitmap(LongBitmap.or(getBitmap(leftChild), getBitmap(rightChild)));
         return logicalJoin;
@@ -553,7 +562,7 @@ public class LeadingHint extends Hint {
     public Plan generateLeadingJoinPlan() {
         Stack<LogicalPlan> stack = new Stack<>();
         for (String item : normalizedParameters) {
-            if (item.equals("join") || item.startsWith("shuffle") || item.startsWith("broadcast")) {
+            if (item.equals("join") || item.startsWith(SHUFFLE) || item.startsWith(BROADCAST)) {
                 LogicalPlan rightChild = stack.pop();
                 LogicalPlan leftChild = stack.pop();
                 LogicalPlan joinPlan = makeJoinPlan(leftChild, rightChild, item);
@@ -581,6 +590,14 @@ public class LeadingHint extends Hint {
         return finalJoin;
     }
 
+    private DistributeHint getJoinHint(Integer index) {
+        if (distributeHints.get(index) == null) {
+            return new DistributeHint(DistributeType.NONE);
+        }
+        distributeHints.get(index).setSuccessInLeading(true);
+        return distributeHints.get(index);
+    }
+
     private List<Expression> getJoinConditions(List<Pair<Long, Expression>> filters,
                                                LogicalPlan left, LogicalPlan right) {
         List<Expression> joinConditions = new ArrayList<>();
@@ -592,6 +609,16 @@ public class LeadingHint extends Hint {
                 joinConditions.add(filterPair.second);
                 filters.remove(i);
             }
+        }
+        return joinConditions;
+    }
+
+    private List<Expression> getLastConditions(List<Pair<Long, Expression>> filters) {
+        List<Expression> joinConditions = new ArrayList<>();
+        for (int i = filters.size() - 1; i >= 0; i--) {
+            Pair<Long, Expression> filterPair = filters.get(i);
+            joinConditions.add(filterPair.second);
+            filters.remove(i);
         }
         return joinConditions;
     }
@@ -608,7 +635,7 @@ public class LeadingHint extends Hint {
         if (newConjuncts.isEmpty()) {
             return scan;
         } else {
-            return new LogicalFilter<>(newConjuncts, scan);
+            return new LogicalFilter<>(newConjuncts, scan, scan.getHintContext());
         }
     }
 

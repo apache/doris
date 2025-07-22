@@ -39,6 +39,7 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.QbNameTreeNode;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
@@ -71,7 +72,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
@@ -81,6 +84,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
 
@@ -264,6 +268,9 @@ public class NereidsPlanner extends Planner {
         analyze(showAnalyzeProcess(explainLevel, showPlanProcess));
         if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             analyzedPlan = cascadesContext.getRewritePlan();
+            String qbNamePlan = PlanUtils.dumpPlanWithQbName(analyzedPlan);
+            QbNameTreeNode node = PlanUtils.createQbNameTree(analyzedPlan);
+            String nodeTree = node.treeString();
             if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
                 return analyzedPlan;
             }
@@ -273,6 +280,10 @@ public class NereidsPlanner extends Planner {
         rewrite(showRewriteProcess(explainLevel, showPlanProcess));
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             rewrittenPlan = cascadesContext.getRewritePlan();
+            String qbNamePlan = PlanUtils.dumpPlanWithQbName(rewrittenPlan);
+            String originalQbNamePlan = PlanUtils.dumpPlanWithOriginalQbName(rewrittenPlan);
+            QbNameTreeNode node = PlanUtils.createQbNameTree(rewrittenPlan);
+            String nodeTree = node.treeString();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
                 return rewrittenPlan;
             }
@@ -305,6 +316,10 @@ public class NereidsPlanner extends Planner {
         // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
         MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
         NereidsTracer.output(statementContext.getConnectContext());
+        String qbNamePlan = PlanUtils.dumpPlanWithQbName(physicalPlan);
+        String originalQbNamePlan = PlanUtils.dumpPlanWithOriginalQbName(physicalPlan);
+        QbNameTreeNode node = PlanUtils.createQbNameTree(physicalPlan);
+        String nodeTree = node.treeString();
         return physicalPlan;
     }
 
@@ -478,7 +493,7 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    protected void splitFragments(PhysicalPlan resultPlan) {
+    protected void splitFragments(PhysicalPlan resultPlan, ExplainLevel explainLevel) {
         if (resultPlan instanceof PhysicalSqlCache) {
             return;
         }
@@ -502,6 +517,9 @@ public class NereidsPlanner extends Planner {
             collectHboPlanInfo(queryId, physicalPlan, planTranslatorContext);
         }
 
+        if (explainLevel == ExplainLevel.NONE) {
+            collectQueryStat(root.getPlanRoot());
+        }
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
         physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
@@ -576,6 +594,25 @@ public class NereidsPlanner extends Planner {
         }
     }
 
+    private void collectQueryStat(PlanNode root) {
+//        try {
+//            if (root instanceof ScanNode) {
+//                StatsDelta delta = ((ScanNode) root).genQueryStats();
+//                if (delta != null && !delta.empty()) {
+//                    Env.getCurrentEnv().getQueryStats().addStats(delta);
+//                    if (!delta.getTabletStats().isEmpty()) {
+//                        Env.getCurrentEnv().getQueryStats().addStats(delta.getTabletStats());
+//                    }
+//                }
+//            }
+//            for (PlanNode child : root.getChildren()) {
+//                collectQueryStat(child);
+//            }
+//        } catch (UserException e) {
+//            LOG.info("failed to collect query stat: {}", e.getMessage());
+//        }
+    }
+
     protected void distribute(PhysicalPlan physicalPlan, ExplainLevel explainLevel) {
         boolean canUseNereidsDistributePlanner = SessionVariable.canUseNereidsDistributePlanner()
                 || (physicalPlan instanceof PhysicalDictionarySink); // dic sink only supported in new Coordinator
@@ -585,8 +622,7 @@ public class NereidsPlanner extends Planner {
                 && (explainLevel != ExplainLevel.ALL_PLAN && explainLevel != ExplainLevel.DISTRIBUTED_PLAN))) {
             return;
         }
-
-        splitFragments(physicalPlan);
+        splitFragments(physicalPlan, explainLevel);
         doDistribute(canUseNereidsDistributePlanner, explainLevel);
     }
 

@@ -446,7 +446,7 @@ public class InsertUtils {
             }
             optimizedRowConstructors.add(optimizedRowConstructor.build());
         }
-        return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
+        return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build(), Optional.empty()));
     }
 
     /** buildAnalyzer */

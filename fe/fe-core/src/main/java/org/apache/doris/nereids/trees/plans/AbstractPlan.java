@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
@@ -70,12 +71,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     protected final Supplier<Boolean> hasUnboundChild;
     protected Statistics statistics;
 
+    protected final Optional<HintContext> hintContext;
+
     /**
      * all parameter constructor.
      */
     protected AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
-            List<Plan> children) {
+            List<Plan> children, Optional<HintContext> hintContext) {
         super(children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
@@ -104,6 +107,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                 this.depth = computeDepth();
             }
         }
+        this.hintContext = hintContext;
     }
 
     protected AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
@@ -135,6 +139,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                 this.depth = computeDepth();
             }
         }
+        this.hintContext = Optional.empty();
     }
 
     private int computeDepth() {
@@ -375,5 +380,10 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             }
             return false;
         });
+    }
+
+    @Override
+    public Optional<HintContext> getHintContext() {
+        return hintContext;
     }
 }

@@ -54,4 +54,5 @@ public interface LogicalPlan extends Plan {
     default StmtType stmtType() {
         return StmtType.OTHER;
     }
+
 }

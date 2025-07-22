@@ -28,7 +28,7 @@ public class HavingToFilter extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return logicalHaving()
-                .then(having -> new LogicalFilter<>(having.getConjuncts(), having.child()))
+                .then(having -> new LogicalFilter<>(having.getConjuncts(), having.child(), having.getHintContext()))
                 .toRule(RuleType.HAVING_TO_FILTER);
     }
 }

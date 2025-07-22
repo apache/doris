@@ -125,8 +125,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Test
     public void checkUser() throws AnalysisException, org.apache.doris.common.AnalysisException {
         LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
-                Arrays.asList(fullDbName));
-        LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
+                Arrays.asList(fullDbName), Optional.empty());
+        LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation, Optional.empty());
 
         useUser("root");
         Plan plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
@@ -141,8 +141,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     public void checkUserRandomDist() throws AnalysisException, org.apache.doris.common.AnalysisException {
         connectContext.getState().setIsQuery(true);
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
-                        ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
-        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan);
+                        ImmutableList.of(tableNameRanddomDist), Optional.empty()), connectContext, new BindRelation());
+        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan, Optional.empty());
 
         useUser("root");
         Plan rewrittenPlan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy(),
@@ -159,8 +159,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     public void checkNoPolicy() throws org.apache.doris.common.AnalysisException {
         useUser(userName);
         LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
-                Arrays.asList(fullDbName));
-        LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
+                Arrays.asList(fullDbName), Optional.empty());
+        LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation, Optional.empty());
         Plan plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
         Assertions.assertEquals(plan, relation);
     }
@@ -170,8 +170,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
         useUser(userName);
         connectContext.getState().setIsQuery(true);
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
-                ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
-        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan);
+                ImmutableList.of(tableNameRanddomDist), Optional.empty()), connectContext, new BindRelation());
+        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan, Optional.empty());
         Plan rewrittenPlan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy(),
                 new BindExpression());
         Assertions.assertEquals(plan, rewrittenPlan.child(0));
@@ -181,8 +181,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     public void checkOnePolicy() throws Exception {
         useUser(userName);
         LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
-                Arrays.asList(fullDbName));
-        LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
+                Arrays.asList(fullDbName), Optional.empty());
+        LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation, Optional.empty());
         createPolicy("CREATE ROW POLICY "
                 + policyName
                 + " ON "
@@ -210,9 +210,9 @@ public class CheckRowPolicyTest extends TestWithFeService {
         connectContext.getState().setIsQuery(true);
         connectContext.setStatementContext(new StatementContext());
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
-                ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
+                ImmutableList.of(tableNameRanddomDist), Optional.empty()), connectContext, new BindRelation());
 
-        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan);
+        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan, Optional.empty());
         createPolicy("CREATE ROW POLICY "
                 + policyName
                 + " ON "

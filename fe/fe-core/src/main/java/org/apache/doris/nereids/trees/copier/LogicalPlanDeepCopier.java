@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -94,6 +95,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalRelation newRelation =
                 logicalRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
+        newRelation = (LogicalRelation) newRelation.withHintContext(copyHintContext(logicalRelation, context));
         updateReplaceMapWithOutput(logicalRelation, newRelation, context.exprIdReplaceMap);
         context.putRelation(logicalRelation.getRelationId(), newRelation);
         return newRelation;
@@ -116,8 +118,10 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> newProjects = emptyRelation.getProjects().stream()
                 .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableList.toImmutableList());
-        LogicalEmptyRelation newEmptyRelation =
-                new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(), newProjects);
+        LogicalEmptyRelation newEmptyRelation = new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(),
+                newProjects, emptyRelation.getHintContext());
+        newEmptyRelation = (LogicalEmptyRelation) newEmptyRelation
+                .withHintContext(copyHintContext(newEmptyRelation, context));
         context.putRelation(emptyRelation.getRelationId(), newEmptyRelation);
         return newEmptyRelation;
     }
@@ -130,8 +134,10 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> newProjects = oneRowRelation.getProjects().stream()
                 .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableList.toImmutableList());
-        LogicalOneRowRelation newOneRowRelation =
-                new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(), newProjects);
+        LogicalOneRowRelation newOneRowRelation = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
+                newProjects, oneRowRelation.getHintContext());
+        newOneRowRelation = (LogicalOneRowRelation) newOneRowRelation
+                .withHintContext(copyHintContext(newOneRowRelation, context));
         context.putRelation(oneRowRelation.getRelationId(), newOneRowRelation);
         return newOneRowRelation;
     }
@@ -154,7 +160,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         return new LogicalApply<>(correlationSlot, apply.getSubqueryType(), apply.isNot(),
                 compareExpr, typeCoercionExpr, correlationFilter,
                 markJoinSlotReference, apply.isNeedAddSubOutputToProjects(),
-                apply.isMarkJoinSlotNotNull(), left, right);
+                apply.isMarkJoinSlotNotNull(), left, right, copyHintContext(apply, context));
     }
 
     @Override
@@ -166,7 +172,9 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return aggregate.withChildGroupByAndOutput(groupByExpressions, outputExpressions, child);
+        LogicalAggregate newAgg = aggregate.withChildGroupByAndOutput(groupByExpressions, outputExpressions, child);
+        newAgg = newAgg.withHintContext(copyHintContext(aggregate, context));
+        return newAgg;
     }
 
     @Override
@@ -180,7 +188,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputExpressions = repeat.getOutputExpressions().stream()
                 .map(e -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(e, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalRepeat<>(groupingSets, outputExpressions, child);
+        return new LogicalRepeat<>(groupingSets, outputExpressions, child, copyHintContext(repeat, context));
     }
 
     @Override
@@ -189,7 +197,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         Set<Expression> conjuncts = filter.getConjuncts().stream()
                 .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableSet.toImmutableSet());
-        return new LogicalFilter<>(conjuncts, child);
+        return new LogicalFilter<>(conjuncts, child, copyHintContext(filter, context));
     }
 
     @Override
@@ -202,7 +210,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableSet.toImmutableSet());
         SlotReference newRowId = (SlotReference) ExpressionDeepCopier.INSTANCE
                 .deepCopy(deferMaterializeOlapScan.getColumnIdSlot(), context);
-        return new LogicalDeferMaterializeOlapScan(newScan, newSlotIds, newRowId);
+        return new LogicalDeferMaterializeOlapScan(newScan, newSlotIds, newRowId,
+                copyHintContext(deferMaterializeOlapScan, context));
     }
 
     @Override
@@ -211,7 +220,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> newProjects = project.getProjects().stream()
                 .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalProject<>(newProjects, project.isDistinct(), child);
+        return new LogicalProject<>(newProjects, project.isDistinct(), child, copyHintContext(project, context));
     }
 
     @Override
@@ -221,7 +230,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(o -> new OrderKey(ExpressionDeepCopier.INSTANCE.deepCopy(o.getExpr(), context),
                         o.isAsc(), o.isNullFirst()))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalSort<>(orderKeys, child);
+        return new LogicalSort<>(orderKeys, child, copyHintContext(sort, context));
     }
 
     @Override
@@ -231,7 +240,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(o -> new OrderKey(ExpressionDeepCopier.INSTANCE.deepCopy(o.getExpr(), context),
                         o.isAsc(), o.isNullFirst()))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalTopN<>(orderKeys, topN.getLimit(), topN.getOffset(), child);
+        return new LogicalTopN<>(orderKeys, topN.getLimit(), topN.getOffset(), child, copyHintContext(topN, context));
     }
 
     @Override
@@ -244,7 +253,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableSet.toImmutableSet());
         SlotReference newRowId = (SlotReference) ExpressionDeepCopier.INSTANCE
                 .deepCopy(topN.getColumnIdSlot(), context);
-        return new LogicalDeferMaterializeTopN<>(newTopN, newSlotIds, newRowId);
+        return new LogicalDeferMaterializeTopN<>(newTopN, newSlotIds, newRowId, copyHintContext(topN, context));
     }
 
     @Override
@@ -258,13 +267,15 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(o -> (OrderExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
         return new LogicalPartitionTopN<>(partitionTopN.getFunction(), partitionKeys, orderKeys,
-                partitionTopN.hasGlobalLimit(), partitionTopN.getPartitionLimit(), child);
+                partitionTopN.hasGlobalLimit(), partitionTopN.getPartitionLimit(), child,
+                copyHintContext(partitionTopN, context));
     }
 
     @Override
     public Plan visitLogicalLimit(LogicalLimit<? extends Plan> limit, DeepCopierContext context) {
         Plan child = limit.child().accept(this, context);
-        return new LogicalLimit<>(limit.getLimit(), limit.getOffset(), limit.getPhase(), child);
+        return new LogicalLimit<>(limit.getLimit(), limit.getOffset(), limit.getPhase(), child,
+                copyHintContext(limit, context));
     }
 
     @Override
@@ -293,14 +304,16 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             hint.setSkewInfo(hint.getSkewInfo().withSkewExpr(skewExpr));
         }
         return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
-                hint, markJoinSlotReference, children, join.getJoinReorderContext());
+                join.getDistributeHint(), markJoinSlotReference, children, join.getJoinReorderContext(),
+                copyHintContext(join, context));
     }
 
     @Override
     public Plan visitLogicalAssertNumRows(LogicalAssertNumRows<? extends Plan> assertNumRows,
             DeepCopierContext context) {
         Plan child = assertNumRows.child().accept(this, context);
-        return new LogicalAssertNumRows<>(assertNumRows.getAssertNumRowsElement(), child);
+        return new LogicalAssertNumRows<>(assertNumRows.getAssertNumRowsElement(), child,
+                copyHintContext(assertNumRows, context));
     }
 
     @Override
@@ -309,7 +322,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         Set<Expression> conjuncts = having.getConjuncts().stream()
                 .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableSet.toImmutableSet());
-        return new LogicalHaving<>(conjuncts, child);
+        return new LogicalHaving<>(conjuncts, child, copyHintContext(having, context));
     }
 
     @Override
@@ -331,7 +344,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                         .collect(ImmutableList.toImmutableList()))
                 .collect(ImmutableList.toImmutableList());
         return new LogicalUnion(union.getQualifier(), outputs, childrenOutputs,
-                constantExprsList, union.hasPushedFilter(), children);
+                constantExprsList, union.hasPushedFilter(), children, copyHintContext(union, context));
     }
 
     @Override
@@ -347,7 +360,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                         .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                         .collect(ImmutableList.toImmutableList()))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalExcept(except.getQualifier(), outputs, childrenOutputs, children);
+        return new LogicalExcept(except.getQualifier(), outputs, childrenOutputs, children,
+                copyHintContext(except, context));
     }
 
     @Override
@@ -363,7 +377,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                         .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                         .collect(ImmutableList.toImmutableList()))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalIntersect(intersect.getQualifier(), outputs, childrenOutputs, children);
+        return new LogicalIntersect(intersect.getQualifier(), outputs, childrenOutputs, children,
+                copyHintContext(intersect, context));
     }
 
     @Override
@@ -375,7 +390,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<Slot> generatorOutput = generate.getGeneratorOutput().stream()
                 .map(o -> (Slot) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalGenerate<>(generators, generatorOutput, generate.getExpandColumnAlias(), child);
+        return new LogicalGenerate<>(generators, generatorOutput, generate.getExpandColumnAlias(), child,
+                copyHintContext(generate, context));
     }
 
     @Override
@@ -384,7 +400,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> windowExpressions = window.getWindowExpressions().stream()
                 .map(w -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(w, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalWindow<>(windowExpressions, window.isChecked(), child);
+        return new LogicalWindow<>(windowExpressions, window.isChecked(), child, copyHintContext(window, context));
     }
 
     @Override
@@ -413,7 +429,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         LogicalCTEConsumer newCTEConsumer = new LogicalCTEConsumer(
                 StatementScopeIdGenerator.newRelationId(),
                 cteConsumer.getCteId(), cteConsumer.getName(),
-                consumerToProducerOutputMap, producerToConsumerOutputMap);
+                consumerToProducerOutputMap, producerToConsumerOutputMap, copyHintContext(cteConsumer, context));
         context.putRelation(cteConsumer.getRelationId(), newCTEConsumer);
         return newCTEConsumer;
     }
@@ -450,6 +466,15 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             }
         }
         return (Plan) newRelation.withOperativeSlots(newOperativeSlots);
+    }
+
+    private Optional<HintContext> copyHintContext(LogicalPlan plan, DeepCopierContext context) {
+        Optional<HintContext> hintContext = plan.getHintContext();
+        if (hintContext.isPresent()) {
+            Optional<String> oldQbName = hintContext.get().getQbName();
+            hintContext = Optional.of(hintContext.get().withQbName(context.copyQbName(oldQbName)));
+        }
+        return hintContext;
     }
 
 }

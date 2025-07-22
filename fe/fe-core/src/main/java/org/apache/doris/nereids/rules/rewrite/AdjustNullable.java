@@ -238,7 +238,8 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 apply.isNeedAddSubOutputToProjects(),
                 apply.isMarkJoinSlotNotNull(),
                 apply.left(),
-                apply.right());
+                apply.right(),
+                apply.getHintContext());
     }
 
     @Override

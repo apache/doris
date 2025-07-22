@@ -35,7 +35,7 @@ PhysicalResultSink
 ------------------------PhysicalOlapScan[time_dim]
 
 Hint log:
-Used: leading(tmp item time_dim )
-UnUsed:
+Used: leading(tmp item time_dim)
+UnUsed: 
 SyntaxError:
 

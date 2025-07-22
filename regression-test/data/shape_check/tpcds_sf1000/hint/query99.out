@@ -28,7 +28,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[call_center]
 
 Hint log:
-Used: leading(catalog_sales date_dim warehouse ship_mode call_center )
-UnUsed:
+Used: leading(catalog_sales date_dim warehouse ship_mode call_center)
+UnUsed: 
 SyntaxError:
 

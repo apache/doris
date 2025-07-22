@@ -57,7 +57,7 @@ public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeString
             List<String> columnLabels, List<FieldInfo> fieldInfos, List<Expr> resultExprs,
             Optional<ResultSet> resultSetInFe, List<InternalService.PCacheValue> cacheValues,
             String backendAddress, String planBody) {
-        super(PlanType.LOGICAL_SQL_CACHE, Optional.empty(), Optional.empty());
+        super(PlanType.LOGICAL_SQL_CACHE, Optional.empty(), Optional.empty(), Optional.empty());
         this.queryId = Objects.requireNonNull(queryId, "queryId can not be null");
         this.columnLabels = Objects.requireNonNull(columnLabels, "columnLabels can not be null");
         this.fieldInfos = Objects.requireNonNull(fieldInfos, "fieldInfos can not be null");
