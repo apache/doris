@@ -1972,6 +1972,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                             block->get_by_position(i).column->permute(permutation, num_rows);
             }
 
+            RETURN_IF_ERROR(block->check_type_and_column());
+
             return Status::OK();
         });
     }();
