@@ -1448,7 +1448,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     }
                     // float_value = is_negative ? -float_value : float_value;
                     FromT expect_value = float_value * multiplier.value;
-                    if (expect_value <= FromT(min_result.value) || expect_value >= FromT(max_result.value)) {
+                    if (expect_value <= FromT(min_result.value) ||
+                        expect_value >= FromT(max_result.value)) {
                         // std::cerr << fmt::format("{:f} overflow\n", expect_value);
                     } else {
                         T v {};
