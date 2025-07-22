@@ -45,8 +45,8 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
@@ -209,8 +209,8 @@ Status Segment::_open(OlapReaderStatistics* stats) {
     return Status::OK();
 }
 
-Status Segment::_open_inverted_index() {
-    _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
+Status Segment::_open_index_file_reader() {
+    _index_file_reader = std::make_shared<IndexFileReader>(
             _fs,
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                     _file_reader->path().native())},
@@ -555,8 +555,8 @@ Status Segment::healthy_status() {
         if (_create_column_readers_once_call.has_called()) {
             RETURN_IF_ERROR(_create_column_readers_once_call.stored_result());
         }
-        if (_inverted_index_file_reader_open.has_called()) {
-            RETURN_IF_ERROR(_inverted_index_file_reader_open.stored_result());
+        if (_index_file_reader_open.has_called()) {
+            RETURN_IF_ERROR(_index_file_reader_open.stored_result());
         }
         // This status is set by running time, for example, if there is something wrong during read segment iterator.
         return _healthy_status.status();
@@ -955,23 +955,21 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
-                                            const TabletIndex* index_meta,
-                                            const StorageReadOptions& read_options,
-                                            std::unique_ptr<InvertedIndexIterator>* iter) {
+Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
+                                   const StorageReadOptions& read_options,
+                                   std::unique_ptr<IndexIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
         _be_exec_version = read_options.runtime_state->be_exec_version();
     }
     RETURN_IF_ERROR(_create_column_readers_once(read_options.stats));
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        // call DorisCallOnce.call without check if _inverted_index_file_reader is nullptr
+        // call DorisCallOnce.call without check if _index_file_reader is nullptr
         // to avoid data race during parallel method calls
+        RETURN_IF_ERROR(_index_file_reader_open.call([&] { return _open_index_file_reader(); }));
+        // after DorisCallOnce.call, _index_file_reader is guaranteed to be not nullptr
         RETURN_IF_ERROR(
-                _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
-        // after DorisCallOnce.call, _inverted_index_file_reader is guaranteed to be not nullptr
-        RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
-                                                            read_options, iter));
+                reader->new_index_iterator(_index_file_reader, index_meta, read_options, iter));
         return Status::OK();
     }
     return Status::OK();
@@ -1142,11 +1140,16 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
                                      .file_cache_stats = &stats.file_cache_stats},
     };
+
     std::vector<segment_v2::rowid_t> single_row_loc {row_id};
     if (!slot->column_paths().empty()) {
         vectorized::PathInDataPtr path = std::make_shared<vectorized::PathInData>(
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(),
                 slot->column_paths());
+
+        // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
+        // if segment cache miss, column reader will be created to make sure the variant column result not coredump
+        RETURN_IF_ERROR(_create_column_readers_once(&stats));
         auto storage_type = get_data_type_of(ColumnIdentifier {.unique_id = slot->col_unique_id(),
                                                                .path = path,
                                                                .is_nullable = slot->is_nullable()},

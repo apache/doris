@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -37,8 +38,8 @@ public class JsonExtractNoQuotes extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES =
-            ImmutableList.of(FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT));
+            ImmutableList.of(FunctionSignature.ret(JsonType.INSTANCE)
+                    .varArgs(JsonType.INSTANCE, VarcharType.SYSTEM_DEFAULT));
 
     /**
      * constructor with 1 or more arguments.

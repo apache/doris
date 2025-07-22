@@ -79,7 +79,7 @@ public:
     void renameFile(const char* from, const char* to) override;
     void touchFile(const char* name) override;
     lucene::store::IndexOutput* createOutput(const char* name) override;
-    lucene::store::IndexOutput* createOutputV2(io::FileWriter* file_writer);
+    std::unique_ptr<lucene::store::IndexOutput> createOutputV2(io::FileWriter* file_writer);
     void close() override;
     std::string toString() const override;
     static const char* getClassName();
@@ -209,6 +209,8 @@ protected:
     void seekInternal(const int64_t position) override;
     // IndexInput methods
     void readInternal(uint8_t* b, const int32_t len) override;
+
+    friend class DorisFSDirectoryTest;
 };
 
 class DorisFSDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {

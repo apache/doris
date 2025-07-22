@@ -385,7 +385,7 @@ public class CloudWarmUpJob implements Writable {
         info.add(Long.toString(maxBatchSize));
         info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
         info.add(errMsg);
-        info.add(tables.stream()
+        info.add(tables == null ? "" : tables.stream()
                 .map(t -> StringUtils.isEmpty(t.getRight())
                         ? t.getLeft() + "." + t.getMiddle()
                         : t.getLeft() + "." + t.getMiddle() + "." + t.getRight())

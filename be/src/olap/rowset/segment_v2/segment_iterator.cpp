@@ -50,8 +50,9 @@
 #include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -95,6 +96,8 @@
 namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
+
+#include "common/compile_check_begin.h"
 
 SegmentIterator::~SegmentIterator() = default;
 
@@ -183,7 +186,7 @@ class SegmentIterator::BackwardBitmapRangeIterator : public SegmentIterator::Bit
 public:
     explicit BackwardBitmapRangeIterator(const roaring::Roaring& bitmap) {
         roaring_init_iterator_last(&bitmap.roaring, &_riter);
-        _rowid_count = roaring_bitmap_get_cardinality(&bitmap.roaring);
+        _rowid_count = cast_set<uint32_t>(roaring_bitmap_get_cardinality(&bitmap.roaring));
         _rowid_left = _rowid_count;
     }
 
@@ -260,7 +263,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _schema(schema),
           _column_iterators(_schema->num_columns()),
           _bitmap_index_iterators(_schema->num_columns()),
-          _inverted_index_iterators(_schema->num_columns()),
+          _index_iterators(_schema->num_columns()),
           _cur_rowid(0),
           _lazy_materialization_read(false),
           _lazy_inited(false),
@@ -367,7 +370,7 @@ void SegmentIterator::_initialize_predicate_results() {
 Status SegmentIterator::init_iterators() {
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
-    RETURN_IF_ERROR(_init_inverted_index_iterators());
+    RETURN_IF_ERROR(_init_index_iterators());
     return Status::OK();
 }
 
@@ -507,7 +510,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     {
         if (_opts.runtime_state &&
             _opts.runtime_state->query_options().enable_inverted_index_query &&
-            has_inverted_index_in_iterators()) {
+            has_index_in_iterators()) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
             RETURN_IF_ERROR(_apply_inverted_index());
@@ -778,7 +781,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
         return false;
     }
     auto pred_column_id = pred->column_id();
-    if (_inverted_index_iterators[pred_column_id] == nullptr) {
+    if (_index_iterators[pred_column_id] == nullptr) {
         //this column without inverted index
         return false;
     }
@@ -796,10 +799,12 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
 
     // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
     if (PredicateTypeTraits::is_range(pred->type()) &&
-        _inverted_index_iterators[pred_column_id] != nullptr &&
-        _inverted_index_iterators[pred_column_id]->get_inverted_index_reader_type() ==
-                InvertedIndexReaderType::STRING_TYPE) {
-        return false;
+        _index_iterators[pred_column_id] != nullptr) {
+        if (_index_iterators[pred_column_id]->type() == IndexType::INVERTED) {
+            if (_index_iterators[pred_column_id]->get_reader()->is_string_index()) {
+                return false;
+            }
+        }
     }
 
     // Function filter no apply inverted index
@@ -875,9 +880,12 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
 }
 
 bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
-    bool has_fulltext_index = _inverted_index_iterators[cid] != nullptr &&
-                              _inverted_index_iterators[cid]->get_inverted_index_reader_type() ==
-                                      InvertedIndexReaderType::FULLTEXT;
+    if (_index_iterators[cid]->type() != IndexType::INVERTED) {
+        return false;
+    }
+
+    bool has_fulltext_index = _index_iterators[cid] != nullptr &&
+                              _index_iterators[cid]->get_reader()->is_fulltext_index();
 
     return has_fulltext_index;
 }
@@ -894,9 +902,9 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     } else {
         bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
-        Status res = pred->evaluate(_storage_name_and_type[pred->column_id()],
-                                    _inverted_index_iterators[pred->column_id()].get(), num_rows(),
-                                    &_row_bitmap);
+        Status res =
+                pred->evaluate(_storage_name_and_type[pred->column_id()],
+                               _index_iterators[pred->column_id()].get(), num_rows(), &_row_bitmap);
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
@@ -1101,24 +1109,24 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
     return Status::OK();
 }
 
-Status SegmentIterator::_init_inverted_index_iterators() {
-    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_inverted_index_iterators_timer_ns);
+Status SegmentIterator::_init_index_iterators() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_index_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
     for (auto cid : _schema->column_ids()) {
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
-        if (_inverted_index_iterators[cid] == nullptr) {
+        if (_index_iterators[cid] == nullptr) {
             // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
             // This is because the sub-column is created in create_materialized_variant_column.
             // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
             const auto& column = _opts.tablet_schema->column(cid);
             int32_t col_unique_id =
                     column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
-            RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
+            RETURN_IF_ERROR(_segment->new_index_iterator(
                     column,
                     _segment->_tablet_schema->inverted_index(col_unique_id, column.suffix_path()),
-                    _opts, &_inverted_index_iterators[cid]));
+                    _opts, &_index_iterators[cid]));
         }
     }
     return Status::OK();
@@ -1154,7 +1162,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     const auto& key_col_ids = key.schema()->column_ids();
     _convert_rowcursor_to_short_key(key, key_col_ids.size());
 
-    uint32_t start_block_id = 0;
+    ssize_t start_block_id = 0;
     auto start_iter = sk_index_decoder->lower_bound(index_key);
     if (start_iter.valid()) {
         // Because previous block may contain this key, so we should set rowid to
@@ -1169,12 +1177,12 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
         // row block. so we set the rowid to first row of last row block.
         start_block_id = sk_index_decoder->num_items() - 1;
     }
-    rowid_t start = start_block_id * sk_index_decoder->num_rows_per_block();
+    rowid_t start = cast_set<rowid_t>(start_block_id) * sk_index_decoder->num_rows_per_block();
 
     rowid_t end = upper_bound;
     auto end_iter = sk_index_decoder->upper_bound(index_key);
     if (end_iter.valid()) {
-        end = end_iter.ordinal() * sk_index_decoder->num_rows_per_block();
+        end = cast_set<rowid_t>(end_iter.ordinal()) * sk_index_decoder->num_rows_per_block();
     }
 
     // binary search to find the exact key
@@ -1230,7 +1238,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
         }
         return status;
     }
-    *rowid = index_iterator->get_current_ordinal();
+    *rowid = cast_set<rowid_t>(index_iterator->get_current_ordinal());
 
     // The sequence column needs to be removed from primary key index when comparing key
     bool has_seq_col = _segment->_tablet_schema->has_sequence_col();
@@ -1847,22 +1855,22 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint16_t new_size = 0;
 
-    uint32_t sel_pos = 0;
-    const uint32_t sel_end = sel_pos + selected_size;
+    uint16_t sel_pos = 0;
+    const uint16_t sel_end = sel_pos + selected_size;
     static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
-    const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
+    const uint16_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
     while (sel_pos < sel_end_simd) {
         auto mask = simd::bytes_mask_to_bits_mask(_ret_flags.data() + sel_pos);
         if (0 == mask) {
             //pass
         } else if (simd::bits_mask_all() == mask) {
-            for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+            for (uint16_t i = 0; i < SIMD_BYTES; i++) {
                 sel_rowid_idx[new_size++] = sel_pos + i;
             }
         } else {
             simd::iterate_through_bits_mask(
-                    [&](const size_t bit_pos) { sel_rowid_idx[new_size++] = sel_pos + bit_pos; },
+                    [&](const uint16_t bit_pos) { sel_rowid_idx[new_size++] = sel_pos + bit_pos; },
                     mask);
         }
         sel_pos += SIMD_BYTES;
@@ -1964,6 +1972,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                             block->get_by_position(i).column->permute(permutation, num_rows);
             }
 
+            RETURN_IF_ERROR(block->check_type_and_column());
+
             return Status::OK();
         });
     }();
@@ -2026,7 +2036,7 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
 void SegmentIterator::_clear_iterators() {
     _column_iterators.clear();
     _bitmap_index_iterators.clear();
-    _inverted_index_iterators.clear();
+    _index_iterators.clear();
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
@@ -2101,7 +2111,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
-    nrows_read_limit = std::min(_row_bitmap.cardinality(), uint64_t(nrows_read_limit));
+    nrows_read_limit = std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), nrows_read_limit);
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt 1 execute failed: {}",
@@ -2148,7 +2158,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         _output_non_pred_columns(block);
     } else {
-        uint16_t selected_size = _current_batch_rows_read;
+        uint16_t selected_size = cast_set<uint16_t>(_current_batch_rows_read);
         _sel_rowid_idx.resize(selected_size);
 
         if (_is_need_vec_eval || _is_need_short_eval) {
@@ -2233,7 +2243,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto loc = _schema_block_id_map[cid];
                 block->replace_by_position(loc, std::move(_current_return_columns[cid]));
             }
-            for (uint32_t i = 0; i < selected_size; ++i) {
+            for (uint16_t i = 0; i < selected_size; ++i) {
                 _sel_rowid_idx[i] = i;
             }
 
@@ -2313,7 +2323,7 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
     DCHECK(!_remaining_conjunct_roots.empty());
     DCHECK(block->rows() != 0);
-    size_t prev_columns = block->columns();
+    int prev_columns = block->columns();
     uint16_t original_size = selected_size;
     _opts.stats->expr_cond_input_rows += original_size;
 
@@ -2456,7 +2466,7 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 
 Status SegmentIterator::_construct_compound_expr_context() {
     auto inverted_index_context = std::make_shared<vectorized::InvertedIndexContext>(
-            _schema->column_ids(), _inverted_index_iterators, _storage_name_and_type,
+            _schema->column_ids(), _index_iterators, _storage_name_and_type,
             _common_expr_inverted_index_status);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
@@ -2490,7 +2500,7 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
             }
 
             const auto& children = expr->children();
-            for (int32_t i = children.size() - 1; i >= 0; --i) {
+            for (int i = cast_set<int>(children.size()) - 1; i >= 0; --i) {
                 if (!children[i]->children().empty()) {
                     stack.emplace(children[i]);
                 }
@@ -2583,6 +2593,8 @@ bool SegmentIterator::_can_opt_topn_reads() {
 
     return all_true;
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace segment_v2
 } // namespace doris

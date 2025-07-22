@@ -28,6 +28,8 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
         new ClusterOptions(),
         new ClusterOptions(),
         new ClusterOptions(),
+        new ClusterOptions(),
+        new ClusterOptions(),
     ]
 
     for (options in clusterOptions) {
@@ -46,21 +48,49 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
                 "heartbeat_interval_second=1",]
     }
 
+    // Private deployment
+    // fe cluster id（docker compose 生成的），be cluster id 为空，ms endpoint 是配置的
     clusterOptions[0].sqlModeNodeMgr = true;
-    clusterOptions[0].beClusterId = true;
+    clusterOptions[0].beClusterId = false;
     clusterOptions[0].beMetaServiceEndpoint = true;
 
+    // fe cluster id（docker compose 生成的），be cluster id 为空，ms endpoint 下发的
     clusterOptions[1].sqlModeNodeMgr = true;
     clusterOptions[1].beClusterId = false;
     clusterOptions[1].beMetaServiceEndpoint = false;
 
-    clusterOptions[2].sqlModeNodeMgr = false;
+    // fe cluster id（docker compose 生成的），be cluster id （docker compose 生成的），ms endpoint 下发的
+    clusterOptions[2].sqlModeNodeMgr = true;
     clusterOptions[2].beClusterId = true;
-    clusterOptions[2].beMetaServiceEndpoint = true;
+    clusterOptions[2].beMetaServiceEndpoint = false;
 
-    clusterOptions[3].sqlModeNodeMgr = false;
-    clusterOptions[3].beClusterId = false;
-    clusterOptions[3].beMetaServiceEndpoint = false;
+    // fe cluster id（docker compose 生成的），be cluster id （docker compose 生成的），ms endpoint 是配置的
+    clusterOptions[3].sqlModeNodeMgr = true;
+    clusterOptions[3].beClusterId = true;
+    clusterOptions[3].beMetaServiceEndpoint = true;
+
+    // saas
+    // fe cluster id（随机生成），be cluster id 是空，ms endpoint 是配置的
+    clusterOptions[4].sqlModeNodeMgr = false;
+    clusterOptions[4].beClusterId = false;
+    clusterOptions[4].beMetaServiceEndpoint = true;
+    
+    // fe cluster id（随机生成）， be cluster id 是空，ms endpoint 用的是fe 下发的
+    clusterOptions[5].sqlModeNodeMgr = false;
+    clusterOptions[5].beClusterId = false;
+    clusterOptions[5].beMetaServiceEndpoint = false;
+
+    /*
+    fe cluster id（随机生成） 不等于 be cluster id（docker compose 配置1234567）
+    clusterOptions[].sqlModeNodeMgr = false;
+    clusterOptions[].beClusterId = true;
+    clusterOptions[].beMetaServiceEndpoint = true;
+
+    fe cluster id（随机生成） 不等于 be cluster id（docker compose 配置1234567）
+    clusterOptions[].sqlModeNodeMgr = false;
+    clusterOptions[].beClusterId = true;
+    clusterOptions[].beMetaServiceEndpoint = false;
+    */
 
     def inject_to_ms_api = { msHttpPort, key, value, check_func ->
         httpTest {
@@ -329,7 +359,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             logger.info("Dropping frontend index: {}, remove it from docker compose", dropFeInx)
             // Wait for the frontend to be fully dropped
 
-            dockerAwaitUntil(300) {
+            awaitUntil(300) {
                 reconnectFe()
                 def currentFrontends = sql_return_maparray("SHOW FRONTENDS")
                 currentFrontends.size() == frontends.size() - 1
@@ -365,7 +395,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             logger.info("Adding back frontend: {}", showFes)
 
             // Wait for the frontend to be fully added back
-            dockerAwaitUntil(300, 5) {
+            awaitUntil(300, 5) {
                 def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
                 updatedFrontends.size() == frontends.size()
             }
@@ -404,7 +434,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             reconnectFe()
 
             // Wait for the frontend to be fully dropped
-            dockerAwaitUntil(300, 5) {
+            awaitUntil(300, 5) {
                 def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
                 !updatedFrontends.any { it['Host'] == frontendToDrop.Host && it['EditLogPort'] == frontendToDrop.EditLogPort }
             }
@@ -414,7 +444,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             addList = cluster.addFrontend(1, true)
             logger.info("Up a new frontend, addList: {}", addList)
 
-            dockerAwaitUntil(300, 5) {
+            awaitUntil(300, 5) {
                 def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
                 updatedFrontends.size() == 3
             }

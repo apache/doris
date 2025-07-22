@@ -26,6 +26,7 @@ import "descriptors.proto";
 import "types.proto";
 import "olap_common.proto";
 import "olap_file.proto";
+import "runtime_profile.proto";
 
 option cc_generic_services = true;
 
@@ -795,6 +796,7 @@ message PMultiGetBlockV2 {
     };
     optional RowFormat format = 2;
     repeated bytes binary_row_data = 3;
+    optional PRuntimeProfileTree profile = 4;
 }
 
 message PMultiGetResponseV2 {

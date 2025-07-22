@@ -40,11 +40,6 @@ public abstract class MysqlCompatibleDatabase extends Database {
      */
     protected abstract void initTables();
 
-    @Override
-    public void unregisterTable(String name) {
-        // Do nothing
-    }
-
     /**
      * MysqlCompatibleDatabase will not be persisted to bdb.
      * It will be constructed everytime the fe starts. See

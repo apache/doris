@@ -30,6 +30,9 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         'sys_log_verbose_modules=org',
         'heartbeat_interval_second=1'
     ]
+    options.msConfigs += [
+        'enable_check_fe_drop_in_safe_time=false'
+    ]
     options.setFeNum(3)
     options.setBeNum(1)
     options.cloudMode = true
@@ -77,7 +80,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         def toDropUniqueId
         // add new follower
         cluster.addFrontend(1, true)
-        dockerAwaitUntil(5) {
+        awaitUntil(5) {
             def ret = sql """SHOW FRONTENDS"""
             log.info("show frontends: {}", ret)
             ret.size() == 4
@@ -99,7 +102,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         logger.info("ms addr={}, port={}", ms.host, ms.httpPort)
         // drop a follwer
         def findToDropUniqueId = { clusterId, hostIP, metaServices ->
-            ret = get_instance(metaServices)
+            def ret = get_instance(metaServices)
             def toDropCluster = ret.clusters.find {
                 it.cluster_id.contains(clusterId)
             }
@@ -119,7 +122,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         drop_node(toDropUniqueId, toDropIP, 0,
                     toDropPort, toDropType, feClusterName, feClusterId, ms)
 
-        dockerAwaitUntil(50) {
+        awaitUntil(50) {
             def ret = sql """SHOW FRONTENDS"""
             log.info("show frontends: {}", ret)
             ret.size() == 3
@@ -155,7 +158,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         drop_node(toDropUniqueId, toDropIP, 0,
                     toDropPort, toDropType, feClusterName, feClusterId, ms)
 
-        dockerAwaitUntil(50) {
+        awaitUntil(50) {
             def ret = sql """SHOW FRONTENDS"""
             log.info("show frontends: {}", ret)
             ret.size() == 3

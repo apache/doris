@@ -654,9 +654,9 @@ suite("test_json_load", "p0,nonConcurrent") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName =getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
+        def brokerName =getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
         def hdfs_file_path = uploadToHdfs "load_p0/stream_load/simple_object_json.json"
         def format = "json" 
 

@@ -72,7 +72,6 @@ public class BaseTableRef extends TableRef {
         isAnalyzed = true;  // true that we have assigned desc
         analyzeTableSnapshot(analyzer);
         analyzeLateralViewRef(analyzer);
-        analyzeJoin(analyzer);
         analyzeSortHints();
         analyzeHints();
         analyzeSample();

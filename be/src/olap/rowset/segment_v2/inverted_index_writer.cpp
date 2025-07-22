@@ -49,11 +49,11 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
@@ -98,7 +98,7 @@ public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     explicit InvertedIndexColumnWriterImpl(const std::string& field_name,
-                                           InvertedIndexFileWriter* index_file_writer,
+                                           IndexFileWriter* index_file_writer,
                                            const TabletIndex* index_meta,
                                            const bool single_field = true)
             : _single_field(single_field),
@@ -428,8 +428,6 @@ public:
     Status add_array_values(size_t field_size, const void* value_ptr,
                             const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
                             size_t count) override {
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_count_is_zero",
-                        { count = 0; })
         if (count == 0) {
             // no values to add inverted index
             return Status::OK();
@@ -449,7 +447,7 @@ public:
                 // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
                 auto array_elem_size = offsets[i + 1] - offsets[i];
                 // TODO(Amory).later we use object pool to avoid field creation
-                lucene::document::Field* new_field = nullptr;
+                std::unique_ptr<lucene::document::Field> new_field;
                 CL_NS(analysis)::TokenStream* ts = nullptr;
                 for (auto j = start_off; j < start_off + array_elem_size; ++j) {
                     if (nested_null_map && nested_null_map[j] == 1) {
@@ -463,7 +461,9 @@ public:
                         continue;
                     } else {
                         // now we temp create field . later make a pool
-                        Status st = create_field(&new_field);
+                        lucene::document::Field* tmp_field = nullptr;
+                        Status st = create_field(&tmp_field);
+                        new_field.reset(tmp_field);
                         DBUG_EXECUTE_IF(
                                 "InvertedIndexColumnWriterImpl::add_array_values_create_field_"
                                 "error",
@@ -491,9 +491,10 @@ public:
                                                         char_string_reader.release());
                             new_field->setValue(ts, own_token_stream);
                         } else {
-                            new_field_char_value(v->get_data(), v->get_size(), new_field);
+                            new_field_char_value(v->get_data(), v->get_size(), new_field.get());
                         }
-                        _doc->add(*new_field);
+                        // NOTE: new_field is managed by doc now, so we need to use release() to get the pointer
+                        _doc->add(*new_field.release());
                     }
                 }
                 start_off += array_elem_size;
@@ -522,7 +523,9 @@ public:
                     // avoid to add doc which without any field which may make threadState init skip
                     // init fieldDataArray, then will make error with next doc with fields in
                     // resetCurrentFieldData
-                    Status st = create_field(&new_field);
+                    lucene::document::Field* tmp_field = nullptr;
+                    Status st = create_field(&tmp_field);
+                    new_field.reset(tmp_field);
                     DBUG_EXECUTE_IF(
                             "InvertedIndexColumnWriterImpl::add_array_values_create_field_error_2",
                             {
@@ -535,7 +538,7 @@ public:
                                    << " error:" << st;
                         return st;
                     }
-                    _doc->add(*new_field);
+                    _doc->add(*new_field.release());
                     RETURN_IF_ERROR(add_null_document());
                     _doc->clear();
                 }
@@ -756,14 +759,14 @@ private:
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
     std::wstring _field_name;
-    InvertedIndexFileWriter* _index_file_writer;
+    IndexFileWriter* _index_file_writer;
     uint32_t _ignore_above;
     bool _should_analyzer = false;
 };
 
 Status InvertedIndexColumnWriter::create(const Field* field,
                                          std::unique_ptr<InvertedIndexColumnWriter>* res,
-                                         InvertedIndexFileWriter* index_file_writer,
+                                         IndexFileWriter* index_file_writer,
                                          const TabletIndex* index_meta) {
     const auto* typeinfo = field->type_info();
     FieldType type = typeinfo->type();

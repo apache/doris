@@ -35,11 +35,11 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 
@@ -507,19 +507,25 @@ void finish_schema_change_job(
     meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
 }
 
+void clear_memkv_count_bytes(MemTxnKv* memkv) {
+    memkv->get_count_ = memkv->put_count_ = memkv->del_count_ = 0;
+    memkv->get_bytes_ = memkv->put_bytes_ = memkv->del_bytes_ = 0;
+}
+
 // create_tablets
 TEST(RpcKvBvarTest, CreateTablets) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
     LOG(INFO) << "CreateTablets: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_create_tablets_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_create_tablets_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_tablets_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_tablets_put_counter.get({mock_instance}));
 }
@@ -532,9 +538,7 @@ TEST(RpcKvBvarTest, GetTablet) {
     constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     brpc::Controller cntl;
     GetTabletRequest req;
@@ -544,7 +548,9 @@ TEST(RpcKvBvarTest, GetTablet) {
 
     meta_service->get_tablet(&cntl, &req, &resp, nullptr);
     LOG(INFO) << "GetTablet: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_tablet_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_get_counter.get({mock_instance}));
 }
 
@@ -556,15 +562,16 @@ TEST(RpcKvBvarTest, GetTabletStats) {
     constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     GetTabletStatsResponse res;
     get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
 
     LOG(INFO) << "GetTabletStats: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_tablet_stats_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_stats_get_counter.get({mock_instance}));
 }
 
@@ -583,14 +590,16 @@ TEST(RpcKvBvarTest, UpdateTablet) {
     tablet_meta_info->set_tablet_id(tablet_id);
     tablet_meta_info->set_is_in_memory(true);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->update_tablet(&cntl, &req, &resp, nullptr);
 
     LOG(INFO) << "UpdateTablet: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_update_tablet_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_update_tablet_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tablet_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tablet_put_counter.get({mock_instance}));
 }
@@ -636,14 +645,16 @@ TEST(RpcKvBvarTest, BeginTxn) {
 
     int64_t txn_id = 0;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
 
     LOG(INFO) << "BeginTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_begin_txn_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_begin_txn_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_txn_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_txn_put_counter.get({mock_instance}));
 }
@@ -659,14 +670,17 @@ TEST(RpcKvBvarTest, CommitTxn) {
     int64_t txn_id = 0;
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
 
     LOG(INFO) << "CommitTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_commit_txn_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_commit_txn_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_commit_txn_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_txn_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_txn_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_txn_del_counter.get({mock_instance}));
@@ -716,16 +730,18 @@ TEST(RpcKvBvarTest, PrecommitTxn) {
     req.set_precommit_timeout_ms(36000);
     PrecommitTxnResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->precommit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                 &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "PrecommitTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_precommit_txn_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_precommit_txn_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_precommit_txn_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_precommit_txn_put_counter.get({mock_instance}));
 }
@@ -741,9 +757,7 @@ TEST(RpcKvBvarTest, AbortTxn) {
     int64_t txn_id = 0;
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     brpc::Controller cntl;
     AbortTxnRequest req;
@@ -756,7 +770,12 @@ TEST(RpcKvBvarTest, AbortTxn) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "AbortTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_abort_txn_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_abort_txn_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_abort_txn_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_txn_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_txn_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_abort_txn_del_counter.get({mock_instance}));
@@ -773,9 +792,7 @@ TEST(RpcKvBvarTest, GetTxn) {
     int64_t txn_id = 0;
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     brpc::Controller cntl;
     GetTxnRequest req;
@@ -788,7 +805,10 @@ TEST(RpcKvBvarTest, GetTxn) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "GetTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_txn_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_get_counter.get({mock_instance}));
 }
 
@@ -812,14 +832,15 @@ TEST(RpcKvBvarTest, GetTxnId) {
     req.set_label(label);
     req.set_db_id(db_id);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->get_txn_id(&cntl, &req, &res, nullptr);
 
     LOG(INFO) << "GetTxnId: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_txn_id_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_id_get_counter.get({mock_instance}));
 }
 
@@ -839,14 +860,16 @@ TEST(RpcKvBvarTest, PrepareRowset) {
     rowset.mutable_load_id()->set_hi(123);
     rowset.mutable_load_id()->set_lo(456);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     prepare_rowset(meta_service.get(), rowset, res);
 
     LOG(INFO) << "PrepareRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_prepare_rowset_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_prepare_rowset_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_rowset_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_rowset_put_counter.get({mock_instance}));
 }
@@ -863,16 +886,17 @@ TEST(RpcKvBvarTest, GetRowset) {
     // check get tablet response
     check_get_tablet(meta_service.get(), tablet_id, 1);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     // check get rowset response
     GetRowsetResponse get_rowset_res;
     get_rowset(meta_service.get(), table_id, index_id, partition_id, tablet_id, get_rowset_res);
 
     LOG(INFO) << "GetRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_rowset_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_rowset_get_counter.get({mock_instance}));
 }
 
@@ -904,10 +928,7 @@ TEST(RpcKvBvarTest, UpdateTmpRowset) {
     EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     req->mutable_rowset_meta()->CopyFrom(rowset);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
-
+    clear_memkv_count_bytes(mem_kv.get());
     meta_service->update_tmp_rowset(&cntl, req, &res, nullptr);
 
     if (!arena) {
@@ -915,7 +936,11 @@ TEST(RpcKvBvarTest, UpdateTmpRowset) {
     }
 
     LOG(INFO) << "UpdateTmpRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_update_tmp_rowset_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_update_tmp_rowset_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tmp_rowset_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tmp_rowset_put_counter.get({mock_instance}));
 }
@@ -930,15 +955,18 @@ TEST(RpcKvBvarTest, CommitRowset) {
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
     auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     CreateRowsetResponse res;
     commit_rowset(meta_service.get(), tmp_rowset, res);
 
     LOG(INFO) << "CommitRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_commit_rowset_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_commit_rowset_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_commit_rowset_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_rowset_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_rowset_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_rowset_del_counter.get({mock_instance}));
@@ -960,15 +988,16 @@ TEST(RpcKvBvarTest, GetVersion) {
     req.set_table_id(table_id);
     req.set_partition_id(partition_id);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     GetVersionResponse resp;
     meta_service->get_version(&ctrl, &req, &resp, nullptr);
 
     LOG(INFO) << "GetVersion: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_version_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_version_get_counter.get({mock_instance}));
 }
 
@@ -991,15 +1020,16 @@ TEST(RpcKvBvarTest, GetSchemaDict) {
     txn->put(dict_key, "dict_val");
     EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     GetSchemaDictResponse resp;
     meta_service->get_schema_dict(&ctrl, &req, &resp, nullptr);
 
     LOG(INFO) << "GetSchemaDict: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_schema_dict_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_schema_dict_get_counter.get({mock_instance}));
 }
 
@@ -1021,14 +1051,20 @@ TEST(RpcKvBvarTest, GetDeleteBitmapUpdateLock) {
     int64_t lock_id = -2;
     int64_t initiator = 1009;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     get_delete_bitmap_update_lock(meta_service.get(), table_id, t1p1, lock_id, initiator);
 
     LOG(INFO) << "GetDeleteBitmapUpdateLock: " << mem_kv->get_count_ << ", " << mem_kv->put_count_
-              << ", " << mem_kv->del_count_;
+              << ", " << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", "
+              << mem_kv->put_bytes_ << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_,
+              g_bvar_rpc_kv_get_delete_bitmap_update_lock_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_,
+              g_bvar_rpc_kv_get_delete_bitmap_update_lock_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_,
+              g_bvar_rpc_kv_get_delete_bitmap_update_lock_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_get_delete_bitmap_update_lock_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_,
@@ -1062,15 +1098,21 @@ TEST(RpcKvBvarTest, UpdateDeleteBitmap) {
     // will be splited and stored in 5 KVs
     std::string data1(split_size * 5, 'c');
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     update_delete_bitmap(meta_service.get(), update_delete_bitmap_req, update_delete_bitmap_res,
                          table_id, t1p1, lock_id, initiator, tablet_id, txn_id, version, data1);
 
     LOG(INFO) << "UpdateDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_,
+              g_bvar_rpc_kv_update_delete_bitmap_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_,
+              g_bvar_rpc_kv_update_delete_bitmap_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_,
+              g_bvar_rpc_kv_update_delete_bitmap_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_update_delete_bitmap_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_,
@@ -1114,15 +1156,16 @@ TEST(RpcKvBvarTest, GetDeleteBitmap) {
     get_delete_bitmap_req.add_begin_versions(0);
     get_delete_bitmap_req.add_end_versions(version);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&ctrl),
                                     &get_delete_bitmap_req, &get_delete_bitmap_res, nullptr);
 
     LOG(INFO) << "GetDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_delete_bitmap_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_delete_bitmap_get_counter.get({mock_instance}));
 }
 
@@ -1154,16 +1197,22 @@ TEST(RpcKvBvarTest, RemoveDeleteBitmapUpdateLock) {
     remove_req.set_lock_id(lock_id);
     remove_req.set_initiator(initiator);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->remove_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
             nullptr);
 
     LOG(INFO) << "RemoveDeleteBitmapUpdateLock: " << mem_kv->get_count_ << ", "
-              << mem_kv->put_count_ << ", " << mem_kv->del_count_;
+              << mem_kv->put_count_ << ", " << mem_kv->del_count_ << ", " << mem_kv->get_bytes_
+              << ", " << mem_kv->put_bytes_ << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_,
+              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_,
+              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_,
+              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_remove_delete_bitmap_update_lock_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_,
@@ -1206,14 +1255,16 @@ TEST(RpcKvBvarTest, RemoveDeleteBitmap) {
     req.add_rowset_ids("rowset_ids");
     req.set_cloud_unique_id("test_cloud_unique_id");
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->remove_delete_bitmap(&ctrl, &req, &resp, nullptr);
 
     LOG(INFO) << "RemoveDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->del_bytes_,
+              g_bvar_rpc_kv_remove_delete_bitmap_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_,
               g_bvar_rpc_kv_remove_delete_bitmap_del_counter.get({mock_instance}));
 }
@@ -1229,15 +1280,17 @@ TEST(RpcKvBvarTest, StartTabletJob) {
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
     StartTabletJobResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
                          TabletCompactionJobPB::BASE, res);
 
     LOG(INFO) << "StartTabletJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_start_tablet_job_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_start_tablet_job_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_start_tablet_job_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_start_tablet_job_put_counter.get({mock_instance}));
 }
@@ -1280,14 +1333,17 @@ TEST(RpcKvBvarTest, FinishTabletJob) {
     compaction->set_lease(now + 10);
     req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->finish_tablet_job(&cntl, &req, &finish_res_2, nullptr);
 
     LOG(INFO) << "FinishTabletJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_finish_tablet_job_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_finish_tablet_job_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_finish_tablet_job_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_finish_tablet_job_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_finish_tablet_job_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_finish_tablet_job_del_counter.get({mock_instance}));
@@ -1325,14 +1381,16 @@ TEST(RpcKvBvarTest, PrepareIndex) {
     req.set_is_new_table(true);
     IndexResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->prepare_index(&ctrl, &req, &res, nullptr);
 
     LOG(INFO) << "PrepareIndex: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_prepare_index_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_prepare_index_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_index_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_index_put_counter.get({mock_instance}));
 }
@@ -1371,14 +1429,17 @@ TEST(RpcKvBvarTest, CommitIndex) {
     meta_service->prepare_index(&ctrl, &req, &res, nullptr);
     res.Clear();
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->commit_index(&ctrl, &req, &res, nullptr);
 
     LOG(INFO) << "CommitIndex: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_commit_index_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_commit_index_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_commit_index_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_index_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_index_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_index_del_counter.get({mock_instance}));
@@ -1437,15 +1498,17 @@ TEST(RpcKvBvarTest, DropIndex) {
     req.add_index_ids(index_id);
     IndexResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->drop_index(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                              &res, nullptr);
 
     LOG(INFO) << "DropIndex: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_drop_index_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_drop_index_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_index_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_index_put_counter.get({mock_instance}));
 }
@@ -1484,14 +1547,16 @@ TEST(RpcKvBvarTest, PreparePartition) {
     txn->atomic_add(tbl_version_key, 1);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
 
     LOG(INFO) << "PreparePartition: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_prepare_partition_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_prepare_partition_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_partition_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_partition_put_counter.get({mock_instance}));
 }
@@ -1530,14 +1595,17 @@ TEST(RpcKvBvarTest, CommitPartition) {
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->commit_partition(&ctrl, &req, &res, nullptr);
 
     LOG(INFO) << "CommitPartition: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_commit_partition_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_commit_partition_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_commit_partition_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_partition_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_partition_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_partition_del_counter.get({mock_instance}));
@@ -1570,14 +1638,15 @@ TEST(RpcKvBvarTest, CheckKv) {
     check_keys_pb.add_partition_ids(partition_id + 1);
     req_check.mutable_check_keys()->CopyFrom(check_keys_pb);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
 
     LOG(INFO) << "CheckKv: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_check_kv_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_check_kv_get_counter.get({mock_instance}));
 }
 
@@ -1604,14 +1673,16 @@ TEST(RpcKvBvarTest, DropPartition) {
     req.add_partition_ids(partition_id);
     req.set_need_update_table_version(true);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->drop_partition(&ctrl, &req, &res, nullptr);
 
     LOG(INFO) << "DropPartition: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_drop_partition_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_drop_partition_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_partition_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_partition_put_counter.get({mock_instance}));
 }
@@ -1636,14 +1707,15 @@ TEST(RpcKvBvarTest, GetObjStoreInfo) {
     GetObjStoreInfoRequest req;
     req.set_cloud_unique_id("test_cloud_unique_id");
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->get_obj_store_info(&cntl, &req, &res, nullptr);
 
     LOG(INFO) << "GetObjStoreInfo: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_obj_store_info_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_get_obj_store_info_get_counter.get({mock_instance}));
 }
@@ -1674,15 +1746,18 @@ TEST(RpcKvBvarTest, AlterStorageVault) {
     brpc::Controller cntl;
     AlterObjStoreInfoResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->alter_storage_vault(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                       &req, &res, nullptr);
 
     LOG(INFO) << "AlterStorageVault: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_alter_storage_vault_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_alter_storage_vault_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_alter_storage_vault_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_alter_storage_vault_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_,
@@ -1737,15 +1812,19 @@ TEST(RpcKvBvarTest, AlterObjStoreInfo) {
     brpc::Controller cntl;
     AlterObjStoreInfoResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->alter_obj_store_info(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                        &req, &res, nullptr);
 
     LOG(INFO) << "AlterObjStoreInfo: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_,
+              g_bvar_rpc_kv_alter_obj_store_info_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_,
+              g_bvar_rpc_kv_alter_obj_store_info_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_alter_obj_store_info_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_,
@@ -1804,15 +1883,17 @@ TEST(RpcKvBvarTest, UpdateAkSk) {
     brpc::Controller cntl;
     UpdateAkSkResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->update_ak_sk(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                &res, nullptr);
 
     LOG(INFO) << "UpdateAkSk: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_update_ak_sk_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_update_ak_sk_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_ak_sk_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_ak_sk_put_counter.get({mock_instance}));
 
@@ -1853,16 +1934,17 @@ TEST(RpcKvBvarTest, CreateInstance) {
     sp->enable_processing();
     CreateInstanceResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                   &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "CreateInstance: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_create_instance_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_instance_get_counter.get({mock_instance}));
 
     sp->clear_all_call_backs();
@@ -1910,16 +1992,17 @@ TEST(RpcKvBvarTest, GetInstance) {
     GetInstanceRequest req;
     GetInstanceResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     req.set_cloud_unique_id("1:test_instance:m-n3qdpyal27rh8iprxx");
     meta_service->get_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                &res, nullptr);
 
     LOG(INFO) << "GetInstance: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_instance_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_instance_get_counter.get({mock_instance}));
     sp->clear_all_call_backs();
     sp->clear_trace();
@@ -1927,7 +2010,6 @@ TEST(RpcKvBvarTest, GetInstance) {
 }
 
 // alter_cluster
-// alter cluster have not do kv op
 // TEST(RpcKvBvarTest, AlterCluster) {
 //     auto meta_service = get_meta_service();
 //     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -1982,16 +2064,18 @@ TEST(RpcKvBvarTest, GetCluster) {
     req.set_cluster_name("test_cluster");
     GetClusterResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->get_cluster(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                               &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "GetCluster: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_cluster_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_get_cluster_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_cluster_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_cluster_put_counter.get({mock_instance}));
 }
@@ -2073,16 +2157,16 @@ TEST(RpcKvBvarTest, CreateStage) {
     create_stage_request.set_cloud_unique_id(cloud_unique_id);
     create_stage_request.mutable_stage()->CopyFrom(stage);
     CreateStageResponse create_stage_response;
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->create_stage(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                &create_stage_request, &create_stage_response, nullptr);
-    ASSERT_EQ(create_stage_response.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "CreateStage: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_create_stage_get_bytes.get({instance_id}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_create_stage_put_bytes.get({instance_id}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_stage_get_counter.get({instance_id}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_stage_put_counter.get({instance_id}));
     sp->clear_all_call_backs();
@@ -2169,7 +2253,6 @@ TEST(RpcKvBvarTest, GetStage) {
     CreateStageResponse create_stage_response;
     meta_service->create_stage(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                &create_stage_request, &create_stage_response, nullptr);
-    ASSERT_EQ(create_stage_response.status().code(), MetaServiceCode::OK);
 
     GetStageRequest get_stage_req;
     get_stage_req.set_type(StagePB::INTERNAL);
@@ -2180,17 +2263,15 @@ TEST(RpcKvBvarTest, GetStage) {
     // get existent internal stage
     GetStageResponse res2;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->get_stage(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                             &get_stage_req, &res2, nullptr);
-    ASSERT_EQ(res2.status().code(), MetaServiceCode::OK);
-    ASSERT_EQ(1, res2.stage().size());
 
     LOG(INFO) << "GetStage: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_stage_get_bytes.get({instance_id}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_stage_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
@@ -2268,16 +2349,15 @@ TEST(RpcKvBvarTest, GetIam) {
     request.set_cloud_unique_id(cloud_unique_id);
     GetIamResponse response;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
-
+    clear_memkv_count_bytes(mem_kv.get());
     meta_service->get_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &request,
                           &response, nullptr);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "GetIam: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_iam_get_bytes.get({instance_id}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_iam_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
@@ -2311,16 +2391,17 @@ TEST(RpcKvBvarTest, AlterIam) {
     brpc::Controller cntl;
     AlterIamResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->alter_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
                             nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "AlterIam: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_alter_iam_get_bytes.get({"alter_iam_instance"}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_alter_iam_put_bytes.get({"alter_iam_instance"}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_iam_get_counter.get({"alter_iam_instance"}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_iam_put_counter.get({"alter_iam_instance"}));
 }
@@ -2390,14 +2471,15 @@ TEST(RpcKvBvarTest, AlterRamUser) {
     alter_ram_user_request.set_instance_id(instance_id);
     alter_ram_user_request.mutable_ram_user()->CopyFrom(ram_user);
     AlterRamUserResponse alter_ram_user_response;
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
     meta_service->alter_ram_user(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                  &alter_ram_user_request, &alter_ram_user_response, nullptr);
 
     LOG(INFO) << "AlterRamUser: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_alter_ram_user_get_bytes.get({instance_id}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_alter_ram_user_put_bytes.get({instance_id}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_ram_user_get_counter.get({instance_id}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_ram_user_put_counter.get({instance_id}));
     sp->clear_all_call_backs();
@@ -2444,16 +2526,17 @@ TEST(RpcKvBvarTest, BeginCopy) {
     }
     BeginCopyResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->begin_copy(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                              &begin_copy_request, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "BeginCopy: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_begin_copy_get_bytes.get({instance_id}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_begin_copy_put_bytes.get({instance_id}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_copy_get_counter.get({instance_id}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_copy_put_counter.get({instance_id}));
     sp->clear_all_call_backs();
@@ -2511,9 +2594,7 @@ TEST(RpcKvBvarTest, GetCopyJob) {
     get_copy_job_request.set_copy_id("test_copy_id");
     get_copy_job_request.set_group_id(0);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     GetCopyJobResponse res;
     meta_service->get_copy_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -2521,7 +2602,9 @@ TEST(RpcKvBvarTest, GetCopyJob) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "GetCopyJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_copy_job_get_bytes.get({instance_id}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_job_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
@@ -2579,9 +2662,7 @@ TEST(RpcKvBvarTest, FinishCopy) {
     finish_copy_request.set_group_id(0);
     finish_copy_request.set_action(FinishCopyRequest::COMMIT);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     FinishCopyResponse res;
     meta_service->finish_copy(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -2589,7 +2670,11 @@ TEST(RpcKvBvarTest, FinishCopy) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "FinishCopy: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_finish_copy_get_bytes.get({instance_id}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_finish_copy_put_bytes.get({instance_id}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_finish_copy_del_bytes.get({instance_id}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_finish_copy_get_counter.get({instance_id}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_finish_copy_put_counter.get({instance_id}));
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_finish_copy_del_counter.get({instance_id}));
@@ -2645,9 +2730,7 @@ TEST(RpcKvBvarTest, GetCopyFiles) {
     get_copy_file_req.set_stage_id(stage_id);
     get_copy_file_req.set_table_id(table_id);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     GetCopyFilesResponse res;
     meta_service->get_copy_files(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -2655,7 +2738,9 @@ TEST(RpcKvBvarTest, GetCopyFiles) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "GetCopyFiles: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_copy_files_get_bytes.get({instance_id}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_files_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
@@ -2716,16 +2801,16 @@ TEST(RpcKvBvarTest, FilterCopyFiles) {
         request.add_object_files()->CopyFrom(object_file);
     }
     FilterCopyFilesResponse res;
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->filter_copy_files(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                     &request, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     LOG(INFO) << "FilterCopyFiles: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_filter_copy_files_get_bytes.get({instance_id}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_filter_copy_files_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
@@ -2779,9 +2864,7 @@ TEST(RpcKvBvarTest, GetClusterStatus) {
     req.add_instance_ids(mock_instance);
     GetClusterStatusResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->get_cluster_status(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -2789,7 +2872,9 @@ TEST(RpcKvBvarTest, GetClusterStatus) {
     ASSERT_EQ(res.details().at(0).clusters().size(), 3);
 
     LOG(INFO) << "GetClusterStatus: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_cluster_status_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_get_cluster_status_get_counter.get({mock_instance}));
 }
@@ -2829,16 +2914,17 @@ TEST(RpcKvBvarTest, GetCurrentMaxTxnId) {
 
     max_txn_id_req.set_cloud_unique_id(cloud_unique_id);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->get_current_max_txn_id(
             reinterpret_cast<::google::protobuf::RpcController*>(&max_txn_id_cntl), &max_txn_id_req,
             &max_txn_id_res, nullptr);
 
     LOG(INFO) << "GetCurrentMaxTxnId: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_,
+              g_bvar_rpc_kv_get_current_max_txn_id_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_get_current_max_txn_id_get_counter.get({mock_instance}));
 }
@@ -2894,15 +2980,17 @@ TEST(RpcKvBvarTest, BeginSubTxn) {
     req.mutable_table_ids()->Add(t2);
     BeginSubTxnResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                 &res, nullptr);
 
     LOG(INFO) << "BeginSubTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_begin_sub_txn_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_begin_sub_txn_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_begin_sub_txn_del_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_sub_txn_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_sub_txn_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_begin_sub_txn_del_counter.get({mock_instance}));
@@ -2973,15 +3061,16 @@ TEST(RpcKvBvarTest, AbortSubTxn) {
     req.mutable_table_ids()->Add(t2);
     AbortSubTxnResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->abort_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                 &res, nullptr);
 
     LOG(INFO) << "AbortSubTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_abort_sub_txn_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_abort_sub_txn_put_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_sub_txn_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_sub_txn_put_counter.get({mock_instance}));
 }
@@ -3033,16 +3122,17 @@ TEST(RpcKvBvarTest, AbortTxnWithCoordinator) {
     abort_txn_req.set_ip(host);
     abort_txn_req.set_start_time(cur_time + 3600);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->abort_txn_with_coordinator(
             reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl), &abort_txn_req,
             &abort_txn_resp, nullptr);
 
     LOG(INFO) << "AbortTxnWithCoordinator: " << mem_kv->get_count_ << ", " << mem_kv->put_count_
-              << ", " << mem_kv->del_count_;
+              << ", " << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", "
+              << mem_kv->put_bytes_ << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_,
+              g_bvar_rpc_kv_abort_txn_with_coordinator_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_abort_txn_with_coordinator_get_counter.get({mock_instance}));
 }
@@ -3085,16 +3175,16 @@ TEST(RpcKvBvarTest, CheckTxnConflict) {
     check_txn_conflict_req.set_end_txn_id(txn_id + 1);
     check_txn_conflict_req.add_table_ids(table_id);
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->check_txn_conflict(
             reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
             &check_txn_conflict_req, &check_txn_conflict_res, nullptr);
 
     LOG(INFO) << "CheckTxnConflict: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_check_txn_conflict_get_bytes.get({mock_instance}));
     ASSERT_EQ(mem_kv->get_count_,
               g_bvar_rpc_kv_check_txn_conflict_get_counter.get({mock_instance}));
 }
@@ -3125,17 +3215,19 @@ TEST(RpcKvBvarTest, CleanTxnLabel) {
     req.add_labels(label);
     CleanTxnLabelResponse res;
 
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
+    clear_memkv_count_bytes(mem_kv.get());
 
     meta_service->clean_txn_label(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                   &res, nullptr);
 
     LOG(INFO) << "CleanTxnLabel: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
+              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
+              << ", " << mem_kv->del_bytes_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_clean_txn_label_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_clean_txn_label_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_clean_txn_label_del_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_clean_txn_label_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_clean_txn_label_put_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_bytes_, g_bvar_rpc_kv_clean_txn_label_del_bytes.get({mock_instance}));
 }
 } // namespace doris::cloud

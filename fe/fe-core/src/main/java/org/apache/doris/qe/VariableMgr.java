@@ -694,8 +694,16 @@ public class VariableMgr {
             throws DdlException {
         for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
             VarContext varCtx = entry.getValue();
+            String defaultValue = varCtx.defaultValue;
+            String currentValue = getValue(sessionVariable, varCtx.getField());
+
+            // Skip if current value is already the default value
+            if (defaultValue.equals(currentValue)) {
+                continue;
+            }
+
             SetVar setVar = new SetVar(setType, entry.getKey(),
-                    new StringLiteral(varCtx.defaultValue), SetVarType.SET_SESSION_VAR);
+                    new StringLiteral(defaultValue), SetVarType.SET_SESSION_VAR);
             try {
                 checkUpdate(setVar, varCtx.getFlag());
             } catch (DdlException e) {
@@ -878,6 +886,9 @@ public class VariableMgr {
         String[] options() default {};
 
         String convertBoolToLongMethod() default "";
+        // If the variable affects the outcome, set it to true.
+        // If this value is true, it will ignore needForward and enforce forwarding.
+        boolean affectQueryResult() default false;
     }
 
     private static class VarContext {

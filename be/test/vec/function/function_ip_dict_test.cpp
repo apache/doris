@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "function_test_util.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_ipv4.h"
@@ -126,6 +127,19 @@ TEST(IpDictTest, String64) {
     auto result = ip_dict->get_column(attribute_name, attribute_type, key_column, key_type);
 
     std::cout << result->size() << std::endl;
+
+    try {
+        auto int_column = ColumnInt64::create();
+        auto int_key_data = std::make_shared<DataTypeInt64>();
+        auto ip_dict = create_ip_trie_dict_from_column(
+                "ip dict", ColumnWithTypeAndName {int_column->clone(), int_key_data, ""},
+                ColumnsWithTypeAndName {
+                        ColumnWithTypeAndName {int_column->clone(), int_key_data, "row"},
+                });
+        ASSERT_TRUE(false);
+    } catch (const Exception& e) {
+        ASSERT_EQ(e.code(), ErrorCode::INVALID_ARGUMENT);
+    }
 }
 
 } // namespace doris::vectorized

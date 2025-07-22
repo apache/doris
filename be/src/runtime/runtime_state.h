@@ -97,7 +97,8 @@ public:
     // Only used in the materialization phase of delayed materialization,
     // when there may be no corresponding QueryContext.
     RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env,
+                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
@@ -181,6 +182,10 @@ public:
     bool check_overflow_for_decimal() const {
         return _query_options.__isset.check_overflow_for_decimal &&
                _query_options.check_overflow_for_decimal;
+    }
+
+    bool enable_strict_mode() const {
+        return _query_options.__isset.enable_strict_cast && _query_options.enable_strict_cast;
     }
 
     bool enable_decimal256() const {
