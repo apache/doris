@@ -38,4 +38,10 @@ suite("sort_spill") {
     sql """ set enable_parallel_result_sink=true; """
     qt_select_1 "select k1,row_number () over (ORDER BY k2 DESC) from d_table order by k1 limit 10 offset 9900;"
     qt_select_2 "select k1,row_number () over (ORDER BY k2 DESC) from d_table order by k1 limit 10;"
+    sql """ set force_sort_algorithm = "topn"; """
+    qt_select_1 "select k1,row_number () over (ORDER BY k2 DESC) from d_table order by k1 limit 10 offset 9900;"
+    qt_select_2 "select k1,row_number () over (ORDER BY k2 DESC) from d_table order by k1 limit 10;"
+    sql """ set force_sort_algorithm = "heap"; """
+    qt_select_1 "select k1,row_number () over (ORDER BY k2 DESC) from d_table order by k1 limit 10 offset 9900;"
+    qt_select_2 "select k1,row_number () over (ORDER BY k2 DESC) from d_table order by k1 limit 10;"
 }
