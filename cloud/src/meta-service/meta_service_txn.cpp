@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gen_cpp/cloud.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include <chrono>
 #include <cstdint>
@@ -29,9 +30,11 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 
 using namespace std::chrono;
 
@@ -768,12 +771,8 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     }
 }
 
-void scan_tmp_rowset(
-        const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
-        MetaServiceCode& code, std::string& msg, int64_t* db_id,
-        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* tmp_rowsets_meta,
-        KVStats* stats) {
-    // Create a readonly txn for scan tmp rowset
+void get_txn_db_id(TxnKv* txn_kv, const std::string& instance_id, int64_t txn_id,
+                   MetaServiceCode& code, std::string& msg, int64_t* db_id) {
     std::stringstream ss;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -784,11 +783,6 @@ void scan_tmp_rowset(
         LOG(WARNING) << msg;
         return;
     }
-    DORIS_CLOUD_DEFER {
-        if (!stats || !txn) return;
-        stats->get_bytes += txn->get_bytes();
-        stats->get_counter += txn->num_get_keys();
-    };
 
     // Get db id with txn id
     std::string index_val;
@@ -814,6 +808,29 @@ void scan_tmp_rowset(
     DCHECK(index_pb.has_tablet_index() == true);
     DCHECK(index_pb.tablet_index().has_db_id() == true);
     *db_id = index_pb.tablet_index().db_id();
+}
+
+void scan_tmp_rowset(
+        const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
+        MetaServiceCode& code, std::string& msg,
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* tmp_rowsets_meta,
+        KVStats* stats) {
+    // Create a readonly txn for scan tmp rowset
+    std::stringstream ss;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
+        msg = ss.str();
+        LOG(WARNING) << msg;
+        return;
+    }
+    DORIS_CLOUD_DEFER {
+        if (!stats || !txn) return;
+        stats->get_bytes += txn->get_bytes();
+        stats->get_counter += txn->num_get_keys();
+    };
 
     // Get temporary rowsets involved in the txn
     // This is a range scan
@@ -1004,10 +1021,9 @@ void process_mow_when_commit_txn(
  * Note: getting version and all changes maded are in a single TxnKv transaction:
  *       step 5, 6, 7, 8
  */
-void commit_txn_immediately(
-        const CommitTxnRequest* request, CommitTxnResponse* response,
-        std::shared_ptr<TxnKv>& txn_kv, std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer,
-        MetaServiceCode& code, std::string& msg, const std::string& instance_id, int64_t db_id,
+void MetaServiceImpl::commit_txn_immediately(
+        const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+        std::string& msg, const std::string& instance_id, int64_t db_id,
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         TxnErrorCode& err, KVStats& stats) {
     std::stringstream ss;
@@ -1016,7 +1032,7 @@ void commit_txn_immediately(
         TEST_SYNC_POINT_CALLBACK("commit_txn_immediately:begin", &txn_id);
         int64_t last_pending_txn_id = 0;
         std::unique_ptr<Transaction> txn;
-        err = txn_kv->create_txn(&txn);
+        err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::CREATE>(err);
             ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
@@ -1207,7 +1223,7 @@ void commit_txn_immediately(
             TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::advance_last_pending_txn_id",
                                      &last_pending_txn_id);
             std::shared_ptr<TxnLazyCommitTask> task =
-                    txn_lazy_committer->submit(instance_id, last_pending_txn_id);
+                    txn_lazy_committer_->submit(instance_id, last_pending_txn_id);
 
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
@@ -1219,7 +1235,11 @@ void commit_txn_immediately(
             continue;
         }
 
-        std::vector<std::pair<std::string, std::string>> rowsets;
+        CommitTxnLogPB commit_txn_log;
+        commit_txn_log.set_txn_id(txn_id);
+
+        // <tablet_id, version> -> rowset meta
+        std::vector<std::pair<std::tuple<int64_t, int64_t>, RowsetMetaCloudPB>> rowsets;
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
         rowsets.reserve(tmp_rowsets_meta.size());
         for (auto& [_, i] : tmp_rowsets_meta) {
@@ -1244,16 +1264,6 @@ void commit_txn_immediately(
             i.set_start_version(new_version);
             i.set_end_version(new_version);
 
-            std::string key = meta_rowset_key({instance_id, tablet_id, i.end_version()});
-            std::string val;
-            if (!i.SerializeToString(&val)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize rowset_meta, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
-            rowsets.emplace_back(std::move(key), std::move(val));
-
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
             stats.data_size += i.total_disk_size();
@@ -1262,6 +1272,11 @@ void commit_txn_immediately(
             stats.num_segs += i.num_segments();
             stats.index_size += i.index_disk_size();
             stats.segment_size += i.data_disk_size();
+
+            commit_txn_log.mutable_tablet_to_partition_map()->insert({tablet_id, partition_id});
+            commit_txn_log.mutable_partition_version_map()->insert({partition_id, new_version});
+
+            rowsets.emplace_back(std::make_tuple(tablet_id, i.end_version()), std::move(i));
         } // for tmp_rowsets_meta
 
         process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
@@ -1270,12 +1285,39 @@ void commit_txn_immediately(
             return;
         }
 
+        bool is_versioned_write = is_version_write_enabled(instance_id);
+
         // Save rowset meta
         for (auto& i : rowsets) {
-            size_t rowset_size = i.first.size() + i.second.size();
-            txn->put(i.first, i.second);
-            LOG(INFO) << "xxx put rowset_key=" << hex(i.first) << " txn_id=" << txn_id
+            auto [tablet_id, version] = i.first;
+            std::string rowset_key = meta_rowset_key({instance_id, tablet_id, version});
+            std::string val;
+            if (!i.second.SerializeToString(&val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                ss << "failed to serialize rowset_meta, txn_id=" << txn_id;
+                msg = ss.str();
+                return;
+            }
+            size_t rowset_size = rowset_key.size() + val.size();
+            txn->put(rowset_key, val);
+            LOG(INFO) << "xxx put rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id
                       << " rowset_size=" << rowset_size;
+
+            if (is_versioned_write) {
+                std::string versioned_rowset_key =
+                        versioned::meta_rowset_load_key({instance_id, tablet_id, version});
+                if (!versioned::document_put(txn.get(), versioned_rowset_key,
+                                             std::move(i.second))) {
+                    code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                    ss << "failed to put versioned rowset meta, txn_id=" << txn_id
+                       << " key=" << hex(versioned_rowset_key);
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+                LOG(INFO) << "xxx put versioned rowset meta key=" << hex(versioned_rowset_key)
+                          << ", txn_id=" << txn_id;
+            }
         }
 
         // Save versions
@@ -1323,10 +1365,8 @@ void commit_txn_immediately(
 
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
-            std::string ver_key = table_version_key({instance_id, db_id, i.first});
-            txn->atomic_add(ver_key, 1);
-            LOG(INFO) << "xxx atomic add table_version_key=" << hex(ver_key)
-                      << " txn_id=" << txn_id;
+            update_table_version(txn.get(), instance_id, db_id, i.first);
+            commit_txn_log.add_table_ids(i.first);
         }
 
         LOG(INFO) << " before update txn_info=" << txn_info.ShortDebugString();
@@ -1348,6 +1388,9 @@ void commit_txn_immediately(
         if (request->has_commit_attachment()) {
             txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
         }
+
+        txn_info.set_versioned_write(is_versioned_write);
+
         LOG(INFO) << "after update txn_info=" << txn_info.ShortDebugString();
         info_val.clear();
         if (!txn_info.SerializeToString(&info_val)) {
@@ -1367,6 +1410,57 @@ void commit_txn_immediately(
                                      tablet_idx.partition_id(), tablet_id};
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
+
+            if (is_versioned_write) {
+                std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+
+                // Try to read existing versioned tablet stats
+                std::string stats_val;
+                TabletStatsPB stats_pb;
+                TxnErrorCode err = txn->get(stats_key, &stats_val);
+                if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    // If versioned stats doesn't exist, read from single version
+                    TabletStats detached_stats;
+                    internal_get_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx,
+                                              stats_pb, detached_stats, false);
+                    if (code != MetaServiceCode::OK) {
+                        LOG(WARNING) << "failed to get tablet stats for versioned write: " << msg;
+                        return;
+                    }
+                } else if (err == TxnErrorCode::TXN_OK) {
+                    // Parse existing versioned stats
+                    if (!stats_pb.ParseFromString(stats_val)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        msg = fmt::format("malformed versioned tablet stats, key={}",
+                                          hex(stats_key));
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format("failed to get versioned tablet stats, err={}", err);
+                    LOG(WARNING) << msg;
+                    return;
+                }
+
+                stats_pb.set_data_size(stats_pb.data_size() + stats.data_size);
+                stats_pb.set_num_rows(stats_pb.num_rows() + stats.num_rows);
+                stats_pb.set_num_rowsets(stats_pb.num_rowsets() + stats.num_rowsets);
+                stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
+                stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
+                stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
+
+                stats_val.clear();
+                if (!stats_pb.SerializeToString(&stats_val)) {
+                    code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                    msg = "failed to serialize versioned tablet stats";
+                    LOG(WARNING) << msg;
+                    return;
+                }
+                versioned_put(txn.get(), stats_key, stats_val);
+                LOG(INFO) << "xxx put versioned tablet stats key=" << hex(stats_key)
+                          << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
+            }
         }
         // Remove tmp rowset meta
         for (auto& [k, _] : tmp_rowsets_meta) {
@@ -1378,19 +1472,35 @@ void commit_txn_immediately(
         LOG(INFO) << "xxx remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
         txn->remove(running_key);
 
-        std::string recycle_val;
         std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
         RecycleTxnPB recycle_pb;
         recycle_pb.set_creation_time(commit_time);
         recycle_pb.set_label(txn_info.label());
 
-        if (!recycle_pb.SerializeToString(&recycle_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            ss << "failed to serialize recycle_pb, txn_id=" << txn_id;
-            msg = ss.str();
-            return;
+        if (is_versioned_write) {
+            commit_txn_log.mutable_recycle_txn()->Swap(&recycle_pb);
+            std::string log_key = versioned::log_key({instance_id});
+            OperationLogPB operation_log;
+            operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
+            std::string operation_log_value;
+            if (!operation_log.SerializeToString(&operation_log_value)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                ss << "failed to serialize operation_log, txn_id=" << txn_id;
+                msg = ss.str();
+                return;
+            }
+            LOG(INFO) << "xxx commit_txn put log_key key=" << hex(log_key) << " txn_id=" << txn_id;
+            versioned_put(txn.get(), log_key, operation_log_value);
+        } else {
+            std::string recycle_val;
+            if (!recycle_pb.SerializeToString(&recycle_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                ss << "failed to serialize recycle_pb, txn_id=" << txn_id;
+                msg = ss.str();
+                return;
+            }
+            txn->put(recycle_key, recycle_val);
         }
-        txn->put(recycle_key, recycle_val);
 
         if (txn_info.load_job_source_type() ==
             LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_ROUTINE_LOAD_TASK) {
@@ -1584,10 +1694,9 @@ void repair_tablet_index(
     code = MetaServiceCode::OK;
 }
 
-void commit_txn_eventually(
-        const CommitTxnRequest* request, CommitTxnResponse* response,
-        std::shared_ptr<TxnKv>& txn_kv, std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer,
-        MetaServiceCode& code, std::string& msg, const std::string& instance_id, int64_t db_id,
+void MetaServiceImpl::commit_txn_eventually(
+        const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+        std::string& msg, const std::string& instance_id, int64_t db_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         KVStats& stats) {
     StopWatch sw;
@@ -1605,7 +1714,7 @@ void commit_txn_eventually(
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually:begin", &txn_id);
         int64_t last_pending_txn_id = 0;
         std::unique_ptr<Transaction> txn;
-        err = txn_kv->create_txn(&txn);
+        err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::CREATE>(err);
             ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
@@ -1641,13 +1750,16 @@ void commit_txn_eventually(
             stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             txn.reset();
-            repair_tablet_index(txn_kv, code, msg, instance_id, db_id, txn_id, tmp_rowsets_meta);
+            repair_tablet_index(txn_kv_, code, msg, instance_id, db_id, txn_id, tmp_rowsets_meta);
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "repair_tablet_index failed, txn_id=" << txn_id << " code=" << code;
                 return;
             }
             continue;
         }
+
+        CommitTxnLogPB commit_txn_log;
+        commit_txn_log.set_txn_id(txn_id);
 
         // <partition_version_key, version>
         std::unordered_map<std::string, uint64_t> new_versions;
@@ -1662,6 +1774,8 @@ void commit_txn_eventually(
                 new_versions.insert({ver_key, 0});
                 version_keys.push_back(std::move(ver_key));
             }
+
+            commit_txn_log.mutable_tablet_to_partition_map()->insert({tablet_id, partition_id});
         }
 
         std::vector<std::optional<std::string>> version_values;
@@ -1708,7 +1822,7 @@ void commit_txn_eventually(
             stats.get_counter += txn->num_get_keys();
             txn.reset();
             std::shared_ptr<TxnLazyCommitTask> task =
-                    txn_lazy_committer->submit(instance_id, last_pending_txn_id);
+                    txn_lazy_committer_->submit(instance_id, last_pending_txn_id);
 
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
@@ -1801,6 +1915,9 @@ void commit_txn_eventually(
         // lazy commit task will advance txn to make txn visible
         txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
 
+        bool is_versioned_write = is_version_write_enabled(instance_id);
+        txn_info.set_versioned_write(is_versioned_write);
+
         LOG(INFO) << "after update txn_id= " << txn_id
                   << " txn_info=" << txn_info.ShortDebugString();
         info_val.clear();
@@ -1863,6 +1980,8 @@ void commit_txn_eventually(
             VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
                        << " partition_id=" << partition_id << " version=" << i.second;
 
+            commit_txn_log.mutable_partition_version_map()->insert({partition_id, i.second + 1});
+
             response->add_table_ids(table_id);
             response->add_partition_ids(partition_id);
             response->add_versions(i.second + 1);
@@ -1876,10 +1995,25 @@ void commit_txn_eventually(
 
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
-            std::string ver_key = table_version_key({instance_id, db_id, i.first});
-            txn->atomic_add(ver_key, 1);
-            LOG(INFO) << "xxx atomic add table_version_key=" << hex(ver_key)
-                      << " txn_id=" << txn_id;
+            update_table_version(txn.get(), instance_id, db_id, i.first);
+            commit_txn_log.add_table_ids(i.first);
+        }
+
+        if (is_versioned_write) {
+            RecycleTxnPB* recycle_txn = commit_txn_log.mutable_recycle_txn();
+            recycle_txn->set_label(txn_info.label());
+            std::string log_key = versioned::log_key({instance_id});
+            OperationLogPB operation_log;
+            operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
+            std::string operation_log_value;
+            if (!operation_log.SerializeToString(&operation_log_value)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                ss << "failed to serialize operation_log, txn_id=" << txn_id;
+                msg = ss.str();
+                return;
+            }
+            versioned_put(txn.get(), log_key, operation_log_value);
+            LOG(INFO) << "put log_key key=" << hex(log_key) << " txn_id=" << txn_id;
         }
 
         VLOG_DEBUG << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
@@ -1900,7 +2034,7 @@ void commit_txn_eventually(
 
         TEST_SYNC_POINT_RETURN_WITH_VOID("commit_txn_eventually::txn_lazy_committer_submit",
                                          &txn_id);
-        std::shared_ptr<TxnLazyCommitTask> task = txn_lazy_committer->submit(instance_id, txn_id);
+        std::shared_ptr<TxnLazyCommitTask> task = txn_lazy_committer_->submit(instance_id, txn_id);
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::txn_lazy_committer_wait", &txn_id);
         std::pair<MetaServiceCode, std::string> ret = task->wait();
         if (ret.first != MetaServiceCode::OK) {
@@ -1972,15 +2106,16 @@ void commit_txn_eventually(
  *    t1: t1_p1(3), t1_p2(3)
  *    t2: t2_p3(4), t2_p4(4)
  */
-void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse* response,
-                             std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code,
-                             std::string& msg, const std::string& instance_id, KVStats& stats) {
+void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
+                                              CommitTxnResponse* response, MetaServiceCode& code,
+                                              std::string& msg, const std::string& instance_id,
+                                              KVStats& stats) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
     auto sub_txn_infos = request->sub_txn_infos();
     // Create a readonly txn for scan tmp rowset
     std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         ss << "filed to create txn, txn_id=" << txn_id << " err=" << err;
@@ -2050,7 +2185,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         do {
             err = txn->get(rs_tmp_key0, rs_tmp_key1, &it, true);
             if (err == TxnErrorCode::TXN_TOO_OLD) {
-                err = txn_kv->create_txn(&txn);
+                err = txn_kv_->create_txn(&txn);
                 if (err == TxnErrorCode::TXN_OK) {
                     err = txn->get(rs_tmp_key0, rs_tmp_key1, &it, true);
                 }
@@ -2092,7 +2227,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     stats.get_counter += txn->num_get_keys();
     // Create a read/write txn for guarantee consistency
     txn.reset();
-    err = txn_kv->create_txn(&txn);
+    err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         ss << "filed to create txn, txn_id=" << txn_id << " err=" << err;
@@ -2247,8 +2382,13 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     version_keys.clear();
     version_values.clear();
 
-    std::vector<std::pair<std::string, std::string>> rowsets;
-    std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
+    CommitTxnLogPB commit_txn_log;
+    commit_txn_log.set_txn_id(txn_id);
+
+    // <tablet_id, version> -> rowset meta
+    std::vector<std::pair<std::tuple<int64_t, int64_t>, RowsetMetaCloudPB>> rowsets;
+    std::unordered_map<int64_t, TabletStats> tablet_stats;    // tablet_id -> stats
+    rowsets.reserve(sub_txn_to_tmp_rowsets_meta.size() * 10); // rough estimate
     for (const auto& sub_txn_info : sub_txn_infos) {
         auto sub_txn_id = sub_txn_info.sub_txn_id();
         auto tmp_rowsets_meta = sub_txn_to_tmp_rowsets_meta[sub_txn_id];
@@ -2285,16 +2425,6 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                       << ", partition_id=" << partition_id << ", tablet_id=" << tablet_id
                       << ", new_version=" << new_version;
 
-            std::string key = meta_rowset_key({instance_id, tablet_id, i.end_version()});
-            std::string val;
-            if (!i.SerializeToString(&val)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize rowset_meta, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
-            rowsets.emplace_back(std::move(key), std::move(val));
-
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
             stats.data_size += i.total_disk_size();
@@ -2303,6 +2433,9 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
             stats.num_segs += i.num_segments();
             stats.index_size += i.index_disk_size();
             stats.segment_size += i.data_disk_size();
+
+            rowsets.emplace_back(std::make_tuple(tablet_id, i.end_version()), std::move(i));
+            commit_txn_log.mutable_tablet_to_partition_map()->insert({tablet_id, partition_id});
         } // for tmp_rowsets_meta
     }
 
@@ -2312,12 +2445,38 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         return;
     }
 
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+
     // Save rowset meta
     for (auto& i : rowsets) {
-        size_t rowset_size = i.first.size() + i.second.size();
-        txn->put(i.first, i.second);
-        LOG(INFO) << "xxx put rowset_key=" << hex(i.first) << " txn_id=" << txn_id
+        auto [tablet_id, version] = i.first;
+        std::string rowset_key = meta_rowset_key({instance_id, tablet_id, version});
+        std::string val;
+        if (!i.second.SerializeToString(&val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize rowset_meta, txn_id=" << txn_id;
+            msg = ss.str();
+            return;
+        }
+        size_t rowset_size = rowset_key.size() + val.size();
+        txn->put(rowset_key, val);
+        LOG(INFO) << "xxx put rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id
                   << " rowset_size=" << rowset_size;
+
+        if (is_versioned_write) {
+            std::string versioned_rowset_key =
+                    versioned::meta_rowset_load_key({instance_id, tablet_id, version});
+            if (!versioned::document_put(txn.get(), versioned_rowset_key, std::move(i.second))) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                ss << "failed to put versioned rowset meta, txn_id=" << txn_id
+                   << " key=" << hex(versioned_rowset_key);
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            LOG(INFO) << "xxx put versioned rowset meta key=" << hex(versioned_rowset_key)
+                      << ", txn_id=" << txn_id;
+        }
     }
 
     // Save versions
@@ -2354,6 +2513,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         int64_t partition_id = std::get<int64_t>(std::get<0>(out[5]));
         VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
                    << " partition_id=" << partition_id << " version=" << i.second;
+        commit_txn_log.mutable_partition_version_map()->insert({partition_id, i.second});
 
         response->add_table_ids(table_id);
         response->add_partition_ids(partition_id);
@@ -2362,9 +2522,8 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
 
     // Save table versions
     for (auto& i : table_id_tablet_ids) {
-        std::string ver_key = table_version_key({instance_id, db_id, i.first});
-        txn->atomic_add(ver_key, 1);
-        LOG(INFO) << "xxx atomic add table_version_key=" << hex(ver_key) << " txn_id=" << txn_id;
+        update_table_version(txn.get(), instance_id, db_id, i.first);
+        commit_txn_log.add_table_ids(i.first);
     }
 
     LOG(INFO) << " before update txn_info=" << txn_info.ShortDebugString();
@@ -2386,6 +2545,8 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     if (request->has_commit_attachment()) {
         txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
     }
+    txn_info.set_versioned_write(is_versioned_write);
+
     LOG(INFO) << "after update txn_info=" << txn_info.ShortDebugString();
     info_val.clear();
     if (!txn_info.SerializeToString(&info_val)) {
@@ -2460,6 +2621,56 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                                  tablet_idx.partition_id(), tablet_id};
         update_tablet_stats(info, stats);
         if (code != MetaServiceCode::OK) return;
+
+        if (is_versioned_write) {
+            std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+
+            // Try to read existing versioned tablet stats
+            std::string stats_val;
+            TabletStatsPB stats_pb;
+            TxnErrorCode err = txn->get(stats_key, &stats_val);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                // If versioned stats doesn't exist, read from single version
+                TabletStats detached_stats;
+                internal_get_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx, stats_pb,
+                                          detached_stats, false);
+                if (code != MetaServiceCode::OK) {
+                    LOG(WARNING) << "failed to get tablet stats for versioned write: " << msg;
+                    return;
+                }
+            } else if (err == TxnErrorCode::TXN_OK) {
+                // Parse existing versioned stats
+                if (!stats_pb.ParseFromString(stats_val)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = fmt::format("malformed versioned tablet stats, key={}", hex(stats_key));
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            } else {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get versioned tablet stats, err={}", err);
+                LOG(WARNING) << msg;
+                return;
+            }
+
+            stats_pb.set_data_size(stats_pb.data_size() + stats.data_size);
+            stats_pb.set_num_rows(stats_pb.num_rows() + stats.num_rows);
+            stats_pb.set_num_rowsets(stats_pb.num_rowsets() + stats.num_rowsets);
+            stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
+            stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
+            stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
+
+            stats_val.clear();
+            if (!stats_pb.SerializeToString(&stats_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = "failed to serialize versioned tablet stats";
+                LOG(WARNING) << msg;
+                return;
+            }
+            versioned_put(txn.get(), stats_key, stats_val);
+            LOG(INFO) << "xxx put versioned tablet stats key=" << hex(stats_key)
+                      << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
+        }
     }
     // Remove tmp rowset meta
     for (auto& [_, tmp_rowsets_meta] : sub_txn_to_tmp_rowsets_meta) {
@@ -2479,15 +2690,32 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     recycle_pb.set_creation_time(commit_time);
     recycle_pb.set_label(txn_info.label());
 
-    if (!recycle_pb.SerializeToString(&recycle_val)) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        ss << "failed to serialize recycle_pb, txn_id=" << txn_id;
-        msg = ss.str();
-        return;
+    if (is_versioned_write) {
+        commit_txn_log.mutable_recycle_txn()->Swap(&recycle_pb);
+        std::string log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize operation_log, txn_id=" << txn_id;
+            msg = ss.str();
+            return;
+        }
+        versioned_put(txn.get(), log_key, operation_log_value);
+        LOG(INFO) << "xxx commit_txn_with_sub_txn put operation log key=" << hex(recycle_key)
+                  << " txn_id=" << txn_id;
+    } else {
+        if (!recycle_pb.SerializeToString(&recycle_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize recycle_pb, txn_id=" << txn_id;
+            msg = ss.str();
+            return;
+        }
+        txn->put(recycle_key, recycle_val);
+        LOG(INFO) << "xxx commit_txn put recycle_txn_key key=" << hex(recycle_key)
+                  << " txn_id=" << txn_id;
     }
-    txn->put(recycle_key, recycle_val);
-    LOG(INFO) << "xxx commit_txn put recycle_txn_key key=" << hex(recycle_key)
-              << " txn_id=" << txn_id;
 
     LOG(INFO) << "commit_txn put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
               << " num_put_keys=" << txn->num_put_keys() << " num_del_keys=" << txn->num_del_keys()
@@ -2596,13 +2824,19 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     RPC_RATE_LIMIT(commit_txn)
 
     if (request->has_is_txn_load() && request->is_txn_load()) {
-        commit_txn_with_sub_txn(request, response, txn_kv_, code, msg, instance_id, stats);
+        commit_txn_with_sub_txn(request, response, code, msg, instance_id, stats);
         return;
     }
 
     int64_t db_id;
+    get_txn_db_id(txn_kv_.get(), instance_id, txn_id, code, msg, &db_id);
+    if (code != MetaServiceCode::OK) {
+        LOG(WARNING) << "get_txn_db_id failed, txn_id=" << txn_id << " code=" << code;
+        return;
+    }
+
     std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> tmp_rowsets_meta;
-    scan_tmp_rowset(instance_id, txn_id, txn_kv_, code, msg, &db_id, &tmp_rowsets_meta, &stats);
+    scan_tmp_rowset(instance_id, txn_id, txn_kv_, code, msg, &tmp_rowsets_meta, &stats);
     if (code != MetaServiceCode::OK) {
         LOG(WARNING) << "scan_tmp_rowset failed, txn_id=" << txn_id << " code=" << code;
         return;
@@ -2620,8 +2854,8 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
             break;
         }
 
-        commit_txn_immediately(request, response, txn_kv_, txn_lazy_committer_, code, msg,
-                               instance_id, db_id, tmp_rowsets_meta, err, stats);
+        commit_txn_immediately(request, response, code, msg, instance_id, db_id, tmp_rowsets_meta,
+                               err, stats);
 
         if (MetaServiceCode::OK == code) {
             return;
@@ -2650,8 +2884,8 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
               << " tmp_rowsets_meta.size=" << tmp_rowsets_meta.size();
     code = MetaServiceCode::OK;
     msg.clear();
-    commit_txn_eventually(request, response, txn_kv_, txn_lazy_committer_, code, msg, instance_id,
-                          db_id, tmp_rowsets_meta, stats);
+    commit_txn_eventually(request, response, code, msg, instance_id, db_id, tmp_rowsets_meta,
+                          stats);
 }
 
 static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request,
