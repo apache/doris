@@ -93,10 +93,10 @@
 3
 
 -- !runtime_filter_partition_pruning_timestamp1 --
-0
+1
 
 -- !runtime_filter_partition_pruning_timestamp2 --
-0
+2
 
 -- !runtime_filter_partition_pruning_boolean1 --
 3
