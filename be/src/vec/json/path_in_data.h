@@ -86,6 +86,16 @@ public:
     void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
     void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 
+    // if path is v.a.b, then relative path will return a.b
+    // make sure the parts is not empty
+    std::string_view get_relative_path() const {
+        if (parts.size() <= 1) {
+            // return empty string
+            return {};
+        }
+        return {path.begin() + parts[0].key.size() + 1, path.end()};
+    }
+
     bool operator<(const PathInData& rhs) const {
         return std::lexicographical_compare(
                 parts.begin(), parts.end(), rhs.parts.begin(), rhs.parts.end(),
@@ -128,13 +138,22 @@ using PathsInData = std::vector<PathInData>;
 
 struct PathInDataRef {
     const PathInData* ref;
-    struct Hash {
-        size_t operator()(const PathInDataRef& value) const {
-            return PathInData::Hash {}(*value.ref);
-        }
-    };
     PathInDataRef(const PathInData* ptr) : ref(ptr) {}
-    bool operator==(const PathInDataRef& other) const { return *this->ref == *other.ref; }
+    PathInDataRef() : ref(nullptr) {}
+    bool operator==(const PathInDataRef& other) const {
+        return (this->ref != nullptr && other.ref != nullptr && *this->ref == *other.ref) ||
+               (this->ref == nullptr && other.ref == nullptr);
+    }
 };
 
 } // namespace doris::vectorized
+
+template <>
+struct std::hash<doris::vectorized::PathInDataRef> {
+    size_t operator()(const doris::vectorized::PathInDataRef& value) const {
+        if (value.ref == nullptr) {
+            return 0;
+        }
+        return doris::vectorized::PathInData::Hash {}(*value.ref);
+    }
+};
