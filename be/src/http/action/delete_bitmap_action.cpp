@@ -93,7 +93,7 @@ static void _show_delete_bitmap(DeleteBitmap& dm, bool verbose, std::string* jso
     root.AddMember("cardinality", cardinality, root.GetAllocator());
     root.AddMember("size", size, root.GetAllocator());
     if (verbose) {
-        std::string pre_rowset_id = "";
+        std::string pre_rowset_id;
         int64_t pre_segment_id = -1;
         std::vector<std::string> version_vector;
         rapidjson::Document dm_arr;

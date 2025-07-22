@@ -22,13 +22,13 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.EmptyStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -224,7 +224,10 @@ public class DorisAssert {
         public Planner internalExecuteOneAndGetPlan() throws Exception {
             SqlScanner input = new SqlScanner(new StringReader(sql), ctx.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
-            List<StatementBase> stmts =  SqlParserUtils.getMultiStmts(parser);
+            List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
+            while (stmts.size() > 1 && stmts.get(stmts.size() - 1) instanceof EmptyStmt) {
+                stmts.remove(stmts.size() - 1);
+            }
             StmtExecutor stmtExecutor = new StmtExecutor(connectContext, stmts.get(0));
             stmtExecutor.execute();
 

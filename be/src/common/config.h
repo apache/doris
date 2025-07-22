@@ -340,6 +340,18 @@ DECLARE_Int32(be_service_threads);
 DECLARE_mInt32(pipeline_status_report_interval);
 // Time slice for pipeline task execution (ms)
 DECLARE_mInt32(pipeline_task_exec_time_slice);
+
+// task executor min concurrency per task
+DECLARE_mInt32(task_executor_min_concurrency_per_task);
+// task executor max concurrency per task
+DECLARE_mInt32(task_executor_max_concurrency_per_task);
+// task task executor inital split max concurrency per task, later concurrency may be adjusted dynamically
+DECLARE_mInt32(task_executor_initial_max_concurrency_per_task);
+// Enable task executor in internal table scan.
+DECLARE_Bool(enable_task_executor_in_internal_table);
+// Enable task executor in external table scan.
+DECLARE_Bool(enable_task_executor_in_external_table);
+
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
@@ -1609,6 +1621,9 @@ DECLARE_mBool(random_segments_key_bounds_truncation);
 DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
 
 DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
+
+// p0, daily, rqg, external
+DECLARE_String(fuzzy_test_type);
 
 #ifdef BE_TEST
 // test s3
