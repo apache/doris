@@ -203,6 +203,10 @@ public:
             }
         }
 
+        if (key_str.starts_with("unix_timestamp") && attr.new_version_unix_timestamp) {
+            key_str += "_new";
+        }
+
         temporary_function_update(be_version, key_str);
 
         // if function is variadic, added types_str as key

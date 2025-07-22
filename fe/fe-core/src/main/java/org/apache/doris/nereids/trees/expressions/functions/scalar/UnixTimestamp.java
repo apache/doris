@@ -25,13 +25,13 @@ import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -48,14 +48,14 @@ public class UnixTimestamp extends ScalarFunction implements ExplicitlyCastableS
 
     // we got changes when computeSignature
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).args(),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateType.INSTANCE),
-            FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(16, 6)).args(VarcharType.SYSTEM_DEFAULT,
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DateType.INSTANCE),
+            FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(18, 6)).args(VarcharType.SYSTEM_DEFAULT,
                     VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(16, 6)).args(StringType.INSTANCE,
+            FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(18, 6)).args(StringType.INSTANCE,
                     StringType.INSTANCE)
     );
 
@@ -117,9 +117,9 @@ public class UnixTimestamp extends ScalarFunction implements ExplicitlyCastableS
         DataType argType0 = getArgumentType(0);
         if (argType0.isDateTimeV2Type()) {
             int scale = ((DateTimeV2Type) argType0).getScale();
-            return signature.withReturnType(DecimalV3Type.createDecimalV3Type(10 + scale, scale));
+            return signature.withReturnType(DecimalV3Type.createDecimalV3Type(12 + scale, scale));
         } else if (argType0.isStringLikeType()) {
-            return signature.withReturnType(DecimalV3Type.createDecimalV3Type(16, 6));
+            return signature.withReturnType(DecimalV3Type.createDecimalV3Type(18, 6));
         }
         return signature;
     }
