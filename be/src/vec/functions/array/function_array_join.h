@@ -125,11 +125,10 @@ private:
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str, DataTypePtr& nested_type,
                                 ColumnString* dest_column_ptr) {
-                                    /*
         using NestType = typename ColumnType::value_type;
         bool is_decimal = IsDecimalNumber<NestType>;
 
-        const ColumnType* src_data_concrete = reinterpret_cast<const ColumnType*>(&src_column);
+        const ColumnType* src_data_concrete = assert_cast<const ColumnType*>(&src_column);
         if (!src_data_concrete) {
             return false;
         }
@@ -149,8 +148,7 @@ private:
                 }
 
                 if (is_decimal) {
-                    DecimalV2Value decimal_value =
-                            (DecimalV2Value)(int128_t(src_data_concrete->get_data()[j]));
+                    auto decimal_value = DecimalV2Value(src_data_concrete->get_data()[j]);
                     std::string decimal_str = decimal_value.to_string();
                     _fill_result_string(decimal_str, sep_str, result_str, is_first_elem);
                 } else {
@@ -162,7 +160,6 @@ private:
             dest_column_ptr->insert_data(result_str.c_str(), result_str.size());
             prev_src_offset = curr_src_offset;
         }
-                                    */
         return true;
     }
 
@@ -171,7 +168,7 @@ private:
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str,
                                 ColumnString* dest_column_ptr) {
-        const ColumnString* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
+        const ColumnString* src_data_concrete = assert_cast<const ColumnString*>(&src_column);
         if (!src_data_concrete) {
             return false;
         }
@@ -268,10 +265,6 @@ private:
             res = _execute_number<ColumnDecimal128V3>(src_column, src_offsets, src_null_map,
                                                       sep_str, null_replace_str, nested_type,
                                                       dest_column_ptr);
-            break;
-        case TYPE_DECIMAL256:
-            res = _execute_number<ColumnDecimal256>(src_column, src_offsets, src_null_map, sep_str,
-                                                    null_replace_str, nested_type, dest_column_ptr);
             break;
         case TYPE_DECIMALV2:
             res = _execute_number<ColumnDecimal128V2>(src_column, src_offsets, src_null_map,
