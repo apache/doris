@@ -186,14 +186,15 @@ TEST(VTimestampFunctionsTest, from_unix_test) {
 }
 
 TEST(VTimestampFunctionsTest, unix_timestamp_test) {
-    std::string func_name = "unix_timestamp";
+    std::string func_name = "unix_timestamp_new";
     TimezoneUtils::load_timezones_to_cache();
 
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2};
-        DataSet data_set = {{{std::string("2022-05-24")}, int32_t {1653321600}},
+        DataSet data_set = {{{std::string("2022-05-24")}, int64_t {1653321600}},
+                            {{std::string("9022-05-24")}, int64_t {222551942400}},
                             {{Null()}, Null()}};
-        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     {
@@ -202,16 +203,18 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
                 {{std::string("2022-05-24 12:34:56.789")}, DECIMAL64(1653366896, 789, 3)},
                 {{Null()}, Null()}};
         static_cast<void>(
-                check_function<DataTypeDecimal64, true>(func_name, input_types, data_set, 3, 13));
+                check_function<DataTypeDecimal64, true>(func_name, input_types, data_set, 3, 15));
     }
 
     {
         InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
         DataSet data_set = {
                 {{std::string("2022-05-24 12:34:56.789123")}, DECIMAL64(1653366896, 789123, 6)},
+                {{std::string("9022-05-24 12:34:56.789123")}, DECIMAL64(222551987696, 789123, 6)},
+                {{std::string("9999-12-31 23:59:59.999")}, DECIMAL64(253402271999, 999000, 6)},
                 {{Null()}, Null()}};
         static_cast<void>(
-                check_function<DataTypeDecimal64, true>(func_name, input_types, data_set, 6, 16));
+                check_function<DataTypeDecimal64, true>(func_name, input_types, data_set, 6, 18));
     }
 
     // test out of range
@@ -219,8 +222,6 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
         InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
         DataSet data_set = {
                 {{std::string("1022-05-24 12:34:56.789123")}, DECIMAL64(0, 0, 0)},
-                {{std::string("9022-05-24 12:34:56.789123")}, DECIMAL64(0, 0, 0)},
-                {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 0, 0)},
         };
         static_cast<void>(
                 check_function<DataTypeDecimal64, true>(func_name, input_types, data_set, 0, 1));
@@ -229,11 +230,11 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
     {
         InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
         DataSet data_set = {
-                {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999, 3)},
-                {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999, 3)},
+                {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999000, 6)},
+                {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999000, 6)},
         };
         static_cast<void>(check_function<DataTypeDecimal64, true>(func_name, input_types, data_set,
-                                                                  0, 1, false, true));
+                                                                  6, 18, false, true));
     }
 }
 

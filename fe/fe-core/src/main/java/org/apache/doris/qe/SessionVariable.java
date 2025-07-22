@@ -4398,6 +4398,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
         tResult.setEnableStrictCast(enableStrictCast);
+        tResult.setNewVersionUnixTimestamp(true); // once FE upgraded, always use new version
         return tResult;
     }
 
