@@ -22,13 +22,10 @@ import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
-import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.EmptyStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.SqlParser;
@@ -57,6 +54,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -67,6 +66,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -645,14 +645,22 @@ public abstract class TestWithFeService {
     }
 
     public void dropTable(String table, boolean force) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(
-                "drop table " + table + (force ? " force" : "") + ";", connectContext);
-        Env.getCurrentEnv().dropTable(dropTableStmt);
+        String sql;
+        if (force) {
+            sql = "drop table " + table;
+        } else {
+            sql = "drop table if exists " + table;
+        }
+        dropTableWithSql(sql);
     }
 
-    public void dropTableWithSql(String dropTableSql) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(dropTableSql);
-        Env.getCurrentEnv().dropTable(dropTableStmt);
+    public void dropTableWithSql(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropTableCommand) {
+            ((DropTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     public void recoverTable(String table) throws Exception {
@@ -713,8 +721,9 @@ public abstract class TestWithFeService {
     }
 
     public void createFunction(String sql) throws Exception {
-        CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createFunction(createFunctionStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateFunctionCommand command = (CreateFunctionCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     public void addConstraint(String sql) throws Exception {
@@ -828,8 +837,12 @@ public abstract class TestWithFeService {
     }
 
     protected void alterTableSync(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().alterTable(alterTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
         Thread.sleep(100);
     }
 
