@@ -34,11 +34,8 @@ namespace doris::segment_v2 {
 // IndexIterator 与 IndexReader 的角色似乎有点重复，未来可以重构后删除一层概念
 class AnnIndexIterator : public IndexIterator {
 public:
-    AnnIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                     RuntimeState* runtime_state, const IndexReaderPtr& reader);
+    AnnIndexIterator(const IndexReaderPtr& reader);
     ~AnnIndexIterator() override = default;
-
-    IndexType type() override { return IndexType::ANN; }
 
     IndexReaderPtr get_reader() override {
         return std::static_pointer_cast<IndexReader>(_ann_reader);

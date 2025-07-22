@@ -41,6 +41,8 @@ public:
                    std::shared_ptr<IndexFileReader> index_file_reader);
     ~AnnIndexReader() override = default;
 
+    IndexType index_type() override { return IndexType::ANN; }
+
     static void update_result(const vectorized::IndexSearchResult&, std::vector<float>& distance,
                               roaring::Roaring& row_id);
 
@@ -54,9 +56,7 @@ public:
 
     uint64_t get_index_id() const override { return _index_meta.index_id(); }
 
-    Status new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                        RuntimeState* runtime_state,
-                        std::unique_ptr<IndexIterator>* iterator) override;
+    Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
 
     Metric get_metric_type() const { return _metric_type; }
 

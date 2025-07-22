@@ -53,6 +53,7 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/ann_topn_runtime.h"
+#include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -369,6 +370,7 @@ private:
     void _init_virtual_columns(vectorized::Block* block);
 
     Status _materialization_of_virtual_column(vectorized::Block* block);
+    void _prepare_score_column_materialization();
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
@@ -489,10 +491,13 @@ private:
             _common_expr_inverted_index_status;
 
     std::shared_ptr<vectorized::AnnTopNRuntime> _ann_topn_runtime;
+    std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
 
     // cid to virtual column expr
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
+
+    IndexQueryContextPtr _index_query_context;
 };
 
 } // namespace segment_v2

@@ -44,6 +44,8 @@
 #include <CLucene/store/RAMDirectory.h>
 #include <faiss/MetricType.h>
 
+#include "olap/rowset/segment_v2/inverted_index_common.h"
+
 using doris::segment_v2::DorisCompoundReader;
 
 namespace faiss {
@@ -116,8 +118,9 @@ public:
 
     MOCK_METHOD2(init, doris::Status(int, const doris::io::IOContext* io_ctx));
 
-    MOCK_CONST_METHOD2(open, doris::Result<std::unique_ptr<DorisCompoundReader>>(
-                                     const doris::TabletIndex*, const doris::io::IOContext*));
+    MOCK_CONST_METHOD2(
+            open, doris::Result<std::unique_ptr<DorisCompoundReader, segment_v2::DirectoryDeleter>>(
+                          const doris::TabletIndex*, const doris::io::IOContext*));
 };
 
 class MockTabletSchema : public doris::TabletIndex {};
@@ -144,8 +147,7 @@ public:
 
 class MockAnnIndexIterator : public doris::segment_v2::AnnIndexIterator {
 public:
-    MockAnnIndexIterator()
-            : doris::segment_v2::AnnIndexIterator(_io_ctx_mock, nullptr, nullptr, nullptr) {}
+    MockAnnIndexIterator() : doris::segment_v2::AnnIndexIterator(nullptr) {}
 
     ~MockAnnIndexIterator() override = default;
 
@@ -155,9 +157,6 @@ public:
                  const VectorSearchUserParams& custom_params,
                  vectorized::RangeSearchResult* result),
                 (override));
-
-private:
-    io::IOContext _io_ctx_mock;
 };
 
 class MockAnnIndexReader : public doris::segment_v2::AnnIndexReader {};
