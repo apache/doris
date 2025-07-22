@@ -113,6 +113,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -123,7 +124,6 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -646,7 +646,7 @@ public class IcebergUtils {
                 ByteBuffer buffer = (ByteBuffer) value;
                 byte[] res = new byte[buffer.limit()];
                 buffer.get(res);
-                return Base64.getEncoder().encodeToString(res);
+                return new String(res, StandardCharsets.UTF_8);
             case DATE:
                 // Iceberg date is stored as days since epoch (1970-01-01)
                 LocalDate date = LocalDate.ofEpochDay((Integer) value);
