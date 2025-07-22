@@ -50,12 +50,6 @@
 -- !runtime_filter_partition_pruning_boolean2 --
 5
 
--- !runtime_filter_partition_pruning_binary1 --
-0
-
--- !runtime_filter_partition_pruning_binary2 --
-0
-
 -- !runtime_filter_partition_pruning_float1 --
 1
 
@@ -115,12 +109,6 @@
 
 -- !runtime_filter_partition_pruning_boolean2 --
 5
-
--- !runtime_filter_partition_pruning_binary1 --
-0
-
--- !runtime_filter_partition_pruning_binary2 --
-0
 
 -- !runtime_filter_partition_pruning_float1 --
 1

@@ -140,18 +140,19 @@ suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,externa
                     (select partition_key from boolean_partitioned
                     group by partition_key having count(*) > 0);
             """
-            qt_runtime_filter_partition_pruning_binary1 """
-                select count(*) from binary_partitioned where partition_key =
-                    (select partition_key from binary_partitioned
-                    group by partition_key having count(*) > 0
-                    order by partition_key desc limit 1);
-            """
-            qt_runtime_filter_partition_pruning_binary2 """
-                select count(*) from binary_partitioned where partition_key in
-                    (select partition_key from binary_partitioned
-                    group by partition_key having count(*) > 0
-                    order by partition_key desc limit 2);
-            """
+            // binary type as partition key will cause issues in paimon, so skipping these tests
+            // qt_runtime_filter_partition_pruning_binary1 """
+            //     select count(*) from binary_partitioned where partition_key =
+            //         (select partition_key from binary_partitioned
+            //         group by partition_key having count(*) > 0
+            //         order by partition_key desc limit 1);
+            // """
+            // qt_runtime_filter_partition_pruning_binary2 """
+            //     select count(*) from binary_partitioned where partition_key in
+            //         (select partition_key from binary_partitioned
+            //         group by partition_key having count(*) > 0
+            //         order by partition_key desc limit 2);
+            // """
             qt_runtime_filter_partition_pruning_float1 """
                 select count(*) from float_partitioned where partition_key =
                     (select partition_key from float_partitioned

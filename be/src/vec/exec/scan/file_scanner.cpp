@@ -1493,8 +1493,7 @@ Status FileScanner::_generate_data_lake_partition_columns() {
         const auto& partition_values = _current_range.data_lake_partition_values;
         for (const auto& [key, value] : partition_values) {
             if (_all_col_name_to_slot_desc.find(key) == _all_col_name_to_slot_desc.end()) {
-                return Status::InternalError("Unknown data lake partition column, col_name={}",
-                                             key);
+                continue; // skip if the key is not in the slot desc map
             }
             const auto* slot_desc = _all_col_name_to_slot_desc[key];
             _data_lake_partition_col_descs.emplace(key, std::make_tuple(value, slot_desc));
