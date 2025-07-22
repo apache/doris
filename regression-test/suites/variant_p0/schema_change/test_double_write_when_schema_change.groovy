@@ -16,7 +16,6 @@
 // under the License.
 
 suite("double_write_schema_change_with_variant", "nonConcurrent") {
-    s
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
