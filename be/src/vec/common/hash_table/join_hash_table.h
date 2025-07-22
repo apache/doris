@@ -40,7 +40,7 @@ public:
     static uint32_t calc_bucket_size(size_t num_elem) {
         size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
         return (uint32_t)std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
-                        static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
+                                  static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
     }
 
     size_t get_byte_size() const {
@@ -75,8 +75,8 @@ public:
 
     bool empty_build_side() const { return _empty_build_side; }
 
-    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums, uint32_t num_elem,
-               bool keep_null_key) {
+    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
+               uint32_t num_elem, bool keep_null_key) {
         build_keys = keys;
         for (uint32_t i = 1; i < num_elem; i++) {
             uint32_t bucket_num = bucket_nums[i];

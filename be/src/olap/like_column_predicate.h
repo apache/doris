@@ -144,8 +144,7 @@ private:
             }
         }
     }
-
-    __attribute__((flatten)) std::vector<bool> _find_code_from_dictionary_column(
+    std::vector<bool> __attribute__((flatten)) _find_code_from_dictionary_column(
             const vectorized::ColumnDictI32& column) const {
         std::vector<bool> res;
         if (_segment_id_to_cached_res_flags.if_contains(
