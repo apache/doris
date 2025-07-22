@@ -56,7 +56,7 @@ Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space
         faststring buf;
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(body, uncompressed_size, &buf));
         double space_saving =
-                1.0 - (static_cast<double>(buf.size()) / static_cast<double>(uncompressed_size));
+                1.0 - (cast_set<double>(buf.size()) / cast_set<double>(uncompressed_size));
         // return compressed body only when it saves more than min_space_saving
         if (space_saving > 0 && space_saving >= min_space_saving) {
             // shrink the buf to fit the len size to avoid taking
@@ -111,7 +111,7 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
     RETURN_IF_ERROR(writer->appendv(&page[0], page.size()));
 
     result->offset = offset;
-    result->size = static_cast<uint32_t>(writer->bytes_appended() - offset);
+    result->size = cast_set<uint32_t>(writer->bytes_appended() - offset);
     return Status::OK();
 }
 
@@ -195,7 +195,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
                                   opts.file_reader->path().native());
     }
 
-    auto body_size = static_cast<uint32_t>(page_slice.size - 4 - footer_size);
+    auto body_size = cast_set<uint32_t>(page_slice.size - 4 - footer_size);
     if (body_size != footer->uncompressed_size()) { // need decompress body
         if (opts.codec == nullptr) {
             return Status::Corruption(

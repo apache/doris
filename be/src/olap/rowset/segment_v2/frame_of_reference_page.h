@@ -139,7 +139,7 @@ public:
             }
         }
 
-        auto skip_num = static_cast<int32_t>(pos - _cur_index);
+        auto skip_num = cast_set<int32_t>(pos - _cur_index);
         _decoder->skip(skip_num);
         _cur_index = pos;
         return Status::OK();

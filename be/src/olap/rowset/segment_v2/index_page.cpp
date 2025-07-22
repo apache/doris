@@ -45,7 +45,7 @@ void IndexPageBuilder::finish(OwnedSlice* body, PageFooterPB* footer) {
     *body = _buffer.build();
 
     footer->set_type(INDEX_PAGE);
-    footer->set_uncompressed_size(static_cast<uint32_t>(body->slice().get_size()));
+    footer->set_uncompressed_size(cast_set<uint32_t>(body->slice().get_size()));
     footer->mutable_index_page_footer()->set_num_entries(_count);
     footer->mutable_index_page_footer()->set_type(_is_leaf ? IndexPageFooterPB::LEAF
                                                            : IndexPageFooterPB::INTERNAL);
@@ -95,7 +95,7 @@ Status IndexPageReader::parse(const Slice& body, const IndexPageFooterPB& footer
 
 Status IndexPageIterator::seek_at_or_before(const Slice& search_key) {
     int32_t left = 0;
-    auto right = static_cast<int32_t>(_reader->count() - 1);
+    auto right = cast_set<int32_t>(_reader->count() - 1);
     while (left <= right) {
         int32_t mid = left + (right - left) / 2;
         int cmp = search_key.compare(_reader->get_key(mid));

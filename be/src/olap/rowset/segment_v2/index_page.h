@@ -146,10 +146,10 @@ public:
     // Return true when has next page.
     bool has_next() { return (_pos + 1) < _reader->count(); }
 
-    const Slice& current_key() const { return _reader->get_key(static_cast<int>(_pos)); }
+    const Slice& current_key() const { return _reader->get_key(cast_set<int>(_pos)); }
 
     const PagePointer& current_page_pointer() const {
-        return _reader->get_value(static_cast<int>(_pos));
+        return _reader->get_value(cast_set<int>(_pos));
     }
 
 private:

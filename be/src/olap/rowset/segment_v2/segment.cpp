@@ -1007,7 +1007,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     if (st.is<ErrorCode::ENTRY_NOT_FOUND>() || (!has_seq_col && !has_rowid && !exact_match)) {
         return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
     }
-    row_location->row_id = static_cast<uint32_t>(index_iterator->get_current_ordinal());
+    row_location->row_id = cast_set<uint32_t>(index_iterator->get_current_ordinal());
     row_location->segment_id = _segment_id;
     row_location->rowset_id = _rowset_id;
 

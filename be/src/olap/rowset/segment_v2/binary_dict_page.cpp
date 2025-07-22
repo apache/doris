@@ -110,7 +110,7 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                     }
                     dict_item.relocate(item_mem);
                 }
-                value_code = static_cast<uint32_t>(_dictionary.size());
+                value_code = cast_set<uint32_t>(_dictionary.size());
                 size_t add_count = 1;
                 RETURN_IF_ERROR(_dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item),
                                                    &add_count));

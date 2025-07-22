@@ -56,7 +56,7 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
         size_t share_len;
         if (_count % RESTART_POINT_INTERVAL == 0) {
             share_len = 0;
-            _restart_points_offset.push_back(static_cast<uint32_t>(old_size));
+            _restart_points_offset.push_back(cast_set<uint32_t>(old_size));
         } else {
             size_t max_share_len = std::min(_last_entry.size(), entry_len);
             share_len = max_share_len;
@@ -71,8 +71,8 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
         // This may need a large memory, should return error if could not allocated
         // successfully, to avoid BE OOM.
         RETURN_IF_CATCH_EXCEPTION({
-            put_varint32(&_buffer, static_cast<uint32_t>(share_len));
-            put_varint32(&_buffer, static_cast<uint32_t>(non_share_len));
+            put_varint32(&_buffer, cast_set<uint32_t>(share_len));
+            put_varint32(&_buffer, cast_set<uint32_t>(non_share_len));
             _buffer.append(entry + share_len, non_share_len);
 
             _last_entry.clear();
@@ -96,7 +96,7 @@ Status BinaryPrefixPageBuilder::finish(OwnedSlice* slice) {
         for (uint32_t i = 0; i < restart_point_size; ++i) {
             put_fixed32_le(&_buffer, _restart_points_offset[i]);
         }
-        put_fixed32_le(&_buffer, static_cast<uint32_t>(restart_point_size));
+        put_fixed32_le(&_buffer, cast_set<uint32_t>(restart_point_size));
         *slice = _buffer.build();
     });
     return Status::OK();
@@ -134,7 +134,7 @@ Status BinaryPrefixPageDecoder::_read_next_value() {
 }
 
 Status BinaryPrefixPageDecoder::_seek_to_restart_point(size_t restart_point_index) {
-    _cur_pos = static_cast<uint32_t>(restart_point_index * _restart_point_internal);
+    _cur_pos = cast_set<uint32_t>(restart_point_index * _restart_point_internal);
     _next_ptr = _get_restart_point(restart_point_index);
     return _read_next_value();
 }
@@ -164,7 +164,7 @@ Status BinaryPrefixPageDecoder::seek_to_position_in_page(size_t pos) {
     }
     // seek past the last value is valid
     if (pos == _num_values) {
-        _cur_pos = static_cast<uint32_t>(_num_values);
+        _cur_pos = cast_set<uint32_t>(_num_values);
         return Status::OK();
     }
 
