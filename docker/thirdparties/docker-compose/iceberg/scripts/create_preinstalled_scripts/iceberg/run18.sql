@@ -3,7 +3,7 @@ create database if not exists demo.partition_db;
 use demo.partition_db;
 
 -- set time zone to shanghai
-set spark.sql.session.timeZone = 'Asia/Shanghai';
+SET TIME ZONE '+08:00';
 -- Partition by date type
 CREATE TABLE date_partitioned (
     id BIGINT,
@@ -29,35 +29,6 @@ CREATE TABLE time_partitioned (
     name STRING,
     partition_key TIME
 ) USING ICEBERG PARTITIONED BY (partition_key);
-
--- Insert data into time_partitioned table
-INSERT INTO
-    time_partitioned
-VALUES (
-        1,
-        'Morning Shift',
-        TIME '08:00:00'
-    ),
-    (
-        2,
-        'Afternoon Shift',
-        TIME '12:00:00'
-    ),
-    (
-        3,
-        'Evening Shift',
-        TIME '18:00:00'
-    ),
-    (
-        4,
-        'Night Shift',
-        TIME '22:00:00'
-    ),
-    (
-        5,
-        'Overnight Shift',
-        TIME '02:00:00'
-    );
 
 -- Partition by integer type
 CREATE TABLE int_partitioned (
@@ -108,78 +79,6 @@ VALUES (1, 'User1', 'North America'),
     (5, 'User5', 'Asia'),
     (6, 'User6', 'Asia');
 
--- Partition by fixed type
-CREATE TABLE fixed_partitioned (
-    id BIGINT,
-    name STRING,
-    partition_key FIXED(16)
-) USING ICEBERG PARTITIONED BY (partition_key);
-
--- Insert data into fixed_partitioned table
-INSERT INTO
-    fixed_partitioned
-VALUES (
-        1,
-        'Product A',
-        CAST(1 AS FIXED(16))
-    ),
-    (
-        2,
-        'Product B',
-        CAST(1 AS FIXED(16))
-    ),
-    (
-        3,
-        'Product C',
-        CAST(2 AS FIXED(16))
-    ),
-    (
-        4,
-        'Product D',
-        CAST(2 AS FIXED(16))
-    ),
-    (
-        5,
-        'Product E',
-        CAST(3 AS FIXED(16))
-    );
-
--- Partition by uuid type
-CREATE TABLE uuid_partitioned (
-    id BIGINT,
-    name STRING,
-    partition_key UUID
-) USING ICEBERG PARTITIONED BY (partition_key);
-
--- Insert data into uuid_partitioned table
-INSERT INTO
-    uuid_partitioned
-VALUES (
-        1,
-        'UUID User 1',
-        UUID '123e4567-e89b-12d3-a456-426614174000'
-    ),
-    (
-        2,
-        'UUID User 2',
-        UUID '123e4567-e89b-12d3-a456-426614174001'
-    ),
-    (
-        3,
-        'UUID User 3',
-        UUID '123e4567-e89b-12d3-a456-426614174002'
-    ),
-    (
-        4,
-        'UUID User 4',
-        UUID '123e4567-e89b-12d3-a456-426614174003'
-    ),
-    (
-        5,
-        'UUID User 5',
-        UUID '123e4567-e89b-12d3-a456-426614174004'
-    );
-
 -- Partition by timestamp type
 CREATE TABLE timestamp_partitioned (
     id BIGINT,
@@ -214,6 +113,42 @@ VALUES (
         5,
         'Event5',
         TIMESTAMP '2024-01-16 16:00:00'
+    );
+
+-- Partition by timestamp_ntz type
+CREATE TABLE timestamp_ntz_partitioned (
+    id BIGINT,
+    name STRING,
+    partition_key TIMESTAMP_NTZ
+) USING ICEBERG PARTITIONED BY (partition_key);
+
+-- INSERT INTO timestamp_ntz_partitioned
+INSERT INTO
+    timestamp_ntz_partitioned
+VALUES (
+        1,
+        'Event1',
+        TIMESTAMP_NTZ '2024-01-15 08:00:00'
+    ),
+    (
+        2,
+        'Event2',
+        TIMESTAMP_NTZ '2024-01-15 09:00:00'
+    ),
+    (
+        3,
+        'Event3',
+        TIMESTAMP_NTZ '2024-01-15 14:00:00'
+    ),
+    (
+        4,
+        'Event4',
+        TIMESTAMP_NTZ '2024-01-16 10:00:00'
+    ),
+    (
+        5,
+        'Event5',
+        TIMESTAMP_NTZ '2024-01-16 16:00:00'
     );
 
 -- Partition by boolean type
