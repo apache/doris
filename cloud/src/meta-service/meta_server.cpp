@@ -63,14 +63,6 @@ int MetaServer::start(brpc::Server* server) {
         return -1;
     }
 
-    fdb_metric_exporter_.reset(new FdbMetricExporter(txn_kv_));
-    ret = fdb_metric_exporter_->start();
-    TEST_SYNC_POINT_CALLBACK("MetaServer::start:3", &ret);
-    if (ret != 0) {
-        LOG(WARNING) << "failed to start fdb metric exporter";
-        return -2;
-    }
-
     auto rate_limiter = std::make_shared<RateLimiter>();
 
     // Add service
