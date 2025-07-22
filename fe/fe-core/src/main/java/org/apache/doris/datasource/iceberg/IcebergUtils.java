@@ -116,10 +116,12 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.Month;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -637,22 +639,29 @@ public class IcebergUtils {
             case UUID:
             case DECIMAL:
                 return value.toString();
+            case FIXED:
+            case BINARY:
+                // Fixed and binary types are stored as ByteBuffer
+                ByteBuffer buffer = (ByteBuffer) value;
+                byte[] res = new byte[buffer.limit()];
+                buffer.get(res);
+                return Base64.getEncoder().encodeToString(res);
             case DATE:
-                // Iceberg date is stored as days since epoch
+                // Iceberg date is stored as days since epoch (1970-01-01)
                 LocalDate date = LocalDate.ofEpochDay((Integer) value);
                 return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
             case TIME:
-                // Iceberg time is stored as microseconds since midnight without timezone
+                // Iceberg time is stored as microseconds since midnight
                 long micros = (Long) value;
-                LocalDateTime time = LocalDateTime.ofEpochSecond(micros / 1_000_000, (int) (micros % 1_000_000) * 1000,
-                        ZoneId.of("UTC").getRules().getOffset(Instant.now()));
+                LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP:
-                // Iceberg timestamp is stored as microseconds since epoch without timezone
+                // Iceberg timestamp is stored as microseconds since epoch
+                // (1970-01-01T00:00:00Z)
                 long timestampMicros = (Long) value;
-                LocalDateTime timestamp = LocalDateTime.ofInstant(
-                        Instant.ofEpochSecond(timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000),
-                        ZoneId.of("UTC"));
+                LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
+                        timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000,
+                        ZoneId.of("UTC").getRules().getOffset(Instant.now()));
                 return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);

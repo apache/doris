@@ -71,6 +71,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -435,8 +436,7 @@ public class PaimonUtil {
             case TIME_WITHOUT_TIME_ZONE:
                 // Paimon time is stored as microseconds since midnight in utc
                 long micros = (Long) value;
-                LocalDateTime time = LocalDateTime.ofEpochSecond(micros / 1_000_000, (int) (micros % 1_000_000) * 1000,
-                        ZoneId.of("UTC").getRules().getOffset(Instant.now()));
+                LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP_WITHOUT_TIME_ZONE:
                 // Paimon timestamp is stored as Timestamp type in utc
