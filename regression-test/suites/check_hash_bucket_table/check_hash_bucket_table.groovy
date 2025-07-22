@@ -37,7 +37,7 @@ suite("check_hash_bucket_table") {
         def matcher2 = showStmt =~ /(?i)BUCKETS\s+(\d+)/
         if (!matcher2.find()) { return } 
         int bucketNum = matcher2.group(1).toInteger()
-        if (bucketNum == 0) { return }
+        if (bucketNum <= 1) { return }
         logger.info("""===== Begin to check table: ${db}.${tblName}, hash bucket: ${hashBucket}, bucket num: ${bucketNum}, replica num: ${tabletStats.size()}, bucket columns: ${bucketColumns}""")
         ++tableNum
         int replicaNum = tabletIdList.stream().filter { it == tabletIdList[0] }.count()
@@ -58,9 +58,9 @@ suite("check_hash_bucket_table") {
 
     def checkDb = { String db ->
         sql "use ${db};"
-        def tables = sql "show tables"
+        def tables = sql("show full tables").stream().filter{ it[1] == "BASE TABLE" }.collect{ it[0] }.toList()
         ++dbNum
-        tables.each { checkTable(db, it[0]) }
+        tables.each { checkTable(db, it) }
     }
 
     def allDbs = sql "show databases"
