@@ -1787,7 +1787,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableShareHashTableForBroadcastJoin = true;
 
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
-    public boolean enableUnicodeNameSupport = false;
+    public boolean enableUnicodeNameSupport = true;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN, affectQueryResult = true)
     public long groupConcatMaxLen = 2147483646;
