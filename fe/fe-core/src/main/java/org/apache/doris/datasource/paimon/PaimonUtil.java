@@ -388,7 +388,7 @@ public class PaimonUtil {
         }
     }
 
-    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues) {
+    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<String> partitionKeys = table.partitionKeys();
         RowType partitionType = table.rowType().project(partitionKeys);
@@ -398,7 +398,7 @@ public class PaimonUtil {
         for (int i = 0; i < partitionKeys.size(); i++) {
             try {
                 String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
-                        partitionValuesArray[i]);
+                        partitionValuesArray[i], timeZone);
                 partitionInfoMap.put(partitionKeys.get(i), partitionValue);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize partition value for key {}: {}", partitionKeys.get(i), e.getMessage());
@@ -408,7 +408,8 @@ public class PaimonUtil {
         return partitionInfoMap;
     }
 
-    private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value) {
+    private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
+            String timeZone) {
         if (value == null) {
             return "\\N";
         }
@@ -432,16 +433,19 @@ public class PaimonUtil {
                 LocalDate date = LocalDate.ofEpochDay((Integer) value);
                 return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
             case TIME_WITHOUT_TIME_ZONE:
-                // Paimon time is stored as microseconds since midnight
+                // Paimon time is stored as microseconds since midnight in utc
                 long micros = (Long) value;
                 LocalDateTime time = LocalDateTime.ofEpochSecond(micros / 1_000_000, (int) (micros % 1_000_000) * 1000,
-                        ZoneId.systemDefault().getRules().getOffset(Instant.now()));
+                        ZoneId.of("UTC").getRules().getOffset(Instant.now()));
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP_WITHOUT_TIME_ZONE:
+                // Paimon timestamp is stored as Timestamp type in utc
+                return ((Timestamp) value).toLocalDateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                // Paimon timestamp with local time zone is stored as Timestamp type in utc
                 Timestamp timestamp = (Timestamp) value;
                 return timestamp.toLocalDateTime()
-                        .atZone(ZoneId.systemDefault())
+                        .atZone(ZoneId.of(timeZone)) // Convert to local time zone
                         .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);

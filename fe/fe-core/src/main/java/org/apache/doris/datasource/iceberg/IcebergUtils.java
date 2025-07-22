@@ -642,17 +642,17 @@ public class IcebergUtils {
                 LocalDate date = LocalDate.ofEpochDay((Integer) value);
                 return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
             case TIME:
-                // Iceberg time is stored as microseconds since midnight
+                // Iceberg time is stored as microseconds since midnight without timezone
                 long micros = (Long) value;
                 LocalDateTime time = LocalDateTime.ofEpochSecond(micros / 1_000_000, (int) (micros % 1_000_000) * 1000,
-                        ZoneId.systemDefault().getRules().getOffset(Instant.now()));
+                        ZoneId.of("UTC").getRules().getOffset(Instant.now()));
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP:
-                // Iceberg timestamp is stored as microseconds since epoch
+                // Iceberg timestamp is stored as microseconds since epoch without timezone
                 long timestampMicros = (Long) value;
                 LocalDateTime timestamp = LocalDateTime.ofInstant(
                         Instant.ofEpochSecond(timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000),
-                        ZoneId.systemDefault());
+                        ZoneId.of("UTC"));
                 return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);

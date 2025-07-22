@@ -276,8 +276,11 @@ public class PaimonScanNode extends FileQueryScanNode {
 
             BinaryRow partitionValue = dataSplit.partition();
             selectedPartitionValues.add(partitionValue);
-            Map<String, String> partitionInfoMap = PaimonUtil.getPartitionInfoMap(
-                    source.getPaimonTable(), partitionValue);
+            // try to get partition info map if EnableRuntimeFilterPartitionPrune is true
+            Map<String, String> partitionInfoMap = sessionVariable.isEnableRuntimeFilterPartitionPrune()
+                    ? PaimonUtil.getPartitionInfoMap(
+                            source.getPaimonTable(), partitionValue, sessionVariable.getTimeZone())
+                    : null;
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
             if (applyCountPushdown && dataSplit.mergedRowCountAvailable()) {
