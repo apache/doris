@@ -5,7 +5,7 @@ create database if not exists partition_db;
 use partition_db;
 
 -- set time zone to shanghai
-set spark.sql.session.timeZone = 'Asia/Shanghai';
+SET TIME ZONE '+08:00';
 
 -- Partition by date type
 CREATE TABLE date_partitioned (
@@ -26,41 +26,6 @@ VALUES (1, 'Alice', DATE '2024-01-01'),
     ),
     (4, 'David', DATE '2024-02-01'),
     (5, 'Eve', DATE '2024-03-01');
-
--- Partition by time type
-CREATE TABLE time_partitioned (
-    id BIGINT,
-    name STRING,
-    partition_key TIME
-) PARTITIONED BY (partition_key);
--- Insert data into time_partitioned table
-INSERT INTO
-    time_partitioned
-VALUES (
-        1,
-        'Morning Shift',
-        TIME '08:00:00'
-    ),
-    (
-        2,
-        'Afternoon Shift',
-        TIME '12:00:00'
-    ),
-    (
-        3,
-        'Evening Shift',
-        TIME '18:00:00'
-    ),
-    (
-        4,
-        'Night Shift',
-        TIME '22:00:00'
-    ),
-    (
-        5,
-        'Overnight Shift',
-        TIME '02:00:00'
-    );
 
 -- Partition by timestamp type
 CREATE TABLE timestamp_partitioned (
@@ -216,3 +181,18 @@ VALUES (
         'Binary Data 5',
         CAST('binary3' AS BINARY)
     );
+
+-- Partition by float type
+CREATE TABLE float_partitioned (
+    id BIGINT,
+    name STRING,
+    partition_key FLOAT
+) PARTITIONED BY (partition_key);
+-- Insert data into float_partitioned table
+INSERT INTO
+    float_partitioned
+VALUES (1, 'Float Data 1', 1.5),
+    (2, 'Float Data 2', 1.5),
+    (3, 'Float Data 3', 2.5),
+    (4, 'Float Data 4', 2.5),
+    (5, 'Float Data 5', 3.5);

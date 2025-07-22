@@ -68,9 +68,7 @@ import org.apache.paimon.utils.Projection;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
 import java.io.IOException;
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -445,7 +443,9 @@ public class PaimonUtil {
                 // Paimon timestamp with local time zone is stored as Timestamp type in utc
                 Timestamp timestamp = (Timestamp) value;
                 return timestamp.toLocalDateTime()
-                        .atZone(ZoneId.of(timeZone)) // Convert to local time zone
+                        .atZone(ZoneId.of("UTC"))
+                        .withZoneSameInstant(ZoneId.of(timeZone))
+                        .toLocalDateTime()
                         .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);

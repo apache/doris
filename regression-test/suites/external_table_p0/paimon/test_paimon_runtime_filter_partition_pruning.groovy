@@ -111,6 +111,24 @@ suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,externa
                     group by partition_key having count(*) > 0
                     order by partition_key desc limit 2);
             """
+            qt_runtime_filter_partition_pruning_bigint1 """
+                select count(*) from bigint_partitioned where partition_key =
+                    (select partition_key from bigint_partitioned
+                    group by partition_key having count(*) > 0
+                    order by partition_key desc limit 1);
+            """
+            qt_runtime_filter_partition_pruning_bigint2 """
+                select count(*) from bigint_partitioned where partition_key in
+                    (select partition_key from bigint_partitioned
+                    group by partition_key having count(*) > 0
+                    order by partition_key desc limit 2);
+            """
+            qt_runtime_filter_partition_pruning_bigint3 """
+                select count(*) from bigint_partitioned where abs(partition_key) =
+                    (select partition_key from bigint_partitioned
+                    group by partition_key having count(*) > 0
+                    order by partition_key desc limit 1);
+            """
             qt_runtime_filter_partition_pruning_boolean1 """
                 select count(*) from boolean_partitioned where partition_key =
                     (select partition_key from boolean_partitioned
@@ -122,15 +140,47 @@ suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,externa
                     (select partition_key from boolean_partitioned
                     group by partition_key having count(*) > 0);
             """
+            qt_runtime_filter_partition_pruning_binary1 """
+                select count(*) from binary_partitioned where partition_key =
+                    (select partition_key from binary_partitioned
+                    group by partition_key having count(*) > 0
+                    order by partition_key desc limit 1);
+            """
+            qt_runtime_filter_partition_pruning_binary2 """
+                select count(*) from binary_partitioned where partition_key in
+                    (select partition_key from binary_partitioned
+                    group by partition_key having count(*) > 0
+                    order by partition_key desc limit 2);
+            """
+            qt_runtime_filter_partition_pruning_float1 """
+                select count(*) from float_partitioned where partition_key =
+                    (select partition_key from float_partitioned
+                    group by partition_key having count(*) > 0
+                    order by partition_key desc limit 1);
+            """
+            qt_runtime_filter_partition_pruning_float2 """
+                select count(*) from float_partitioned where partition_key in
+                    (select partition_key from float_partitioned
+                    group by partition_key having count(*) > 0
+                    order by partition_key desc limit 2);
+            """
+            qt_runtime_filter_partition_pruning_float3 """
+                select count(*) from float_partitioned where abs(partition_key) =
+                    (select partition_key from float_partitioned
+                    group by partition_key having count(*) > 0
+                    order by partition_key desc limit 1);
+            """
         }
 
         try {
+            sql """ set time_zone = 'Asia/Shanghai'; """
             sql """ set enable_runtime_filter_partition_prune = false; """
             test_runtime_filter_partition_pruning()
             sql """ set enable_runtime_filter_partition_prune = true; """
             test_runtime_filter_partition_pruning()
 
         } finally {
+            sql """ unset variable time_zone; """
             sql """ set enable_runtime_filter_partition_prune = true; """
         }
     }
