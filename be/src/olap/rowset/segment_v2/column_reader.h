@@ -299,10 +299,7 @@ private:
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
-<<<<<<< HEAD
-=======
-    std::unordered_map<int64_t, std::shared_ptr<InvertedIndexReader>> _inverted_indexs;
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
+    std::unordered_map<int64_t, IndexReaderPtr> _index_readers;
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     IndexReaderPtr _index_reader;

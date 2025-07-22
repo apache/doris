@@ -226,15 +226,6 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
-<<<<<<< HEAD
-    if (const auto& index = tablet_schema->inverted_index(column);
-        index != nullptr && !skip_inverted_index) {
-        opts.inverted_index = index;
-        opts.need_inverted_index = true;
-        DCHECK(_index_file_writer != nullptr);
-        opts.index_file_writer = _index_file_writer;
-        // TODO support multiple inverted index
-=======
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
         if (!inverted_indexs.empty()) {
@@ -242,11 +233,10 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
                 opts.inverted_indexs.emplace_back(index);
             }
             opts.need_inverted_index = true;
-            DCHECK(_inverted_index_file_writer != nullptr);
+            DCHECK(_index_file_writer != nullptr);
         }
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
     }
-    opts.inverted_index_file_writer = _inverted_index_file_writer;
+    opts.index_file_writer = _index_file_writer;
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \

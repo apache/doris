@@ -791,7 +791,7 @@ Status Compaction::do_inverted_index_compaction() {
             try {
                 std::vector<std::unique_ptr<DorisCompoundReader>> src_idx_dirs(src_segment_num);
                 for (int src_segment_id = 0; src_segment_id < src_segment_num; src_segment_id++) {
-                    auto res = inverted_index_file_readers[src_segment_id]->open(index_meta);
+                    auto res = index_file_readers[src_segment_id]->open(index_meta);
                     DBUG_EXECUTE_IF("Compaction::open_inverted_index_file_reader", {
                         res = ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                                 "debug point: Compaction::open_index_file_reader error"));
@@ -956,68 +956,6 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                              << col_unique_id << "] index meta is null, will skip index compaction";
                 return false;
             }
-<<<<<<< HEAD
-
-            for (auto i = 0; i < rowset->num_segments(); i++) {
-                // TODO: inverted_index_path
-                auto seg_path = rowset->segment_path(i);
-                DBUG_EXECUTE_IF("Compaction::construct_skip_inverted_index_seg_path_nullptr", {
-                    seg_path = ResultError(Status::Error<ErrorCode::INTERNAL_ERROR>(
-                            "construct_skip_inverted_index_seg_path_nullptr"));
-                })
-                if (!seg_path) {
-                    LOG(WARNING) << seg_path.error();
-                    return false;
-                }
-
-                std::string index_file_path;
-                try {
-                    auto index_file_reader = std::make_unique<IndexFileReader>(
-                            fs,
-                            std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
-                                    seg_path.value())},
-                            _cur_tablet_schema->get_inverted_index_storage_format(),
-                            rowset->rowset_meta()->inverted_index_file_info(i));
-                    auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
-                    index_file_path = index_file_reader->get_index_file_path(index_meta);
-                    DBUG_EXECUTE_IF(
-                            "Compaction::construct_skip_inverted_index_index_file_reader_init_"
-                            "status_not_ok",
-                            {
-                                st = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                        "debug point: "
-                                        "construct_skip_inverted_index_index_file_reader_init_"
-                                        "status_"
-                                        "not_ok");
-                            })
-                    if (!st.ok()) {
-                        LOG(WARNING) << "init index " << index_file_path << " error:" << st;
-                        return false;
-                    }
-
-                    // check index meta
-                    auto result = index_file_reader->open(index_meta);
-                    DBUG_EXECUTE_IF(
-                            "Compaction::construct_skip_inverted_index_index_file_reader_open_"
-                            "error",
-                            {
-                                result = ResultError(
-                                        Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                                                "CLuceneError occur when open idx file"));
-                            })
-                    if (!result.has_value()) {
-                        LOG(WARNING)
-                                << "open index " << index_file_path << " error:" << result.error();
-                        return false;
-                    }
-                    auto reader = std::move(result.value());
-                    std::vector<std::string> files;
-                    reader->list(&files);
-                    reader->close();
-                    DBUG_EXECUTE_IF(
-                            "Compaction::construct_skip_inverted_index_index_reader_close_error",
-                            { _CLTHROWA(CL_ERR_IO, "debug point: reader close error"); })
-=======
             for (const auto& index_meta : index_metas) {
                 for (auto i = 0; i < rowset->num_segments(); i++) {
                     // TODO: inverted_index_path
@@ -1033,16 +971,16 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
 
                     std::string index_file_path;
                     try {
-                        auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+                        auto index_file_reader = std::make_unique<IndexFileReader>(
                                 fs,
                                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                                         seg_path.value())},
                                 _cur_tablet_schema->get_inverted_index_storage_format(),
                                 rowset->rowset_meta()->inverted_index_file_info(i));
-                        auto st = inverted_index_file_reader->init(
+                        auto st = index_file_reader->init(
                                 config::inverted_index_read_buffer_size);
                         index_file_path =
-                                inverted_index_file_reader->get_index_file_path(index_meta);
+                                index_file_reader->get_index_file_path(index_meta);
                         DBUG_EXECUTE_IF(
                                 "Compaction::construct_skip_inverted_index_index_file_reader_init_"
                                 "status_not_ok",
@@ -1057,10 +995,9 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                             LOG(WARNING) << "init index " << index_file_path << " error:" << st;
                             return false;
                         }
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
 
                         // check index meta
-                        auto result = inverted_index_file_reader->open(index_meta);
+                        auto result = index_file_reader->open(index_meta);
                         DBUG_EXECUTE_IF(
                                 "Compaction::construct_skip_inverted_index_index_file_reader_open_"
                                 "error",
