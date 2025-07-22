@@ -335,4 +335,5 @@ CONF_mString(ca_cert_file_paths,
              "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
              "/etc/ssl/ca-bundle.pem");
 
+CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 } // namespace doris::cloud::config
