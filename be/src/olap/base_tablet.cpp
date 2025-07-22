@@ -1853,6 +1853,9 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
     }
     int64_t start_version = version.first;
     int64_t end_version = version.second;
+    if (start_version == end_version) {
+        return;
+    }
     DCHECK(start_version < end_version)
             << ". start_version: " << start_version << ", end_version: " << end_version;
     // get pre rowsets

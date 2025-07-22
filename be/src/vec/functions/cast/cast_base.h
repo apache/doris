@@ -20,30 +20,32 @@
 #include <cstdint>
 
 #include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_ipv6.h"
+#include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
-
+#include "vec/io/io_helper.h"
 namespace doris::vectorized {
 
 struct NameCast {
     static constexpr auto name = "CAST";
 };
-
-struct PrecisionScaleArg {
-    UInt32 precision;
-    UInt32 scale;
-};
-
 namespace CastUtil {
 // `static_cast_set` is introduced to wrap `static_cast` and handle special cases.
 // Doris uses `uint8` to represent boolean values internally.
@@ -156,6 +158,11 @@ public:
                 cast_mode_type_to_string(CastMode, block.get_by_position(arguments[0]).type,
                                          block.get_by_position(result).type));
     }
+};
+
+struct CastParameters {
+    Status status = Status::OK();
+    bool is_strict;
 };
 
 #ifdef BE_TEST

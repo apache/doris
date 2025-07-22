@@ -98,9 +98,11 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             if (!status.ok()) {
                 scanner_ref->set_status(status);
                 ctx->push_back_scan_task(scanner_ref);
+                return true;
             }
+            return scanner_ref->is_eos();
         };
-        SimplifiedScanTask simple_scan_task = {work_func, ctx};
+        SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
         return scan_sched->submit_scan_task(simple_scan_task);
     };
 
@@ -357,6 +359,31 @@ int ScannerScheduler::get_remote_scan_thread_num() {
 
 int ScannerScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
+}
+
+Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono::nanoseconds) {
+    _started = true;
+    bool is_completed = _scan_func();
+    if (is_completed) {
+        _completion_future.set_value(Void {});
+    }
+    return SharedListenableFuture<Void>::create_ready(Void {});
+}
+
+bool ScannerSplitRunner::is_finished() {
+    return _completion_future.is_done();
+}
+
+Status ScannerSplitRunner::finished_status() {
+    return _completion_future.get_status();
+}
+
+bool ScannerSplitRunner::is_started() const {
+    return _started.load();
+}
+
+bool ScannerSplitRunner::is_auto_reschedule() const {
+    return false;
 }
 
 } // namespace doris::vectorized

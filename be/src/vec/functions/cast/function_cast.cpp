@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "function_cast.h"
-
 #include <utility>
 
 #include "cast_to_array.h"
