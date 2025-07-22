@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,21 +16,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.insert;
+#include <gtest/gtest.h>
 
-import java.util.Optional;
+#include "runtime/primitive_type.h"
+#include "testutil/column_helper.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type_number.h"
 
-/**
- * For iceberg External Table
- */
-public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandContext {
-    private Optional<String> branchName = Optional.empty();
+namespace doris::vectorized {
+TEST(BlockCheckType, test1) {
+    auto block = Block {
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4}),
+            ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4}),
+    };
 
-    public Optional<String> getBranchName() {
-        return branchName;
-    }
+    auto st = block.check_type_and_column();
+    EXPECT_TRUE(st);
 
-    public void setBranchName(Optional<String> branchName) {
-        this.branchName = branchName;
-    }
+    block.get_by_position(1).column =
+            ColumnHelper::create_column<DataTypeFloat64>({1.1, 2.2, 3.3, 4.4});
+    st = block.check_type_and_column();
+    EXPECT_FALSE(st.ok());
+    std::cout << st.msg() << std::endl;
 }
+} // namespace doris::vectorized

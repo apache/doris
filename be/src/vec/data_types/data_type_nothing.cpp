@@ -30,6 +30,10 @@ MutableColumnPtr DataTypeNothing::create_column() const {
     return ColumnNothing::create(0);
 }
 
+Status DataTypeNothing::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnNothing>(column);
+}
+
 char* DataTypeNothing::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "serialize not support");
     __builtin_unreachable();
