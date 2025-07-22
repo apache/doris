@@ -68,6 +68,7 @@ import org.apache.paimon.utils.Projection;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -426,7 +427,7 @@ public class PaimonUtil {
                 return value.toString();
             case BINARY:
             case VARBINARY:
-                return Base64.getEncoder().encodeToString((byte[]) value);
+                return new String((byte[]) value, StandardCharsets.UTF_8);
             case DATE:
                 // Paimon date is stored as days since epoch
                 LocalDate date = LocalDate.ofEpochDay((Integer) value);

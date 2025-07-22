@@ -120,8 +120,8 @@
 2
 
 -- !runtime_filter_partition_pruning_binary1 --
-0
+1
 
 -- !runtime_filter_partition_pruning_binary2 --
-0
+3
 
