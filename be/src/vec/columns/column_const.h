@@ -294,5 +294,16 @@ public:
         return data->deserialize_impl(pos);
     }
 };
+
+// For example, DataType may not correspond to a type and const,
+// so it is necessary to make a special judgment of ColumnConst.
+template <typename Type>
+const Type* check_and_get_column_with_const(const IColumn& column) {
+    if (const auto* col_const = check_and_get_column<ColumnConst>(&column)) {
+        return check_and_get_column<Type>(col_const->get_data_column());
+    }
+    return check_and_get_column<Type>(column);
+}
+
 } // namespace doris::vectorized
 #include "common/compile_check_end.h"
