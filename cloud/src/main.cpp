@@ -354,6 +354,7 @@ int main(int argc, char** argv) {
     if (recycler) {
         recycler->stop();
     }
+    fdb_metric_exporter->stop();
 
     if (periodiccally_log_thread.joinable()) {
         {

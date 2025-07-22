@@ -83,7 +83,6 @@ int MetaServer::start(brpc::Server* server) {
 
 void MetaServer::stop() {
     server_register_->stop();
-    fdb_metric_exporter_->stop();
 }
 
 void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {
