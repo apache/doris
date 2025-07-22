@@ -2267,7 +2267,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg"})
+    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg", "external"})
     public static String fuzzy_test_type = "";
 
     /**

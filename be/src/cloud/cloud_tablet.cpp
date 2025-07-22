@@ -494,8 +494,8 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     }
 
     add_unused_rowsets(expired_rowsets);
-    if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write() &&
-        !deleted_stale_rowsets.empty()) {
+    if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap && keys_type() == UNIQUE_KEYS &&
+        enable_unique_key_merge_on_write() && !deleted_stale_rowsets.empty()) {
         // agg delete bitmap for pre rowsets; record unused delete bitmap key ranges
         OlapStopWatch watch;
         for (const auto& [version, unused_rowsets] : deleted_stale_rowsets) {

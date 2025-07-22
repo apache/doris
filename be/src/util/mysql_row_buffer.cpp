@@ -170,7 +170,7 @@ char* add_int(T data, char* pos, bool dynamic_mode) {
 }
 
 static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
-    int length = LargeIntValue::to_buffer(data, pos + !dynamic_mode);
+    auto length = LargeIntValue::to_buffer(data, pos + !dynamic_mode);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
