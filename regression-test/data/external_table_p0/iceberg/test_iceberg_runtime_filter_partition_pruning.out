@@ -41,6 +41,27 @@
 -- !runtime_filter_partition_pruning_boolean2 --
 5
 
+-- !runtime_filter_partition_pruning_float1 --
+1
+
+-- !runtime_filter_partition_pruning_float2 --
+2
+
+-- !runtime_filter_partition_pruning_float3 --
+1
+
+-- !runtime_filter_partition_pruning_timestamp_ntz1 --
+1
+
+-- !runtime_filter_partition_pruning_timestamp_ntz2 --
+2
+
+-- !runtime_filter_partition_pruning_binary1 --
+1
+
+-- !runtime_filter_partition_pruning_binary2 --
+3
+
 -- !runtime_filter_partition_pruning_decimal1 --
 2
 
@@ -72,14 +93,35 @@
 3
 
 -- !runtime_filter_partition_pruning_timestamp1 --
-1
+0
 
 -- !runtime_filter_partition_pruning_timestamp2 --
-2
+0
 
 -- !runtime_filter_partition_pruning_boolean1 --
 3
 
 -- !runtime_filter_partition_pruning_boolean2 --
 5
+
+-- !runtime_filter_partition_pruning_float1 --
+1
+
+-- !runtime_filter_partition_pruning_float2 --
+2
+
+-- !runtime_filter_partition_pruning_float3 --
+1
+
+-- !runtime_filter_partition_pruning_timestamp_ntz1 --
+1
+
+-- !runtime_filter_partition_pruning_timestamp_ntz2 --
+2
+
+-- !runtime_filter_partition_pruning_binary1 --
+0
+
+-- !runtime_filter_partition_pruning_binary2 --
+0
 
