@@ -578,14 +578,10 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-<<<<<<< HEAD
-        if (iter->get_reader()->is_fulltext_index()) {
-=======
 
         // only string type and bkd inverted index reader can be used for comparison
         if (iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
             iter->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
             //NOT support comparison predicate when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
@@ -605,12 +601,8 @@ public:
             return Status::InvalidArgument("invalid comparison op type {}", Name::name);
         }
 
-<<<<<<< HEAD
-        if (segment_v2::is_range_query(query_type) && iter->get_reader()->is_string_index()) {
-=======
         if (segment_v2::is_range_query(query_type) &&
             iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE)) {
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
             // untokenized strings exceed ignore_above, they are written as null, causing range query errors
             return Status::OK();
         }
@@ -618,26 +610,19 @@ public:
         arguments[0].column->get(0, param_value);
         auto param_type = arguments[0].type->get_primitive_type();
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
-<<<<<<< HEAD
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
 
         segment_v2::InvertedIndexParam param;
-        param.column_name = column_name;
+        param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
         param.query_value = query_param->get_value();
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(iter->read_from_index(&param));
-=======
-        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &param_value, query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name, query_param->get_value(), query_type, num_rows, roaring));
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         if (iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;

@@ -208,6 +208,7 @@ public:
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             InvertedIndexParam param;
             param.column_name = name_with_type.first;
+            param.column_type = name_with_type.second;
             param.query_value = query_param->get_value();
             param.query_type = query_type;
             param.num_rows = num_rows;

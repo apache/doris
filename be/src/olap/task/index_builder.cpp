@@ -436,24 +436,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
-<<<<<<< HEAD
-                const auto* index_meta = output_rowset_schema->inverted_index(column);
-                std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
-                try {
-                    RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(
-                            field.get(), &inverted_index_builder, index_file_writer.get(),
-                            index_meta));
-                    DBUG_EXECUTE_IF(
-                            "IndexBuilder::handle_single_rowset_index_column_writer_create_error", {
-                                _CLTHROWA(CL_ERR_IO,
-                                          "debug point: "
-                                          "handle_single_rowset_index_column_writer_create_error");
-                            })
-                } catch (const std::exception& e) {
-                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                            "CLuceneError occured: {}", e.what());
-                }
-=======
                 auto index_metas = output_rowset_schema->inverted_indexs(column);
                 for (const auto& index_meta : index_metas) {
                     if (index_meta->index_id() != index_id) {
@@ -463,7 +445,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     try {
                         RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(
                                 field.get(), &inverted_index_builder,
-                                inverted_index_file_writer.get(), index_meta));
+                                index_file_writer.get(), index_meta));
                         DBUG_EXECUTE_IF(
                                 "IndexBuilder::handle_single_rowset_index_column_writer_create_"
                                 "error",
@@ -477,7 +459,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                                 "CLuceneError occured: {}", e.what());
                     }
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
 
                     if (inverted_index_builder) {
                         auto writer_sign = std::make_pair(seg_ptr->id(), index_id);

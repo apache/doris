@@ -73,7 +73,7 @@ void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColum
 
 Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                              const TabletSchemaSPtr& tablet_schema,
-                             InvertedIndexFileWriter* inverted_index_file_writer,
+                             IndexFileWriter* inverted_index_file_writer,
                              std::unique_ptr<ColumnWriter>* writer,
                              TabletIndexes& subcolumn_indexes, ColumnWriterOptions* opt,
                              int64_t none_null_value_size) {
@@ -100,7 +100,7 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
             }
             opt->need_inverted_index = true;
             DCHECK(inverted_index_file_writer != nullptr);
-            opt->inverted_index_file_writer = inverted_index_file_writer;
+            opt->index_file_writer = inverted_index_file_writer;
         };
 
         // the subcolumn index is already initialized
@@ -288,7 +288,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         }
         ColumnWriterOptions opts;
         opts.meta = _opts.footer->add_columns();
-        opts.inverted_index_file_writer = _opts.inverted_index_file_writer;
+        opts.index_file_writer = _opts.index_file_writer;
         opts.compression_type = _opts.compression_type;
         opts.rowset_ctx = _opts.rowset_ctx;
         opts.file_writer = _opts.file_writer;
@@ -296,7 +296,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         vectorized::schema_util::inherit_column_attributes(*_tablet_column, tablet_column);
         RETURN_IF_ERROR(_create_column_writer(
                 current_column_id, tablet_column, _opts.rowset_ctx->tablet_schema,
-                _opts.inverted_index_file_writer, &writer, _subcolumns_indexes[current_column_id],
+                _opts.index_file_writer, &writer, _subcolumns_indexes[current_column_id],
                 &opts, none_null_value_size));
         _subcolumn_writers.push_back(std::move(writer));
         _subcolumn_opts.push_back(opts);
@@ -588,7 +588,7 @@ Status VariantSubcolumnWriter::finalize() {
     // refresh opts and get writer with flush column
     vectorized::schema_util::inherit_column_attributes(parent_column, flush_column);
     RETURN_IF_ERROR(_create_column_writer(0, flush_column, _opts.rowset_ctx->tablet_schema,
-                                          _opts.inverted_index_file_writer, &_writer, _indexes,
+                                          _opts.index_file_writer, &_writer, _indexes,
                                           &opts, none_null_value_size));
     _opts = opts;
     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();

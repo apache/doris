@@ -381,18 +381,12 @@ Status ColumnReader::new_index_iterator(std::shared_ptr<IndexFileReader> index_f
     RETURN_IF_ERROR(_ensure_index_loaded(std::move(index_file_reader), index_meta));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
-<<<<<<< HEAD
-        if (_index_reader) {
-            RETURN_IF_ERROR(_index_reader->new_iterator(read_options.io_ctx, read_options.stats,
-                                                        read_options.runtime_state, iterator));
-=======
-        auto iter = _inverted_indexs.find(index_meta->index_id());
-        if (iter != _inverted_indexs.end()) {
+        auto iter = _index_readers.find(index_meta->index_id());
+        if (iter != _index_readers.end()) {
             if (iter->second != nullptr) {
                 RETURN_IF_ERROR(iter->second->new_iterator(read_options.io_ctx, read_options.stats,
                                                            read_options.runtime_state, iterator));
             }
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
         }
     }
     return Status::OK();
@@ -675,18 +669,13 @@ Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_rea
                                  const TabletIndex* index_meta) {
     std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 
-<<<<<<< HEAD
-    if (_index_reader != nullptr && index_meta &&
-        _index_reader->get_index_id() == index_meta->index_id()) {
-=======
     if (index_meta == nullptr) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "Failed to load inverted index: index metadata is null");
     }
 
-    auto it = _inverted_indexs.find(index_meta->index_id());
-    if (it != _inverted_indexs.end()) {
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
+    auto it = _index_readers.find(index_meta->index_id());
+    if (it != _index_readers.end()) {
         return Status::OK();
     }
 
@@ -700,26 +689,18 @@ Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_rea
         type = _type_info->type();
     }
 
-    std::shared_ptr<InvertedIndexReader> inverted_index;
+    IndexReaderPtr index_reader;
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {
-<<<<<<< HEAD
-                _index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
-=======
-                inverted_index = FullTextIndexReader::create_shared(index_meta, index_file_reader);
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
+                index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
             try {
-<<<<<<< HEAD
-                _index_reader =
-=======
-                inverted_index =
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
+                index_reader =
                         StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -728,24 +709,16 @@ Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_rea
         }
     } else if (is_numeric_type(type)) {
         try {
-<<<<<<< HEAD
-            _index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
-=======
-            inverted_index = BkdIndexReader::create_shared(index_meta, index_file_reader);
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
+            index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
         } catch (const CLuceneError& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "create BkdIndexReader error: {}", e.what());
         }
     } else {
-<<<<<<< HEAD
-        _index_reader.reset();
-=======
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "Field type {} is not supported for inverted index", type);
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
     }
-    _inverted_indexs[index_meta->index_id()] = inverted_index;
+    _index_readers[index_meta->index_id()] = index_reader;
     return Status::OK();
 }
 

@@ -137,14 +137,10 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-<<<<<<< HEAD
-        if (iter->get_reader()->is_fulltext_index()) {
-=======
 
         // only string type inverted index reader can be used for array_index
         if (iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
             iter->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
             // parser is not none we can not make sure the result is correct in expr combination
             // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
             // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
@@ -171,20 +167,14 @@ public:
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                            query_param));
-<<<<<<< HEAD
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
         param.query_value = query_param->get_value();
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        ;
         RETURN_IF_ERROR(iter->read_from_index(&param));
-=======
-        RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name, query_param->get_value(),
-                segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(

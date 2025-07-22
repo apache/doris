@@ -506,16 +506,10 @@ Status ScalarColumnWriter::init() {
                     break;
                 });
 
-<<<<<<< HEAD
-            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.index_file_writer,
-                                                              _opts.inverted_index));
-=======
                 RETURN_IF_ERROR(InvertedIndexColumnWriter::create(
-                        get_field(), &_inverted_index_builders[i], _opts.inverted_index_file_writer,
+                        get_field(), &_inverted_index_builders[i], _opts.index_file_writer,
                         _opts.inverted_indexs[i]));
             }
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
         } while (false);
     }
     if (_opts.need_bloom_filter) {
@@ -541,13 +535,9 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
         _bitmap_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
     }
     if (_opts.need_inverted_index) {
-<<<<<<< HEAD
-        RETURN_IF_ERROR(_inverted_index_builder->add_nulls(cast_set<uint32_t>(num_rows)));
-=======
         for (const auto& builder : _inverted_index_builders) {
-            RETURN_IF_ERROR(builder->add_nulls(num_rows));
+            RETURN_IF_ERROR(builder->add_nulls(cast_set<uint32_t>(num_rows)));
         }
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
     }
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
@@ -938,17 +928,11 @@ Status ArrayColumnWriter::init() {
         _inverted_index_builders.resize(_opts.inverted_indexs.size());
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
-<<<<<<< HEAD
-            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.index_file_writer,
-                                                              _opts.inverted_index));
-=======
             for (size_t i = 0; i < _opts.inverted_indexs.size(); i++) {
                 RETURN_IF_ERROR(InvertedIndexColumnWriter::create(
-                        get_field(), &_inverted_index_builders[i], _opts.inverted_index_file_writer,
+                        get_field(), &_inverted_index_builders[i], _opts.index_file_writer,
                         _opts.inverted_indexs[i]));
             }
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
         }
     }
     return Status::OK();
