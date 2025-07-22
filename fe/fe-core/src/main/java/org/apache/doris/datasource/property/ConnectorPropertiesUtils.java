@@ -70,7 +70,7 @@ public class ConnectorPropertiesUtils {
 
         for (Field field : supportedProps) {
             String matchedName = getMatchedPropertyName(field, props);
-            if (StringUtils.isNotBlank(props.get(matchedName))) {
+            if (StringUtils.isNotBlank(matchedName) && StringUtils.isNotBlank(props.get(matchedName))) {
                 try {
                     Object rawValue = props.get(matchedName);
                     Object convertedValue = convertValue(rawValue, field.getType());
