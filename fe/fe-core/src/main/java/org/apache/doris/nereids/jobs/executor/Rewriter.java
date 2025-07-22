@@ -259,7 +259,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new InlineLogicalView())
                 ),
                 topic("Eliminate optimization",
-                        // custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         bottomUp(
                                 new EliminateLimit(),
                                 new EliminateFilter(),
@@ -303,8 +302,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new InferFilterNotNull(),
                                 new InferJoinNotNull()
                         ),
-                        // bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        // custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         // ReorderJoin depends PUSH_DOWN_FILTERS
                         // the PUSH_DOWN_FILTERS depends on lots of rules, e.g. merge project, eliminate outer,
                         // sometimes transform the bottom plan make some rules usable which can apply to the top plan,
@@ -384,7 +381,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // column pruning create new project, so we should use PUSH_DOWN_FILTERS
                         // to change filter-project to project-filter
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        // custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         // after eliminate outer join in the PUSH_DOWN_FILTERS,
                         // we can infer more predicate and push down
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),

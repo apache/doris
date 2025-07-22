@@ -295,10 +295,9 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         sink = visitChildren(this, sink, context);
         // // for sql: create table t as select cast('1' as varchar(30))
         // // the select will add a parent plan: result sink. the result sink contains a output slot reference, and its
-        // // data type is varchar(30),  but if replace the slot reference with a varchar literal '1', then the data type info
-        // // varchar(30) will lost, because varchar literal '1' data type is always varchar(1), so t's column will get
-        // // a error type.
-        // // so we don't rewrite logical sink then.
+        // // data type is varchar(30),  but if replace the slot reference with a varchar literal '1',
+        // // then the data type info varchar(30) will lost, because varchar literal '1' data type is always varchar(1),
+        // // so t's column will get a error type. so we don't rewrite logical sink then.
         // Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>> childEqualTrait
         //         = getChildEqualSetAndConstants(sink, context);
         // List<NamedExpression> newOutputExprs = sink.getOutputExprs().stream()
