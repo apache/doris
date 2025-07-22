@@ -660,6 +660,7 @@ message CommitTxnLogPB {
     // for recycle txn key
     optional int64 txn_id = 4;
     optional RecycleTxnPB recycle_txn = 5;
+    optional int64 db_id = 6;
 }
 
 message SchemaChangeLogPB {

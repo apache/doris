@@ -1243,6 +1243,7 @@ void MetaServiceImpl::commit_txn_immediately(
 
         CommitTxnLogPB commit_txn_log;
         commit_txn_log.set_txn_id(txn_id);
+        commit_txn_log.set_db_id(db_id);
 
         // <tablet_id, version> -> rowset meta
         std::vector<std::pair<std::tuple<int64_t, int64_t>, const RowsetMetaCloudPB&>> rowsets;
@@ -1749,6 +1750,7 @@ void MetaServiceImpl::commit_txn_eventually(
 
         CommitTxnLogPB commit_txn_log;
         commit_txn_log.set_txn_id(txn_id);
+        commit_txn_log.set_db_id(db_id);
 
         // <partition_version_key, version>
         std::unordered_map<std::string, int64_t> new_versions;
@@ -2381,6 +2383,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
     CommitTxnLogPB commit_txn_log;
     commit_txn_log.set_txn_id(txn_id);
+    commit_txn_log.set_db_id(db_id);
 
     // <tablet_id, version> -> rowset meta
     std::vector<std::pair<std::tuple<int64_t, int64_t>, RowsetMetaCloudPB>> rowsets;
