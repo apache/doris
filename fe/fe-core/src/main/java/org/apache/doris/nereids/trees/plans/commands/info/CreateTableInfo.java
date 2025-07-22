@@ -116,7 +116,7 @@ public class CreateTableInfo {
             ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
 
     private static final Logger LOG = LogManager.getLogger(CreateTableInfo.class);
-
+    protected TableNameInfo tableNameInfo;
     private final boolean ifNotExists;
     private String ctlName;
     private String dbName;
@@ -159,6 +159,7 @@ public class CreateTableInfo {
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
+        this.tableNameInfo = new TableNameInfo(ctlName, dbName, tableName);
         this.ctasColumns = null;
         this.columns = Utils.copyRequiredMutableList(columns);
         this.indexes = Utils.copyRequiredMutableList(indexes);
@@ -191,6 +192,7 @@ public class CreateTableInfo {
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
+        this.tableNameInfo = new TableNameInfo(ctlName, dbName, tableName);
         this.ctasColumns = cols;
         this.columns = null;
         this.indexes = Lists.newArrayList();
@@ -235,7 +237,7 @@ public class CreateTableInfo {
     }
 
     public String getTableName() {
-        return tableName;
+        return tableNameInfo.getTbl();
     }
 
     public String getEngineName() {
