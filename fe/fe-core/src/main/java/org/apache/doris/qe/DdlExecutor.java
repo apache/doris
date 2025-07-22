@@ -26,7 +26,6 @@ import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
@@ -61,7 +60,6 @@ import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
@@ -163,10 +161,6 @@ public class DdlExecutor {
             env.recoverTable((RecoverTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RecoverPartitionStmt) {
             env.recoverPartition((RecoverPartitionStmt) ddlStmt);
-        } else if (ddlStmt instanceof BackupStmt) {
-            env.backup((BackupStmt) ddlStmt);
-        } else if (ddlStmt instanceof RestoreStmt) {
-            env.restore((RestoreStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRepositoryStmt) {
             env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
@@ -321,9 +315,7 @@ public class DdlExecutor {
             return;
         }
 
-        if (ddlStmt instanceof BackupStmt
-                || ddlStmt instanceof RestoreStmt
-                || ddlStmt instanceof DropRepositoryStmt) {
+        if (ddlStmt instanceof DropRepositoryStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
             throw new DdlException("Unsupported operation");
         }

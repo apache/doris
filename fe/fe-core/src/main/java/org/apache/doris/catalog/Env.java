@@ -29,7 +29,6 @@ import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
@@ -51,7 +50,6 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SlotRef;
@@ -4985,17 +4983,6 @@ public class Env {
      */
     public void cancelBuildIndex(CancelBuildIndexCommand command) throws DdlException {
         this.getSchemaChangeHandler().cancelIndexJob(command);
-    }
-
-    /*
-     * used for handling backup opt
-     */
-    public void backup(BackupStmt stmt) throws DdlException {
-        getBackupHandler().process(stmt);
-    }
-
-    public void restore(RestoreStmt stmt) throws DdlException {
-        getBackupHandler().process(stmt);
     }
 
     public void cancelBackup(CancelBackupCommand command) throws DdlException {

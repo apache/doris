@@ -48,6 +48,7 @@ public class MetastoreProperties extends ConnectionProperties {
         GLUE("glue"),
         DLF("dlf"),
         ICEBERG_REST("rest"),
+        ICEBERG("iceberg"),
         DATAPROC("dataproc"),
         FILE_SYSTEM("filesystem", "hadoop"),
         UNKNOWN();
@@ -82,11 +83,7 @@ public class MetastoreProperties extends ConnectionProperties {
     static {
         //subclasses should be registered here
         register(Type.HMS, new HMSPropertiesFactory());
-        register(Type.ICEBERG_REST, props -> {
-            IcebergRestProperties inst = new IcebergRestProperties(props);
-            inst.initNormalizeAndCheckProps();
-            return inst;
-        });
+        register(Type.ICEBERG, new IcebergPropertiesFactory());
         register(Type.FILE_SYSTEM, props -> {
             FileMetastoreProperties inst = new FileMetastoreProperties(props);
             inst.initNormalizeAndCheckProps();

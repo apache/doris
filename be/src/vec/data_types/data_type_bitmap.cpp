@@ -156,6 +156,10 @@ MutableColumnPtr DataTypeBitMap::create_column() const {
     return ColumnBitmap::create();
 }
 
+Status DataTypeBitMap::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnBitmap>(column);
+}
+
 void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritable& buf) {
     auto& value = const_cast<BitmapValue&>(cvalue);
     std::string memory_buffer;
