@@ -371,6 +371,10 @@ T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
 // Dumps signal and stack frame information, and invokes the default
 // signal handler once our job is done.
 void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucontext) {
+    DumpTimeInfo();
+    DumpSignalInfo(signal_number, signal_info);
+    std::cout << boost::stacktrace::stacktrace() << std::endl;
+    std::cout << "==================" << std::endl;
     // First check if we've already entered the function.  We use an atomic
     // compare and swap operation for platforms that support it.  For other
     // platforms, we use a naive method that could lead to a subtle race.

@@ -81,10 +81,13 @@ std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids() {
     return res;
 }
 
-struct StorageResourceMgr {
+class StorageResourceMgr {
+public:
     std::mutex mtx;
     // resource_id -> storage_resource, resource_version
     std::unordered_map<std::string, std::pair<StorageResource, int64_t>> map;
+
+    ~StorageResourceMgr() { std::cout << "StorageResourceMgr destroyed" << std::endl; }
 };
 
 static StorageResourceMgr s_storage_resource_mgr;
@@ -93,6 +96,7 @@ io::RemoteFileSystemSPtr get_filesystem(const std::string& resource_id) {
     std::lock_guard lock(s_storage_resource_mgr.mtx);
     if (auto it = s_storage_resource_mgr.map.find(resource_id);
         it != s_storage_resource_mgr.map.end()) {
+        LOG(INFO) << "get_filesystem";
         return it->second.first.fs;
     }
     return nullptr;
@@ -107,6 +111,7 @@ std::optional<std::pair<StorageResource, int64_t>> get_storage_resource(
     std::lock_guard lock(s_storage_resource_mgr.mtx);
     if (auto it = s_storage_resource_mgr.map.find(resource_id);
         it != s_storage_resource_mgr.map.end()) {
+        LOG(INFO) << "get storage resource: " << resource_id;
         return it->second;
     }
     return std::nullopt;
@@ -114,6 +119,7 @@ std::optional<std::pair<StorageResource, int64_t>> get_storage_resource(
 
 void put_storage_resource(std::string resource_id, StorageResource resource, int64_t version) {
     std::lock_guard lock(s_storage_resource_mgr.mtx);
+    LOG(INFO) << "put storage resource: " << resource_id;
     s_storage_resource_mgr.map[resource_id] = std::make_pair(std::move(resource), version);
 }
 
@@ -126,6 +132,7 @@ void delete_storage_resource(int64_t resource_id) {
     auto id_str = std::to_string(resource_id);
     std::lock_guard lock(s_storage_resource_mgr.mtx);
     s_storage_resource_mgr.map.erase(id_str);
+    LOG(INFO) << "delete storage resource: " << id_str;
 }
 
 void clear_storage_resource() {
@@ -140,6 +147,7 @@ std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids() {
     for (auto& [id, resource] : s_storage_resource_mgr.map) {
         res.emplace_back(id, resource.second);
     }
+    LOG(INFO) << "get_storage_resource_ids";
     return res;
 }
 
