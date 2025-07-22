@@ -97,6 +97,8 @@ using io::Path;
 
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
+bvar::Status<int64_t> g_cumu_compaction_task_num_per_round("cumu_compaction_task_num_per_round", 0);
+bvar::Status<int64_t> g_base_compaction_task_num_per_round("base_compaction_task_num_per_round", 0);
 
 static const uint64_t DEFAULT_SEED = 104729;
 static const uint64_t MOD_PRIME = 7652413;
@@ -689,7 +691,11 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                     (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                             ? _cumu_compaction_thread_pool
                             : _base_compaction_thread_pool;
-            if (config::compaction_num_per_round != 0) {
+            bvar::Status<int64_t>& g_compaction_task_num_per_round =
+                    (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
+                            ? g_cumu_compaction_task_num_per_round
+                            : g_base_compaction_task_num_per_round;
+            if (config::compaction_num_per_round != -1) {
                 _compaction_num_per_round = config::compaction_num_per_round;
             } else if (thread_pool->get_queue_size() == 0) {
                 // If all tasks in the thread pool queue are executed,
@@ -697,8 +703,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 // with a maximum of config::max_automatic_compaction_num_per_round tasks per generation.
                 if (_compaction_num_per_round < config::max_automatic_compaction_num_per_round) {
                     _compaction_num_per_round *= 2;
-                    LOG_INFO("increase compaction_num_per_round.")
-                            .tag("new compaction_num_per_round", _compaction_num_per_round);
+                    g_compaction_task_num_per_round.set_value(_compaction_num_per_round);
                 }
             } else if (thread_pool->get_queue_size() > _compaction_num_per_round / 2) {
                 // If all tasks in the thread pool is greater than
@@ -706,8 +711,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 // reduce the number of tasks generated each time by half, with a minimum of 1.
                 if (_compaction_num_per_round > 1) {
                     _compaction_num_per_round /= 2;
-                    LOG_INFO("decrease compaction_num_per_round.")
-                            .tag("new compaction_num_per_round", _compaction_num_per_round);
+                    g_compaction_task_num_per_round.set_value(_compaction_num_per_round);
                 }
             }
             std::vector<TabletSharedPtr> tablets_compaction =

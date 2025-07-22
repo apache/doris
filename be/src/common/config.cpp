@@ -1528,8 +1528,8 @@ DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
 // The number of compaction tasks generated each time.
-// 0 means automatic number, other values mean fixed number.
-DEFINE_mInt32(compaction_num_per_round, "0");
+// -1 means automatic number, other values mean fixed number.
+DEFINE_mInt32(compaction_num_per_round, "-1");
 // Max automatic compaction task generated num per round.
 // Only valid if "compaction_num_per_round = 0"
 DEFINE_mInt32(max_automatic_compaction_num_per_round, "64");
