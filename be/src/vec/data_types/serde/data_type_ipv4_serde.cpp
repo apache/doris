@@ -21,6 +21,7 @@
 
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_ip.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -146,6 +147,45 @@ Status DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::A
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
     const auto* raw_data = reinterpret_cast<const UInt32*>(buffer->data()) + start;
     col_data.insert(raw_data, raw_data + row_count);
+    return Status::OK();
+}
+
+Status DataTypeIPv4SerDe::from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                            const FormatOptions& options) const {
+    const auto size = str.size();
+    column.resize(size);
+
+    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    auto& vec_to = column_to.get_data();
+    auto& null_map = column.get_null_map_data();
+
+    CastParameters params;
+    params.is_strict = false;
+    for (size_t i = 0; i < size; ++i) {
+        null_map[i] = !CastToIPv4::from_string(str.get_data_at(i), vec_to[i], params);
+    }
+    return Status::OK();
+}
+
+Status DataTypeIPv4SerDe::from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
+                                                        const FormatOptions& options,
+                                                        const NullMap::value_type* null_map) const {
+    const auto size = str.size();
+    column.resize(size);
+
+    auto& column_to = assert_cast<ColumnType&>(column);
+    auto& vec_to = column_to.get_data();
+    CastParameters params;
+    params.is_strict = true;
+    for (size_t i = 0; i < size; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
+        if (!CastToIPv4::from_string(str.get_data_at(i), vec_to[i], params)) {
+            return Status::InvalidArgument("parse ipv4 fail, string: '{}'",
+                                           str.get_data_at(i).to_string());
+        }
+    }
     return Status::OK();
 }
 } // namespace doris::vectorized
