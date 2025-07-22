@@ -53,7 +53,7 @@ public class ThriftServer {
     private Set<TNetworkAddress> connects;
 
     public static final String SIMPLE = "SIMPLE";
-    public static final String THREADED_SELECTOR = "THREADED_SELECTOR";
+    public static final String THREADED_SELECTOR = "THREADED";
     public static final String THREAD_POOL = "THREAD_POOL";
 
     public enum ThriftServerType {
