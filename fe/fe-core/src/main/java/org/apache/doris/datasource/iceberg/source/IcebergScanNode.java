@@ -333,7 +333,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         split.setTargetSplitSize(targetSplitSize);
         if (isPartitionedTable) {
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
-            split.setIcebergPartitionValues(IcebergUtils.getPartitionInfoMap(partitionData));
+            if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
+                split.setIcebergPartitionValues(IcebergUtils.getPartitionInfoMap(partitionData));
+            }
             // Counts the number of partitions read
             partitionPathSet.add(partitionData.toString());
         }
