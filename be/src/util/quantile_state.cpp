@@ -29,7 +29,7 @@
 #include "vec/common/unaligned.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 QuantileState::QuantileState() : _type(EMPTY), _compression(QUANTILE_STATE_COMPRESSION_MIN) {}
 
 QuantileState::QuantileState(float compression) : _type(EMPTY), _compression(compression) {}
@@ -113,11 +113,11 @@ bool QuantileState::is_valid(const Slice& slice) {
 
 double QuantileState::get_explicit_value_by_percentile(float percentile) const {
     DCHECK(_type == EXPLICIT);
-    int n = _explicit_data.size();
+    size_t n = _explicit_data.size();
     std::vector<double> sorted_data(_explicit_data.begin(), _explicit_data.end());
     std::sort(sorted_data.begin(), sorted_data.end());
 
-    double index = (n - 1) * percentile;
+    double index = double(n - 1) * percentile;
     int intIdx = (int)index;
     if (intIdx == n - 1) {
         return sorted_data[intIdx];
@@ -216,7 +216,7 @@ size_t QuantileState::serialize(uint8_t* dst) const {
     }
     case EXPLICIT: {
         *ptr++ = EXPLICIT;
-        uint16_t size = _explicit_data.size();
+        auto size = (uint16_t)_explicit_data.size();
         unaligned_store<uint16_t>(ptr, size);
         ptr += sizeof(uint16_t);
         memcpy(ptr, &_explicit_data[0], size * sizeof(double));
@@ -259,10 +259,10 @@ void QuantileState::merge(const QuantileState& other) {
                 _type = TDIGEST;
                 _tdigest_ptr = std::make_shared<TDigest>(_compression);
                 for (int i = 0; i < _explicit_data.size(); i++) {
-                    _tdigest_ptr->add(_explicit_data[i]);
+                    _tdigest_ptr->add((float)_explicit_data[i]);
                 }
                 for (int i = 0; i < other._explicit_data.size(); i++) {
-                    _tdigest_ptr->add(other._explicit_data[i]);
+                    _tdigest_ptr->add((float)other._explicit_data[i]);
                 }
             } else {
                 _explicit_data.insert(_explicit_data.end(), other._explicit_data.begin(),
@@ -271,7 +271,7 @@ void QuantileState::merge(const QuantileState& other) {
             break;
         case TDIGEST:
             for (int i = 0; i < other._explicit_data.size(); i++) {
-                _tdigest_ptr->add(other._explicit_data[i]);
+                _tdigest_ptr->add((float)other._explicit_data[i]);
             }
             break;
         default:
@@ -288,13 +288,13 @@ void QuantileState::merge(const QuantileState& other) {
         case SINGLE:
             _type = TDIGEST;
             _tdigest_ptr = other._tdigest_ptr;
-            _tdigest_ptr->add(_single_data);
+            _tdigest_ptr->add((float)_single_data);
             break;
         case EXPLICIT:
             _type = TDIGEST;
             _tdigest_ptr = other._tdigest_ptr;
             for (int i = 0; i < _explicit_data.size(); i++) {
-                _tdigest_ptr->add(_explicit_data[i]);
+                _tdigest_ptr->add((float)_explicit_data[i]);
             }
             break;
         case TDIGEST:
@@ -325,7 +325,7 @@ void QuantileState::add_value(const double& value) {
         if (_explicit_data.size() == QUANTILE_STATE_EXPLICIT_NUM) {
             _tdigest_ptr = std::make_shared<TDigest>(_compression);
             for (int i = 0; i < _explicit_data.size(); i++) {
-                _tdigest_ptr->add(_explicit_data[i]);
+                _tdigest_ptr->add((float)_explicit_data[i]);
             }
             _explicit_data.clear();
             _explicit_data.shrink_to_fit();
@@ -336,7 +336,7 @@ void QuantileState::add_value(const double& value) {
         }
         break;
     case TDIGEST:
-        _tdigest_ptr->add(value);
+        _tdigest_ptr->add((float)value);
         break;
     }
 }

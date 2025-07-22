@@ -23,7 +23,6 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
-import org.apache.doris.analysis.ShowCloudWarmUpStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMTMVStmt;
@@ -36,7 +35,6 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -115,8 +113,6 @@ public class ShowExecutor {
             handleShowAnalyze();
         } else if (stmt instanceof ShowAnalyzeTaskStatus) {
             handleShowAnalyzeTaskStatus();
-        } else if (stmt instanceof ShowCloudWarmUpStmt) {
-            handleShowCloudWarmUpJob();
         } else {
             handleEmtpy();
         }
@@ -257,20 +253,6 @@ public class ShowExecutor {
             rows = procNodeI.fetchResult().getRows();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowCloudWarmUpJob() throws AnalysisException {
-        ShowCloudWarmUpStmt showStmt = (ShowCloudWarmUpStmt) stmt;
-        if (showStmt.showAllJobs()) {
-            int limit = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().MAX_SHOW_ENTRIES;
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
-        } else {
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            ((CloudEnv) Env.getCurrentEnv())
-                                    .getCacheHotspotMgr()
-                                    .getSingleJobInfo(showStmt.getJobId()));
-        }
     }
 
     private void handleShowCreateLoad() throws AnalysisException {

@@ -45,6 +45,7 @@
   *  Another example: for an approximate calculation of the number of unique visitors, there is a hash table for UniquesHashSet.
   *  It has the concept of "degree". At each overflow, cells with keys that do not divide by the corresponding power of the two are deleted.
   */
+#include "common/compile_check_begin.h"
 struct HashTableNoState {
     /// Serialization, in binary and text form.
     void write(doris::vectorized::BufferWritable&) const {}
@@ -339,14 +340,15 @@ public:
                                    ? fill_capacity
                                    : fill_capacity + 1);
 
-        size_degree_ = num_elems <= 1 ? initial_size_degree
-                                      : (initial_size_degree > fill_capacity ? initial_size_degree
-                                                                             : fill_capacity);
+        size_degree_ =
+                uint8_t(num_elems <= 1 ? initial_size_degree
+                                       : (initial_size_degree > fill_capacity ? initial_size_degree
+                                                                              : fill_capacity));
         increase_size_degree(0);
     }
 
     void set_buf_size(size_t buf_size_) {
-        size_degree_ = static_cast<size_t>(log2(buf_size_ - 1) + 1);
+        size_degree_ = static_cast<uint8_t>(log2(buf_size_ - 1) + 1);
         increase_size_degree(0);
     }
 };
@@ -1076,3 +1078,4 @@ private:
         }
     }
 };
+#include "common/compile_check_end.h"

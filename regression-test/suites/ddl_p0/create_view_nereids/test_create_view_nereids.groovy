@@ -18,6 +18,7 @@
 suite("test_create_view_nereids") {
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
+    sql "SET enable_unicode_name_support=true;"
     sql """DROP TABLE IF EXISTS count_distinct_nereids"""
     sql """
         CREATE TABLE IF NOT EXISTS count_distinct_nereids
@@ -267,13 +268,12 @@ suite("test_create_view_nereids") {
     qt_test_create_view_from_view_sql "show create view test_view_from_view"
 
     // test backquote in name
-    try {
-        sql "create view test_backquote_in_view_define(`ab``c`, c2) as select a,b from mal_test_view;"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Incorrect column name 'ab`c'"))
+    sql "drop view if exists test_backquote_in_view_define;"
+    test {
+        sql "create view test_backquote_in_view_define(`mva_hello`, c2) as select a,b from mal_test_view;"
+        exception "Incorrect column name"
     }
 
-    sql "drop view if exists test_backquote_in_view_define;"
     sql "create view test_backquote_in_view_define(`abc`, c2) as select a,b from mal_test_view;"
     qt_test_backquote_in_view_define "select * from test_backquote_in_view_define order by abc, c2;"
     qt_test_backquote_in_view_define_sql "show create view test_backquote_in_view_define;"
@@ -284,24 +284,21 @@ suite("test_create_view_nereids") {
     qt_test_backquote_in_table_alias_sql "show create view test_backquote_in_table_alias;"
 
     // test invalid column name
-    sql """set enable_unicode_name_support = true;"""
     sql "drop view if exists test_invalid_column_name_in_table;"
-    try {
+    test {
         // create view should fail if contains invalid column name
-        sql "create view test_invalid_column_name_in_table as select a as '(第一列)',b from mal_test_view;"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Incorrect column name '(第一列)'"))
+        sql "create view test_invalid_column_name_in_table as select a as '  ',b from mal_test_view;"
+        exception "Incorrect column name"
     }
 
     sql "create view test_invalid_column_name_in_table as select a ,b from mal_test_view;"
     order_qt_test_invalid_column_name_in_table "select * from test_invalid_column_name_in_table"
     order_qt_test_invalid_column_name_in_table_define_sql "show create view test_invalid_column_name_in_table;"
 
-    try {
+    test {
         // alter view should fail if contains invalid column name
-        sql "alter view test_invalid_column_name_in_table as select a as '(第一列)',b from mal_test_view;"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Incorrect column name '(第一列)'"))
+        sql "alter view test_invalid_column_name_in_table as select a as 'mv_hello',b from mal_test_view;"
+        exception "Incorrect column name"
     }
     sql """set enable_unicode_name_support = false;"""
 

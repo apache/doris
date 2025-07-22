@@ -756,6 +756,29 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
 
+    public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
+
+    @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
+            description = {"value 在每百行中的最低出现次数",
+                    "The minimum number of occurrences of 'value' per hundred lines"})
+    private double hotValueThreshold = 33; // by percentage
+
+    public void setHotValueThreshold(double threshold) {
+        this.hotValueThreshold = threshold;
+    }
+
+    public static double getHotValueThreshold() {
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getState().isInternal()) {
+                return 0.0;
+            } else {
+                return ConnectContext.get().getSessionVariable().hotValueThreshold;
+            }
+        } else {
+            return Double.parseDouble(VariableMgr.getDefaultValue(HOT_VALUE_THRESHOLD));
+        }
+    }
+
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
     /**
@@ -1764,7 +1787,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableShareHashTableForBroadcastJoin = true;
 
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
-    public boolean enableUnicodeNameSupport = false;
+    public boolean enableUnicodeNameSupport = true;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN, affectQueryResult = true)
     public long groupConcatMaxLen = 2147483646;
@@ -2733,7 +2756,7 @@ public class SessionVariable implements Serializable, Writable {
         return enableESParallelScroll;
     }
 
-    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, fuzzy = true, description = {
+    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, needForward = true, description = {
             "是否启用仅对新数据生效的索引添加模式，开启时新建索引只对后续写入的数据生效，关闭时对全部数据重建索引",
             "Whether to enable add index mode that only affects new data, "
                     + "when enabled new indexes only affect subsequently written data, "
@@ -5056,7 +5079,11 @@ public class SessionVariable implements Serializable, Writable {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
     }
 
-    public boolean enableStrictCast() {
-        return enableStrictCast;
+    public static boolean enableStrictCast() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().enableStrictCast;
+        } else {
+            return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
+        }
     }
 }

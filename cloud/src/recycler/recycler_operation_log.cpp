@@ -29,6 +29,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "common/defer.h"
 #include "common/encryption_util.h"
@@ -50,17 +51,104 @@ namespace doris::cloud {
 
 using namespace std::chrono;
 
-// return 0 for success otherwise error
-static TxnErrorCode txn_remove(TxnKv* txn_kv, const std::vector<std::string>& keys) {
+// A recycler for operation logs.
+class OperationLogRecycler {
+public:
+    OperationLogRecycler(std::string_view instance_id, TxnKv* txn_kv, Versionstamp log_version)
+            : instance_id_(instance_id), txn_kv_(txn_kv), log_version_(log_version) {}
+    OperationLogRecycler(const OperationLogRecycler&) = delete;
+    OperationLogRecycler& operator=(const OperationLogRecycler&) = delete;
+
+    int recycle_commit_partition_log(const CommitPartitionLogPB& commit_partition_log);
+
+    int recycle_drop_partition_log(const DropPartitionLogPB& drop_partition_log);
+
+    int commit();
+
+private:
+    int recycle_table_version(int64_t table_id);
+
+    std::string_view instance_id_;
+    TxnKv* txn_kv_;
+    Versionstamp log_version_;
+    std::vector<std::string> keys_to_remove_;
+    std::vector<std::pair<std::string, std::string>> kvs_;
+};
+
+int OperationLogRecycler::recycle_commit_partition_log(
+        const CommitPartitionLogPB& commit_partition_log) {
+    int64_t table_id = commit_partition_log.table_id();
+    return recycle_table_version(table_id);
+}
+
+int OperationLogRecycler::recycle_drop_partition_log(const DropPartitionLogPB& drop_partition_log) {
+    for (int64_t partition_id : drop_partition_log.partition_ids()) {
+        RecyclePartitionPB recycle_partition_pb;
+        recycle_partition_pb.set_db_id(drop_partition_log.db_id());
+        recycle_partition_pb.set_table_id(drop_partition_log.table_id());
+        *recycle_partition_pb.mutable_index_id() = drop_partition_log.index_ids();
+        recycle_partition_pb.set_creation_time(::time(nullptr));
+        recycle_partition_pb.set_expiration(drop_partition_log.expiration());
+        recycle_partition_pb.set_state(RecyclePartitionPB::DROPPED);
+        std::string recycle_partition_value;
+        if (!recycle_partition_pb.SerializeToString(&recycle_partition_value)) {
+            LOG_WARNING("failed to serialize RecyclePartitionPB").tag("partition_id", partition_id);
+            return -1;
+        }
+        std::string recycle_key = recycle_partition_key({instance_id_, partition_id});
+        kvs_.emplace_back(std::move(recycle_key), std::move(recycle_partition_value));
+    }
+
+    if (drop_partition_log.update_table_version()) {
+        return recycle_table_version(drop_partition_log.table_id());
+    }
+    return 0;
+}
+
+int OperationLogRecycler::commit() {
     std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
-        return err;
+        LOG_WARNING("failed to create transaction for recycling operation log")
+                .tag("error_code", err);
+        return -1;
     }
-    for (const auto& k : keys) {
-        txn->remove(k);
+
+    std::string log_key = encode_versioned_key(versioned::log_key(instance_id_), log_version_);
+    txn->remove(log_key);
+    for (const auto& key : keys_to_remove_) {
+        txn->remove(key);
     }
-    return txn->commit();
+
+    for (const auto& [key, value] : kvs_) {
+        txn->put(key, value);
+    }
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to remove operation log").tag("error_code", err);
+        return -1;
+    }
+
+    return 0;
+}
+
+int OperationLogRecycler::recycle_table_version(int64_t table_id) {
+    MetaReader meta_reader(instance_id_, txn_kv_, log_version_);
+    Versionstamp prev_version;
+    TxnErrorCode err = meta_reader.get_table_version(table_id, &prev_version);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // No operation log found, nothing to recycle.
+    } else if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get table version for recycling operation log")
+                .tag("table_id", table_id)
+                .tag("error_code", err);
+        return -1;
+    }
+
+    std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
+    keys_to_remove_.emplace_back(encode_versioned_key(table_version_key, prev_version));
+    return 0;
 }
 
 int InstanceRecycler::recycle_operation_logs() {
@@ -172,38 +260,23 @@ int InstanceRecycler::recycle_operation_logs() {
 
 int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
                                             OperationLogPB operation_log) {
-    std::string log_key = encode_versioned_key(versioned::log_key(instance_id_), log_version);
-
-    std::vector<std::string> keys_to_remove;
-    keys_to_remove.push_back(log_key);
-
-    MetaReader meta_reader(instance_id_, txn_kv_.get(), log_version);
-    if (operation_log.has_commit_partition()) {
-        const auto& commit_partition_log = operation_log.commit_partition();
-        int64_t table_id = commit_partition_log.table_id();
-        Versionstamp prev_version;
-        TxnErrorCode err = meta_reader.get_table_version(table_id, &prev_version);
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            // No operation log found, nothing to recycle.
-        } else if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to get table version for recycling operation log")
-                    .tag("table_id", table_id)
-                    .tag("error_code", err);
-            return -1;
-        }
-
-        std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
-        keys_to_remove.emplace_back(encode_versioned_key(table_version_key, prev_version));
+#define RECYCLE_OPERATION_LOG(log_type, method_name)                  \
+    if (operation_log.has_##log_type()) {                             \
+        int res = log_recycler.method_name(operation_log.log_type()); \
+        if (res != 0) {                                               \
+            LOG_WARNING("failed to recycle " #log_type " log")        \
+                    .tag("res", res)                                  \
+                    .tag("log_version", log_version.to_string());     \
+            return res;                                               \
+        }                                                             \
     }
 
-    // TODO: Implement the other logic to recycle operation logs.
+    OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version);
+    RECYCLE_OPERATION_LOG(commit_partition, recycle_commit_partition_log)
+    RECYCLE_OPERATION_LOG(drop_partition, recycle_drop_partition_log)
+#undef RECYCLE_OPERATION_LOG
 
-    TxnErrorCode err = txn_remove(txn_kv_.get(), keys_to_remove);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to remove operation log").tag("error_code", err);
-        return -1;
-    }
-    return 0;
+    return log_recycler.commit();
 }
 
 } // namespace doris::cloud

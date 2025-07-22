@@ -98,7 +98,6 @@ private:
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     std::vector<SyncRowsetStats> _sync_statistics;
-    std::vector<std::function<Status()>> _tasks;
     MonotonicStopWatch _sync_cloud_tablets_watcher;
     std::shared_ptr<Dependency> _cloud_tablet_dependency;
     std::atomic<size_t> _pending_tablets_num = 0;

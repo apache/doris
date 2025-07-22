@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h" // for rowset id
@@ -37,6 +38,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class SegmentCacheHandle;
 class BetaRowset;
@@ -81,10 +83,10 @@ public:
     };
 
     SegmentCache(size_t memory_bytes_limit, size_t segment_num_limit)
-            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, memory_bytes_limit,
-                             LRUCacheType::SIZE, config::tablet_rowset_stale_sweep_time_sec,
-                             DEFAULT_LRU_CACHE_NUM_SHARDS * 2, segment_num_limit,
-                             config::enable_segment_cache_prune) {}
+            : LRUCachePolicy(
+                      CachePolicy::CacheType::SEGMENT_CACHE, memory_bytes_limit, LRUCacheType::SIZE,
+                      config::tablet_rowset_stale_sweep_time_sec, DEFAULT_LRU_CACHE_NUM_SHARDS * 2,
+                      cast_set<uint32_t>(segment_num_limit), config::enable_segment_cache_prune) {}
 
     // Lookup the given segment in the cache.
     // If the segment is found, the cache entry will be written into handle.
@@ -195,4 +197,5 @@ private:
     DISALLOW_COPY_AND_ASSIGN(SegmentCacheHandle);
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

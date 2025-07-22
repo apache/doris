@@ -325,22 +325,26 @@ void PipelineTask::terminate() {
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto fragment = _fragment_context.lock();
     if (!is_finalized() && fragment) {
-        DCHECK(_wake_up_early || fragment->is_canceled());
-        std::for_each(_spill_dependencies.begin(), _spill_dependencies.end(),
-                      [&](Dependency* dep) { dep->set_always_ready(); });
-        std::for_each(_write_dependencies.begin(), _write_dependencies.end(),
-                      [&](Dependency* dep) { dep->set_always_ready(); });
-        std::for_each(_finish_dependencies.begin(), _finish_dependencies.end(),
-                      [&](Dependency* dep) { dep->set_always_ready(); });
-        std::for_each(_read_dependencies.begin(), _read_dependencies.end(),
-                      [&](std::vector<Dependency*>& deps) {
-                          std::for_each(deps.begin(), deps.end(),
-                                        [&](Dependency* dep) { dep->set_always_ready(); });
-                      });
-        // All `_execution_deps` will never be set blocking from ready. So we just set ready here.
-        std::for_each(_execution_dependencies.begin(), _execution_dependencies.end(),
-                      [&](Dependency* dep) { dep->set_ready(); });
-        _memory_sufficient_dependency->set_ready();
+        try {
+            DCHECK(_wake_up_early || fragment->is_canceled());
+            std::for_each(_spill_dependencies.begin(), _spill_dependencies.end(),
+                          [&](Dependency* dep) { dep->set_always_ready(); });
+            std::for_each(_write_dependencies.begin(), _write_dependencies.end(),
+                          [&](Dependency* dep) { dep->set_always_ready(); });
+            std::for_each(_finish_dependencies.begin(), _finish_dependencies.end(),
+                          [&](Dependency* dep) { dep->set_always_ready(); });
+            std::for_each(_read_dependencies.begin(), _read_dependencies.end(),
+                          [&](std::vector<Dependency*>& deps) {
+                              std::for_each(deps.begin(), deps.end(),
+                                            [&](Dependency* dep) { dep->set_always_ready(); });
+                          });
+            // All `_execution_deps` will never be set blocking from ready. So we just set ready here.
+            std::for_each(_execution_dependencies.begin(), _execution_dependencies.end(),
+                          [&](Dependency* dep) { dep->set_ready(); });
+            _memory_sufficient_dependency->set_ready();
+        } catch (const doris::Exception& e) {
+            LOG(WARNING) << "Terminate failed: " << e.code() << ", " << e.to_string();
+        }
     }
 }
 
@@ -507,6 +511,7 @@ Status PipelineTask::execute(bool* done) {
 
             bool eos = false;
             RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, &eos));
+            RETURN_IF_ERROR(block->check_type_and_column());
             _eos = eos;
         }
 
@@ -566,6 +571,7 @@ Status PipelineTask::execute(bool* done) {
                     }
                 }
             });
+            RETURN_IF_ERROR(block->check_type_and_column());
             status = _sink->sink(_state, block, _eos);
 
             if (status.is<ErrorCode::END_OF_FILE>()) {

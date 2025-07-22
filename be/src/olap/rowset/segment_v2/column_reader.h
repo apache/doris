@@ -52,6 +52,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class BlockCompressionCodec;
 class WrapperField;
@@ -551,7 +552,7 @@ public:
             : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_rowid = ord_idx;
+        _current_rowid = cast_set<uint32_t>(ord_idx);
         return Status::OK();
     }
 
@@ -562,7 +563,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
         for (size_t i = 0; i < *n; ++i) {
-            rowid_t row_id = _current_rowid + i;
+            rowid_t row_id = cast_set<uint32_t>(_current_rowid + i);
             GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
             dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
         }
@@ -596,7 +597,7 @@ public:
             : _version(version), _backend_id(backend_id), _file_id(file_id) {}
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_rowid = ord_idx;
+        _current_rowid = cast_set<uint32_t>(ord_idx);
         return Status::OK();
     }
 
@@ -753,4 +754,5 @@ private:
 };
 
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

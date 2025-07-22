@@ -82,12 +82,12 @@ protected:
     template <bool limit>
     Status _execute_with_serialized_key_helper(vectorized::Block* block);
     void _find_in_hash_table(vectorized::AggregateDataPtr* places,
-                             vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+                             vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                  vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+                                  vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
     bool _emplace_into_hash_table_limit(vectorized::AggregateDataPtr* places,
                                         vectorized::Block* block, const std::vector<int>& key_locs,
-                                        vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+                                        vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
     size_t _get_hash_table_size() const;
 
     template <bool limit, bool for_spill = false>

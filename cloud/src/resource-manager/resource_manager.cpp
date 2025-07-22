@@ -526,7 +526,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
             if (i.type() == ClusterPB::SQL) {
                 for (auto& fe_node : i.nodes()) {
                     // check drop fe cluster
-                    if (!is_sql_node_exceeded_safe_drop_time(fe_node)) {
+                    if (config::enable_check_fe_drop_in_safe_time &&
+                        !is_sql_node_exceeded_safe_drop_time(fe_node)) {
                         ss << "drop fe cluster not in safe time, try later, cluster="
                            << i.DebugString();
                         msg = ss.str();
@@ -1120,7 +1121,8 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         }
 
         // check drop fe node
-        if (ClusterPB::SQL == c.type() && !is_sql_node_exceeded_safe_drop_time(copy_node)) {
+        if (ClusterPB::SQL == c.type() && config::enable_check_fe_drop_in_safe_time &&
+            !is_sql_node_exceeded_safe_drop_time(copy_node)) {
             s << "drop fe node not in safe time, try later, node=" << copy_node.DebugString();
             err = s.str();
             LOG(WARNING) << err;

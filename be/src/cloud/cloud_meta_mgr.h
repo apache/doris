@@ -58,7 +58,7 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
 
 // An async wrap of `bthread_fork_join` declared previously using promise-future
 // return OK if fut successfully created, otherwise return error
-Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency,
+Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concurrency,
                          std::future<Status>* fut);
 
 class CloudMetaMgr {

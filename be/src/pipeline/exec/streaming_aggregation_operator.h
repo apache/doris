@@ -67,7 +67,7 @@ private:
     Status _get_results_with_serialized_key(RuntimeState* state, vectorized::Block* block,
                                             bool* eos);
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                  vectorized::ColumnRawPtrs& key_columns, const size_t num_rows);
+                                  vectorized::ColumnRawPtrs& key_columns, const uint32_t num_rows);
     Status _create_agg_status(vectorized::AggregateDataPtr data);
     size_t _get_hash_table_size();
 

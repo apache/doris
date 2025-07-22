@@ -23,7 +23,6 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
@@ -3098,16 +3097,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // instead of directly putting them in properties to avoid compatibility issues of cross-version
         // synchronization.
         if (request.isCleanPartitions()) {
-            properties.put(RestoreStmt.PROP_CLEAN_PARTITIONS, "true");
+            properties.put(RestoreCommand.PROP_CLEAN_PARTITIONS, "true");
         }
         if (request.isCleanTables()) {
-            properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
+            properties.put(RestoreCommand.PROP_CLEAN_TABLES, "true");
         }
         if (request.isAtomicRestore()) {
-            properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+            properties.put(RestoreCommand.PROP_ATOMIC_RESTORE, "true");
         }
         if (request.isForceReplace()) {
-            properties.put(RestoreStmt.PROP_FORCE_REPLACE, "true");
+            properties.put(RestoreCommand.PROP_FORCE_REPLACE, "true");
         }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;

@@ -191,8 +191,8 @@ public class IcebergTransactionTest {
                     .thenReturn(table);
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
-            txn.beginInsert(icebergExternalTable);
-            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition), Optional.empty());
+            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
 
@@ -304,8 +304,8 @@ public class IcebergTransactionTest {
 
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
-            txn.beginInsert(icebergExternalTable);
-            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition), Optional.empty());
+            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
 
@@ -415,10 +415,10 @@ public class IcebergTransactionTest {
 
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
-            txn.beginInsert(icebergExternalTable);
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
             ctx.setOverwrite(true);
-            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition), Optional.of(ctx));
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
 
@@ -440,10 +440,10 @@ public class IcebergTransactionTest {
                     .thenReturn(table);
 
             IcebergTransaction txn = getTxn();
-            txn.beginInsert(icebergExternalTable);
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
             ctx.setOverwrite(true);
-            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition), Optional.of(ctx));
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
 

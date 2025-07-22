@@ -463,7 +463,7 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
             _cloud_tablet_dependency = Dependency::create_shared(
                     _parent->operator_id(), _parent->node_id(), "CLOUD_TABLET_DEP");
             _tablets.resize(_scan_ranges.size());
-            _tasks.reserve(_scan_ranges.size());
+            std::vector<std::function<Status()>> tasks;
             _sync_statistics.resize(_scan_ranges.size());
             for (size_t i = 0; i < _scan_ranges.size(); i++) {
                 auto* sync_stats = &_sync_statistics[i];
@@ -472,7 +472,7 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                                 _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
                                 version);
                 auto task_ctx = state->get_task_execution_context();
-                _tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
+                tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
                         return Status::OK();
@@ -497,8 +497,9 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                     return Status::OK();
                 });
             }
-            RETURN_IF_ERROR(cloud::bthread_fork_join(
-                    _tasks, config::init_scanner_sync_rowsets_parallelism, &_cloud_tablet_future));
+            RETURN_IF_ERROR(cloud::bthread_fork_join(std::move(tasks),
+                                                     config::init_scanner_sync_rowsets_parallelism,
+                                                     &_cloud_tablet_future));
         }
         _sync_tablet = true;
     }

@@ -249,35 +249,36 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     // store bytes that not consumed by thread mem tracker.
     _untracked_mem += size;
     DCHECK(_reserved_mem == 0);
-    if (!_init && !ExecEnv::ready()) {
-        return;
-    }
+
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
     // After the jemalloc hook is loaded, before ExecEnv init, _limiter_tracker=nullptr.
     if (std::abs(_untracked_mem) >= config::mem_tracker_consume_min_size_bytes && !_stop_consume) {
-        flush_untracked_mem();
-    }
-
-    if (skip_large_memory_check == 0) {
-        if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
-            size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
-            _stop_consume = true;
-            LOG(WARNING) << fmt::format(
-                    "alloc large memory: {}, consume tracker: {}, this is just a warning, not "
-                    "prevent memory alloc, "
-                    "stacktrace:\n{}",
-                    size, _limiter_tracker->label(), get_stack_trace());
-            _stop_consume = false;
+        if (!_init && !ExecEnv::ready()) {
+            return;
         }
-        if (doris::config::crash_in_alloc_large_memory_bytes > 0 &&
-            size > doris::config::crash_in_alloc_large_memory_bytes) {
-            throw Exception(
-                    Status::FatalError("alloc large memory: {}, consume tracker: {}, crash "
-                                       "generate core dumpsto help analyze, "
-                                       "stacktrace:\n{}",
-                                       size, _limiter_tracker->label(), get_stack_trace()));
+        flush_untracked_mem();
+        // If size is large, then _untracked_mem must be larger than config::mem_tracker_consume_min_size_bytes.
+        if (skip_large_memory_check == 0) {
+            if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
+                size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
+                _stop_consume = true;
+                LOG(WARNING) << fmt::format(
+                        "alloc large memory: {}, consume tracker: {}, this is just a warning, not "
+                        "prevent memory alloc, "
+                        "stacktrace:\n{}",
+                        size, _limiter_tracker->label(), get_stack_trace());
+                _stop_consume = false;
+            }
+            if (doris::config::crash_in_alloc_large_memory_bytes > 0 &&
+                size > doris::config::crash_in_alloc_large_memory_bytes) {
+                throw Exception(
+                        Status::FatalError("alloc large memory: {}, consume tracker: {}, crash "
+                                           "generate core dumpsto help analyze, "
+                                           "stacktrace:\n{}",
+                                           size, _limiter_tracker->label(), get_stack_trace()));
+            }
         }
     }
 }
