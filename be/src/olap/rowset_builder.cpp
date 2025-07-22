@@ -102,7 +102,7 @@ RowsetBuilder::~RowsetBuilder() {
 }
 
 Tablet* RowsetBuilder::tablet() {
-    return static_cast<Tablet*>(_tablet.get());
+    return cast_set<Tablet*>(_tablet.get());
 }
 
 TabletSharedPtr RowsetBuilder::tablet_sptr() {
@@ -409,7 +409,7 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
         indexes[i]->columns[0]->unique_id() >= 0) {
         _tablet_schema->shawdow_copy_without_columns(ori_tablet_schema);
         _tablet_schema->build_current_tablet_schema(
-                index_id, static_cast<int32_t>(table_schema_param->version()), indexes[i],
+                index_id, cast_set<int32_t>(table_schema_param->version()), indexes[i],
                 ori_tablet_schema);
     } else {
         _tablet_schema->copy_from(ori_tablet_schema);
