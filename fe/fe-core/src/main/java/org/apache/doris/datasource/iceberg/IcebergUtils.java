@@ -102,6 +102,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.types.Types.TimestampType;
 import org.apache.iceberg.util.LocationUtil;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
@@ -119,6 +120,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.Month;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -607,14 +609,14 @@ public class IcebergUtils {
         }
     }
 
-    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData) {
+    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData, String timeZone) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         for (int i = 0; i < fields.size(); i++) {
             NestedField field = fields.get(i);
             Object value = partitionData.get(i);
             try {
-                String partitionString = serializePartitionValue(field.type(), value);
+                String partitionString = serializePartitionValue(field.type(), value, timeZone);
                 partitionInfoMap.put(field.name(), partitionString);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize partition value for field {}: {}", field.name(), e.getMessage());
@@ -624,11 +626,10 @@ public class IcebergUtils {
         return partitionInfoMap;
     }
 
-    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value) {
+    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
         if (value == null) {
             return "\\N";
         }
-
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:
@@ -657,11 +658,17 @@ public class IcebergUtils {
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP:
                 // Iceberg timestamp is stored as microseconds since epoch
-                // (1970-01-01T00:00:00Z)
+                // (1970-01-01T00:00:00)
                 long timestampMicros = (Long) value;
+                TimestampType timestampType = (TimestampType) type;
                 LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
                         timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000,
-                        ZoneId.of("UTC").getRules().getOffset(Instant.now()));
+                        ZoneOffset.UTC);
+                // type is timestamptz if timestampType.shouldAdjustToUTC() is true
+                if (timestampType.shouldAdjustToUTC()) {
+                    timestamp = timestamp.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of(timeZone))
+                            .toLocalDateTime();
+                }
                 return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
