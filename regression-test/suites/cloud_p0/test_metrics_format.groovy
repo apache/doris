@@ -32,12 +32,11 @@ suite('test_metrics_format') {
     }
 
     def json
-    get_meta_service_metric.call(js) {
+    get_meta_service_metric.call(json) {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
             Boolean res = PromethuesChecker.check(out)
             assertTrue(res)
     }
-    json.result.cluster
 }
