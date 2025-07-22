@@ -23,6 +23,7 @@
 #include <string>
 
 #include "CLucene/index/Terms.h"
+#include "common/be_mock_util.h"
 
 CL_NS_USE(index)
 
@@ -59,9 +60,9 @@ public:
         return docId >= INT_MAX ? INT_MAX : docId;
     }
 
-    int32_t freq() const { return term_docs_->freq(); }
+    MOCK_FUNCTION int32_t freq() const { return term_docs_->freq(); }
 
-    int32_t norm() const { return term_docs_->norm(); }
+    MOCK_FUNCTION int32_t norm() const { return term_docs_->norm(); }
 
     int32_t next_doc() const {
         if (term_docs_->next()) {

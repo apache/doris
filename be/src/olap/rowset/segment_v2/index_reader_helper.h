@@ -24,7 +24,7 @@ namespace doris::segment_v2 {
 class IndexReaderHelper {
 public:
     static bool is_fulltext_index(const IndexReaderPtr& reader) {
-        if (reader->index_type() != IndexType::INVERTED) {
+        if (reader == nullptr || reader->index_type() != IndexType::INVERTED) {
             return false;
         }
 
@@ -33,7 +33,7 @@ public:
     }
 
     static bool is_string_index(const IndexReaderPtr& reader) {
-        if (reader->index_type() != IndexType::INVERTED) {
+        if (reader == nullptr || reader->index_type() != IndexType::INVERTED) {
             return false;
         }
 
@@ -42,7 +42,7 @@ public:
     }
 
     static bool is_bkd_index(const IndexReaderPtr& reader) {
-        if (reader->index_type() != IndexType::INVERTED) {
+        if (reader == nullptr || reader->index_type() != IndexType::INVERTED) {
             return false;
         }
 
@@ -51,7 +51,7 @@ public:
     }
 
     static bool is_support_phrase(const IndexReaderPtr& reader) {
-        if (reader->index_type() != IndexType::INVERTED) {
+        if (reader == nullptr || reader->index_type() != IndexType::INVERTED) {
             return false;
         }
 

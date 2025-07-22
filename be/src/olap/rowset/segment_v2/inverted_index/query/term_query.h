@@ -18,40 +18,23 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/term_query.h"
 
 namespace doris::segment_v2 {
 
-class ConjunctionQuery : public Query {
+class TermQuery : public Query {
 public:
-    ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context);
-    ~ConjunctionQuery() override = default;
+    TermQuery(SearcherPtr searcher, IndexQueryContextPtr context);
+    ~TermQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
-    void search_by_bitmap(roaring::Roaring& roaring);
-    void search_by_skiplist(roaring::Roaring& roaring);
-
-    int32_t do_next(int32_t doc);
-
-public:
     SearcherPtr _searcher;
     IndexQueryContextPtr _context;
 
-    TermQuery _term_query;
-
-    IndexVersion _index_version = IndexVersion::kV0;
-    int32_t _conjunction_ratio = 1000;
-    bool _use_skip = false;
-
-    TermIterPtr _lead1;
-    TermIterPtr _lead2;
-    std::vector<TermIterPtr> _others;
-    std::vector<TermIterPtr> _iterators;
-
-    std::vector<SimilarityPtr> _similarities;
+    TermIterPtr _iter;
+    SimilarityPtr _similaritie;
 };
 
 } // namespace doris::segment_v2

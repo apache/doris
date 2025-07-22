@@ -32,7 +32,7 @@ namespace doris::segment_v2 {
 PhraseQuery::PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)),
           _context(std::move(context)),
-          _disjunction_query(_searcher, _context) {}
+          _term_query(_searcher, _context) {}
 
 void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
@@ -40,7 +40,7 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 
     if (query_info.term_infos.size() == 1) {
-        _disjunction_query.add(query_info);
+        _term_query.add(query_info);
         return;
     }
 
@@ -158,7 +158,7 @@ void PhraseQuery::init_similarities(const std::wstring& field_name, bool is_simi
 
 void PhraseQuery::search(roaring::Roaring& roaring) {
     if (_lead1 == nullptr) {
-        _disjunction_query.search(roaring);
+        _term_query.search(roaring);
         return;
     }
 

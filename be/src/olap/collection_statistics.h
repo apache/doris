@@ -20,6 +20,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "common/be_mock_util.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -39,12 +40,16 @@ using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
 class CollectionStatistics {
 public:
+    CollectionStatistics() = default;
+    virtual ~CollectionStatistics() = default;
+
     Status collect(const std::vector<RowSetSplits>& rs_splits,
                    const TabletSchemaSPtr& tablet_schema,
                    const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down);
 
-    float get_or_calculate_idf(const std::wstring& lucene_col_name, const std::wstring& term);
-    float get_or_calculate_avg_dl(const std::wstring& lucene_col_name);
+    MOCK_FUNCTION float get_or_calculate_idf(const std::wstring& lucene_col_name,
+                                             const std::wstring& term);
+    MOCK_FUNCTION float get_or_calculate_avg_dl(const std::wstring& lucene_col_name);
 
 private:
     struct TermInfoComparer {
@@ -77,6 +82,8 @@ private:
 
     std::unordered_map<std::wstring, float> _avg_dl_by_col;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, float>> _idf_by_col_term;
+
+    MOCK_DEFINE(friend class BM25SimilarityTest;)
 };
 using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
 

@@ -1892,8 +1892,8 @@ public:
         }
 
     protected:
-        Status handle_searcher_cache(RuntimeState*, InvertedIndexCacheHandle*, const io::IOContext*,
-                                     OlapReaderStatistics*) override {
+        Status handle_searcher_cache(const IndexQueryContextPtr& context,
+                                     InvertedIndexCacheHandle*) override {
             CLuceneError err;
             err.set(CL_ERR_IO, "mock handle_searcher_cache failure");
             throw err;
@@ -1915,8 +1915,8 @@ public:
         }
 
     protected:
-        Status handle_searcher_cache(RuntimeState*, InvertedIndexCacheHandle*, const io::IOContext*,
-                                     OlapReaderStatistics*) override {
+        Status handle_searcher_cache(const IndexQueryContextPtr& context,
+                                     InvertedIndexCacheHandle*) override {
             CLuceneError err;
             err.set(CL_ERR_IO, "mock tokenized index searcher cache failure");
             throw err;
@@ -1960,11 +1960,16 @@ public:
         opts.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(opts);
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         std::string field_name = "1"; // c2 unique_id
         StringRef query_val(values[0].data, values[0].size);
 
-        Status st = mock_reader->query(&io_ctx, &stats, &runtime_state, field_name, &query_val,
+        Status st = mock_reader->query(context, field_name, &query_val,
                                        InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -2014,6 +2019,11 @@ public:
         opts.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(opts);
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         std::string field_name = "1"; // c2 unique_id
 
@@ -2021,7 +2031,7 @@ public:
         std::string query_term = "world";
         StringRef query_val(query_term.data(), query_term.size());
 
-        Status st = mock_reader->query(&io_ctx, &stats, &runtime_state, field_name, &query_val,
+        Status st = mock_reader->query(context, field_name, &query_val,
                                        InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -2031,7 +2041,7 @@ public:
         std::string phrase_query = "Apache Doris";
         StringRef phrase_query_val(phrase_query.data(), phrase_query.size());
 
-        st = mock_reader->query(&io_ctx, &stats, &runtime_state, field_name, &phrase_query_val,
+        st = mock_reader->query(context, field_name, &phrase_query_val,
                                 InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -2104,6 +2114,11 @@ public:
         runtime_state.set_query_options(query_options);
         io::IOContext io_ctx;
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         std::vector<Slice> values = {Slice("Apple"), Slice("BANANA"),     Slice("Cherry"),
                                      Slice("DATE"),  Slice("elderberry"), Slice("FIG"),
                                      Slice("grape")};
@@ -2139,7 +2154,7 @@ public:
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             std::string query_lower = "apple"; // lowercase
             StringRef str_ref(query_lower.c_str(), query_lower.length());
-            auto status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            auto status = str_reader->query(context, "c2", &str_ref,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_GT(bitmap->cardinality(), 0) << "Should find 'Apple' with lowercase query";
@@ -2179,7 +2194,7 @@ public:
             std::string long_query = "this_is_a_very_long_string_that_exceeds_ignore_above_limit";
             StringRef str_ref(long_query.c_str(), long_query.length());
 
-            auto status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            auto status = str_reader->query(context, "c2", &str_ref,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_FALSE(status.ok());
             EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED);
@@ -2230,13 +2245,18 @@ public:
 
         io::IOContext io_ctx;
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         // Test MATCH_ANY_QUERY
         {
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             std::string query = "quick database";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto status = fulltext_reader->query(&io_ctx, &stats, &runtime_state, "c2", &query_ref,
+            auto status = fulltext_reader->query(context, "c2", &query_ref,
                                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_GT(bitmap->cardinality(), 0)
@@ -2249,7 +2269,7 @@ public:
             std::string query = "search fast";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto status = fulltext_reader->query(&io_ctx, &stats, &runtime_state, "c2", &query_ref,
+            auto status = fulltext_reader->query(context, "c2", &query_ref,
                                                  InvertedIndexQueryType::MATCH_ALL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -2260,9 +2280,8 @@ public:
             std::string query = "quick brown";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto status =
-                    fulltext_reader->query(&io_ctx, &stats, &runtime_state, "c2", &query_ref,
-                                           InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+            auto status = fulltext_reader->query(
+                    context, "c2", &query_ref, InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -2272,7 +2291,7 @@ public:
             std::string query = "sear";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto status = fulltext_reader->query(&io_ctx, &stats, &runtime_state, "c2", &query_ref,
+            auto status = fulltext_reader->query(context, "c2", &query_ref,
                                                  InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
                                                  bitmap);
             EXPECT_TRUE(status.ok());
@@ -2284,9 +2303,8 @@ public:
             std::string query = "qu.*k";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto status =
-                    fulltext_reader->query(&io_ctx, &stats, &runtime_state, "c2", &query_ref,
-                                           InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
+            auto status = fulltext_reader->query(
+                    context, "c2", &query_ref, InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
     }
@@ -2322,9 +2340,14 @@ public:
         runtime_state.set_query_options(query_options);
         io::IOContext io_ctx;
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         // Test iterator creation
         std::unique_ptr<IndexIterator> iterator;
-        auto status = str_reader->new_iterator(io_ctx, &stats, &runtime_state, &iterator);
+        auto status = str_reader->new_iterator(&iterator);
         EXPECT_TRUE(status.ok());
         EXPECT_NE(iterator, nullptr);
 
@@ -2365,6 +2388,11 @@ public:
         TQueryOptions query_options;
         runtime_state.set_query_options(query_options);
         io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
 
         // Test with invalid file path
         {
@@ -2421,7 +2449,7 @@ public:
             std::string query = "500";
             StringRef str_ref(query.c_str(), query.length());
 
-            auto status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            auto status = str_reader->query(context, "c2", &str_ref,
                                             InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
             // This might succeed or fail depending on the implementation limits
             // The important thing is we handle the potential TooManyClauses error gracefully
@@ -2458,7 +2486,7 @@ public:
             std::string empty_query = "";
             StringRef str_ref(empty_query.c_str(), empty_query.length());
 
-            auto status = fulltext_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            auto status = fulltext_reader->query(context, "c2", &str_ref,
                                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             // Should either succeed with empty result or fail gracefully
         }
@@ -2537,6 +2565,11 @@ public:
         runtime_state.set_query_options(query_options);
         io::IOContext io_ctx;
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         // Test with invalid file path
         {
             TabletIndex idx_meta;
@@ -2593,7 +2626,7 @@ public:
             std::string query = "500";
             StringRef str_ref(query.c_str(), query.length());
 
-            auto status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            auto status = str_reader->query(context, "c2", &str_ref,
                                             InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
             // This might succeed or fail depending on the implementation limits
             // The important thing is we handle the potential TooManyClauses error gracefully
@@ -2630,7 +2663,7 @@ public:
             std::string empty_query;
             StringRef str_ref(empty_query.c_str(), empty_query.length());
 
-            auto status = fulltext_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            auto status = fulltext_reader->query(context, "c2", &str_ref,
                                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             // Should either succeed with empty result or fail gracefully
         }
@@ -2643,6 +2676,11 @@ public:
         TQueryOptions query_options;
         runtime_state.set_query_options(query_options);
         io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
 
         // Test MATCH_REGEXP_QUERY path that was uncovered
         {
@@ -2676,9 +2714,8 @@ public:
             std::string regexp_query = "test.*";
             StringRef query_ref(regexp_query.c_str(), regexp_query.length());
 
-            auto status =
-                    fulltext_reader->query(&io_ctx, &stats, &runtime_state, "c2", &query_ref,
-                                           InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
+            auto status = fulltext_reader->query(
+                    context, "c2", &query_ref, InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -2713,43 +2750,43 @@ public:
             std::string query = "cherry";
             StringRef str_ref(query.c_str(), query.length());
 
-            auto status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            auto status = str_reader->query(context, "c2", &str_ref,
                                             InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test LESS_EQUAL_QUERY
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            status = str_reader->query(context, "c2", &str_ref,
                                        InvertedIndexQueryType::LESS_EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test GREATER_THAN_QUERY
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            status = str_reader->query(context, "c2", &str_ref,
                                        InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test GREATER_EQUAL_QUERY
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            status = str_reader->query(context, "c2", &str_ref,
                                        InvertedIndexQueryType::GREATER_EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test MATCH_PHRASE_QUERY for StringType
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            status = str_reader->query(context, "c2", &str_ref,
                                        InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test MATCH_PHRASE_PREFIX_QUERY for StringType
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            status = str_reader->query(context, "c2", &str_ref,
                                        InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test MATCH_REGEXP_QUERY for StringType
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(&io_ctx, &stats, &runtime_state, "c2", &str_ref,
+            status = str_reader->query(context, "c2", &str_ref,
                                        InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -2772,6 +2809,11 @@ public:
         runtime_state.set_query_options(query_options);
         io::IOContext io_ctx;
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         EXPECT_TRUE(reader->init().ok());
@@ -2790,14 +2832,13 @@ public:
         for (auto& test_case : test_cases) {
             // Test try_query path
             uint32_t count = 0;
-            auto status = bkd_reader->try_query(&io_ctx, &stats, &runtime_state, "c1",
-                                                &test_case.second, test_case.first, &count);
+            auto status = bkd_reader->try_query(context, "c1", &test_case.second, test_case.first,
+                                                &count);
             EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
 
             // Test actual query path
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            status = bkd_reader->query(&io_ctx, &stats, &runtime_state, "c1", &test_case.second,
-                                       test_case.first, bitmap);
+            status = bkd_reader->query(context, "c1", &test_case.second, test_case.first, bitmap);
             EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
         }
 
@@ -2806,12 +2847,12 @@ public:
         int32_t max_value = 100; // Greater than maximum in data
 
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-        auto status = bkd_reader->query(&io_ctx, &stats, &runtime_state, "c1", &min_value,
+        auto status = bkd_reader->query(context, "c1", &min_value,
                                         InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
         EXPECT_TRUE(status.ok());
 
         bitmap = std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(&io_ctx, &stats, &runtime_state, "c1", &max_value,
+        status = bkd_reader->query(context, "c1", &max_value,
                                    InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
         EXPECT_TRUE(status.ok());
     }
@@ -2834,6 +2875,11 @@ public:
         runtime_state.set_query_options(query_options);
         io::IOContext io_ctx;
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         EXPECT_TRUE(reader->init().ok());
@@ -2842,7 +2888,7 @@ public:
         EXPECT_NE(bkd_reader, nullptr);
 
         std::unique_ptr<IndexIterator> iterator;
-        auto status = bkd_reader->new_iterator(io_ctx, &stats, &runtime_state, &iterator);
+        auto status = bkd_reader->new_iterator(&iterator);
         EXPECT_TRUE(status.ok());
         EXPECT_NE(iterator, nullptr);
 
@@ -2984,6 +3030,11 @@ public:
         runtime_state.set_query_options(query_options);
         io::IOContext io_ctx;
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         // Test INT type
         {
             std::string_view rowset_id = "test_bkd_int";
@@ -3010,8 +3061,8 @@ public:
 
             for (auto& test_case : test_cases) {
                 std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                auto status = bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_int",
-                                                &test_case.second, test_case.first, bitmap);
+                auto status = bkd_reader->query(context, "c_int", &test_case.second,
+                                                test_case.first, bitmap);
                 EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
 
                 if (test_case.first == InvertedIndexQueryType::EQUAL_QUERY) {
@@ -3022,8 +3073,8 @@ public:
 
             for (auto& test_case : test_cases) {
                 uint32_t count = 0;
-                auto status = bkd_reader->try_query(&io_ctx, &stats, &runtime_state, "c_int",
-                                                    &test_case.second, test_case.first, &count);
+                auto status = bkd_reader->try_query(context, "c_int", &test_case.second,
+                                                    test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
             }
         }
@@ -3047,9 +3098,8 @@ public:
 
             int64_t query_value = 1000000LL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status =
-                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_bigint", &query_value,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto status = bkd_reader->query(context, "c_bigint", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(bitmap->cardinality(), 1);
         }
@@ -3116,6 +3166,11 @@ public:
         runtime_state.set_query_options(query_options);
         io::IOContext io_ctx;
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         // Test DATE type (to cover TYPE_DATE case)
         {
             std::string_view rowset_id = "test_date_type";
@@ -3135,7 +3190,7 @@ public:
 
             uint32_t query_value = 20240102;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_date", &query_value,
+            auto status = bkd_reader->query(context, "c_date", &query_value,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3160,9 +3215,8 @@ public:
 
             uint64_t query_value = 20240101130000ULL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status =
-                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_datetime", &query_value,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto status = bkd_reader->query(context, "c_datetime", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -3185,7 +3239,7 @@ public:
 
             bool query_value = true;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_bool", &query_value,
+            auto status = bkd_reader->query(context, "c_bool", &query_value,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3209,9 +3263,8 @@ public:
 
             int8_t query_value = 1;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status =
-                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_tinyint", &query_value,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto status = bkd_reader->query(context, "c_tinyint", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -3234,9 +3287,8 @@ public:
 
             int16_t query_value = 1000;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status =
-                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_smallint", &query_value,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto status = bkd_reader->query(context, "c_smallint", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -3259,9 +3311,8 @@ public:
 
             __int128 query_value = 0;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status =
-                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_largeint", &query_value,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto status = bkd_reader->query(context, "c_largeint", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -3284,9 +3335,8 @@ public:
 
             uint32_t query_value = 20240202;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status =
-                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_datev2", &query_value,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto status = bkd_reader->query(context, "c_datev2", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -3310,9 +3360,8 @@ public:
 
             uint64_t query_value = 20240201130000ULL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status =
-                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_datetimev2", &query_value,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto status = bkd_reader->query(context, "c_datetimev2", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
     }
@@ -3388,11 +3437,16 @@ public:
                     RuntimeState runtime_state;
                     io::IOContext io_ctx;
 
+                    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+                    context->io_ctx = &io_ctx;
+                    context->stats = &stats;
+                    context->runtime_state = &runtime_state;
+
                     std::string query_value = "test";
                     std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                    auto query_status = bkd_reader->query(
-                            &io_ctx, &stats, &runtime_state, "c_unsupported", &query_value,
-                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+                    auto query_status =
+                            bkd_reader->query(context, "c_unsupported", &query_value,
+                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
                     // This might fail due to unsupported type, which is what we want to test
                 }
             }

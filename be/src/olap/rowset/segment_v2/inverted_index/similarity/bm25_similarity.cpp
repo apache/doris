@@ -74,7 +74,7 @@ int32_t BM25Similarity::number_of_leading_zeros(uint64_t value) {
 
 uint32_t BM25Similarity::long_to_int4(uint64_t i) {
     if (i > std::numeric_limits<uint64_t>::max()) {
-        throw std::invalid_argument("Only supports positive values");
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Only supports positive values");
     }
 
     int32_t numBits = 64 - number_of_leading_zeros(i);
@@ -100,7 +100,7 @@ uint64_t BM25Similarity::int4_to_long(uint32_t i) {
 
 uint8_t BM25Similarity::int_to_byte4(int32_t i) {
     if (i < 0) {
-        throw std::invalid_argument("Only supports positive values");
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Only supports positive values");
     }
 
     if (i < NUM_FREE_VALUES) {

@@ -19,9 +19,6 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
-CL_NS_USE(index)
-CL_NS_USE(search)
-
 namespace doris::segment_v2 {
 
 class DisjunctionQuery : public Query {

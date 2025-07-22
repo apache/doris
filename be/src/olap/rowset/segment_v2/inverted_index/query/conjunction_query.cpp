@@ -24,7 +24,9 @@
 namespace doris::segment_v2 {
 
 ConjunctionQuery::ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context)
-        : _searcher(std::move(searcher)), _context(std::move(context)) {
+        : _searcher(std::move(searcher)),
+          _context(std::move(context)),
+          _term_query(_searcher, _context) {
     _index_version = _searcher->getReader()->getIndexVersion();
     _conjunction_ratio =
             _context->runtime_state->query_options().inverted_index_conjunction_opt_threshold;
@@ -33,6 +35,11 @@ ConjunctionQuery::ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr co
 void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
+    }
+
+    if (query_info.term_infos.size() == 1) {
+        _term_query.add(query_info);
+        return;
     }
 
     for (const auto& term_info : query_info.term_infos) {
@@ -79,6 +86,7 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
 
 void ConjunctionQuery::search(roaring::Roaring& roaring) {
     if (_lead1 == nullptr) {
+        _term_query.search(roaring);
         return;
     }
 

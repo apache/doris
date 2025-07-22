@@ -17,11 +17,11 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/query/disjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/exact_phrase_matcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/ordered_sloppy_phrase_matcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/sloppy_phrase_matcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/term_query.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 
 CL_NS_USE(index)
@@ -67,7 +67,7 @@ private:
     SearcherPtr _searcher;
     IndexQueryContextPtr _context;
 
-    DisjunctionQuery _disjunction_query;
+    TermQuery _term_query;
 
     DISI* _lead1 = nullptr;
     DISI* _lead2 = nullptr;
