@@ -553,7 +553,10 @@ public class LoadManager implements Writable {
                     throw new DdlException("Label does not exist: " + label);
                 }
             } else {
-                throw new DdlException("Database does not exist");
+                // If dbId is not found in dbIdToLabelToLoadJobs,
+                // it means the database has no label records,
+                // so throw a "Label does not exist" error.
+                throw new DdlException("Label does not exist: " + label);
             }
             return result;
         } finally {
