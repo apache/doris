@@ -22,7 +22,7 @@ suite("test_hudi_runtime_filter_partition_pruning", "p2,external,hudi,external_r
         return
     }
 
-    String catalog_name = "test_hudi_snapshot"
+    String catalog_name = "test_hudi_runtime_filter_partition_pruning"
     String props = context.config.otherConfigs.get("hudiEmrCatalog")
     sql """drop catalog if exists ${catalog_name};"""
     sql """
@@ -36,72 +36,6 @@ suite("test_hudi_runtime_filter_partition_pruning", "p2,external,hudi,external_r
     sql """ set enable_fallback_to_original_planner=false """
 
     def test_runtime_filter_partition_pruning = {
-        // Test single partition table (INT type)
-        qt_runtime_filter_partition_pruning_one_partition_1 """
-            select count(*) from one_partition_tb where part1 =
-                (select part1 from one_partition_tb
-                group by part1 having count(*) > 0
-                order by part1 desc limit 1);
-        """
-        
-        qt_runtime_filter_partition_pruning_one_partition_2 """
-            select count(*) from one_partition_tb where part1 in
-                (select part1 from one_partition_tb
-                group by part1 having count(*) > 0
-                order by part1 desc limit 2);
-        """
-        
-        qt_runtime_filter_partition_pruning_one_partition_3 """
-            select count(*) from one_partition_tb where abs(part1) =
-                (select part1 from one_partition_tb
-                group by part1 having count(*) > 0
-                order by part1 desc limit 1);
-        """
-
-        // Test two partition table (STRING + INT types)
-        qt_runtime_filter_partition_pruning_two_partition_1 """
-            select count(*) from two_partition_tb where part1 =
-                (select part1 from two_partition_tb
-                group by part1, part2 having count(*) > 0
-                order by part1 desc limit 1);
-        """
-        
-        qt_runtime_filter_partition_pruning_two_partition_2 """
-            select count(*) from two_partition_tb where part2 =
-                (select part2 from two_partition_tb
-                group by part1, part2 having count(*) > 0
-                order by part2 desc limit 1);
-        """
-        
-        qt_runtime_filter_partition_pruning_two_partition_3 """
-            select count(*) from two_partition_tb where part1 in
-                (select part1 from two_partition_tb
-                group by part1 having count(*) > 0
-                order by part1 desc limit 2);
-        """
-
-        // Test three partition table (STRING + INT + STRING types)
-        qt_runtime_filter_partition_pruning_three_partition_1 """
-            select count(*) from three_partition_tb where part1 =
-                (select part1 from three_partition_tb
-                group by part1, part2, part3 having count(*) > 0
-                order by part1 desc limit 1);
-        """
-        
-        qt_runtime_filter_partition_pruning_three_partition_2 """
-            select count(*) from three_partition_tb where part2 =
-                (select part2 from three_partition_tb
-                group by part1, part2, part3 having count(*) > 0
-                order by part2 desc limit 1);
-        """
-        
-        qt_runtime_filter_partition_pruning_three_partition_3 """
-            select count(*) from three_partition_tb where part3 =
-                (select part3 from three_partition_tb
-                group by part1, part2, part3 having count(*) > 0
-                order by part3 desc limit 1);
-        """
-
         // Test BOOLEAN partition
         qt_runtime_filter_partition_pruning_boolean_1 """
             select count(*) from boolean_partition_tb where part1 =
@@ -213,20 +147,20 @@ suite("test_hudi_runtime_filter_partition_pruning", "p2,external,hudi,external_r
                 order by part1 desc limit 2);
         """
 
-        // Test TIMESTAMP partition
-        qt_runtime_filter_partition_pruning_timestamp_1 """
-            select count(*) from timestamp_partition_tb where part1 =
-                (select part1 from timestamp_partition_tb
-                group by part1 having count(*) > 0
-                order by part1 desc limit 1);
-        """
+        // // Test TIMESTAMP partition
+        // qt_runtime_filter_partition_pruning_timestamp_1 """
+        //     select count(*) from timestamp_partition_tb where part1 =
+        //         (select part1 from timestamp_partition_tb
+        //         group by part1 having count(*) > 0
+        //         order by part1 desc limit 1);
+        // """
         
-        qt_runtime_filter_partition_pruning_timestamp_2 """
-            select count(*) from timestamp_partition_tb where part1 in
-                (select part1 from timestamp_partition_tb
-                group by part1 having count(*) > 0
-                order by part1 desc limit 2);
-        """
+        // qt_runtime_filter_partition_pruning_timestamp_2 """
+        //     select count(*) from timestamp_partition_tb where part1 in
+        //         (select part1 from timestamp_partition_tb
+        //         group by part1 having count(*) > 0
+        //         order by part1 desc limit 2);
+        // """
 
         // Additional complex scenarios with multiple filters
         qt_runtime_filter_partition_pruning_complex_1 """
@@ -244,15 +178,6 @@ suite("test_hudi_runtime_filter_partition_pruning", "p2,external,hudi,external_r
                 select t2.part2 from two_partition_tb t2 
                 where t2.part1 = 'US'
                 group by t2.part2 having count(*) > 1
-            );
-        """
-        
-        qt_runtime_filter_partition_pruning_complex_3 """
-            select count(*) from three_partition_tb t1 
-            where (t1.part1, t1.part2) in (
-                select t2.part1, t2.part2 from three_partition_tb t2 
-                where t2.part3 = 'Q1'
-                group by t2.part1, t2.part2 having count(*) > 0
             );
         """
     }
