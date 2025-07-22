@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -60,9 +59,6 @@ public class CheckAfterBind implements AnalysisRuleFactory {
                 if (((InSubquery) predicate).getListQuery().getDataType().isObjectType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
-            }
-            if (ExpressionUtils.hasOnlyMetricType(predicate.getArguments())) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }
     }

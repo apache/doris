@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -310,9 +312,17 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 // We couldn't find the equivalent expression in output expressions and group-by expressions,
                 // so we should check whether the expression is valid.
                 if (expression instanceof SlotReference) {
-                    if (checkSlot && (!outerScope.isPresent()
+                    if ((!outerScope.isPresent()
                             || !outerScope.get().getCorrelatedSlots().contains(expression))) {
-                        throw new AnalysisException(expression.toSql() + " should be grouped by.");
+                        if (!SqlModeHelper.hasOnlyFullGroupBy()) {
+                            // ATTN: we should add any_value to agg's output here, but not add slot directly.
+                            //   because normalize agg cannot replace upper slot with new output.
+                            Alias alias = new Alias(new AnyValue(expression));
+                            newOutputSlots.add(alias);
+                            substitution.put(expression, alias.toSlot());
+                        } else if (checkSlot) {
+                            throw new AnalysisException(expression.toSql() + " should be grouped by.");
+                        }
                     }
                 } else if (expression instanceof AggregateFunction) {
                     if (checkWhetherNestedAggregateFunctionsExist((AggregateFunction) expression)) {
