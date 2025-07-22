@@ -783,8 +783,8 @@ public class NumericArithmetic {
     public static Expression lcm(BigIntLiteral first, BigIntLiteral second) {
         BigInteger a = new BigInteger(first.getValue().toString());
         BigInteger b = new BigInteger(second.getValue().toString());
-        Long g = ArithmeticUtils.gcd(first.getValue(), second.getValue());
-        return abs(new LargeIntLiteral(a.multiply(b).divide(new BigInteger(g.toString()))));
+        BigInteger g = a.gcd(b);
+        return abs(new LargeIntLiteral(a.multiply(b).divide(g)));
     }
 
     /**
