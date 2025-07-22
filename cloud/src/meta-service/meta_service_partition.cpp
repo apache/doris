@@ -604,6 +604,12 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         pb.SerializeToString(&to_save_val);
     }
     bool need_commit = false;
+    DropPartitionLogPB drop_partition_log;
+    drop_partition_log.set_db_id(request->db_id());
+    drop_partition_log.set_table_id(request->table_id());
+    drop_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
+    drop_partition_log.set_expiration(request->expiration());
+
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -611,6 +617,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             LOG_INFO("put recycle partition").tag("key", hex(key));
             txn->put(key, to_save_val);
+            drop_partition_log.add_partition_ids(part_id);
             need_commit = true;
             continue;
         }
@@ -648,10 +655,24 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     // Update table version only when deleting non-empty partitions
     if (request->has_db_id() && request->has_need_update_table_version() &&
         request->need_update_table_version()) {
-        std::string ver_key =
-                table_version_key({instance_id, request->db_id(), request->table_id()});
-        txn->atomic_add(ver_key, 1);
-        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
+        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+        drop_partition_log.set_update_table_version(true);
+    }
+
+    if ((drop_partition_log.update_table_version() ||
+         drop_partition_log.partition_ids_size() > 0) &&
+        is_version_write_enabled(instance_id)) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_drop_partition()->Swap(&drop_partition_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 
     err = txn->commit();

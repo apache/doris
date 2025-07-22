@@ -558,3 +558,50 @@ TEST(VersionedMessageTest, GetRangeWithRangeKeySelector) {
         case_index += 1;
     }
 }
+
+TEST(VersionedValueTest, RemoveAll) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    std::string key_prefix = "remove_all_key_";
+
+    // Insert 10 versioned values
+    for (int i = 0; i < 10; ++i) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        VersionPB version_pb;
+        version_pb.set_version(i * 10);
+        Versionstamp versionstamp(i * 10, 0);
+        versioned_put(txn.get(), key_prefix, versionstamp, version_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(count_range(txn_kv.get()), 10) << dump_range(txn_kv.get());
+
+    // Remove all versioned values
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_remove_all(txn.get(), key_prefix);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(count_range(txn_kv.get()), 0) << dump_range(txn_kv.get());
+
+    // Insert 5 versioned values and verify
+    for (int i = 0; i < 5; ++i) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        VersionPB version_pb;
+        version_pb.set_version(i * 100);
+        Versionstamp versionstamp(i * 100, 0);
+        versioned_put(txn.get(), key_prefix, versionstamp, version_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(count_range(txn_kv.get()), 5) << dump_range(txn_kv.get());
+
+    // Remove all versioned values again
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_remove_all(txn.get(), key_prefix);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(count_range(txn_kv.get()), 0) << dump_range(txn_kv.get());
+}
