@@ -49,6 +49,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class NullBitmapBuilder {
 public:
@@ -100,7 +101,7 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
     null_options.meta->set_type(int(null_type));
     null_options.meta->set_is_nullable(false);
     null_options.meta->set_length(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
+            cast_set<int32_t>(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size()));
     null_options.meta->set_encoding(DEFAULT_ENCODING);
     null_options.meta->set_compression(opts.meta->compression());
 
@@ -174,8 +175,8 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     length_options.meta->set_unique_id(2);
     length_options.meta->set_type(int(length_type));
     length_options.meta->set_is_nullable(false);
-    length_options.meta->set_length(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
+    length_options.meta->set_length(cast_set<int32_t>(
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size()));
     length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
@@ -238,8 +239,8 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
     length_options.meta->set_unique_id(column->get_subtype_count() + 1);
     length_options.meta->set_type(int(length_type));
     length_options.meta->set_is_nullable(false);
-    length_options.meta->set_length(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
+    length_options.meta->set_length(cast_set<int32_t>(
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size()));
     length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
@@ -503,16 +504,16 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
     if (_opts.need_zone_map) {
-        _zone_map_index_builder->add_nulls(num_rows);
+        _zone_map_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
     }
     if (_opts.need_bitmap_index) {
-        _bitmap_index_builder->add_nulls(num_rows);
+        _bitmap_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
     }
     if (_opts.need_inverted_index) {
-        RETURN_IF_ERROR(_inverted_index_builder->add_nulls(num_rows));
+        RETURN_IF_ERROR(_inverted_index_builder->add_nulls(cast_set<uint32_t>(num_rows)));
     }
     if (_opts.need_bloom_filter) {
-        _bloom_filter_index_builder->add_nulls(num_rows);
+        _bloom_filter_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
     }
     return Status::OK();
 }
@@ -605,7 +606,7 @@ Status ScalarColumnWriter::write_data() {
 
         PageFooterPB footer;
         footer.set_type(DICTIONARY_PAGE);
-        footer.set_uncompressed_size(dict_body.slice().get_size());
+        footer.set_uncompressed_size(cast_set<uint32_t>(dict_body.slice().get_size()));
         footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
 
         PagePointer dict_pp;
@@ -696,11 +697,11 @@ Status ScalarColumnWriter::finish_current_page() {
     // prepare data page footer
     std::unique_ptr<Page> page(new Page());
     page->footer.set_type(DATA_PAGE);
-    page->footer.set_uncompressed_size(Slice::compute_total_size(body));
+    page->footer.set_uncompressed_size(cast_set<uint32_t>(Slice::compute_total_size(body)));
     auto* data_page_footer = page->footer.mutable_data_page_footer();
     data_page_footer->set_first_ordinal(_first_rowid);
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
-    data_page_footer->set_nullmap_size(nullmap.slice().size);
+    data_page_footer->set_nullmap_size(cast_set<uint32_t>(nullmap.slice().size));
     if (_new_page_callback != nullptr) {
         _new_page_callback->put_extra_info_in_page(data_page_footer);
     }
@@ -1132,7 +1133,7 @@ Status MapColumnWriter::append_nulls(size_t num_rows) {
         RETURN_IF_ERROR(sub_writer->append_nulls(num_rows));
     }
     const ordinal_t offset = _kv_writers[0]->get_next_rowid();
-    std::vector<vectorized::UInt8> offsets_data(num_rows, offset);
+    std::vector<vectorized::UInt8> offsets_data(num_rows, cast_set<uint8_t>(offset));
     const uint8_t* offsets_ptr = offsets_data.data();
     RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
 
@@ -1154,5 +1155,6 @@ Status MapColumnWriter::write_inverted_index() {
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2
