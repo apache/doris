@@ -92,6 +92,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private LogicalPlan originLogicalQuery;
     private Optional<LogicalPlan> logicalQuery;
     private Optional<String> labelName;
+    private Optional<String> branchName;
     /**
      * When source it's from job scheduler,it will be set.
      */
@@ -102,7 +103,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
             Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
-        this(logicalQuery, labelName, insertCtx, cte, true);
+        this(logicalQuery, labelName, insertCtx, cte, true, Optional.empty());
     }
 
     /**
@@ -110,7 +111,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
                                   Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
-                                  boolean needNormalizePlan) {
+                                  boolean needNormalizePlan, Optional<String> branchName) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.originLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
@@ -118,6 +119,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.insertCtx = insertCtx;
         this.cte = cte;
         this.needNormalizePlan = needNormalizePlan;
+        this.branchName = branchName;
     }
 
     public LogicalPlan getLogicalQuery() {
@@ -284,6 +286,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             String label = this.labelName.orElse(
                     ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
+            // check branch
+            if (branchName.isPresent() && !(physicalSink instanceof PhysicalIcebergTableSink)) {
+                throw new AnalysisException("Only support insert data into iceberg table's branch");
+            }
+
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 OlapTable olapTable = (OlapTable) targetTableIf;
@@ -339,12 +346,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             } else if (physicalSink instanceof PhysicalIcebergTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
+                IcebergInsertCommandContext icebergInsertCtx = insertCtx
+                        .map(insertCommandContext -> (IcebergInsertCommandContext) insertCommandContext)
+                        .orElseGet(IcebergInsertCommandContext::new);
+                branchName.ifPresent(notUsed -> icebergInsertCtx.setBranchName(branchName));
                 return ExecutorFactory.from(
                         planner,
                         dataSink,
                         physicalSink,
                         () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))),
+                                Optional.of(icebergInsertCtx),
                                 emptyInsert
                         )
                 );
