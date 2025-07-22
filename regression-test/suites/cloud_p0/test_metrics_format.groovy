@@ -31,8 +31,7 @@ suite('test_metrics_format') {
         }
     }
 
-    def json
-    get_meta_service_metric.call(json) {
+    get_meta_service_metric.call {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
