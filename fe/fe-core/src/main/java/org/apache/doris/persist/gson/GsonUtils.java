@@ -190,7 +190,6 @@ import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
-import org.apache.doris.load.loadv2.MiniLoadJob;
 import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
 import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
@@ -592,7 +591,6 @@ public class GsonUtils {
                     .registerSubtype(CloudBrokerLoadJob.class, CloudBrokerLoadJob.class.getSimpleName())
                     .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
                     .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
-                    .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
                     .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName())
                     .registerSubtype(IngestionLoadJob.class, IngestionLoadJob.class.getSimpleName());
 

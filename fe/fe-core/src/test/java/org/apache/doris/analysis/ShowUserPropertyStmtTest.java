@@ -48,9 +48,9 @@ public class ShowUserPropertyStmtTest {
 
     @Test
     public void testNormal() throws UserException {
-        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt("testUser", "%load_cluster%", false);
+        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt("testUser", "%quota%", false);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW PROPERTY FOR 'testUser' LIKE '%load_cluster%'", stmt.toString());
+        Assert.assertEquals("SHOW PROPERTY FOR 'testUser' LIKE '%quota%'", stmt.toString());
         List<Column> columns = stmt.getMetaData().getColumns();
         for (int i = 0; i < columns.size(); i++) {
             Assert.assertEquals(columns.get(i).getName(), UserPropertyProcNode.TITLE_NAMES.get(i));
@@ -59,9 +59,9 @@ public class ShowUserPropertyStmtTest {
 
     @Test
     public void testAll() throws UserException {
-        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt(null, "%load_cluster%", true);
+        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt(null, "%quota%", true);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW ALL PROPERTIES LIKE '%load_cluster%'", stmt.toString());
+        Assert.assertEquals("SHOW ALL PROPERTIES LIKE '%quota%'", stmt.toString());
         List<Column> columns = stmt.getMetaData().getColumns();
         for (int i = 0; i < columns.size(); i++) {
             Assert.assertEquals(columns.get(i).getName(), UserPropertyProcNode.ALL_USER_TITLE_NAMES.get(i));
@@ -70,13 +70,12 @@ public class ShowUserPropertyStmtTest {
 
     @Test
     public void testError() {
-        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt("testUser", "%load_cluster%", true);
+        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt("testUser", "%quota%", true);
         try {
             stmt.analyze(analyzer);
             Assert.fail();
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("ALL"));
         }
-
     }
 }

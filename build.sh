@@ -48,15 +48,14 @@ usage() {
 Usage: $0 <options>
   Optional options:
      [no option]                build all components
-     --fe                       build Frontend and Spark DPP application. Default ON.
+     --fe                       build Frontend. Default ON.
      --be                       build Backend. Default ON.
      --meta-tool                build Backend meta tool. Default OFF.
      --file-cache-microbench    build Backend file cache microbench tool. Default OFF.
      --cloud                    build Cloud. Default OFF.
      --index-tool               build Backend inverted index tool. Default OFF.
      --broker                   build Broker. Default ON.
-     --spark-dpp                build Spark DPP application. Default ON.
-     --hive-udf                 build Hive UDF library for Spark Load. Default ON.
+     --hive-udf                 build Hive UDF library for Ingestion Load. Default ON.
      --be-java-extensions       build Backend java extensions. Default ON.
      --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
      --clean                    clean and build target
@@ -78,10 +77,10 @@ Usage: $0 <options>
     $0 --cloud                              build Cloud
     $0 --index-tool                         build Backend inverted index tool
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
-    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
+    $0 --fe --be --clean                    clean and build Frontend and Backend
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --broker                             build Broker
-    $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
+    $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
     $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hadoop-hudi-scanner
@@ -161,7 +160,6 @@ BUILD_BROKER=0
 BUILD_META_TOOL='OFF'
 BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
-BUILD_SPARK_DPP=0
 BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
 CLEAN=0
@@ -181,7 +179,6 @@ if [[ "$#" == 1 ]]; then
     BUILD_META_TOOL='OFF'
     BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
     BUILD_INDEX_TOOL='OFF'
-    BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
     BUILD_BE_JAVA_EXTENSIONS=1
     CLEAN=0
@@ -190,7 +187,6 @@ else
         case "$1" in
         --fe)
             BUILD_FE=1
-            BUILD_SPARK_DPP=1
             BUILD_HIVE_UDF=1
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
@@ -280,7 +276,6 @@ else
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
-        BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
         CLEAN=0
@@ -339,7 +334,7 @@ update_submodule() {
     fi
 }
 
-if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
     clean_gensrc
     clean_be
     clean_fe
@@ -437,12 +432,6 @@ if [[ -n "${DISABLE_BUILD_UI}" ]]; then
     fi
 fi
 
-if [[ -n "${DISABLE_BUILD_SPARK_DPP}" ]]; then
-    if [[ "${DISABLE_BUILD_SPARK_DPP}" == "ON" ]]; then
-        BUILD_SPARK_DPP=0
-    fi
-fi
-
 if [[ -n "${DISABLE_BUILD_HIVE_UDF}" ]]; then
     if [[ "${DISABLE_BUILD_HIVE_UDF}" == "ON" ]]; then
         BUILD_HIVE_UDF=0
@@ -496,7 +485,6 @@ echo "Get params:
     BUILD_META_TOOL                     -- ${BUILD_META_TOOL}
     BUILD_FILE_CACHE_MICROBENCH_TOOL    -- ${BUILD_FILE_CACHE_MICROBENCH_TOOL}
     BUILD_INDEX_TOOL                    -- ${BUILD_INDEX_TOOL}
-    BUILD_SPARK_DPP                     -- ${BUILD_SPARK_DPP}
     BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
     PARALLEL                            -- ${PARALLEL}
@@ -533,10 +521,6 @@ modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("fe-core")
-fi
-if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
-    modules+=("fe-common")
-    modules+=("spark-dpp")
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
@@ -790,12 +774,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
       rm "${DORIS_OUTPUT}/fe/arthas/math-game.jar"
       rm "${DORIS_OUTPUT}/fe/arthas/arthas-bin.zip"
     fi
-fi
-
-if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
-    install -d "${DORIS_OUTPUT}/fe/spark-dpp"
-    rm -rf "${DORIS_OUTPUT}/fe/spark-dpp"/*
-    cp -r -p "${DORIS_HOME}/fe/spark-dpp/target"/spark-dpp-*-jar-with-dependencies.jar "${DORIS_OUTPUT}/fe/spark-dpp"/
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then

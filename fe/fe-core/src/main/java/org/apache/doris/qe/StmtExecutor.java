@@ -3033,10 +3033,6 @@ public class StmtExecutor {
             if (jobType == EtlJobType.UNKNOWN) {
                 throw new DdlException("Unknown load job type");
             }
-            if (jobType == EtlJobType.HADOOP) {
-                throw new DdlException("Load job by hadoop cluster is disabled."
-                        + " Try using broker load. See 'help broker load;'");
-            }
             LoadManager loadManager = context.getEnv().getLoadManager();
             if (jobType == EtlJobType.LOCAL_FILE) {
                 if (!context.getCapability().supportClientLocalFile()) {

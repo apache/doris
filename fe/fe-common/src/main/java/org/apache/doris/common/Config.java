@@ -253,7 +253,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {
             "攒批写 EditLog。", "Batch EditLog writing"})
-    public static boolean enable_batch_editlog = false;
+    public static boolean enable_batch_editlog = true;
 
     @ConfField(description = {"元数据同步的容忍延迟时间，单位为秒。如果元数据的延迟超过这个值，非主 FE 会停止提供服务",
             "The toleration delay time of meta data synchronization, in seconds. "
@@ -550,7 +550,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"是否启用并行发布版本",
             "Whether to enable parallel publish version"})
-    public static boolean enable_parallel_publish_version = false;
+    public static boolean enable_parallel_publish_version = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
@@ -577,9 +577,9 @@ public class Config extends ConfigBase {
             "The interval of load job scheduler, in seconds."})
     public static int load_checker_interval_second = 5;
 
-    @ConfField(description = {"spark load job 调度器的执行间隔，单位是秒。",
-            "The interval of spark load job scheduler, in seconds."})
-    public static int spark_load_checker_interval_second = 60;
+    @ConfField(description = {"ingestion load job 调度器的执行间隔，单位是秒。",
+            "The interval of ingestion load job scheduler, in seconds."})
+    public static int ingestion_load_checker_interval_second = 60;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Broker load 的默认超时时间，单位是秒。",
             "Default timeout for broker load job, in seconds."})
@@ -640,33 +640,6 @@ public class Config extends ConfigBase {
             "Minimal timeout for load job, in seconds."})
     public static int min_load_timeout_second = 1; // 1s
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Hadoop load 的默认超时时间，单位是秒。",
-            "Default timeout for hadoop load job, in seconds."})
-    public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
-
-    @ConfField(description = {"Spark DPP 程序的版本", "Default spark dpp version"})
-    public static String spark_dpp_version = "1.2-SNAPSHOT";
-
-    @ConfField(mutable = true, masterOnly = true, description = {"Spark load 的默认超时时间，单位是秒。",
-            "Default timeout for spark load job, in seconds."})
-    public static int spark_load_default_timeout_second = 86400; // 1 day
-
-    @ConfField(mutable = true, masterOnly = true, description = {"Spark Load 所使用的 Spark 程序目录",
-            "Spark dir for Spark Load"})
-    public static String spark_home_default_dir =  EnvUtils.getDorisHome() + "/lib/spark2x";
-
-    @ConfField(description = {"Spark load 所使用的依赖项目录", "Spark dependencies dir for Spark Load"})
-    public static String spark_resource_path = "";
-
-    @ConfField(description = {"Spark launcher 日志路径", "Spark launcher log dir"})
-    public static String spark_launcher_log_dir = System.getenv("LOG_DIR") + "/spark_launcher_log";
-
-    @ConfField(description = {"Yarn client 的路径", "Yarn client path"})
-    public static String yarn_client_path =  EnvUtils.getDorisHome() + "/lib/yarn-client/hadoop/bin/yarn";
-
-    @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
-    public static String yarn_config_dir =  EnvUtils.getDorisHome() + "/lib/yarn-config";
-
     @ConfField(mutable = true, masterOnly = true, description = {"Ingestion load 的默认超时时间，单位是秒。",
             "Default timeout for ingestion load job, in seconds."})
     public static int ingestion_load_default_timeout_second = 86400; // 1 day
@@ -713,7 +686,7 @@ public class Config extends ConfigBase {
             + "并且应小于 `max_running_txn_num_per_db`。",
             "The pending load task executor pool size. "
                     + "This pool size limits the max running pending load tasks.",
-            "Currently, it only limits the pending load task of broker load and spark load.",
+            "Currently, it only limits the pending load task of broker load and ingestion load.",
             "It should be less than `max_running_txn_num_per_db`"})
     public static int async_pending_load_task_pool_size = 10;
 
@@ -860,35 +833,6 @@ public class Config extends ConfigBase {
     @Deprecated
     @ConfField public static String backup_plugin_path = "/tools/trans_file_tool/trans_files.sh";
 
-    // Configurations for hadoop dpp
-    /**
-     * The following configurations are not available.
-     */
-    @ConfField public static String dpp_hadoop_client_path = "/lib/hadoop-client/hadoop/bin/hadoop";
-    @ConfField public static long dpp_bytes_per_reduce = 100 * 1024 * 1024L; // 100M
-    @ConfField public static String dpp_default_cluster = "palo-dpp";
-    @ConfField public static String dpp_default_config_str = ""
-            + "{"
-            + "hadoop_configs : '"
-            + "mapred.job.priority=NORMAL;"
-            + "mapred.job.map.capacity=50;"
-            + "mapred.job.reduce.capacity=50;"
-            + "mapred.hce.replace.streaming=false;"
-            + "abaci.long.stored.job=true;"
-            + "dce.shuffle.enable=false;"
-            + "dfs.client.authserver.force_stop=true;"
-            + "dfs.client.auth.method=0"
-            + "'}";
-    @ConfField public static String dpp_config_str = ""
-            + "{palo-dpp : {"
-            + "hadoop_palo_path : '/dir',"
-            + "hadoop_configs : '"
-            + "fs.default.name=hdfs://host:port;"
-            + "mapred.job.tracker=host:port;"
-            + "hadoop.job.ugi=user,password"
-            + "'}"
-            + "}";
-
     // For forward compatibility, will be removed later.
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
@@ -1023,13 +967,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int db_used_data_quota_update_interval_secs = 300;
-
-    /**
-     * Load using hadoop cluster will be deprecated in future.
-     * Set to true to disable this kind of load.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean disable_hadoop_load = false;
 
     /**
      * fe will call es api to get es index shard info every es_state_sync_interval_secs
@@ -3386,6 +3323,18 @@ public class Config extends ConfigBase {
             + "For example: auto_start_ignore_db_names=__internal_schema, information_schema"
             })
     public static String[] auto_start_ignore_resume_db_names = {"__internal_schema", "information_schema"};
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_mow_load_force_take_ms_lock = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_load_force_take_ms_lock_threshold_ms = 500;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_base = 20;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
