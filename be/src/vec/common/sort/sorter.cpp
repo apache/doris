@@ -113,17 +113,6 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
         _offset -= step;
         current_rows -= step;
 
-        if (current->impl->is_last(current_rows + step) && current->impl->pos == 0 && step == 0) {
-            if (merged_rows != 0) {
-                // return directly for next time's read swap whole block
-                return Status::OK();
-            }
-            // swap and return block directly when we should get all data from cursor
-            block->swap(*current->impl->block);
-            _queue.remove_top();
-            return Status::OK();
-        }
-
         if (current_rows) {
             for (size_t i = 0; i < num_columns; ++i) {
                 merged_columns[i]->insert_range_from(*current->impl->columns[i],
