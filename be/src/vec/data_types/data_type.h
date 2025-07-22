@@ -98,29 +98,8 @@ public:
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 
-    virtual Status check_column(const IColumn& column) const = 0;
-
 protected:
     virtual String do_get_name() const;
-
-    template <typename Type>
-    Status check_column_non_nested_type(const IColumn& column) const {
-        if (const auto* col = check_and_get_column_with_const<Type>(column)) {
-            return Status::OK();
-        }
-        return Status::InternalError("Column type {} is not compatible with data type {}",
-                                     column.get_name(), get_name());
-    }
-
-    template <typename Type>
-    Result<const Type*> check_column_nested_type(const IColumn& column) const {
-        if (const auto* col = check_and_get_column_with_const<Type>(column)) {
-            return col;
-        }
-        return ResultError(
-                Status::InternalError("Column type {} is not compatible with data type {}",
-                                      column.get_name(), get_name()));
-    }
 
 public:
     /** Create empty column for corresponding type.

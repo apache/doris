@@ -218,7 +218,6 @@ public:
     }
 
     MutableColumnPtr create_column() const override;
-    Status check_column(const IColumn& column) const override;
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return false; }

@@ -175,10 +175,6 @@ MutableColumnPtr DataTypeHLL::create_column() const {
     return ColumnHLL::create();
 }
 
-Status DataTypeHLL::check_column(const IColumn& column) const {
-    return check_column_non_nested_type<ColumnHLL>(column);
-}
-
 void DataTypeHLL::serialize_as_stream(const HyperLogLog& cvalue, BufferWritable& buf) {
     auto& value = const_cast<HyperLogLog&>(cvalue);
     std::string memory_buffer(value.max_serialized_size(), '0');

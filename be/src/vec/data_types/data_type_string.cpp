@@ -76,10 +76,6 @@ MutableColumnPtr DataTypeString::create_column() const {
     return ColumnString::create();
 }
 
-Status DataTypeString::check_column(const IColumn& column) const {
-    return check_column_non_nested_type<ColumnString>(column);
-}
-
 bool DataTypeString::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }

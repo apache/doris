@@ -82,7 +82,6 @@ public:
     bool supports_sparse_serialization() const { return true; }
 
     MutableColumnPtr create_column() const override;
-    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 

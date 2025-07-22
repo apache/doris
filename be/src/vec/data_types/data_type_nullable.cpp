@@ -249,11 +249,6 @@ MutableColumnPtr DataTypeNullable::create_column() const {
     return ColumnNullable::create(nested_data_type->create_column(), ColumnUInt8::create());
 }
 
-Status DataTypeNullable::check_column(const IColumn& column) const {
-    const auto* column_nullable = DORIS_TRY(check_column_nested_type<ColumnNullable>(column));
-    return nested_data_type->check_column(column_nullable->get_nested_column());
-}
-
 Field DataTypeNullable::get_default() const {
     return Field();
 }

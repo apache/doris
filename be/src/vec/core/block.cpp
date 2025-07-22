@@ -374,31 +374,6 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
     }
 }
 
-Status Block::check_type_and_column() const {
-#ifndef NDEBUG
-    for (const auto& elem : data) {
-        if (!elem.column) {
-            continue;
-        }
-        if (!elem.type) {
-            continue;
-        }
-
-        const auto& type = elem.type;
-        const auto& column = elem.column;
-
-        auto st = type->check_column(*column);
-        if (!st.ok()) {
-            return Status::InternalError(
-                    "Column {} in block is not compatible with its column type :{}, data type :{}, "
-                    "error: {}",
-                    elem.name, column->get_name(), type->get_name(), st.msg());
-        }
-    }
-#endif
-    return Status::OK();
-}
-
 size_t Block::rows() const {
     for (const auto& elem : data) {
         if (elem.column) {
