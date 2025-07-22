@@ -102,7 +102,7 @@ RowsetBuilder::~RowsetBuilder() {
 }
 
 Tablet* RowsetBuilder::tablet() {
-    return cast_set<Tablet*>(_tablet.get());
+    return static_cast<Tablet*>(_tablet.get());
 }
 
 TabletSharedPtr RowsetBuilder::tablet_sptr() {
