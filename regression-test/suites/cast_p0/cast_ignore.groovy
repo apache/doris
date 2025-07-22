@@ -15,21 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
-
-import org.junit.Test;
-import org.junit.jupiter.api.Assertions;
-
-public class ConfigTest {
-    @Test
-    public void test() {
-        System.out.println(Config.max_be_exec_version);
-        System.out.println(Config.min_be_exec_version);
-        System.out.println(Config.be_exec_version);
-        // YOU MUST NOT CHANGE THIS TEST !
-        // if you want to change be_exec_version, you should know what you are doing
-        Assertions.assertEquals(7, Config.max_be_exec_version);
-        Assertions.assertEquals(0, Config.min_be_exec_version);
-        Assertions.assertEquals(7, Config.be_exec_version);
-    }
+suite("cast_ignore") {
+    sql "drop table if exists tdate"
+    sql """
+    create table tdate(
+        k1 int,
+        kdate date,
+        kdatetime datetime
+) distributed by hash (k1) buckets 1
+properties ("replication_num"="1");
+    """
+    sql """
+insert into tdate values(1,'2023-10-01','2023-10-01 01:00:00'),
+(2,'2023-10-02','2023-10-02 01:00:00'),
+(3,'2023-10-03','2023-10-03 01:00:00');
+"""
+    qt_test "select k1,kdate,kdatetime from tdate where cast(cast(kdatetime as date) as datetime)='2023-10-01';"
+    qt_test "select k1,kdate,kdatetime from tdate where kdatetime='2023-10-01';"
 }
