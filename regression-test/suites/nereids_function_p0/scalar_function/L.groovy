@@ -35,6 +35,8 @@ suite("nereids_scalar_fn_L") {
     qt_sql_lcm_Integer_Integer_notnull "select lcm(kint, kint) from fn_test_not_nullable order by kint, kint"
     qt_sql_lcm_BigInt_BigInt "select lcm(kbint, kbint) from fn_test order by kbint, kbint"
     qt_sql_lcm_BigInt_BigInt_notnull "select lcm(kbint, kbint) from fn_test_not_nullable order by kbint, kbint"
+	qt_sql_lcm_LargeInt_LargeInt "select lcm(klint, klint) from fn_test order by klint, klint"
+    qt_sql_lcm_LargeInt_LargeInt_notnull "select lcm(klint, klint) from fn_test_not_nullable order by klint, klint"
 	qt_sql_least_TinyInt "select least(ktint) from fn_test order by ktint"
 	qt_sql_least_TinyInt_notnull "select least(ktint) from fn_test_not_nullable order by ktint"
 	qt_sql_least_SmallInt "select least(ksint) from fn_test order by ksint"

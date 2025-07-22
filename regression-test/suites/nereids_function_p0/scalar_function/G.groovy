@@ -27,6 +27,8 @@ suite("nereids_scalar_fn_G") {
     qt_sql_gcd_Integer_Integer_notnull "select gcd(kint, kint) from fn_test_not_nullable order by kint, kint"
     qt_sql_gcd_BigInt_BigInt "select gcd(kbint, kbint) from fn_test order by kbint, kbint"
     qt_sql_gcd_BigInt_BigInt_notnull "select gcd(kbint, kbint) from fn_test_not_nullable order by kbint, kbint"  
+    qt_sql_gcd_LargeInt_LargeInt "select gcd(klint, klint) from fn_test order by klint, klint"
+    qt_sql_gcd_LargeInt_LargeInt_notnull "select gcd(klint, klint) from fn_test_not_nullable order by klint, klint"  
     qt_sql_get_json_bigint_Varchar_Varchar """SELECT get_json_bigint('{"k1":1678708107000, "k2":"2"}', "\$.k1")"""
     qt_sql_greatest_TinyInt "select greatest(ktint) from fn_test order by ktint"
     qt_sql_greatest_TinyInt_notnull "select greatest(ktint) from fn_test_not_nullable order by ktint"
