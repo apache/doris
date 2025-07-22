@@ -713,19 +713,14 @@ struct GcdImpl {
     }
 };
 
-template <typename A>
-struct ResultOfLcm {
-    static constexpr size_t size = std::min<size_t>(16, sizeof(A) * 2);
-    static constexpr PrimitiveType Type =
-            NumberTraits::Construct<std::is_signed_v<A>, false, size>::Type;
-};
-
 template <PrimitiveType A>
 struct LcmImpl {
     using return_cpp_type = typename PrimitiveTypeTraits<A>::CppType;
     using parameter_cpp_type = typename PrimitiveTypeTraits<A>::CppType;
 
-    static constexpr PrimitiveType return_type = ResultOfLcm<return_cpp_type>::Type;
+    static constexpr size_t size = std::min<size_t>(16, sizeof(return_cpp_type) * 2);
+    static constexpr PrimitiveType return_type =
+            NumberTraits::Construct<std::is_signed_v<return_cpp_type>, false, size>::Type;
     static constexpr PrimitiveType parameter_type = A;
 
     static constexpr auto name = "lcm";

@@ -743,6 +743,16 @@ public class NumericArithmetic {
     }
 
     /**
+     * gcd
+     */
+    @ExecFunction(name = "gcd")
+    public static Expression gcd(LargeIntLiteral first, LargeIntLiteral second) {
+        BigInteger a = first.getValue();
+        BigInteger b = second.getValue();
+        return new LargeIntLiteral(a.gcd(b));
+    }
+
+    /**
      * lcm
      */
     @ExecFunction(name = "lcm")
@@ -775,6 +785,17 @@ public class NumericArithmetic {
         BigInteger b = new BigInteger(second.getValue().toString());
         Long g = ArithmeticUtils.gcd(first.getValue(), second.getValue());
         return abs(new LargeIntLiteral(a.multiply(b).divide(new BigInteger(g.toString()))));
+    }
+
+    /**
+     * lcm
+     */
+    @ExecFunction(name = "lcm")
+    public static Expression lcm(LargeIntLiteral first, LargeIntLiteral second) {
+        BigInteger a = first.getValue();
+        BigInteger b = second.getValue();
+        BigInteger g = a.gcd(b);
+        return abs(new LargeIntLiteral(a.multiply(b).divide(g)));
     }
 
     /**
