@@ -103,7 +103,7 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     if (union.getConstantExprsList().isEmpty()) {
                         return new LogicalEmptyRelation(
                                 ConnectContext.get().getStatementContext().getNextRelationId(),
-                                union.getOutput());
+                                union.getOutput(), union.getHintContext());
                     } else if (union.getConstantExprsList().size() == 1) {
                         List<NamedExpression> constantExprs = union.getConstantExprsList().get(0);
                         ImmutableList.Builder<NamedExpression> newOneRowRelationOutput

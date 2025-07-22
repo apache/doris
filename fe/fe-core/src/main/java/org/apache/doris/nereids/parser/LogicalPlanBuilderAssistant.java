@@ -22,9 +22,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.Set;
-import java.math.BigInteger;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical plan builder assistant for buildIn dialect and other dialect.

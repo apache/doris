@@ -187,7 +187,8 @@ public class MultiJoin extends AbstractLogicalPlan implements BlockFuncDepsPropa
 
     @Override
     public MultiJoin withHintContext(Optional<HintContext> hintContext) {
-        return new MultiJoin(children, joinFilter, joinType, notInnerJoinConditions, hintContext);
+        return new MultiJoin(children, joinFilter, joinType, notInnerJoinHashConditions, notInnerJoinOtherConditions,
+                hintContext);
     }
 
     @Override

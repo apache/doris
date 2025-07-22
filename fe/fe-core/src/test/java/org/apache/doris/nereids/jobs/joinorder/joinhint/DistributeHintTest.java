@@ -93,7 +93,7 @@ public class DistributeHintTest extends TPCHTestBase {
         }
         Collections.shuffle(leadingParameters);
         System.out.println("LeadingHint: " + leadingParameters.toString());
-        hints.add(new SelectHintLeading("Leading", leadingParameters, ImmutableMap.of()));
+        hints.add(new SelectHintLeading("Leading", leadingParameters, ImmutableMap.of(), null, null));
         return new LogicalSelectHint<>(hints.build(), childPlan);
     }
 

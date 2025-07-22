@@ -3052,14 +3052,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = Lists.newArrayList();
-            params.addAll(visit(ctx.expression(), Expression.class));
+            params.addAll(visit(ctx.funcExpression(), Expression.class));
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
             boolean isSkew = ctx.identifier() != null && ctx.identifier().getText().equalsIgnoreCase("skew");
 
             List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
-            // boolean isSkew = hasSkewHint(ctx.LEFT_PAREN().getSymbol().getStopIndex(),
-            //         ctx.RIGHT_PAREN().getSymbol().getStartIndex());
             if (!unboundStars.isEmpty()) {
                 if (ctx.functionIdentifier().dbName == null && functionName.equalsIgnoreCase("count")) {
                     if (unboundStars.size() > 1) {
@@ -3430,6 +3428,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /* ********************************************************************************************
      * Table Identifier parsing
      * ******************************************************************************************** */
+
+    @Override
+    public List<String> visitMvIdentifier(DorisParser.MvIdentifierContext ctx) {
+        ImmutableList.Builder<String> result = ImmutableList.builder();
+        for (DorisParser.ErrorCapturingIdentifierContext idCtx : ctx.parts) {
+            result.add(idCtx.getText());
+        }
+        if (ctx.ASTERISK() != null) {
+            result.add(ctx.ASTERISK().toString());
+        }
+        return result.build();
+    }
 
     @Override
     public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
@@ -4011,7 +4021,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         Optional.empty());
             }
             if (!orderKeys.isEmpty()) {
-                selectPlan = new LogicalSort<>(orderKeys, selectPlan);
+                selectPlan = new LogicalSort<>(orderKeys, selectPlan, Optional.empty());
             }
             return selectPlan;
         });
@@ -4107,6 +4117,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return tableList;
     }
 
+    private List<List<String>> getMvList(List<DorisParser.MvIdentifierContext> ctx) {
+        List<List<String>> tableList = new ArrayList<>();
+        for (DorisParser.MvIdentifierContext mvCtx : ctx) {
+            tableList.add(visitMvIdentifier(mvCtx));
+        }
+        return tableList;
+    }
+
     private LogicalPlan withHints(LogicalPlan logicalPlan, List<ParserRuleContext> selectHintContexts,
             List<ParserRuleContext> preAggOnHintContexts) {
         LogicalPlan newPlan = logicalPlan;
@@ -4174,7 +4192,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private SelectHintUseMv createUseMvHint(DorisParser.MvHintContext mvHintContext, String err) {
         boolean useMv = mvHintContext.USE_MV() != null;
-        List<List<String>> tableList = getTableList(mvHintContext.tableList);
+        List<List<String>> tableList = getMvList(mvHintContext.tableList);
         if (useMv) {
             return new SelectHintUseMv("USE_MV", tableList, true, err);
         } else {
@@ -4275,20 +4293,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return hintContexts;
     }
 
-    private boolean hasSkewHint(int startIndex, int endIndex) {
-        if (selectHintMap != null) {
-            for (Map.Entry<Integer, ParserRuleContext> entry : selectHintMap.entrySet()) {
-                if (entry.getKey() > startIndex && entry.getKey() < endIndex) {
-                    SelectHintContext ctx = (SelectHintContext) entry.getValue();
-                    if (ctx.hintStatement instanceof DorisParser.SkewHintContext) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
     /**
      * visitTableSpecs
      */
@@ -4333,13 +4337,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String hint = ctx.identifier().getText();
             if (DistributeType.JoinDistributeType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
                 distributeType = DistributeType.SHUFFLE_RIGHT;
-                if (ctx.skewSpec() != null) {
-                    List<String> identifiers = ctx.skewSpec().qualifiedName().identifier()
+                if (ctx.skewHint() != null) {
+                    List<String> identifiers = ctx.skewHint().qualifiedName().identifier()
                             .stream().map(RuleContext::getText)
                             .collect(ImmutableList.toImmutableList());
                     Expression skewExpr = new UnboundSlot(identifiers);
                     List<Expression> skewValues = new ArrayList<>();
-                    for (ConstantContext constantContext : ctx.skewSpec().constantList().values) {
+                    for (ConstantContext constantContext : ctx.skewHint().constantList().values) {
                         skewValues.add(typedVisit(constantContext));
                     }
                     return new DistributeHint(distributeType, new JoinSkewInfo(skewExpr, skewValues, false));
@@ -4457,7 +4461,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 if (groupingElementContext.ROLLUP() != null) {
                     List<List<Expression>> groupingSets = ExpressionUtils.rollupToGroupingSets(groupByExpressions);
-                    return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+                    return new LogicalRepeat<>(groupingSets, namedExpressions, input, Optional.empty());
                 } else {
                     return new LogicalAggregate<>(groupByExpressions, namedExpressions, input, Optional.empty());
                 }
@@ -8422,7 +8426,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.warmUpItem() != null && !ctx.warmUpItem().isEmpty()) {
             for (DorisParser.WarmUpItemContext warmUpItemContext : ctx.warmUpItem()) {
                 TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(warmUpItemContext.tableName));
-                String partitionName = warmUpItemContext.partitionName.getText();
+                String partitionName = warmUpItemContext.partitionName != null
+                        ? warmUpItemContext.partitionName.getText()
+                        : "";
                 WarmUpItem warmUpItem = new WarmUpItem(tableNameInfo, partitionName);
                 warmUpItems.add(warmUpItem);
             }

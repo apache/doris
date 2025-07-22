@@ -463,7 +463,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 age, new Alias(new Count(true, true, id), "count_id"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                true, Optional.empty(), rStudent);
+                true, Optional.empty(), rStudent, Optional.empty());
 
         // select count(distinct id) group by age;
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
@@ -500,7 +500,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 age, new Alias(new Count(true, true, id), "count_id"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                true, Optional.empty(), rStudent);
+                true, Optional.empty(), rStudent, Optional.empty());
 
         // select count(distinct id) group by age;
         ConnectContext ctx = MemoTestUtils.createConnectContext();
@@ -522,7 +522,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 age, new Alias(new Count(true, true, id, gender), "count_id"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                true, Optional.empty(), rStudent);
+                true, Optional.empty(), rStudent, Optional.empty());
 
         // select count(distinct id) group by age;
         ConnectContext ctx = MemoTestUtils.createConnectContext();

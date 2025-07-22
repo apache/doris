@@ -148,7 +148,7 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
             }
         }
         Plan newChild = filterNotNullSlots.isEmpty() ? child : new LogicalFilter<>(predicatesBuilder.build(), child,
-                PlanUtils.getHintContext(child));
+                child.getHintContext());
         return Pair.of(newChild, filterNotNullSlots);
     }
 }

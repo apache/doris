@@ -2159,14 +2159,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         AggregateParam localParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, couldBanned);
         PhysicalHashAggregate<Plan> localAgg = new PhysicalHashAggregate<>(localAggGroupBy, localAggOutput,
                 Optional.empty(), localParam, maybeUsingStreamAgg, Optional.empty(), null,
-                requireAny, logicalAgg.child());
+                requireAny, logicalAgg.child(), logicalAgg.getHintContext());
         // add shuffle expr in project
         ImmutableList.Builder<NamedExpression> projections = ImmutableList.builderWithExpectedSize(
                 localAgg.getOutputs().size() + 1);
         projections.addAll(localAgg.getOutputs());
         Alias modAlias = getShuffleExpr(aggFunc, cascadesContext);
         projections.add(modAlias);
-        PhysicalProject<Plan> physicalProject = new PhysicalProject<>(projections.build(), null, localAgg);
+        PhysicalProject<Plan> physicalProject = new PhysicalProject<>(projections.build(), null, localAgg,
+                logicalAgg.getHintContext());
 
         // 2.second phase agg: multi_distinct_count(b) group by a,h
         ImmutableList.Builder<Expression> secondPhaseAggGroupByBuilder = ImmutableList.builderWithExpectedSize(
@@ -2200,7 +2201,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> secondPhaseAgg = new PhysicalHashAggregate<>(
                 secondPhaseAggGroupBy, secondPhaseAggOutput.build(),
                 Optional.empty(), secondParam, false, Optional.empty(), null,
-                secondRequireProperties, physicalProject);
+                secondRequireProperties, physicalProject, logicalAgg.getHintContext());
 
         // 3. third phase agg
         List<Expression> thirdPhaseAggGroupBy = Utils.fastToImmutableList(logicalAgg.getGroupByExpressions());
@@ -2216,7 +2217,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> thirdPhaseAgg = new PhysicalHashAggregate<>(
                 thirdPhaseAggGroupBy, thirdPhaseAggOutput.build(),
                 Optional.empty(), thirdParam, false, Optional.empty(), null,
-                secondRequireProperties, secondPhaseAgg);
+                secondRequireProperties, secondPhaseAgg, logicalAgg.getHintContext());
 
         // 4. fourth phase agg
         ImmutableList.Builder<NamedExpression> fourthPhaseAggOutput = ImmutableList.builderWithExpectedSize(
@@ -2239,7 +2240,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return new PhysicalHashAggregate<>(thirdPhaseAggGroupBy,
                 fourthPhaseAggOutput.build(), Optional.empty(), fourthParam,
                 false, Optional.empty(), logicalAgg.getLogicalProperties(),
-                fourthRequireProperties, thirdPhaseAgg);
+                fourthRequireProperties, thirdPhaseAgg, logicalAgg.getHintContext());
     }
 
     private AggregateFunction getAggregateFunction(AggregateFunction aggFunc) {

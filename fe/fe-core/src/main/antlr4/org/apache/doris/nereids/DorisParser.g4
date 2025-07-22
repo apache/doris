@@ -1284,11 +1284,10 @@ selectHint: hintStatements+=hintStatement (COMMA hintStatements+=hintStatement)*
 hintStatement
     : (LEADING | JOIN_ORDER) LEFT_PAREN tableSpecs RIGHT_PAREN                                                              #leadingHint
     | (ORDERED | JOIN_FIXED_ORDER)                                                                                          #orderedHint
-    | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=multipartIdentifier (COMMA tableList+=multipartIdentifier)* RIGHT_PAREN)? #mvHint
+    | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=mvIdentifier (COMMA tableList+=mvIdentifier)* RIGHT_PAREN)?               #mvHint
     | (USE_CBO_RULE | NO_USE_CBO_RULE) (identifierList)?                                                                    #cboRuleHint
     | SET_VAR (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?                     #setVarHint
     | QB_NAME LEFT_PAREN identifier? RIGHT_PAREN                                                                            #qbNameHint
-    | SKEW                                                                                                                  #skewHint
     | (PREAGG_ON | PREAGG_OFF | PREAGGOPEN)                                                                                 #preAggHint
     ;
 
@@ -1308,13 +1307,6 @@ tableSpecPrimary
 hintAssignment
     : key=identifierOrText skew=skewHint? (EQ (constantValue=constant | identifierValue=identifier))?
     | constant
-    ;
-
-skewSpec
-    : LEFT_PAREN SKEW (LEFT_PAREN qualifiedName constantList RIGHT_PAREN)? RIGHT_PAREN;
-
-constantList
-    : LEFT_PAREN values+=constant (COMMA values+=constant)* RIGHT_PAREN
     ;
 
 updateAssignment
@@ -1419,6 +1411,10 @@ multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
     ;
 
+mvIdentifier
+    : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)* (DOT ASTERISK)?
+    ;
+
 // ----------------Create Table Fields----------
 simpleColumnDefs
     : cols+=simpleColumnDef (COMMA cols+=simpleColumnDef)*
@@ -1517,6 +1513,10 @@ namedExpressionSeq
     ;
 
 expression
+    : booleanExpression
+    ;
+
+funcExpression
     : booleanExpression
     | lambdaExpression
     ;
@@ -1627,7 +1627,7 @@ functionCallExpression
               LEFT_PAREN (
                   (DISTINCT|ALL)?
                   (LEFT_BRACKET identifier RIGHT_BRACKET)?
-                  arguments+=expression (COMMA arguments+=expression)*
+                  arguments+=funcExpression (COMMA arguments+=funcExpression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
             (OVER windowSpec)?

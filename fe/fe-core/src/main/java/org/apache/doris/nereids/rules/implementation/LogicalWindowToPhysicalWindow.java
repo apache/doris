@@ -106,7 +106,8 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                 // 0 == i && isSkew is because within a partitionKeyGroup, only the bottom-level PhysicalWindow(i=0)
                 // can use the window skew optimization (local sort + shuffle + merge sort). Others cannot because
                 // within the partitionKeyGroup, shuffle isn't needed as the group by keys are identical.
-                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, 0 == i && isSkew);
+                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, 0 == i && isSkew,
+                        hintContext);
             }
         }
         return (PhysicalWindow) newRoot;

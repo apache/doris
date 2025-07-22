@@ -70,7 +70,7 @@ public class UnCorrelatedApplyFilter extends OneRewriteRuleFactory {
                     apply.getCompareExpr(), apply.getTypeCoercionExpr(),
                     ExpressionUtils.optionalAnd(correlatedPredicate), apply.getMarkJoinSlotReference(),
                     apply.isNeedAddSubOutputToProjects(),
-                    apply.isMarkJoinSlotNotNull(), apply.left(), child), apply.getHintContext();
+                    apply.isMarkJoinSlotNotNull(), apply.left(), child, apply.getHintContext());
         }).toRule(RuleType.UN_CORRELATED_APPLY_FILTER);
     }
 }

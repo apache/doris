@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -60,6 +61,8 @@ public class LeadingHint extends Hint {
     private List<String> addJoinParameters;
     private List<String> normalizedParameters;
     private final List<String> tablelist = new ArrayList<>();
+
+    private final Map<Integer, DistributeHint> distributeHints = new HashMap<>();
 
     private final Map<RelationId, LogicalPlan> relationIdToScanMap = Maps.newLinkedHashMap();
 
@@ -89,13 +92,12 @@ public class LeadingHint extends Hint {
      * @param parameters table name mixed with left and right brace
      */
     public LeadingHint(String hintName, List<String> parameters, Map<String, DistributeHint> strToHint,
-            String originalString) {
+                       String originalString) {
         super(hintName);
         this.originalString = originalString;
         this.strToHint.putAll(strToHint);
         addJoinParameters = insertJoinIntoParameters(parameters);
         normalizedParameters = parseIntoReversePolishNotation(addJoinParameters);
-        this.strToHint.putAll(strToHint);
     }
 
     public LeadingHint(String hintName, String originalString) {
@@ -182,36 +184,7 @@ public class LeadingHint extends Hint {
 
     @Override
     public String getExplainString() {
-        if (!this.isSuccess()) {
-            return originalString;
-        }
-        StringBuilder out = new StringBuilder();
-        for (String parameter : addJoinParameters) {
-            if (parameter.equals("{") || parameter.equals("}") || parameter.equals("[") || parameter.equals("]")) {
-                out.append(parameter + " ");
-            } else if (parameter.startsWith("shuffle") || parameter.startsWith("broadcast")) {
-                DistributeHint distributeHint = strToHint.get(parameter);
-                if (!distributeHint.isSuccess()) {
-                    continue;
-                }
-                if (distributeHint.distributeType.equals(DistributeType.SHUFFLE_RIGHT)) {
-                    out.append("shuffle");
-                    if (distributeHint.getSkewInfo() != null && distributeHint.isSuccessInSkewRewrite()) {
-                        out.append("_skew ");
-                    } else {
-                        out.append(" ");
-                    }
-                } else {
-                    out.append("broadcast ");
-                }
-            } else if (parameter.equals("join")) {
-                continue;
-            } else {
-                out.append(parameter + " ");
-            }
-        }
-        return "leading(" + out.toString() + ")";
-        // return originalString;
+        return originalString;
     }
 
     /**
@@ -617,6 +590,14 @@ public class LeadingHint extends Hint {
         return finalJoin;
     }
 
+    private DistributeHint getJoinHint(Integer index) {
+        if (distributeHints.get(index) == null) {
+            return new DistributeHint(DistributeType.NONE);
+        }
+        distributeHints.get(index).setSuccessInLeading(true);
+        return distributeHints.get(index);
+    }
+
     private List<Expression> getJoinConditions(List<Pair<Long, Expression>> filters,
                                                LogicalPlan left, LogicalPlan right) {
         List<Expression> joinConditions = new ArrayList<>();
@@ -628,6 +609,16 @@ public class LeadingHint extends Hint {
                 joinConditions.add(filterPair.second);
                 filters.remove(i);
             }
+        }
+        return joinConditions;
+    }
+
+    private List<Expression> getLastConditions(List<Pair<Long, Expression>> filters) {
+        List<Expression> joinConditions = new ArrayList<>();
+        for (int i = filters.size() - 1; i >= 0; i--) {
+            Pair<Long, Expression> filterPair = filters.get(i);
+            joinConditions.add(filterPair.second);
+            filters.remove(i);
         }
         return joinConditions;
     }
