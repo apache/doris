@@ -312,4 +312,11 @@ TEST_F(ColumnIPTest, HashTest) {
     assert_update_crc_hashes_callback(ip_cols, serde, pts);
 };
 
+TEST_F(ColumnIPTest, IPv6ValueFromStringTest) {
+    std::string ipv6_str = "1111:2222:3333:4444:5555:6666:123.123.123.123";
+    IPv6 ipv6_val = 0;
+    ASSERT_EQ(IPv6Value::from_string(ipv6_val, ipv6_str.data(), ipv6_str.size()), true);
+    ASSERT_EQ("1111:2222:3333:4444:5555:6666:7b7b:7b7b", IPv6Value(ipv6_val).to_string());
+};
+
 } // namespace doris::vectorized
