@@ -161,7 +161,7 @@ public class IndexDef {
             sb.append(")");
         }
         if (comment != null) {
-            sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
+            sb.append(" COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
         }
         return sb.toString();
     }
