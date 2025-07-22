@@ -2261,7 +2261,7 @@ public class Config extends ConfigBase {
                     + "This config is recommended to be used only in the test environment"})
     public static int force_olap_table_replication_num = 0;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
+    @ConfField(mutable = true, description = {
             "用于强制设定内表的副本分布，如果该参数不为空，则用户在建表或者创建分区时指定的副本数及副本标签将被忽略，而使用本参数设置的值。"
                     + "该参数影响包括创建分区、修改表属性、动态分区等操作。该参数建议仅用于测试环境",
             "Used to force set the replica allocation of the internal table. If the config is not empty, "
