@@ -132,7 +132,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                     break;
                 }
 
-                size_t i = _finished_migration_tasks.size() - 1;
+                int i = cast_set<int>(_finished_migration_tasks.size()) - 1;
                 for (; i >= 0; i--) {
                     MigrationTask finished_task = _finished_migration_tasks[i].first;
                     if (finished_task._tablet_id == tablet_id &&
