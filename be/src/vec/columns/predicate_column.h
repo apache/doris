@@ -106,6 +106,8 @@ public:
 
     size_t size() const override { return data.size(); }
 
+    PrimitiveType get_primitive_type() const override { return INVALID_TYPE; }
+
     StringRef get_data_at(size_t n) const override {
         if constexpr (std::is_same_v<T, StringRef>) {
             auto res = reinterpret_cast<const StringRef&>(data[n]);
