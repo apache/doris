@@ -618,10 +618,8 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    : {!isNoBackslashEscapes}? '\'' ('\\'. | '\'\'' | ~('\'' | '\\'))* '\''
-    | {isNoBackslashEscapes}? '\'' ('\'\'' | ~('\''))* '\''
-    | {!isNoBackslashEscapes}?'"' ( '\\'. | '""' | ~('"'| '\\'))* '"'
-    | {isNoBackslashEscapes}?'"' ('""' | ~('"'))* '"'
+    :  '\'' ( {!isNoBackslashEscapes}? '\\'. | '\'\'' | {!isNoBackslashEscapes}? ~('\'' | '\\') | {isNoBackslashEscapes}? ~('\''))* '\''
+    | '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
     ;
 
 LEADING_STRING
