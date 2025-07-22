@@ -19,6 +19,7 @@
 
 #include <fmt/core.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <vec/common/schema_util.h>
 
 #include <functional>
 #include <memory>
@@ -86,7 +87,8 @@ Status process_dictionary(SchemaCloudDictionary& dict,
                           const google::protobuf::RepeatedPtrField<ItemPB>& items,
                           const std::function<bool(const ItemPB&)>& filter,
                           const std::function<void(int32_t)>& add_dict_key_fn,
-                          RowsetMetaCloudPB* rowset_meta) {
+                          RowsetMetaCloudPB* rowset_meta,
+                          bool enable_variant_flatten_nested = false) {
     if (items.empty()) {
         return Status::OK();
     }
@@ -129,6 +131,33 @@ Status process_dictionary(SchemaCloudDictionary& dict,
     if (result != nullptr) {
         result->Swap(&none_ext_items);
     }
+
+    if constexpr (std::is_same_v<ItemPB, ColumnPB>) {
+        // if enable_variant_flatten_nested is true, we need to check if the paths in data are ambiguous
+        // which defined in `schema_util::check_variant_has_no_ambiguous_paths` which will throw exception: DataQualityError
+        // if there exists a prefix with matched names, but not matched structure (is Nested, number of dimensions).
+        // for example, if there are two columns with path "a.b" and "a.b.c", and the column "a.b.c" is not nested,
+        // then the paths are ambiguous.
+        std::vector<vectorized::PathInData> all_paths;
+        // print debug for enable_variant_flatten_nested and none_ext_items
+        VLOG_DEBUG << "enable_variant_flatten_nested: " << enable_variant_flatten_nested;
+        VLOG_DEBUG << "none_ext_items size: " << none_ext_items.size();
+        if (enable_variant_flatten_nested && !none_ext_items.empty()) {
+            for (const auto& item : none_ext_items) {
+                vectorized::PathInData path_in_data;
+                path_in_data.from_protobuf(item.column_path_info());
+                all_paths.emplace_back(path_in_data);
+                VLOG_DEBUG << "path_in_data in none_ext_items: " << path_in_data.to_jsonpath();
+            }
+            for (const auto& [key, val] : dict.column_dict()) {
+                vectorized::PathInData path_in_data;
+                path_in_data.from_protobuf(val.column_path_info());
+                all_paths.emplace_back(path_in_data);
+            }
+            RETURN_IF_ERROR(
+                    vectorized::schema_util::check_variant_has_no_ambiguous_paths(all_paths));
+        }
+    }
     return Status::OK();
 }
 
@@ -148,7 +177,8 @@ Status SchemaCloudDictionaryCache::replace_schema_to_dict_keys(int64_t index_id,
     auto column_dict_adder = [&](int32_t key) { dict_list->add_column_dict_key_list(key); };
     RETURN_IF_ERROR(process_dictionary<ColumnPB>(
             *dict, dict->column_dict(), rowset_meta->mutable_tablet_schema()->mutable_column(),
-            rowset_meta->tablet_schema().column(), column_filter, column_dict_adder, rowset_meta));
+            rowset_meta->tablet_schema().column(), column_filter, column_dict_adder, rowset_meta,
+            rowset_meta->tablet_schema().enable_variant_flatten_nested()));
 
     // Process index dictionary: add keys for indexes with an empty index_suffix_name.
     auto index_filter = [&](const doris::TabletIndexPB& index_pb) -> bool {

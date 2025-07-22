@@ -194,7 +194,6 @@ Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_
     CHECK(_max_version_schema->schema_version() >= update_schema->schema_version());
     TabletSchemaSPtr final_schema;
     bool check_column_size = true;
-    // print _max_version_schema and update_schema for variant
     VLOG_DEBUG << "dump _max_version_schema: " << _max_version_schema->dump_full_schema();
     VLOG_DEBUG << "dump update_schema: " << update_schema->dump_full_schema();
     RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
