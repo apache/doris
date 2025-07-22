@@ -405,7 +405,7 @@ public class HudiUtils {
         return tschema;
     }
 
-    public static Map<String, String> getHudiPartitionInfoMap(HMSExternalTable table, HivePartition partition) {
+    public static Map<String, String> getPartitionInfoMap(HMSExternalTable table, HivePartition partition) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<Column> partitionColumns = table.getPartitionColumns();
         for (int i = 0; i < partitionColumns.size(); i++) {

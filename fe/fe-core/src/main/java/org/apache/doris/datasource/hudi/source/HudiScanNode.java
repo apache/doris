@@ -363,7 +363,6 @@ public class HudiScanNode extends HiveScanNode {
                 incrementalRelation.getEndTs())).collect(Collectors.toList());
     }
 
-
     private void getPartitionSplits(HivePartition partition, List<Split> splits) throws IOException {
 
         String partitionName;
@@ -373,7 +372,6 @@ public class HudiScanNode extends HiveScanNode {
             partitionName = FSUtils.getRelativePartitionPath(hudiClient.getBasePath(),
                     new StoragePath(partition.getPath()));
         }
-
 
         if (canUseNativeReader()) {
             fsView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
@@ -387,7 +385,7 @@ public class HudiScanNode extends HiveScanNode {
                         new String[0], partition.getPartitionValues());
                 hudiSplit.setTableFormatType(TableFormatType.HUDI);
                 if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                    hudiSplit.setHudiPartitionValues(HudiUtils.getHudiPartitionInfoMap(hmsTable, partition));
+                    hudiSplit.setHudiPartitionValues(HudiUtils.getPartitionInfoMap(hmsTable, partition));
                 }
                 splits.add(hudiSplit);
             });
