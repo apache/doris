@@ -90,9 +90,7 @@ void versioned_put(Transaction* txn, std::string_view key, std::string_view valu
     std::string key_with_versionstamp(key);
     uint32_t offset = encode_versionstamp(Versionstamp::min(), &key_with_versionstamp);
     encode_versionstamp_end(&key_with_versionstamp);
-    bool ok = txn->atomic_set_ver_key(key_with_versionstamp, offset, value);
-    DCHECK(ok) << "Atomic set versioned key failed, key: " << hex(key)
-               << ", value size: " << value.size();
+    txn->atomic_set_ver_key(key_with_versionstamp, offset, value);
 }
 
 void versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value) {
@@ -178,10 +176,12 @@ std::unique_ptr<VersionedRangeGetIterator> versioned_get_range(
 }
 
 void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v) {
-    std::string key_with_versionstamp(key);
-    encode_versionstamp(v, &key_with_versionstamp);
-    encode_versionstamp_end(&key_with_versionstamp);
-    txn->remove(key_with_versionstamp);
+    txn->remove(encode_versioned_key(key, v));
+}
+
+void versioned_remove_all(Transaction* txn, std::string_view key) {
+    txn->remove(encode_versioned_key(key, Versionstamp::min()),
+                encode_versioned_key(key, Versionstamp::max()));
 }
 
 std::string encode_versioned_key(std::string_view key, Versionstamp v) {

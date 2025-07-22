@@ -206,6 +206,7 @@ import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
+import org.apache.doris.nereids.DorisParser.ExpressionWithEofContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithOrderContext;
 import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
@@ -1057,6 +1058,7 @@ import java.util.stream.Collectors;
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private static String JOB_NAME = "jobName";
     private static String TASK_ID = "taskId";
+
     // Sort the parameters with token position to keep the order with original placeholders
     // in prepared statement.Otherwise, the order maybe broken
     private final Map<Token, Placeholder> tokenPosToParameters = Maps.newTreeMap((pos1, pos2) -> {
@@ -1095,6 +1097,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitSingleStatement(SingleStatementContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(ctx.statement()));
+    }
+
+    @Override
+    public Expression visitExpressionWithEof(ExpressionWithEofContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> typedVisit(ctx.expression()));
     }
 
     @Override
@@ -1266,6 +1273,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("tableName and tableId cannot both be null");
         }
         Optional<String> labelName = (ctx.labelName == null) ? Optional.empty() : Optional.of(ctx.labelName.getText());
+        Optional<String> branchName = Optional.empty();
+        if (ctx.optSpecBranch() != null) {
+            branchName = Optional.of(ctx.optSpecBranch().name.getText());
+        }
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         // TODO visit partitionSpecCtx
         LogicalPlan plan = visitQuery(ctx.query());
@@ -1294,7 +1305,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         LogicalPlan command;
         if (isOverwrite) {
-            command = new InsertOverwriteTableCommand(sink, labelName, cte);
+            command = new InsertOverwriteTableCommand(sink, labelName, cte, branchName);
         } else {
             if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()
                     && sink.child() instanceof InlineTable
@@ -1304,7 +1315,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 //  Now handle it as `insert into select`(a separate load job), should fix it as the legacy.
                 command = new BatchInsertIntoTableCommand(sink);
             } else {
-                command = new InsertIntoTableCommand(sink, labelName, Optional.empty(), cte);
+                command = new InsertIntoTableCommand(sink, labelName, Optional.empty(), cte, true, branchName);
             }
         }
         return withExplain(command, ctx.explain());
@@ -2586,14 +2597,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ctx.identifierOrText() == null) {
                 if (expression instanceof NamedExpression) {
                     return (NamedExpression) expression;
-                } else if (expression instanceof Literal) {
-                    return new Alias(expression);
                 } else {
                     int start = ctx.expression().start.getStartIndex();
                     int stop = ctx.expression().stop.getStopIndex();
                     String alias = ctx.start.getInputStream()
                             .getText(new org.antlr.v4.runtime.misc.Interval(start, stop));
                     if (expression instanceof Literal) {
+                        if (expression instanceof StringLikeLiteral) {
+                            alias = LogicalPlanBuilderAssistant.getStringLiteralAlias((
+                                    (StringLikeLiteral) expression).getStringValue());
+                        }
                         return new Alias(expression, alias, true);
                     } else {
                         return new UnboundAlias(expression, alias, true);
@@ -3295,7 +3308,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         DataType dataType = array.expectedInputTypes().get(0);
         return items.stream()
-                .map(item -> item.checkedCastTo(dataType))
+                .map(item -> {
+                    try {
+                        return item.checkedCastTo(dataType);
+                    } catch (Exception ignored) {
+                        return item.deprecatingCheckedCastTo(dataType);
+                    }
+                })
                 .map(Literal.class::cast)
                 .collect(ImmutableList.toImmutableList());
     }

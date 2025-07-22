@@ -57,6 +57,37 @@ public abstract class DataType {
 
     protected static final NereidsParser PARSER = new NereidsParser();
 
+    private static class TypeMapLoader {
+        static final Map<org.apache.doris.catalog.PrimitiveType, DataType> LEGACY_MAP = initMap();
+
+        private static Map<org.apache.doris.catalog.PrimitiveType, DataType> initMap() {
+            return ImmutableMap.<org.apache.doris.catalog.PrimitiveType, DataType>builder()
+                    .put(Type.BOOLEAN.getPrimitiveType(), BooleanType.INSTANCE)
+                    .put(Type.TINYINT.getPrimitiveType(), TinyIntType.INSTANCE)
+                    .put(Type.SMALLINT.getPrimitiveType(), SmallIntType.INSTANCE)
+                    .put(Type.INT.getPrimitiveType(), IntegerType.INSTANCE)
+                    .put(Type.BIGINT.getPrimitiveType(), BigIntType.INSTANCE)
+                    .put(Type.LARGEINT.getPrimitiveType(), LargeIntType.INSTANCE)
+                    .put(Type.FLOAT.getPrimitiveType(), FloatType.INSTANCE)
+                    .put(Type.DOUBLE.getPrimitiveType(), DoubleType.INSTANCE)
+                    .put(Type.CHAR.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.VARCHAR.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.STRING.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.DATE.getPrimitiveType(), DateType.INSTANCE)
+                    .put(Type.DATEV2.getPrimitiveType(), DateType.INSTANCE)
+                    .put(Type.DATETIME.getPrimitiveType(), DateTimeType.INSTANCE)
+                    .put(Type.DATETIMEV2.getPrimitiveType(), DateTimeV2Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMALV2.getPrimitiveType(), DecimalV2Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL32.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL64.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL128.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
+                    .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .build();
+        }
+    }
+
     // use class and supplier here to avoid class load deadlock.
     private static final Map<Class<? extends PrimitiveType>, Supplier<DataType>> PROMOTION_MAP
             = ImmutableMap.<Class<? extends PrimitiveType>, Supplier<DataType>>builder()
@@ -87,6 +118,10 @@ public abstract class DataType {
             .add(DateV2Type.class, () -> ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
             .add(TimeV2Type.class, () -> ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE))
             .build();
+
+    public static Map<org.apache.doris.catalog.PrimitiveType, DataType> legacyTypeToNereidsType() {
+        return TypeMapLoader.LEGACY_MAP;
+    }
 
     /**
      * create a specific Literal for a given dataType
@@ -635,8 +670,8 @@ public abstract class DataType {
         return isObjectType() || isComplexType() || isJsonType() || isVariantType();
     }
 
-    public boolean isArrayTypeNestedBaseType() {
-        return isArrayType() && !((ArrayType) this).getItemType().isOnlyMetricType();
+    public boolean isObjectOrVariantType() {
+        return isObjectType() || isVariantType();
     }
 
     public boolean isObjectType() {

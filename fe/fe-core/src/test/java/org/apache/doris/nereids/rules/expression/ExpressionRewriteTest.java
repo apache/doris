@@ -363,11 +363,11 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("TA >= 8 and TB >= 1 and TA < 8 and TB <= 10",
                 "TA >= 8 and TB >= 1 and TA < 8 and TB <= 10");
         assertRewriteAfterTypeCoercion("(CA >= date '2024-01-01' and CA <= date '2024-01-03') or (CA > date '2024-01-05' and CA < date '2024-01-07')",
-                "(CA <= date '2024-01-03' or CA > date '2024-01-05') and CA >= date '2024-01-01' and CA < date '2024-01-07')");
+                "(CA <= date '2024-01-03' or CA > date '2024-01-05') and CA >= date '2024-01-01' and CA < date '2024-01-07'");
         assertRewriteAfterTypeCoercion("CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01'",
                 "(CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01') AND CA <= date '2024-01-03'");
         assertRewriteAfterTypeCoercion("(AA >= timestamp '2024-01-01 00:00:00' and AA <= timestamp '2024-01-03 00:00:00') or (AA > timestamp '2024-01-05 00:00:00' and AA < timestamp '2024-01-07 00:00:00')",
-                "(AA <= timestamp '2024-01-03 00:00:00' or AA > timestamp '2024-01-05 00:00:00') and AA >= timestamp '2024-01-01 00:00:00' and AA < timestamp '2024-01-07 00:00:00')");
+                "(AA <= timestamp '2024-01-03 00:00:00' or AA > timestamp '2024-01-05 00:00:00') and AA >= timestamp '2024-01-01 00:00:00' and AA < timestamp '2024-01-07 00:00:00'");
         assertRewriteAfterTypeCoercion("AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00'",
                 "(AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00' ) and AA <= timestamp '2024-01-03 02:00:00'");
 

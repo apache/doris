@@ -190,6 +190,7 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(18, 10)) from test_arithmetic_expre
     qt_decimal128_multiply_0 "select k1 * k2 a from test_arithmetic_expressions_128_1 order by 1;"
     qt_decimal128_arith_union "select * from (select k1 * k2 from test_arithmetic_expressions_128_1 union all select k3 from test_arithmetic_expressions_128_1) a order by 1"
 
+    sql "set enable_strict_cast = true;"
     test {
         sql """
             select k1 * k2 * k3 a from test_arithmetic_expressions_128_1 order by 1;

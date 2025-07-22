@@ -54,6 +54,11 @@ MutableColumnPtr DataTypeArray::create_column() const {
     return ColumnArray::create(nested->create_column(), ColumnArray::ColumnOffsets::create());
 }
 
+Status DataTypeArray::check_column(const IColumn& column) const {
+    const auto* column_array = DORIS_TRY(check_column_nested_type<ColumnArray>(column));
+    return nested->check_column(column_array->get_data());
+}
+
 Field DataTypeArray::get_default() const {
     Array a;
     a.push_back(nested->get_default());
