@@ -156,7 +156,7 @@ void test_sort(SortType sort_type, int64_t rows, int64_t limit, int64_t offset) 
     SortTestParam param(sort_type, limit, offset);
     auto [unsort_column, sorted_column] = get_unsort_and_sorted_column(rows, limit, offset);
     param.append_block(unsort_column);
-    param.prepare_for_read(false);
+    param.prepare_for_read();
     param.check_sort_column(sorted_column->clone());
 }
 
