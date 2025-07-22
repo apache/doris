@@ -1189,6 +1189,10 @@ public class Column implements GsonPostProcessable {
         }
     }
 
+    public boolean isMaterializedViewColumn() {
+        return defineExpr != null;
+    }
+
     public GeneratedColumnInfo getGeneratedColumnInfo() {
         return generatedColumnInfo;
     }

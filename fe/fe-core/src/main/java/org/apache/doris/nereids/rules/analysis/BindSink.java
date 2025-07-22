@@ -346,9 +346,12 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> materializedViewColumn = Lists.newArrayList();
         List<Column> shadowColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
-        for (Column column : boundSink.getTargetTable().getBaseSchema(true)) {
+        for (Column column : boundSink.getTargetTable().getFullSchema()) {
             if (column.getGeneratedColumnInfo() != null) {
                 generatedColumns.add(column);
+                continue;
+            } else if (column.isMaterializedViewColumn()) {
+                materializedViewColumn.add(column);
                 continue;
             } else if (Column.isShadowColumn(column.getName())) {
                 shadowColumns.add(column);
@@ -456,19 +459,6 @@ public class BindSink implements AnalysisRuleFactory {
                 }
             }
         }
-
-        if (boundSink.getTargetTable() instanceof OlapTable) {
-            OlapTable olapTable = (OlapTable) boundSink.getTargetTable();
-            for (long indexId : olapTable.getIndexIdList()) {
-                if (indexId == olapTable.getBaseIndexId()) {
-                    continue;
-                }
-                for (Column column : olapTable.getSchemaByIndexId(indexId, true)) {
-                    materializedViewColumn.add(column);
-                }
-            }
-        }
-
         // the generated columns can use all ordinary columns,
         // if processed in upper for loop, will lead to not found slot error
         // It's the same reason for moving the processing of materialized columns down.
@@ -487,25 +477,27 @@ public class BindSink implements AnalysisRuleFactory {
             replaceMap.put(output.toSlot(), output.child());
         }
         for (Column column : materializedViewColumn) {
-            List<SlotRef> refs = column.getRefColumns();
-            // now we have to replace the column to slots.
-            Preconditions.checkArgument(refs != null,
-                    "mv column %s 's ref column cannot be null", column);
-            Expression parsedExpression = expressionParser.parseExpression(
-                    column.getDefineExpr().toSqlWithoutTbl());
-            // the boundSlotExpression is an expression whose slots are bound but function
-            // may not be bound, we have to bind it again.
-            // for example: to_bitmap.
-            Expression boundExpression = new CustomExpressionAnalyzer(
-                    boundSink, ctx.cascadesContext, columnToReplaced).analyze(parsedExpression);
-            if (boundExpression instanceof Alias) {
-                boundExpression = ((Alias) boundExpression).child();
+            if (column.isMaterializedViewColumn()) {
+                List<SlotRef> refs = column.getRefColumns();
+                // now we have to replace the column to slots.
+                Preconditions.checkArgument(refs != null,
+                        "mv column %s 's ref column cannot be null", column);
+                Expression parsedExpression = expressionParser.parseExpression(
+                        column.getDefineExpr().toSqlWithoutTbl());
+                // the boundSlotExpression is an expression whose slots are bound but function
+                // may not be bound, we have to bind it again.
+                // for example: to_bitmap.
+                Expression boundExpression = new CustomExpressionAnalyzer(
+                        boundSink, ctx.cascadesContext, columnToReplaced).analyze(parsedExpression);
+                if (boundExpression instanceof Alias) {
+                    boundExpression = ((Alias) boundExpression).child();
+                }
+                boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
+                boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
+                        DataType.fromCatalogType(column.getType()));
+                Alias output = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
+                columnToOutput.put(column.getName(), output);
             }
-            boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
-            boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
-                    DataType.fromCatalogType(column.getType()));
-            Alias output = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
-            columnToOutput.put(column.getName(), output);
         }
         for (Column column : shadowColumns) {
             NamedExpression expression = columnToOutput.get(column.getNonShadowName());
@@ -849,7 +841,8 @@ public class BindSink implements AnalysisRuleFactory {
     }
 
     private boolean validColumn(Column column, boolean isNeedSequenceCol) {
-        return column.isVisible() || (isNeedSequenceCol && column.isSequenceColumn());
+        return (column.isVisible() || (isNeedSequenceCol && column.isSequenceColumn()))
+                && !column.isMaterializedViewColumn();
     }
 
     private static class CustomExpressionAnalyzer extends ExpressionAnalyzer {

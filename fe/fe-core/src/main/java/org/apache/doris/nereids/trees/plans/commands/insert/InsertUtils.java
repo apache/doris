@@ -306,7 +306,8 @@ public class InsertUtils {
                         if (unboundLogicalSink.getColNames().isEmpty()) {
                             ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                         } else {
-                            boolean hasSyncMaterializedView = !olapTable.getIndexIdListExceptBaseIndex().isEmpty();
+                            boolean hasSyncMaterializedView = olapTable.getFullSchema().stream()
+                                    .anyMatch(col -> col.isMaterializedViewColumn());
                             if (hasSyncMaterializedView) {
                                 throw new AnalysisException("Can't do partial update on merge-on-write Unique table"
                                         + " with sync materialized view.");
