@@ -23,13 +23,6 @@ VALUES (1, 'Alice', DATE '2024-01-01'),
     (4, 'David', DATE '2024-02-01'),
     (5, 'Eve', DATE '2024-03-01');
 
--- Partition by time type
-CREATE TABLE time_partitioned (
-    id BIGINT,
-    name STRING,
-    partition_key TIME
-) USING ICEBERG PARTITIONED BY (partition_key);
-
 -- Partition by integer type
 CREATE TABLE int_partitioned (
     id BIGINT,
