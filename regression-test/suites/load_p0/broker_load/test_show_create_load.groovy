@@ -15,29 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf_sample.h"
+suite("test_show_create_load", "load_p0") {
+    // test unknown db
+    try {
+        sql "show create load for unknown_db.test_label"
+    } catch (Exception e) {
+        logger.info("result: ${e.message}")
+        assertTrue(e.message.contains(" Unknown database 'unknown_db'"))
+    }
 
-namespace doris_udf {
-
-// ---------------------------------------------------------------------------
-// This is a sample of implementing a COUNT aggregate function.
-// ---------------------------------------------------------------------------
-void CountInit(FunctionContext* context, BigIntVal* val) {
-    val->is_null = false;
-    val->val = 0;
-}
-
-void CountUpdate(FunctionContext* context, const IntVal& input, BigIntVal* val) {
-    if (input.is_null) return;
-    ++val->val;
-}
-
-void CountMerge(FunctionContext* context, const BigIntVal& src, BigIntVal* dst) {
-    dst->val += src.val;
-}
-
-BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val) {
-    return val;
-}
-
+    // test unknown label
+    try {
+        sql "show create load for ${context.dbName}.unknown_label"
+    } catch (Exception e) {
+        logger.info("result: ${e.message}")
+        assertTrue(e.message.contains("Label does not exist: unknown_label"))
+    }
 }

@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,20 +16,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf_sample.h"
+#include <gtest/gtest.h>
 
-namespace doris_udf {
+#include "runtime/primitive_type.h"
+#include "testutil/column_helper.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type_number.h"
 
-IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2) {
-    if (arg1.is_null || arg2.is_null) {
-        return IntVal::null();
-    }
-    return {arg1.val + arg2.val};
+namespace doris::vectorized {
+TEST(BlockCheckType, test1) {
+    auto block = Block {
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4}),
+            ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4}),
+    };
+
+    auto st = block.check_type_and_column();
+    EXPECT_TRUE(st);
+
+    block.get_by_position(1).column =
+            ColumnHelper::create_column<DataTypeFloat64>({1.1, 2.2, 3.3, 4.4});
+    st = block.check_type_and_column();
+    EXPECT_FALSE(st.ok());
+    std::cout << st.msg() << std::endl;
 }
-
-/// --- Prepare / Close Functions ---
-/// ---------------------------------
-void AddUdfPrepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
-void AddUdfClose(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
-
-}
+} // namespace doris::vectorized
