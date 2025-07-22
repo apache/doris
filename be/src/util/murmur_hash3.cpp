@@ -10,12 +10,12 @@
 #include "murmur_hash3.h"
 
 #include "vec/common/unaligned.h"
-#include "common/compile_check_begin.h"
 //-----------------------------------------------------------------------------
 // Platform-specific functions and macros
 
 // Microsoft Visual Studio
 
+#include "common/compile_check_begin.h"
 #if defined(_MSC_VER)
 
 #define FORCE_INLINE __forceinline
