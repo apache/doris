@@ -24,6 +24,7 @@ namespace doris::segment_v2 {
 
 struct InvertedIndexParam {
     std::string column_name;
+    vectorized::DataTypePtr column_type;
     const void* query_value;
     InvertedIndexQueryType query_type;
     uint32_t num_rows;
@@ -34,25 +35,55 @@ struct InvertedIndexParam {
 class InvertedIndexIterator : public IndexIterator {
 public:
     InvertedIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                          RuntimeState* runtime_state, const IndexReaderPtr& reader);
-    ~InvertedIndexIterator() override = default;
+                          RuntimeState* runtime_state);
+
+    void add_reader(InvertedIndexReaderType type, const InvertedIndexReaderPtr& reader);
 
     IndexType type() override { return IndexType::INVERTED; }
-    IndexReaderPtr get_reader() override { return _index_reader; }
 
-    Status read_from_index(const IndexParam& param) override;
-    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override;
-    bool has_null() override;
+    Status read_from_index(const IndexParam& param) override; 
+
+    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override; 
+
+    [[nodiscard]] Result<bool> has_null() override;
+
+    IndexReaderPtr get_reader(InvertedIndexReaderType type) override;
 
 private:
-    Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
-                                        InvertedIndexQueryType query_type, uint32_t* count);
-
-    InvertedIndexReaderPtr _index_reader;
-
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
 
-    friend class InvertedIndexReaderTest;
+    Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
+                                        const std::string& column_name, const void* query_value,
+                                        InvertedIndexQueryType query_type, uint32_t* count);
+    Result<InvertedIndexReaderPtr> _select_best_reader(const vectorized::DataTypePtr& column_type,
+                                                       InvertedIndexQueryType query_type);
+    Result<InvertedIndexReaderPtr> _select_best_reader();
+
+    std::unordered_map<InvertedIndexReaderType, InvertedIndexReaderPtr> _readers;
 };
+
+// class InvertedIndexIterator : public IndexIterator {
+// public:
+//     InvertedIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
+//                           RuntimeState* runtime_state, const IndexReaderPtr& reader);
+//     ~InvertedIndexIterator() override = default;
+// 
+//     IndexType type() override { return IndexType::INVERTED; }
+//     IndexReaderPtr get_reader() override { return _index_reader; }
+// 
+//     Status read_from_index(const IndexParam& param) override;
+//     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override;
+//     bool has_null() override;
+// 
+// private:
+//     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
+//                                         InvertedIndexQueryType query_type, uint32_t* count);
+// 
+//     InvertedIndexReaderPtr _index_reader;
+// 
+//     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
+// 
+//     friend class InvertedIndexReaderTest;
+// };
 
 } // namespace doris::segment_v2

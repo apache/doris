@@ -43,7 +43,8 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
         function_name == MATCH_PHRASE_EDGE_FUNCTION) {
-        if (iter->get_reader()->is_fulltext_index() && !iter->get_reader()->is_support_phrase()) {
+        auto reader = iter->get_reader(InvertedIndexReaderType::FULLTEXT);
+        if (reader && !reader->is_support_phrase()) {
             return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                     "phrase queries require setting support_phrase = true");
         }
@@ -65,6 +66,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     InvertedIndexParam param;
     param.column_name = data_type_with_name.first;
+    param.column_type = data_type_with_name.second;
     param.query_value = query_param->get_value();
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;

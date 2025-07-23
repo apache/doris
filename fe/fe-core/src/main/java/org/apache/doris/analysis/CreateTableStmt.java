@@ -72,6 +72,9 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
     private List<Column> columns = Lists.newArrayList();
     private List<Index> indexes = Lists.newArrayList();
 
+    // set in analyze
+    private Map<Column, List<IndexDef>> columnToIndexes = Maps.newHashMap();
+
     static {
         engineNames = Sets.newHashSet();
         engineNames.add("olap");
@@ -368,7 +371,6 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
     public boolean needAuditEncryption() {
         return !engineName.equals("olap");
     }
-
 
     @Override
     public StmtType stmtType() {

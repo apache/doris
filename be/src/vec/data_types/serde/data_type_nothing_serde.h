@@ -60,19 +60,6 @@ public:
         return Status::NotSupported("deserialize_column_from_text_vector with type " +
                                     column.get_name());
     }
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override {
-        result.SetNull();
-        return Status::OK();
-    }
-
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override {
-        if (result.IsNull()) {
-            column.insert_default();
-        }
-        return Status::OK();
-    }
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override {

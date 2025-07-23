@@ -24,12 +24,15 @@
 
 namespace doris::segment_v2 {
 
+void InvertedIndexIterator::add_reader(InvertedIndexReaderType type,
+                                       const InvertedIndexReaderPtr& reader) {
+    _readers[type] = reader;
+}
+
 InvertedIndexIterator::InvertedIndexIterator(const io::IOContext& io_ctx,
                                              OlapReaderStatistics* stats,
-                                             RuntimeState* runtime_state,
-                                             const IndexReaderPtr& reader)
+                                             RuntimeState* runtime_state)
         : IndexIterator(io_ctx, stats, runtime_state) {
-    _index_reader = std::static_pointer_cast<InvertedIndexReader>(reader);
 }
 
 Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
@@ -40,17 +43,19 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
     DBUG_EXECUTE_IF("return_inverted_index_bypass", {
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("inverted index bypass");
     });
-    if (UNLIKELY(_index_reader == nullptr)) {
+
+    auto reader = DORIS_TRY(_select_best_reader(i_param->column_type, i_param->query_type));
+    if (UNLIKELY(reader == nullptr)) {
         throw CLuceneError(CL_ERR_NullPointer, "bkd index reader is null", false);
     }
-    if (!i_param->skip_try && _index_reader->type() == InvertedIndexReaderType::BKD) {
+    if (!i_param->skip_try && reader->type() == InvertedIndexReaderType::BKD) {
         if (_runtime_state != nullptr &&
             _runtime_state->query_options().inverted_index_skip_threshold > 0 &&
             _runtime_state->query_options().inverted_index_skip_threshold < 100) {
             auto query_bkd_limit_percent =
                     _runtime_state->query_options().inverted_index_skip_threshold;
             uint32_t hit_count = 0;
-            RETURN_IF_ERROR(try_read_from_inverted_index(i_param->column_name, i_param->query_value,
+            RETURN_IF_ERROR(try_read_from_inverted_index(reader, i_param->column_name, i_param->query_value,
                                                          i_param->query_type, &hit_count));
             if (hit_count > i_param->num_rows * query_bkd_limit_percent / 100) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
@@ -62,7 +67,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
     }
 
     auto execute_query = [&]() {
-        return _index_reader->query(&_io_ctx, _stats, _runtime_state, i_param->column_name,
+        return reader->query(&_io_ctx, _stats, _runtime_state, i_param->column_name,
                                     i_param->query_value, i_param->query_type, i_param->roaring);
     };
 
@@ -83,14 +88,17 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 }
 
 Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) {
-    return _index_reader->read_null_bitmap(&_io_ctx, _stats, cache_handle, nullptr);
+    auto reader = DORIS_TRY(_select_best_reader());
+    return reader->read_null_bitmap(&_io_ctx, _stats, cache_handle, nullptr);
 }
 
-bool InvertedIndexIterator::has_null() {
-    return _index_reader->has_null();
+Result<bool> InvertedIndexIterator::has_null() {
+    auto reader = DORIS_TRY(_select_best_reader());
+    return reader->has_null();
 }
 
-Status InvertedIndexIterator::try_read_from_inverted_index(const std::string& column_name,
+Status InvertedIndexIterator::try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
+                                                           const std::string& column_name,
                                                            const void* query_value,
                                                            InvertedIndexQueryType query_type,
                                                            uint32_t* count) {
@@ -100,10 +108,68 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const std::string& co
         query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY ||
         query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
         query_type == InvertedIndexQueryType::EQUAL_QUERY) {
-        RETURN_IF_ERROR(_index_reader->try_query(&_io_ctx, _stats, _runtime_state, column_name,
+        RETURN_IF_ERROR(reader->try_query(&_io_ctx, _stats, _runtime_state, column_name,
                                                  query_value, query_type, count));
     }
     return Status::OK();
+}
+
+Result<InvertedIndexReaderPtr> InvertedIndexIterator::_select_best_reader(
+        const vectorized::DataTypePtr& column_type, InvertedIndexQueryType query_type) {
+    if (_readers.empty()) {
+        return ResultError(Status::RuntimeError(
+                "No available inverted index readers. Check if index is properly initialized."));
+    }
+
+    // BKD and array types allow only one reader each
+    if (_readers.size() == 1) {
+        return _readers.begin()->second;
+    }
+
+    // Check for string types
+    const auto field_type = column_type->get_storage_field_type();
+    const bool is_string = is_string_type(field_type);
+
+    InvertedIndexReaderType preferred_type = InvertedIndexReaderType::UNKNOWN;
+    // Handle string type columns
+    if (is_string) {
+        if (is_match_query(query_type)) {
+            preferred_type = InvertedIndexReaderType::FULLTEXT;
+        } else if (is_equal_query(query_type)) {
+            preferred_type = InvertedIndexReaderType::STRING_TYPE;
+        }
+    }
+    DBUG_EXECUTE_IF("inverted_index_reader._select_best_reader", {
+        auto type = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "inverted_index_reader._select_best_reader", "type", -1);
+        if ((int32_t)preferred_type != type) {
+            return ResultError(Status::RuntimeError(
+                    "Inverted index reader type mismatch. Expected={}, Actual={}",
+                    (int32_t)preferred_type, type));
+        }
+    })
+
+    if (auto reader = get_reader(preferred_type)) {
+        return std::static_pointer_cast<InvertedIndexReader>(reader);
+    }
+
+    return ResultError(Status::RuntimeError("Index query type not supported"));
+}
+
+Result<InvertedIndexReaderPtr> InvertedIndexIterator::_select_best_reader() {
+    if (_readers.empty()) {
+        return ResultError(Status::RuntimeError(
+                "No available inverted index readers. Check if index is properly initialized."));
+    }
+    return _readers.begin()->second;
+}
+
+IndexReaderPtr InvertedIndexIterator::get_reader(InvertedIndexReaderType type) {
+    auto iter = _readers.find(type);
+    if (iter == _readers.end()) {
+        return nullptr;
+    }
+    return iter->second;
 }
 
 } // namespace doris::segment_v2

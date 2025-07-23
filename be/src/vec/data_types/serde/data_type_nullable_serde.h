@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "common/status.h"
 #include "data_type_serde.h"
 
@@ -103,11 +105,10 @@ public:
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                      JsonbWriter& writer) const override;
 
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
+    const DataTypeSerDeSPtr& get_nested_serde() const { return nested_serde; }
     virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
 
 private:

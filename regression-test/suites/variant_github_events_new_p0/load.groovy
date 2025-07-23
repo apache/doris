@@ -44,7 +44,6 @@ suite("regression_test_variant_github_events_p0", "p0"){
             }
         }
     }
-
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"

@@ -137,7 +137,10 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_reader()->is_fulltext_index()) {
+
+        // only string type inverted index reader can be used for array_index
+        if (iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iter->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
             // parser is not none we can not make sure the result is correct in expr combination
             // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
             // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
@@ -166,11 +169,11 @@ public:
                                                                            query_param));
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
         param.query_value = query_param->get_value();
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        ;
         RETURN_IF_ERROR(iter->read_from_index(&param));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {

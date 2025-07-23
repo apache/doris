@@ -73,12 +73,8 @@ const int DIMS = 1;
 
 bool InvertedIndexColumnWriter::check_support_inverted_index(const TabletColumn& column) {
     // bellow types are not supported in inverted index for extracted columns
-    static std::set<FieldType> invalid_types = {
-            FieldType::OLAP_FIELD_TYPE_DOUBLE,
-            FieldType::OLAP_FIELD_TYPE_JSONB,
-            FieldType::OLAP_FIELD_TYPE_FLOAT,
-    };
-    if (invalid_types.contains(column.type())) {
+    static std::set<FieldType> invalid_types = {FieldType::OLAP_FIELD_TYPE_JSONB};
+    if (invalid_types.count(column.type())) {
         return false;
     }
     if (column.is_variant_type()) {
@@ -827,6 +823,8 @@ Status InvertedIndexColumnWriter::create(const Field* field,
         M(FieldType::OLAP_FIELD_TYPE_BOOL)
         M(FieldType::OLAP_FIELD_TYPE_IPV4)
         M(FieldType::OLAP_FIELD_TYPE_IPV6)
+        M(FieldType::OLAP_FIELD_TYPE_FLOAT)
+        M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
 #undef M
     default:
         return Status::NotSupported("unsupported type for inverted index: " +

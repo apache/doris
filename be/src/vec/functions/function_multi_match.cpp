@@ -88,12 +88,14 @@ Status FunctionMultiMatch::evaluate_inverted_index(
         auto column_name = data_type_with_names[i].first;
         auto* iter = iterators[i];
         if (iter == nullptr) {
-            std::string error_msg = "Inverted index iterator is null for column '" + column_name +
+            std::string error_msg = "Inverted index iterator is null for column '" +
+                                    data_type_with_names[i].first +
                                     "' during multi_match execution";
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(error_msg);
         }
 
-        param.column_name = column_name;
+        param.column_name = data_type_with_names[i].first;
+        param.column_type = data_type_with_names[i].second;
         param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(iter->read_from_index(&param));
         *roaring |= *param.roaring;

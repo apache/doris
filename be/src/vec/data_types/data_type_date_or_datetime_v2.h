@@ -30,6 +30,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
@@ -78,6 +79,7 @@ public:
                                    "Invalid value: {} for type DateV2", node.date_literal.value);
         }
     }
+
     bool equals(const IDataType& rhs) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
         DataTypeNumberBase<PrimitiveType::TYPE_DATEV2>::template to_string_batch_impl<
@@ -158,6 +160,16 @@ public:
                                    node.date_literal.value, _scale);
         }
     }
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        const auto& column_data =
+                assert_cast<const ColumnDateTimeV2&, TypeCheckOnRelease::DISABLE>(column);
+        Field field;
+        column_data.get(row_num, field);
+        return FieldWithDataType(std::move(field), -1, get_scale());
+    }
+
     MutableColumnPtr create_column() const override;
 
     UInt32 get_scale() const override { return _scale; }

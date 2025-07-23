@@ -578,7 +578,10 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_reader()->is_fulltext_index()) {
+
+        // only string type and bkd inverted index reader can be used for comparison
+        if (iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iter->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
             //NOT support comparison predicate when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
@@ -598,11 +601,11 @@ public:
             return Status::InvalidArgument("invalid comparison op type {}", Name::name);
         }
 
-        if (segment_v2::is_range_query(query_type) && iter->get_reader()->is_string_index()) {
+        if (segment_v2::is_range_query(query_type) &&
+            iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE)) {
             // untokenized strings exceed ignore_above, they are written as null, causing range query errors
             return Status::OK();
         }
-        std::string column_name = data_type_with_name.first;
         Field param_value;
         arguments[0].column->get(0, param_value);
         auto param_type = arguments[0].type->get_primitive_type();
@@ -613,7 +616,8 @@ public:
                 param_type, &param_value, query_param));
 
         segment_v2::InvertedIndexParam param;
-        param.column_name = column_name;
+        param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
         param.query_value = query_param->get_value();
         param.query_type = query_type;
         param.num_rows = num_rows;
