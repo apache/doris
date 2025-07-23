@@ -50,7 +50,7 @@ suite("regression_test_variant_github_events_p0", "p0"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant,
+            v variant<'payload.pull_request.head.repo.topics' : array<text>>,
             INDEX idx_var(v) USING INVERTED COMMENT ''
         )
         DUPLICATE KEY(`k`)

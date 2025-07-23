@@ -191,6 +191,7 @@ v.auto_type	json	Yes	false	\N	NONE
 
 -- !sql --
 {"a.b.c":"int","db":"double","dcm":"decimal128i","dt":"datetimev2"}
+\N
 
 -- !sql --
 {"a.b.c":"int","db":"double","dcm":"decimal128i","dt":"datetimev2"}

@@ -119,10 +119,6 @@ suite("regression_test_variant_desc", "p0"){
         table_name = "no_sparse_columns"
         create_table.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-<<<<<<< HEAD
-=======
-        
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
         sql """insert into  ${table_name} select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         sql "select * from no_sparse_columns limit 1"
@@ -133,10 +129,6 @@ suite("regression_test_variant_desc", "p0"){
         table_name = "partition_data"
         create_table_partition.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-<<<<<<< HEAD
-=======
-        
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
         sql """insert into  ${table_name} select 2500, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 2500, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         sql """insert into  ${table_name} select 45000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
@@ -284,9 +276,5 @@ suite("regression_test_variant_desc", "p0"){
         sql "desc large_tablets"
     } finally {
         // reset flags
-<<<<<<< HEAD
-=======
-        
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
     }
 }

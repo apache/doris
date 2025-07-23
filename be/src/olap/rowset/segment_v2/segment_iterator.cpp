@@ -796,7 +796,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     if (PredicateTypeTraits::is_range(pred->type()) &&
         _index_iterators[pred_column_id] != nullptr) {
         if (_index_iterators[pred_column_id]->type() == IndexType::INVERTED) {
-            if (_index_iterators[pred_column_id]->get_reader(InvertedIndexReaderType::STRING_TYPE) != nullptr) {
+            if (_index_iterators[pred_column_id]->get_reader(
+                        InvertedIndexReaderType::STRING_TYPE) != nullptr) {
                 return false;
             }
         }
@@ -878,9 +879,10 @@ bool SegmentIterator::_column_only_has_fulltext_index(int32_t cid) {
         return false;
     }
 
-    bool has_fulltext_index = _index_iterators[cid] != nullptr &&
-                              _index_iterators[cid]->get_reader(InvertedIndexReaderType::FULLTEXT) &&
-                              _index_iterators[cid]->get_reader(InvertedIndexReaderType::STRING_TYPE) == nullptr;
+    bool has_fulltext_index =
+            _index_iterators[cid] != nullptr &&
+            _index_iterators[cid]->get_reader(InvertedIndexReaderType::FULLTEXT) &&
+            _index_iterators[cid]->get_reader(InvertedIndexReaderType::STRING_TYPE) == nullptr;
 
     return has_fulltext_index;
 }
@@ -895,9 +897,9 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     if (!_check_apply_by_inverted_index(pred)) {
         remaining_predicates.emplace_back(pred);
     } else {
-        Status res = pred->evaluate(_storage_name_and_type[pred->column_id()],
-                                    _index_iterators[pred->column_id()].get(), num_rows(),
-                                    &_row_bitmap);
+        Status res =
+                pred->evaluate(_storage_name_and_type[pred->column_id()],
+                               _index_iterators[pred->column_id()].get(), num_rows(), &_row_bitmap);
         if (!res.ok()) {
             if (_downgrade_without_index(res)) {
                 remaining_predicates.emplace_back(pred);
@@ -1121,8 +1123,8 @@ Status SegmentIterator::_init_index_iterators() {
                 inverted_indexs = _segment->_tablet_schema->inverted_indexs(column);
             }
             for (const auto& inverted_index : inverted_indexs) {
-                RETURN_IF_ERROR(_segment->new_index_iterator(
-                        column, inverted_index, _opts, &_index_iterators[cid]));
+                RETURN_IF_ERROR(_segment->new_index_iterator(column, inverted_index, _opts,
+                                                             &_index_iterators[cid]));
             }
         }
     }

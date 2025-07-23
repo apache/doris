@@ -32,8 +32,7 @@ void InvertedIndexIterator::add_reader(InvertedIndexReaderType type,
 InvertedIndexIterator::InvertedIndexIterator(const io::IOContext& io_ctx,
                                              OlapReaderStatistics* stats,
                                              RuntimeState* runtime_state)
-        : IndexIterator(io_ctx, stats, runtime_state) {
-}
+        : IndexIterator(io_ctx, stats, runtime_state) {}
 
 Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
     auto* i_param = std::get<InvertedIndexParam*>(param);
@@ -55,8 +54,9 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
             auto query_bkd_limit_percent =
                     _runtime_state->query_options().inverted_index_skip_threshold;
             uint32_t hit_count = 0;
-            RETURN_IF_ERROR(try_read_from_inverted_index(reader, i_param->column_name, i_param->query_value,
-                                                         i_param->query_type, &hit_count));
+            RETURN_IF_ERROR(try_read_from_inverted_index(reader, i_param->column_name,
+                                                         i_param->query_value, i_param->query_type,
+                                                         &hit_count));
             if (hit_count > i_param->num_rows * query_bkd_limit_percent / 100) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
                         "hit count: {}, bkd inverted reached limit {}% , segment num "
@@ -68,7 +68,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 
     auto execute_query = [&]() {
         return reader->query(&_io_ctx, _stats, _runtime_state, i_param->column_name,
-                                    i_param->query_value, i_param->query_type, i_param->roaring);
+                             i_param->query_value, i_param->query_type, i_param->roaring);
     };
 
     if (_runtime_state->query_options().enable_profile) {
@@ -109,7 +109,7 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const InvertedIndexRe
         query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
         query_type == InvertedIndexQueryType::EQUAL_QUERY) {
         RETURN_IF_ERROR(reader->try_query(&_io_ctx, _stats, _runtime_state, column_name,
-                                                 query_value, query_type, count));
+                                          query_value, query_type, count));
     }
     return Status::OK();
 }

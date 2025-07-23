@@ -341,6 +341,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     );
     """
     sql """insert into test_variant_type values(1, '{"dcm" : 1.1, "db" : 2.2, "dt" : "2021-01-01 00:00:00", "a.b.c" : [1, 2, 3]}')"""
+    sql """insert into test_variant_type values(1, null)"""
     qt_sql "select variant_type(var) from test_variant_type"
 
     sql "DROP TABLE IF EXISTS test_variant_type_not_null"

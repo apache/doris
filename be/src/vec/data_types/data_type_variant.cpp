@@ -157,8 +157,8 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
     // serialize sparse column
     // TODO make compability with sparse column
     if (be_exec_version >= VARIANT_SPARSE_SERDE) {
-        buf = ColumnVariant::get_sparse_column_type()->serialize(*column_variant.get_sparse_column(),
-                                                                 buf, be_exec_version);
+        buf = ColumnVariant::get_sparse_column_type()->serialize(
+                *column_variant.get_sparse_column(), buf, be_exec_version);
     }
 
     return buf;

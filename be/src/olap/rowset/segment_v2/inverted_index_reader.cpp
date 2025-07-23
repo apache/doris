@@ -276,7 +276,9 @@ Status FullTextIndexReader::new_iterator(const io::IOContext& io_ctx, OlapReader
     if (*iterator == nullptr) {
         *iterator = InvertedIndexIterator::create_unique(io_ctx, stats, runtime_state);
     }
-    dynamic_cast<InvertedIndexIterator*>(iterator->get())->add_reader(InvertedIndexReaderType::FULLTEXT, dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
+    dynamic_cast<InvertedIndexIterator*>(iterator->get())
+            ->add_reader(InvertedIndexReaderType::FULLTEXT,
+                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 
@@ -367,13 +369,16 @@ InvertedIndexReaderType FullTextIndexReader::type() {
     return InvertedIndexReaderType::FULLTEXT;
 }
 
-Status StringTypeInvertedIndexReader::new_iterator(
-        const io::IOContext& io_ctx, OlapReaderStatistics* stats, RuntimeState* runtime_state,
-        std::unique_ptr<IndexIterator>* iterator) {
+Status StringTypeInvertedIndexReader::new_iterator(const io::IOContext& io_ctx,
+                                                   OlapReaderStatistics* stats,
+                                                   RuntimeState* runtime_state,
+                                                   std::unique_ptr<IndexIterator>* iterator) {
     if (*iterator == nullptr) {
         *iterator = InvertedIndexIterator::create_unique(io_ctx, stats, runtime_state);
     }
-    dynamic_cast<InvertedIndexIterator*>(iterator->get())->add_reader(InvertedIndexReaderType::STRING_TYPE, dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
+    dynamic_cast<InvertedIndexIterator*>(iterator->get())
+            ->add_reader(InvertedIndexReaderType::STRING_TYPE,
+                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 
@@ -513,7 +518,9 @@ Status BkdIndexReader::new_iterator(const io::IOContext& io_ctx, OlapReaderStati
     if (*iterator == nullptr) {
         *iterator = InvertedIndexIterator::create_unique(io_ctx, stats, runtime_state);
     }
-    dynamic_cast<InvertedIndexIterator*>(iterator->get())->add_reader(InvertedIndexReaderType::BKD, dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
+    dynamic_cast<InvertedIndexIterator*>(iterator->get())
+            ->add_reader(InvertedIndexReaderType::BKD,
+                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 

@@ -368,8 +368,7 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
 
 FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
                                                           size_t row_num) const {
-    const auto& array = assert_cast<const ColumnArray&>(column);
-    auto field = array[row_num];
+    const auto& array_column = assert_cast<const ColumnArray&>(column);
     int precision = -1;
     int scale = -1;
     auto nested_type = get_nested_type();
@@ -386,7 +385,20 @@ FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
         scale = nested_type->get_scale();
     } else if (nested_type_id == TYPE_DATETIMEV2) {
         scale = nested_type->get_scale();
+    } else if (nested_type_id == TYPE_JSONB) {
+        // Array<Jsonb> should return JsonbField as element
+        Array arr;
+        size_t offset = array_column.offset_at(row_num);
+        size_t size = array_column.size_at(row_num);
+        for (size_t i = 0; i < size; ++i) {
+            auto field = Field::create_field<TYPE_JSONB>({});
+            array_column.get_data().get(offset + i, field);
+            arr.push_back(field);
+        }
+        return FieldWithDataType(Field::create_field<TYPE_ARRAY>(arr), precision, scale,
+                                 nested_type_id, num_dimensions);
     }
+    auto field = array_column[row_num];
     return FieldWithDataType(std::move(field), precision, scale, nested_type_id, num_dimensions);
 }
 

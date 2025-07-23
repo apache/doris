@@ -44,9 +44,9 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
+#include "olap/olap_common.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
-#include "olap/olap_common.h"
 #include "util/defer_op.h"
 #include "util/jsonb_utils.h"
 #include "util/simd/bits.h"
@@ -80,12 +80,14 @@
 namespace doris::vectorized {
 namespace {
 
-DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable, int precision = -1, int scale = -1) {
+DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable,
+                                 int precision = -1, int scale = -1) {
     DataTypePtr result = type == PrimitiveType::INVALID_TYPE
                                  ? is_nullable ? make_nullable(std::make_shared<DataTypeNothing>())
                                                : std::dynamic_pointer_cast<IDataType>(
                                                          std::make_shared<DataTypeNothing>())
-                                 : DataTypeFactory::instance().create_data_type(type, is_nullable, precision, scale);
+                                 : DataTypeFactory::instance().create_data_type(type, is_nullable,
+                                                                                precision, scale);
     for (size_t i = 0; i < num_dimensions; ++i) {
         result = std::make_shared<DataTypeArray>(result);
         if (is_nullable) {
@@ -237,15 +239,16 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
         value_dim = 0;
         type_changed = true;
     }
+    // Currently we support specify predefined schema for other types include decimal, datetime ...etc
+    // so we should set specified info to create correct types, and those predefined types are static and
+    // no conflict, so we can set them directly.
     auto base_data_type =
             create_array_of_type(base_type, value_dim, is_nullable, info.precision, info.scale);
     if (data.empty()) {
-        // Currently we support specify predefined schema for other types include decimal, datetime ...etc
-        // so we should set specified info to create correct types, and those predefined types are static and
-        // no conflict, so we can set them directly.
         add_new_column_part(base_data_type);
-    } else if (least_common_type.get_base_type_id() != base_type &&
-               base_type != PrimitiveType::INVALID_TYPE) {
+    } else if ((least_common_type.get_base_type_id() != base_type &&
+                base_type != PrimitiveType::INVALID_TYPE) ||
+               type_changed) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type, least_common_type.get_base_type_id())) {
             DataTypePtr least_type;
@@ -259,8 +262,7 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
     }
     // 1. type changed means encounter different type, we need to convert it to the least common type
     // 2. need_convert means the type is not the same as the least common type, we need to convert it
-    // 3. if the type is json and the column dimension is not 0, which means array<jsonb>, then we need to convert it to jsonb
-    if (type_changed || info.need_convert || (base_type == MOST_COMMON_TYPE_ID && value_dim > 0)) {
+    if (type_changed || info.need_convert) {
         Field new_field;
         convert_field_to_type(field, *least_common_type.get(), &new_field);
         field = new_field;
@@ -1282,8 +1284,8 @@ const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& k
 }
 
 size_t ColumnVariant::Subcolumn::serialize_text_json(size_t n, BufferWritable& output,
-                                                    DataTypeSerDe::FormatOptions opt) const {
-     if (least_common_type.get_base_type_id() == PrimitiveType::INVALID_TYPE) {
+                                                     DataTypeSerDe::FormatOptions opt) const {
+    if (least_common_type.get_base_type_id() == PrimitiveType::INVALID_TYPE) {
         output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
                      DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
         return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
@@ -1707,14 +1709,18 @@ void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWrit
         // Serialize value of current path.
         if (auto subcolumn_it = subcolumn_path_map.find(path);
             subcolumn_it != subcolumn_path_map.end()) {
-            subcolumn_it->second.serialize_text_json(row_num, output, {.escape_char = '\\'});
+            DataTypeSerDe::FormatOptions options;
+            options.escape_char = '\\';
+            subcolumn_it->second.serialize_text_json(row_num, output, options);
         } else {
             // To serialize value stored in shared data we should first deserialize it from binary format.
             Subcolumn tmp_subcolumn(0, true);
             const auto& data = ColumnVariant::deserialize_from_sparse_column(
                     sparse_data_values, index_in_sparse_data_values++);
             tmp_subcolumn.insert(data.first, data.second);
-            tmp_subcolumn.serialize_text_json(0, output, {.escape_char = '\\'});
+            DataTypeSerDe::FormatOptions options;
+            options.escape_char = '\\';
+            tmp_subcolumn.serialize_text_json(0, output, options);
         }
     }
 

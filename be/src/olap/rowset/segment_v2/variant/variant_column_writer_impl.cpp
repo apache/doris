@@ -296,8 +296,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         vectorized::schema_util::inherit_column_attributes(*_tablet_column, tablet_column);
         RETURN_IF_ERROR(_create_column_writer(
                 current_column_id, tablet_column, _opts.rowset_ctx->tablet_schema,
-                _opts.index_file_writer, &writer, _subcolumns_indexes[current_column_id],
-                &opts, none_null_value_size));
+                _opts.index_file_writer, &writer, _subcolumns_indexes[current_column_id], &opts,
+                none_null_value_size));
         _subcolumn_writers.push_back(std::move(writer));
         _subcolumn_opts.push_back(opts);
         _subcolumn_opts[current_column_id - 1].meta->set_num_rows(num_rows);
@@ -588,8 +588,8 @@ Status VariantSubcolumnWriter::finalize() {
     // refresh opts and get writer with flush column
     vectorized::schema_util::inherit_column_attributes(parent_column, flush_column);
     RETURN_IF_ERROR(_create_column_writer(0, flush_column, _opts.rowset_ctx->tablet_schema,
-                                          _opts.index_file_writer, &_writer, _indexes,
-                                          &opts, none_null_value_size));
+                                          _opts.index_file_writer, &_writer, _indexes, &opts,
+                                          none_null_value_size));
     _opts = opts;
     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
     int column_id = 0;

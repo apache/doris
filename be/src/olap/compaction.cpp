@@ -977,10 +977,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                                         seg_path.value())},
                                 _cur_tablet_schema->get_inverted_index_storage_format(),
                                 rowset->rowset_meta()->inverted_index_file_info(i));
-                        auto st = index_file_reader->init(
-                                config::inverted_index_read_buffer_size);
-                        index_file_path =
-                                index_file_reader->get_index_file_path(index_meta);
+                        auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
+                        index_file_path = index_file_reader->get_index_file_path(index_meta);
                         DBUG_EXECUTE_IF(
                                 "Compaction::construct_skip_inverted_index_index_file_reader_init_"
                                 "status_not_ok",

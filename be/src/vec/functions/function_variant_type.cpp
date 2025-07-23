@@ -95,8 +95,8 @@ public:
             writeChar('}', writer);
             writer.commit();
         }
-
-        block.replace_by_position(result, std::move(result_column));
+        auto result_nullable_column = make_nullable(result_column->get_ptr());
+        block.replace_by_position(result, std::move(result_nullable_column));
         return Status::OK();
     }
 };

@@ -646,7 +646,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         column_id_to_footer_ordinal.try_emplace(column_meta.unique_id(), ordinal++);
     }
     // init by unique_id
-    for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
+    for (ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
         const auto& column = _tablet_schema->column(ordinal);
         auto iter = column_id_to_footer_ordinal.find(column.unique_id());
         if (iter == column_id_to_footer_ordinal.end()) {

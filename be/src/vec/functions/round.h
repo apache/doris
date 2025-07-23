@@ -494,7 +494,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            static_assert(false);
+            // static_assert(false);
         }
     }
 
@@ -572,7 +572,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            static_assert(false);
+            // static_assert(false);
         }
     }
 
@@ -655,7 +655,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            static_assert(false);
+            // static_assert(false);
         }
     }
 };

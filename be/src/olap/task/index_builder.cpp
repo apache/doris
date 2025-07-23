@@ -444,8 +444,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
                     try {
                         RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(
-                                field.get(), &inverted_index_builder,
-                                index_file_writer.get(), index_meta));
+                                field.get(), &inverted_index_builder, index_file_writer.get(),
+                                index_meta));
                         DBUG_EXECUTE_IF(
                                 "IndexBuilder::handle_single_rowset_index_column_writer_create_"
                                 "error",
