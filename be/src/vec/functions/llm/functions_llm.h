@@ -82,15 +82,9 @@ public:
     Status init_from_resource(const Block& block, const ColumnNumbers& arguments, size_t row_num) {
         // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
-        if (const auto* col_const_resource =
-                    check_and_get_column<ColumnConst>(resource_column.column.get())) {
-            StringRef resource_name_ref = col_const_resource->get_data_at(0);
-            const std::string resource_name =
-                    std::string(resource_name_ref.data, resource_name_ref.size);
-            _config = LLMFunctionUtil::instance().get_llm_resource(resource_name);
-        } else {
-            return Status::InternalError("LLM Function must accept literal for the resource name.");
-        }
+        StringRef resource_name_ref = resource_column.column->get_data_at(row_num);
+        std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
+        _config = LLMFunctionUtil::instance().get_llm_resource(resource_name);
 
         // 2. Create an adapter based on provider_type
         _adapter = LLMAdapterFactory::create_adapter(_config.provider_type);

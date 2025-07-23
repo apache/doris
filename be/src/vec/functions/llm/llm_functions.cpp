@@ -31,48 +31,28 @@ Status FunctionLLMClassify::build_prompt(const Block& block, const ColumnNumbers
                                          size_t row_num, std::string& prompt) const {
     // Get the text column
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    std::string text_str;
-    if (const auto* col_const_text = check_and_get_column<ColumnConst>(text_column.column.get())) {
-        StringRef text_ref = col_const_text->get_data_at(0);
-        text_str = std::string(text_ref.data, text_ref.size);
-    } else {
-        const auto* col_text = assert_cast<const ColumnString*>(text_column.column.get());
-        StringRef text = col_text->get_data_at(row_num);
-        text_str = std::string(text.data, text.size);
-    }
+    StringRef text = text_column.column->get_data_at(row_num);
+    std::string text_str = std::string(text.data, text.size);
 
     // Get the labels array column
     const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
+    const auto& [array_column, array_row_num] =
+            check_column_const_set_readability(*labels_column.column, row_num);
+    const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
+    if (col_array == nullptr) {
+        return Status::InternalError(
+                "labels argument for {} must be Array(String) or Array(Varchar)", name);
+    }
+
     std::vector<std::string> label_values;
-    if (const auto* col_const_labels =
-                check_and_get_column<ColumnConst>(labels_column.column.get())) {
-        const auto* const nested_column = &col_const_labels->get_data_column();
-        const auto* col_array = assert_cast<const ColumnArray*>(nested_column);
-
-        const auto& data = col_array->get_data();
-        const auto& offsets = col_array->get_offsets();
-
-        size_t start = 0;
-        size_t end = offsets[0];
-
-        for (size_t i = start; i < end; ++i) {
-            Field field;
-            data.get(i, field);
-            label_values.emplace_back(field.get<String>());
-        }
-    } else {
-        const auto* col_array = assert_cast<const ColumnArray*>(labels_column.column.get());
-        const auto& data = col_array->get_data();
-        const auto& offsets = col_array->get_offsets();
-
-        size_t start = row_num > 0 ? offsets[row_num - 1] : 0;
-        size_t end = offsets[row_num];
-
-        for (size_t i = start; i < end; ++i) {
-            Field field;
-            data.get(i, field);
-            label_values.emplace_back(field.get<String>());
-        }
+    const auto& data = col_array->get_data();
+    const auto& offsets = col_array->get_offsets();
+    size_t start = row_num > 0 ? offsets[row_num - 1] : 0;
+    size_t end = offsets[row_num];
+    for (size_t i = start; i < end; ++i) {
+        Field field;
+        data.get(i, field);
+        label_values.emplace_back(field.get<String>());
     }
 
     std::string labels_str = "[";
@@ -98,48 +78,28 @@ Status FunctionLLMExtract::build_prompt(const Block& block, const ColumnNumbers&
                                         size_t row_num, std::string& prompt) const {
     // Get the text column
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    std::string text_str;
-    if (const auto* col_const_text = check_and_get_column<ColumnConst>(text_column.column.get())) {
-        StringRef text_ref = col_const_text->get_data_at(0);
-        text_str = std::string(text_ref.data, text_ref.size);
-    } else {
-        const auto* col_text = assert_cast<const ColumnString*>(text_column.column.get());
-        StringRef text = col_text->get_data_at(row_num);
-        text_str = std::string(text.data, text.size);
-    }
+    StringRef text = text_column.column->get_data_at(row_num);
+    std::string text_str = std::string(text.data, text.size);
 
     // Get the labels array column
     const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
+    const auto& [array_column, array_row_num] =
+            check_column_const_set_readability(*labels_column.column, row_num);
+    const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
+    if (col_array == nullptr) {
+        return Status::InternalError(
+                "labels argument for {} must be Array(String) or Array(Varchar)", name);
+    }
+
     std::vector<std::string> label_values;
-    if (const auto* col_const_labels =
-                check_and_get_column<ColumnConst>(labels_column.column.get())) {
-        const auto* const nested_column = &col_const_labels->get_data_column();
-        const auto* col_array = assert_cast<const ColumnArray*>(nested_column);
-
-        const auto& data = col_array->get_data();
-        const auto& offsets = col_array->get_offsets();
-
-        size_t start = 0;
-        size_t end = offsets[0];
-
-        for (size_t i = start; i < end; ++i) {
-            Field field;
-            data.get(i, field);
-            label_values.emplace_back(field.get<String>());
-        }
-    } else {
-        const auto* col_array = assert_cast<const ColumnArray*>(labels_column.column.get());
-        const auto& data = col_array->get_data();
-        const auto& offsets = col_array->get_offsets();
-
-        size_t start = row_num > 0 ? offsets[row_num - 1] : 0;
-        size_t end = offsets[row_num];
-
-        for (size_t i = start; i < end; ++i) {
-            Field field;
-            data.get(i, field);
-            label_values.emplace_back(field.get<String>());
-        }
+    const auto& offsets = col_array->get_offsets();
+    const auto& data = col_array->get_data();
+    size_t start = row_num > 0 ? offsets[row_num - 1] : 0;
+    size_t end = offsets[row_num];
+    for (size_t i = start; i < end; ++i) {
+        Field field;
+        data.get(i, field);
+        label_values.emplace_back(field.get<String>());
     }
 
     std::string labels_str = "[";
@@ -167,16 +127,9 @@ Status FunctionLLMExtract::build_prompt(const Block& block, const ColumnNumbers&
 
 Status FunctionLLMFixGrammar::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                            size_t row_num, std::string& prompt) const {
-    std::string text;
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    if (const auto* col_const_text = check_and_get_column<ColumnConst>(text_column.column.get())) {
-        StringRef text_ref = col_const_text->get_data_at(0);
-        text = std::string(text_ref.data, text_ref.size);
-    } else {
-        StringRef text_ref =
-                assert_cast<const ColumnString*>(text_column.column.get())->get_data_at(row_num);
-        text = std::string(text_ref.data, text_ref.size);
-    }
+    StringRef text_ref = text_column.column->get_data_at(row_num);
+    std::string text = std::string(text_ref.data, text_ref.size);
 
     prompt = "Fix the grammar in the text below.\n"
              "Output only the corrected text.\n"
@@ -188,16 +141,9 @@ Status FunctionLLMFixGrammar::build_prompt(const Block& block, const ColumnNumbe
 
 Status FunctionLLMGenerate::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                          size_t row_num, std::string& prompt) const {
-    std::string text;
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    if (const auto* col_const_text = check_and_get_column<ColumnConst>(text_column.column.get())) {
-        StringRef text_ref = col_const_text->get_data_at(0);
-        text = std::string(text_ref.data, text_ref.size);
-    } else {
-        StringRef text_ref =
-                assert_cast<const ColumnString*>(text_column.column.get())->get_data_at(row_num);
-        text = std::string(text_ref.data, text_ref.size);
-    }
+    StringRef text_ref = text_column.column->get_data_at(row_num);
+    std::string text = std::string(text_ref.data, text_ref.size);
 
     prompt = "Generate a response based on the following input.\n"
              "Output only the generated text.\n"
@@ -211,48 +157,28 @@ Status FunctionLLMMask::build_prompt(const Block& block, const ColumnNumbers& ar
                                      size_t row_num, std::string& prompt) const {
     // Get the text column
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    std::string text_str;
-    if (const auto* col_const_text = check_and_get_column<ColumnConst>(text_column.column.get())) {
-        StringRef text_ref = col_const_text->get_data_at(0);
-        text_str = std::string(text_ref.data, text_ref.size);
-    } else {
-        const auto* col_text = assert_cast<const ColumnString*>(text_column.column.get());
-        StringRef text = col_text->get_data_at(row_num);
-        text_str = std::string(text.data, text.size);
-    }
+    StringRef text = text_column.column->get_data_at(row_num);
+    std::string text_str = std::string(text.data, text.size);
 
     // Get the labels array column
     const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
+    const auto& [array_column, array_row_num] =
+            check_column_const_set_readability(*labels_column.column, row_num);
+    const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
+    if (col_array == nullptr) {
+        return Status::InternalError(
+                "labels argument for {} must be Array(String) or Array(Varchar)", name);
+    }
+
     std::vector<std::string> label_values;
-    if (const auto* col_const_labels =
-                check_and_get_column<ColumnConst>(labels_column.column.get())) {
-        const auto* const nested_column = &col_const_labels->get_data_column();
-        const auto* col_array = assert_cast<const ColumnArray*>(nested_column);
-
-        const auto& data = col_array->get_data();
-        const auto& offsets = col_array->get_offsets();
-
-        size_t start = 0;
-        size_t end = offsets[0];
-
-        for (size_t i = start; i < end; ++i) {
-            Field field;
-            data.get(i, field);
-            label_values.emplace_back(field.get<String>());
-        }
-    } else {
-        const auto* col_array = assert_cast<const ColumnArray*>(labels_column.column.get());
-        const auto& data = col_array->get_data();
-        const auto& offsets = col_array->get_offsets();
-
-        size_t start = row_num > 0 ? offsets[row_num - 1] : 0;
-        size_t end = offsets[row_num];
-
-        for (size_t i = start; i < end; ++i) {
-            Field field;
-            data.get(i, field);
-            label_values.emplace_back(field.get<String>());
-        }
+    const auto& offsets = col_array->get_offsets();
+    const auto& data = col_array->get_data();
+    size_t start = row_num > 0 ? offsets[row_num - 1] : 0;
+    size_t end = offsets[row_num];
+    for (size_t i = start; i < end; ++i) {
+        Field field;
+        data.get(i, field);
+        label_values.emplace_back(field.get<String>());
     }
 
     std::string labels_str = "[";
@@ -279,16 +205,9 @@ Status FunctionLLMMask::build_prompt(const Block& block, const ColumnNumbers& ar
 
 Status FunctionLLMSentiment::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                           size_t row_num, std::string& prompt) const {
-    std::string text;
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    if (const auto* col_const_text = check_and_get_column<ColumnConst>(text_column.column.get())) {
-        StringRef text_ref = col_const_text->get_data_at(0);
-        text = std::string(text_ref.data, text_ref.size);
-    } else {
-        StringRef text_ref =
-                assert_cast<const ColumnString*>(text_column.column.get())->get_data_at(row_num);
-        text = std::string(text_ref.data, text_ref.size);
-    }
+    StringRef text_ref = text_column.column->get_data_at(row_num);
+    std::string text = std::string(text_ref.data, text_ref.size);
 
     prompt = "Classify the text below into one of the following labels: "
              "[positive, negative, neutral, mixed]\n"
@@ -301,16 +220,9 @@ Status FunctionLLMSentiment::build_prompt(const Block& block, const ColumnNumber
 
 Status FunctionLLMSummarize::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                           size_t row_num, std::string& prompt) const {
-    std::string text;
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    if (const auto* col_const_text = check_and_get_column<ColumnConst>(text_column.column.get())) {
-        StringRef text_ref = col_const_text->get_data_at(0);
-        text = std::string(text_ref.data, text_ref.size);
-    } else {
-        StringRef text_ref =
-                assert_cast<const ColumnString*>(text_column.column.get())->get_data_at(row_num);
-        text = std::string(text_ref.data, text_ref.size);
-    }
+    StringRef text_ref = text_column.column->get_data_at(row_num);
+    std::string text = std::string(text_ref.data, text_ref.size);
 
     prompt = "Summarize the following text in a concise way.\n"
              "Return only the summary.\n"
@@ -324,27 +236,13 @@ Status FunctionLLMTranslate::build_prompt(const Block& block, const ColumnNumber
                                           size_t row_num, std::string& prompt) const {
     // text
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    std::string text_str;
-    if (const auto* col_const_text = check_and_get_column<ColumnConst>(text_column.column.get())) {
-        StringRef text_ref = col_const_text->get_data_at(0);
-        text_str = std::string(text_ref.data, text_ref.size);
-    } else {
-        StringRef text =
-                assert_cast<const ColumnString*>(text_column.column.get())->get_data_at(row_num);
-        text_str = std::string(text.data, text.size);
-    }
+    StringRef text = text_column.column.get()->get_data_at(row_num);
+    std::string text_str = std::string(text.data, text.size);
 
     // target language
     const ColumnWithTypeAndName& lang_column = block.get_by_position(arguments[2]);
-    std::string target_lang;
-    if (const auto* col_const_lang = check_and_get_column<ColumnConst>(lang_column.column.get())) {
-        StringRef lang_ref = col_const_lang->get_data_at(0);
-        target_lang = std::string(lang_ref.data, lang_ref.size);
-    } else {
-        const auto* col_lang = assert_cast<const ColumnString*>(lang_column.column.get());
-        StringRef lang = col_lang->get_data_at(row_num);
-        target_lang = std::string(lang.data, lang.size);
-    }
+    StringRef lang = lang_column.column.get()->get_data_at(row_num);
+    std::string target_lang = std::string(lang.data, lang.size);
 
     prompt = "Translate the following text to " + target_lang +
              ". Output only the translated text.\n" + "Text: " + text_str;
