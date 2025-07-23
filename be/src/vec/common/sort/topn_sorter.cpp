@@ -55,9 +55,7 @@ Status TopNSorter::append_block(Block* block) {
 
 Status TopNSorter::prepare_for_read(bool is_spill) {
     if (is_spill) {
-        _limit += _offset;
-        _offset = 0;
-        _state->ignore_offset();
+        return Status::InternalError("TopN sorter does not support spill");
     }
     return _state->build_merge_tree(_sort_description);
 }

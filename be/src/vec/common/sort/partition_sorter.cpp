@@ -64,10 +64,8 @@ Status PartitionSorter::append_block(Block* input_block) {
 }
 
 Status PartitionSorter::prepare_for_read(bool is_spill) {
-    if (is_spill) {
-        _limit += _offset;
-        _offset = 0;
-        _state->ignore_offset();
+if (is_spill) {
+        return Status::InternalError("PartitionSorter does not support spill");
     }
     auto& blocks = _state->get_sorted_block();
     auto& queue = _state->get_queue();
