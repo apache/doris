@@ -58,4 +58,13 @@ suite("fold_constant_by_be") {
         contains "varchar(3)"
     }
 
+    sql 'set enable_fold_constant_by_be=true;'
+    explain {
+         sql "select IS_IPV4_MAPPED(NULLABLE(INET6_ATON('192.168.1.1')));"
+         contains "192.168.1.1"
+    }
+    explain {
+         sql "select IS_IPV4_MAPPED(NULLABLE(ipv6_string_to_num_or_default('192.168.1.1')));"
+         contains "192.168.1.1"
+    }
 }
