@@ -1762,7 +1762,7 @@ void MetaServiceImpl::commit_txn_eventually(
         commit_txn_log.set_txn_id(txn_id);
 
         // <partition_version_key, version>
-        std::unordered_map<std::string, uint64_t> new_versions;
+        std::unordered_map<std::string, int64_t> new_versions;
         std::vector<std::string> version_keys;
         for (auto& [_, i] : tmp_rowsets_meta) {
             int64_t tablet_id = i.tablet_id();
@@ -2336,7 +2336,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
     tablet_idx_values.clear();
 
     // {table/partition} -> version
-    std::unordered_map<std::string, uint64_t> new_versions;
+    std::unordered_map<std::string, int64_t> new_versions;
     std::vector<std::string> version_keys;
     for (auto& [tablet_id, i] : tablet_id_to_idx) {
         int64_t table_id = tablet_ids[tablet_id].table_id();
