@@ -29,7 +29,6 @@ suite('test_cache_shield_basic', 'docker') {
         'file_cache_enter_disk_resource_limit_mode_percent=99',
         'enable_evict_file_cache_in_advance=false',
         'block_file_cache_monitor_interval_sec=1',
-        'enable_read_cluster_file_cache_shield=true',
     ]
     options.enableDebugPoints()
     options.cloudMode = true
@@ -56,6 +55,18 @@ suite('test_cache_shield_basic', 'docker') {
 
         // clear file cache is async, wait it done
         sleep(5000)
+    }
+
+    def updateBeConf = {cluster, key, value ->
+        def backends = sql """SHOW BACKENDS"""
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+        def injectName = 'CloudTablet.warm_up_done_cb.inject_sleep_s'
+        for (be in cluster_bes) {
+            def ip = be[1]
+            def port = be[4]
+            def (code, out, err) = update_be_config(ip, port, key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
     }
 
     def getBrpcMetrics = {ip, port, name ->
@@ -153,6 +164,8 @@ suite('test_cache_shield_basic', 'docker') {
 
         logger.info("Cluster tag1: {}", tag1)
         logger.info("Cluster tag2: {}", tag2)
+
+        updateBeConf(clusterName2, "enable_read_cluster_file_cache_shield", "true")
 
         def jsonSlurper = new JsonSlurper()
         def clusterId1 = jsonSlurper.parseText(tag1).compute_group_id
