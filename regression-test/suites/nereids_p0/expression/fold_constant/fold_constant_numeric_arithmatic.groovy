@@ -542,16 +542,16 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT SEC(-0.5), SEC(0.5), SEC(10), SEC(-10)")
     testFoldConst("SELECT SEC(-20), SEC(20), SEC(1E-7), SEC(-1E-7)")
 
-//Cosec function cases
-    testFoldConst("SELECT COSEC(PI() / 4)")
-    // testFoldConst("SELECT COSEC(PI())") need rethink inf behavior
-    testFoldConst("SELECT COSEC(PI() / 2)")
-    // testFoldConst("SELECT COSEC(0)") need rethink inf behavior
-    testFoldConst("SELECT COSEC(1)")
-    testFoldConst("SELECT COSEC(-1)")
-    testFoldConst("SELECT COSEC(NULL)")
-    testFoldConst("SELECT COSEC(-0.5), COSEC(0.5), COSEC(10), COSEC(-10)")
-    testFoldConst("SELECT COSEC(-20), COSEC(20), COSEC(1E-7), COSEC(-1E-7)")
+//CSC function cases
+    testFoldConst("SELECT CSC(PI() / 4)")
+    // testFoldConst("SELECT CSC(PI())") need rethink inf behavior
+    testFoldConst("SELECT CSC(PI() / 2)")
+    // testFoldConst("SELECT CSC(0)") need rethink inf behavior
+    testFoldConst("SELECT CSC(1)")
+    testFoldConst("SELECT CSC(-1)")
+    testFoldConst("SELECT CSC(NULL)")
+    testFoldConst("SELECT CSC(-0.5), CSC(0.5), CSC(10), CSC(-10)")
+    testFoldConst("SELECT CSC(-20), CSC(20), CSC(1E-7), CSC(-1E-7)")
 
 //Truncate function cases
     testFoldConst("SELECT TRUNCATE(123.456, 2) AS truncate_case_1") //truncate(123.456, 2) = 123.45
