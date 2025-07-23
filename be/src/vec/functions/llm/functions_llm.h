@@ -68,7 +68,7 @@ public:
     std::string get_name() const override { return assert_cast<const Derived&>(*this).name; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeString>();
     }
 
     // If the user doesn't provide the first arg, `resource_name`
@@ -234,8 +234,7 @@ public:
             }
         }
 
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
+        block.replace_by_position(result, std::move(col_result));
         return Status::OK();
     }
 
