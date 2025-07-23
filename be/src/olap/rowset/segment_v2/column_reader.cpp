@@ -552,7 +552,8 @@ Status ColumnReader::_get_filtered_pages(
     }
     VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
             << " filtered-percent:"
-            << 1.0 - (static_cast<double>(page_indexes->size()) / (static_cast<double>(page_size) * 1.0));
+            << 1.0 - (static_cast<double>(page_indexes->size()) /
+                      (static_cast<double>(page_size) * 1.0));
     return Status::OK();
 }
 
