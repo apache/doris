@@ -527,7 +527,7 @@ Status ColumnReader::_get_filtered_pages(
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
     for (size_t i = 0; i < page_size; ++i) {
         if (zone_maps[i].pass_all()) {
-            page_indexes->push_back(i);
+            page_indexes->push_back(cast_set<uint32_t>(i));
         } else {
             RETURN_IF_ERROR(_parse_zone_map(zone_maps[i], min_value.get(), max_value.get()));
             if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
@@ -545,14 +545,14 @@ Status ColumnReader::_get_filtered_pages(
                     }
                 }
                 if (should_read) {
-                    page_indexes->push_back(i);
+                    page_indexes->push_back(cast_set<uint32_t>(i));
                 }
             }
         }
     }
     VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
             << " filtered-percent:"
-            << 1.0 - (static_cast<double>(page_indexes->size()) / (page_size * 1.0));
+            << 1.0 - (static_cast<double>(page_indexes->size()) / (static_cast<double>(page_size) * 1.0));
     return Status::OK();
 }
 
