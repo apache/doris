@@ -25,11 +25,32 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 
 import java.util.Collection;
 import java.util.Set;
 
 public class IdGeneratorUtil {
+
+    public static long getBufferSizeForCreateTable(CreateMTMVInfo createMTMVInfo, ReplicaAllocation replicaAlloc)
+            throws DdlException {
+        long bufferSize = 1;
+        long partitionNum = createMTMVInfo.getPartitionDesc() == null ? 1 :
+                createMTMVInfo.getPartitionDesc().getSinglePartitionDescs().size();
+        long indexNum = 1;
+        long bucketNum = createMTMVInfo.getDistributionDesc().toDistributionInfo(createMTMVInfo.getColumns())
+                .getBucketNum();
+        bufferSize = bufferSize + partitionNum + indexNum;
+        if (createMTMVInfo.getPartitionDesc() == null) {
+            bufferSize = bufferSize + (replicaAlloc.getTotalReplicaNum() + 1) * indexNum * bucketNum;
+        } else {
+            for (SinglePartitionDesc partitionDesc : createMTMVInfo.getPartitionDesc().getSinglePartitionDescs()) {
+                long replicaNum = partitionDesc.getReplicaAlloc().getTotalReplicaNum();
+                bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
+            }
+        }
+        return bufferSize;
+    }
 
     public static long getBufferSizeForCreateTable(CreateTableStmt stmt, ReplicaAllocation replicaAlloc)
             throws DdlException {

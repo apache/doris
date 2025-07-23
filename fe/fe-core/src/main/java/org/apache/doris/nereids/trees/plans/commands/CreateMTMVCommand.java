@@ -62,4 +62,7 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
         return StmtType.CREATE;
     }
 
+    public CreateMTMVInfo getCreateMTMVInfo() {
+        return createMTMVInfo;
+    }
 }
