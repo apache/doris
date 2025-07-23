@@ -202,7 +202,7 @@ TEST(MathFunctionTest, sec_test) {
 }
 
 TEST(MathFunctionTest, cosec_test) {
-    std::string func_name = "cosec";
+    std::string func_name = "csc";
 
     InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
