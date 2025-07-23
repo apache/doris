@@ -379,6 +379,10 @@ inline bool parse_ipv6(T*& src, EOFfunction eof, unsigned char* dst, int32_t fir
                     return clear_dst();
                 zptr = iter;
                 ++src;
+                if (!eof() && *src == ':') {
+                    /// more than one all-zeroes block is not allowed
+                    return clear_dst();
+                }
                 continue;
             }
             if (groups == 0) /// leading colon is not allowed
