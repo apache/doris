@@ -174,6 +174,8 @@ public class CreateTableInfo {
         PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
+        this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
+        this.distributionDesc = distribution != null ? distribution.translateToCatalogStyle() : null;
     }
 
     /**
@@ -207,6 +209,8 @@ public class CreateTableInfo {
         PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
+        this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
+        this.distributionDesc = distribution != null ? distribution.translateToCatalogStyle() : null;
     }
 
     /**
@@ -977,10 +981,6 @@ public class CreateTableInfo {
      * analyzeEngine
      */
     public void analyzeEngine() {
-        this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
-        this.distributionDesc =
-            distribution != null ? distribution.translateToCatalogStyle() : null;
-
         if (engineName.equals(ENGINE_ELASTICSEARCH)) {
             try {
                 EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
