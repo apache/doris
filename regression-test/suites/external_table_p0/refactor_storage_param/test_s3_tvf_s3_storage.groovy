@@ -256,7 +256,7 @@ suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
             s3_tvf("s3://${bucket}", "cos.endpoint", "cos.access_key", "cos.secret_key", "cos.region", "false");
         }
         shouldFail{
-            s3_tvf("s3://${bucket}", "s3.endpoint", "cos.access_key", "cos.secret_key", "cos.region", "false");  
+            s3_tvf("s3://${bucket}", "s3.endpoint", "cos.access_key", "s3.secret_key", "cos.region", "false");  
         }
         s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key", "s3.secret_key", "region", "false");
         s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key", "s3.secret_key", "region", "false");
