@@ -18,14 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -925,52 +923,6 @@ public class CreateTableInfo {
                 }
             }
         }
-    }
-
-    /**
-     * translate to catalog create table stmt
-     */
-    public CreateTableStmt translateToLegacyStmt() {
-        PartitionDesc partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
-        List<AlterClause> addRollups = Lists.newArrayList();
-        if (!rollups.isEmpty()) {
-            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
-                    .collect(Collectors.toList()));
-        }
-
-        List<Column> catalogColumns = columns.stream()
-                .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
-
-        List<Index> catalogIndexes = indexes.stream().map(IndexDefinition::translateToCatalogStyle)
-                .collect(Collectors.toList());
-        DistributionDesc distributionDesc =
-                distribution != null ? distribution.translateToCatalogStyle() : null;
-
-        // TODO should move this code to validate function
-        // EsUtil.analyzePartitionAndDistributionDesc only accept DistributionDesc and PartitionDesc
-        if (engineName.equals(ENGINE_ELASTICSEARCH)) {
-            try {
-                EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
-        } else if (!engineName.equals(ENGINE_OLAP)) {
-            if (!engineName.equals(ENGINE_HIVE) && distributionDesc != null) {
-                throw new AnalysisException("Create " + engineName
-                    + " table should not contain distribution desc");
-            }
-            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG) && partitionDesc != null) {
-                throw new AnalysisException("Create " + engineName
-                        + " table should not contain partition desc");
-            }
-        }
-
-        return new CreateTableStmt(ifNotExists, isExternal, isTemp,
-                new TableName(ctlName, dbName, tableName),
-                catalogColumns, catalogIndexes, engineName,
-                new KeysDesc(keysType, keys, clusterKeysColumnNames),
-                partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,
-                comment, addRollups, null);
     }
 
     /**
