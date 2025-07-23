@@ -222,10 +222,13 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         std::unique_ptr<char[]> buffer(new char[size]);
         {
             s3_read_counter << 1;
+            VLOG_DEBUG << "Read data from remote. offset=" << offset << ", size=" << size
+                       << get_stack_trace();
             SCOPED_RAW_TIMER(&stats.remote_read_timer);
             RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
                                                          &size, io_ctx));
         }
+        VLOG_DEBUG << "remote read timer: " << stats.remote_read_timer;
         for (auto& block : empty_blocks) {
             if (block->state() == FileBlock::State::SKIP_CACHE) {
                 continue;
