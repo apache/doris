@@ -417,6 +417,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             EstimationContext context,
             double selectivity, ColumnStatisticBuilder filterKeyColStatsBuilder, Map<Literal, Float> matchedHotValues,
             Map<Literal, Float> missMatchedHotValues) {
+        // compute ndv
+        int hotValueCount = leftStats.getHotValues() == null ? 0 : leftStats.getHotValues().size();
+        double ndv = (leftStats.ndv - hotValueCount) * selectivity + matchedHotValues.size();
+        filterKeyColStatsBuilder.setNdv(ndv);
+
+        // compute selectivity
         double matchedHotValueRatio = matchedHotValues.values().stream().mapToDouble(x -> x).sum()
                 / ColumnStatistic.ONE_HUNDRED;
         double nonHotValueRatio = 1.0 - matchedHotValueRatio
@@ -430,13 +436,16 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             selectivity = nonHotValueRatio * selectivity + matchedHotValueRatio;
             filterKeyColStatsBuilder.setHotValues(matchedHotValues);
         }
-        filterKeyColStatsBuilder.setNdv(leftStats.ndv * selectivity);
-        filterKeyColStatsBuilder.setNumNulls(0);
+
         selectivity = getNotNullSelectivity(leftStats.numNulls,
                 context.statistics.getRowCount(), leftStats.ndv, selectivity);
         selectivity = Math.max(selectivity, RANGE_SELECTIVITY_THRESHOLD);
         selectivity = Math.min(selectivity, 1.0);
+
+        filterKeyColStatsBuilder.setNumNulls(0);
+
         Statistics filterStatistics = context.statistics.withSel(selectivity);
+
         filterStatistics.addColumnStats(cp.left(), filterKeyColStatsBuilder.build());
         filterStatistics.normalizeColumnStatistics(context.statistics.getRowCount(), true);
         return filterStatistics;
@@ -644,9 +653,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             Map<Literal, Float> hotValues = colStats.getHotValues();
             Map<Literal, Float> matchedHotValues = new HashMap<>();
             for (Expression option : options) {
-                Float hotIndex = hotValues.get(option);
-                if (hotIndex != null) {
-                    matchedHotValues.put((Literal) option, hotIndex);
+                try {
+                    for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+                        if (((ComparableLiteral) entry.getKey()).compareTo((ComparableLiteral) option) == 0) {
+                            matchedHotValues.put(entry.getKey(), entry.getValue());
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    // ignore
                 }
             }
             if (!matchedHotValues.isEmpty()) {
@@ -710,11 +725,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 } else {
                     nonLiteralOptionCount++;
                 }
-                if (!literalOptions.isEmpty() && compareExprStats.getHotValues() != null) {
-                    Map<Literal, Float> matchedHotValues =
-                            computeHotValuesForInPredicates(compareExprStats, literalOptions);
-                    compareExprStatsBuilder.setHotValues(matchedHotValues);
-                }
+            }
+            if (!literalOptions.isEmpty() && compareExprStats.getHotValues() != null) {
+                Map<Literal, Float> matchedHotValues =
+                        computeHotValuesForInPredicates(compareExprStats, literalOptions);
+                compareExprStatsBuilder.setHotValues(matchedHotValues);
             }
             if (nonLiteralOptionCount > 0) {
                 // A in (x+1, ...)
@@ -760,12 +775,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 selectivity = Statistics.getValidSelectivity(
                         Math.min(StatsMathUtil.divide(newCompareExprStats.ndv, compareExprStats.ndv), 1));
             } else {
-                double nonHotRatio = 1 - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
+                double nonHotRatio = 1
+                        - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum()
+                        / ColumnStatistic.ONE_HUNDRED;
                 if (nonHotRatio > 0) {
                     double nonHotSel = nonHotRatio
                             * (newCompareExprStats.ndv - newCompareExprStats.getHotValues().size())
                             / (compareExprStats.ndv - compareExprStats.getHotValues().size());
-                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
+                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum()
+                            / ColumnStatistic.ONE_HUNDRED;
                     selectivity = nonHotSel + hotSel;
                 } else {
                     selectivity = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
@@ -847,6 +865,23 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     // only consider the single column numNull, otherwise, ignore
                     rowCount = Math.max(rowCount - originColStats.numNulls, 1);
                     statisticsBuilder.setRowCount(rowCount);
+                }
+                // update hot values
+                Map<Literal, Float> origHots = originColStats.getHotValues();
+                if (origHots != null) {
+                    Map<Literal, Float> childHots = childColStats.getHotValues();
+                    Map<Literal, Float> newHotValues = new HashMap<>();
+                    if (childHots != null) {
+                        for (Literal hot : origHots.keySet()) {
+                            if (!childHots.containsKey(hot)) {
+                                newHotValues.put(hot, origHots.get(hot));
+                            }
+                        }
+                        colBuilder.setHotValues(newHotValues);
+                    } else {
+                        newHotValues.putAll(origHots);
+                    }
+                    colBuilder.setHotValues(newHotValues);
                 }
                 statisticsBuilder.putColumnStatistics(slot, colBuilder.build());
             }
