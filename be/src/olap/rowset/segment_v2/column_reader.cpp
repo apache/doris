@@ -522,10 +522,10 @@ Status ColumnReader::_get_filtered_pages(
 
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
-    int32_t page_size = _zone_map_index->num_pages();
+    size_t page_size = _zone_map_index->num_pages();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    for (int32_t i = 0; i < page_size; ++i) {
+    for (size_t i = 0; i < page_size; ++i) {
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(i);
         } else {
