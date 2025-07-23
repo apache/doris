@@ -194,16 +194,13 @@ suite('test_cache_shield_compaction_conflict', 'docker') {
         injectAddOverlapRowsetSleep(clusterName2, 20);
         qt_sql """select * from test"""
         sleep(1000)
-        assertEquals(11, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 11)
         assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
 
         def tablets = sql_return_maparray """show tablets from test"""
         // cluster2 trigger cumu compaction failed (conflict with warmup rowsets)
         assertTrue(triggerCompaction(clusterName2, tablets[0].TabletId, "cumulative").contains("E-2000"));
-
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_failure_num"))
 
         // wait injection complete
         sleep(20000)

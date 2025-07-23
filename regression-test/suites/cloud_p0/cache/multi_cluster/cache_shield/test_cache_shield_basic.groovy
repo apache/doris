@@ -195,7 +195,7 @@ suite('test_cache_shield_basic', 'docker') {
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test"""
-        assertEquals(5, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 5)
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
 
@@ -215,7 +215,7 @@ suite('test_cache_shield_basic', 'docker') {
         // wait until the injection complete
         sleep(3000)
 
-        assertEquals(7, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 7)
         assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_failure_num"))

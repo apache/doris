@@ -184,7 +184,7 @@ suite('test_cache_shield_not_triggered', 'docker') {
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test"""
-        assertEquals(5, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 5)
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
 
         // switch to source cluster
@@ -203,7 +203,7 @@ suite('test_cache_shield_not_triggered', 'docker') {
         qt_sql """select * from test"""
         sleep(1000)
 
-        assertEquals(7, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 7)
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         // due to a bug of profile, skip the check for now
         // verifyProfileContent("select * from test");

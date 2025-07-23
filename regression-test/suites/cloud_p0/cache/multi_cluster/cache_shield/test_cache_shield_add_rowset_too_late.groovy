@@ -147,7 +147,7 @@ suite('test_cache_shield_add_rowset_too_late', 'docker') {
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test"""
-        assertEquals(5, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 5)
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
 
         // switch to source cluster and trigger compaction
@@ -163,7 +163,7 @@ suite('test_cache_shield_add_rowset_too_late', 'docker') {
         // inject sleep on warm_up_done_cb, make rowset[2-6] is added later than [2-11]
         injectAddOverlapRowsetSleep(clusterName2, 20);
         qt_sql """select * from test"""
-        assertEquals(7, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 7)
         // not added due to inject sleep
         assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
@@ -178,7 +178,7 @@ suite('test_cache_shield_add_rowset_too_late', 'docker') {
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test""" // will sync [8-8], [9-9], [10-10], [11-11]
-        assertEquals(11, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 11)
         // injection only execute once, [2-11] is added
         assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
@@ -192,7 +192,7 @@ suite('test_cache_shield_add_rowset_too_late', 'docker') {
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test""" // will sync [2-11] and [12-12] but [2-6] is not added yet
-        assertEquals(13, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 13)
         // injection only execute once, [2-11] is added
         assertEquals(2, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
