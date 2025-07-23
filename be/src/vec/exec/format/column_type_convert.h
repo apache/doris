@@ -23,7 +23,7 @@
 #include <cstdint>
 #include <utility>
 
-#include "gutil/strings/numbers.h"
+#include "util/to_string.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
@@ -287,11 +287,7 @@ public:
                 }
                 char buf[128];
                 int strlen;
-                if constexpr (SrcPrimitiveType == TYPE_FLOAT) {
-                    strlen = FastFloatToBuffer(src_data[i], buf);
-                } else {
-                    strlen = FastDoubleToBuffer(src_data[i], buf);
-                }
+                strlen = fast_to_buffer(src_data[i], buf);
                 string_col.insert_data(buf, strlen);
             } else {
                 std::string value;
