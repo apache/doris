@@ -38,7 +38,6 @@
 #include <mutex>
 #include <ranges>
 
-#include "common/compile_check_begin.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -53,6 +52,7 @@
 #include "vec/common/sip_hash.h"
 #include "vec/common/uint128.h"
 namespace doris::io {
+#include "common/compile_check_begin.h"
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
@@ -1680,7 +1680,7 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
 
     unsigned long long inode_free = stat.f_ffree;
     unsigned long long inode_total = stat.f_files;
-    int inode_percentage = int((double)inode_free / (double)inode_total * 100);
+    int inode_percentage = static_cast<int>((inode_free / inode_total) * 100);
     percent->first = capacity_percentage;
     percent->second = 100 - inode_percentage;
 
@@ -1696,7 +1696,7 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
     size_t old_capacity = 0;
     std::stringstream ss;
     ss << "finish reset_capacity, path=" << _cache_base_path;
-    auto start_time = steady_clock::time_point();
+    auto adjust_start_time = steady_clock::time_point();
     {
         SCOPED_CACHE_LOCK(_mutex, this);
         if (new_capacity < _capacity && new_capacity < _cur_cache_size) {
@@ -1742,7 +1742,7 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
         _capacity = new_capacity;
         _cache_capacity_metrics->set_value(_capacity);
     }
-    auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - start_time);
+    auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - adjust_start_time);
     LOG(INFO) << "Finish tag deleted block. path=" << _cache_base_path
               << " use_time=" << static_cast<int64_t>(use_time.count());
     ss << " old_capacity=" << old_capacity << " new_capacity=" << new_capacity;
@@ -2357,5 +2357,7 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
 template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
                                      std::lock_guard<std::mutex>& block_lock, bool sync);
-} // namespace doris::io
+
 #include "common/compile_check_end.h"
+
+} // namespace doris::io

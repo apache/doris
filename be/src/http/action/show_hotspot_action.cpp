@@ -21,11 +21,13 @@
 #include <string>
 
 #include "cloud/cloud_tablet_mgr.h"
-#include "common/compile_check_begin.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 namespace {
 
 enum class Metrics {
@@ -166,7 +168,8 @@ void ShowHotspotAction::handle(HttpRequest* req) {
     });
 
     HttpChannel::send_reply(req, HttpStatus::OK, res);
+
+#include "common/compile_check_end.h"
 }
 
 } // namespace doris
-#include "common/compile_check_end.h"

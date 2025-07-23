@@ -25,7 +25,6 @@
 #include <chrono>
 #include <memory>
 
-#include "common/compile_check_begin.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -36,6 +35,9 @@
 #include "util/slice.h"
 #include "util/threadpool.h"
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 namespace io {
 struct IOContext;
 
@@ -975,5 +977,7 @@ void RangeCacheFileReader::_collect_profile_before_close() {
 }
 
 } // namespace io
-} // namespace doris
+
 #include "common/compile_check_end.h"
+
+} // namespace doris

@@ -24,11 +24,12 @@
 #include <thread>
 #include <tuple>
 
-#include "common/compile_check_begin.h"
 #include "io/fs/err_utils.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
 namespace doris::io {
+
+#include "common/compile_check_begin.h"
 
 HdfsFileHandle::~HdfsFileHandle() {
     if (_hdfs_file != nullptr && _fs != nullptr) {
@@ -202,5 +203,6 @@ void FileHandleCache::_evict_handles_loop() {
     }
 }
 
-} // namespace doris::io
 #include "common/compile_check_end.h"
+
+} // namespace doris::io

@@ -27,7 +27,6 @@
 #include <utility>
 #include <vector>
 
-#include "common/compile_check_begin.h"
 #include "common/status.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
@@ -40,6 +39,9 @@
 #include "util/slice.h"
 #include "vec/common/typeid_cast.h"
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 namespace io {
 
 class FileSystem;
@@ -665,5 +667,7 @@ private:
 };
 
 } // namespace io
-} // namespace doris
+
 #include "common/compile_check_end.h"
+
+} // namespace doris
