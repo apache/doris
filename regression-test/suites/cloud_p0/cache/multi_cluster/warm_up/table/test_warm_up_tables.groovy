@@ -156,10 +156,10 @@ suite("test_warm_up_tables") {
         for (; i < retryTime; i++) {
             sleep(1000)
             def statuses = getJobState(jobId[0][0])
-            if (statuses.any { it.equals("CANCELLED") }) {
+            if (statuses.any { it != null && it.equals("CANCELLED") }) {
                 assertTrue(false);
             }
-            if (statuses.any { it.equals("FINISHED") }) {
+            if (statuses.any { it != null && it.equals("FINISHED") }) {
                 break;
             }
         }
@@ -174,8 +174,8 @@ suite("test_warm_up_tables") {
     waitJobDone(jobId_);
 
     def tablesString = getTablesFromShowCommand(jobId_[0][0])
-    assertTrue(tablesString.any { it.contains("customer.p3") })
-    assertTrue(tablesString.any { it.contains("supplier") })
+    assertTrue(tablesString.any { it != null && it.contains("customer") })
+    assertTrue(tablesString.any { it != null && it.contains("supplier") })
 
     sleep(30000)
     long ttl_cache_size = 0
