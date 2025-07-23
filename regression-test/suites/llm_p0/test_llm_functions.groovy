@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.junit.Assert;
-
 suite("test_llm_functions") {
     String resourceName = 'test_llm_functions_resource'
     String summarize_query = "SELECT LLM_SUMMARIZE('this is a test');"
@@ -65,6 +63,29 @@ suite("test_llm_functions") {
         sql """UNSET VARIABLE query_timeout;"""
         sql """UNSET VARIABLE default_llm_resource;"""
     }
+ 
+    String test_table_for_non_const_resource = "test_table_for_non_const_resource"
+    String query_with_not_const_resource = "SELECT LLM_TRANSLATE(resource_name, text, tar_lag) FROM ${test_table_for_non_const_resource};"
+
+    
+    sql """CREATE TABLE IF NOT EXISTS ${test_table_for_non_const_resource} (
+            resource_name VARCHAR(100),
+            text VARCHAR(100),
+            tar_lag VARCHAR(100)
+        )
+        DUPLICATE KEY(resource_name)
+        DISTRIBUTED BY HASH(resource_name) BUCKETS 1
+        PROPERTIES("replication_num" = "1");"""
+
+    sql """INSERT INTO ${test_table_for_non_const_resource}(resource_name, text, tar_lag)
+            VALUES ('${resourceName}', 'this is a test', 'zh-CN');"""
+
+    // the llm resource must be literal
+    test {
+        sql """${query_with_not_const_resource}"""
+        exception "LLM Function must accept literal for the resource name."
+    }
+    try_sql("""DROP TABLE IF EXISTS ${test_table_for_non_const_resource}""")
 
     try_sql("""DROP RESOURCE IF EXISTS '${resourceName}'""")
 }

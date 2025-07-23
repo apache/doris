@@ -51,6 +51,12 @@ public abstract class LLMFunction extends ScalarFunction
     @Override
     public void checkLegalityAfterRewrite() {
         if (arity() == getMaxArgsNum()) {
+            //The resource must be literal
+            if (!child(0).isLiteral()) {
+                throw new AnalysisException("LLM Function must accept literal for the resource name.");
+            }
+
+            //Check if the resource is valid
             String resourceName = getArgument(0).toString().replaceAll("^['\"]|['\"]$", "");
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
             if (!(resource instanceof LLMResource)) {
