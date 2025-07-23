@@ -31,7 +31,7 @@ class PromethuesChecker {
         s =~ /^[a-zA-Z_][a-zA-Z0-9_]*(\{[a-zA-Z_][a-zA-Z0-9_]*="[^"]+"(,[a-zA-Z_][a-zA-Z0-9_]*="[^"]+")*\})?\s+-?[0-9]+(\.[0-9]+)?$/
     }
 
-    boolean check(String str) {
+    static boolean check(String str) {
         // counter gauge summary histogram
         String type = ""
         if (str == null || str.trim().isEmpty()) return false
