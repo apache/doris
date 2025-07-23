@@ -292,6 +292,7 @@ public:
                                           std::vector<RowsetSharedPtr>* overlapping_rowsets);
     void warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_overlap,
                                  bool delay_add_rowset = false);
+    bool is_warm_up_confilict_with_compaction();
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
@@ -363,7 +364,8 @@ private:
     // structures for warm up data
     enum WarmUpState {
         NONE,
-        STARTED,
+        TRIGGERED_BY_SYNC_ROWSET,
+        TRIGGERED_BY_JOB,
         DONE,
     };
 

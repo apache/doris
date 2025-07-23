@@ -103,5 +103,7 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 
 DEFINE_mBool(enable_delayed_rowset_visibility_after_warmup, "false");
 
+DEFINE_mBool(enable_read_cluster_file_cache_shield, "false");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
