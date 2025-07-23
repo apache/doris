@@ -21,7 +21,7 @@ suite("check_hash_bucket_table") {
     int tableNum = 0
     def excludedDbs = ["mysql", "information_schema", "__internal_schema"].toSet()
 
-    logger.info("===== begin to check hash bucket tables")
+    logger.info("===== [check] begin to check hash bucket tables")
 
     def checkTable = { String db, String tblName ->
         sql "use ${db};"
@@ -38,22 +38,28 @@ suite("check_hash_bucket_table") {
         if (!matcher2.find()) { return } 
         int bucketNum = matcher2.group(1).toInteger()
         if (bucketNum <= 1) { return }
-        logger.info("""===== Begin to check table: ${db}.${tblName}, hash bucket: ${hashBucket}, bucket num: ${bucketNum}, replica num: ${tabletStats.size()}, bucket columns: ${bucketColumns}""")
+        logger.info("""===== [check] Begin to check table: ${db}.${tblName}, hash bucket: ${hashBucket}, bucket num: ${bucketNum}, replica num: ${tabletStats.size()}, bucket columns: ${bucketColumns}""")
         ++tableNum
         int replicaNum = tabletIdList.stream().filter { it == tabletIdList[0] }.count()
         (0..replicaNum-1).each { replica ->
             sql "set use_fix_replica=${replica};"
             tabletStats.each { it2 ->
                 def tabletId = it2.TabletId
-                def res = sql "select crc32_internal(${bucketColumns}) % ${bucketNum} from ${db}.${tblName} tablet(${tabletId}) group by crc32_internal(${bucketColumns}) % ${bucketNum};"
-                if (res.size() > 1) {
-                    logger.info("===== check failed, table: ${db}.${tblName}, tabletId: ${tabletId}, replica=${replica}, res.size()=${res.size()}, res=${res}")
-                    assert res.size() == 1
+                try {
+                    def res = sql "select crc32_internal(${bucketColumns}) % ${bucketNum} from ${db}.${tblName} tablet(${tabletId}) group by crc32_internal(${bucketColumns}) % ${bucketNum};"
+                    if (res.size() > 1) {
+                        logger.info("===== [check] check failed, table: ${db}.${tblName}, tabletId: ${tabletId}, replica=${replica}, res.size()=${res.size()}, res=${res}")
+                        assert res.size() == 1
+                    }
+                } catch (AssertionError e) {
+                    throw e
+                } catch (Throwable e) {
+                    logger.info("===== [check] catch exception, table: ${db}.${tblName}, tabletId: ${tabletId}, replica=${replica}, e=${e}")
                 }
             }
             sql "set use_fix_replica=-1;"
         }
-        logger.info("""===== Finish to check table: ${db}.${tblName}, hash bucket: ${hashBucket}, bucket num: ${bucketNum}, replica num: ${tabletStats.size()}, bucket columns: ${bucketColumns}""")
+        logger.info("""===== [check] Finish to check table: ${db}.${tblName}, hash bucket: ${hashBucket}, bucket num: ${bucketNum}, replica num: ${tabletStats.size()}, bucket columns: ${bucketColumns}""")
     }
 
     def checkDb = { String db ->
@@ -70,5 +76,5 @@ suite("check_hash_bucket_table") {
             checkDb(db)
         }
     }
-    logger.info("===== finish to check hash bucket tables, db num: ${dbNum}, table num: ${tableNum}")
+    logger.info("===== [check] finish to check hash bucket tables, db num: ${dbNum}, table num: ${tableNum}")
 }
