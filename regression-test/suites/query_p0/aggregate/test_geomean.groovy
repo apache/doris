@@ -32,77 +32,42 @@ suite("test_geomean") {
         CREATE TABLE test_geomean_int (
           `id` INT,
           `value` INT
-        ) ENGINE=OLAP
-        DUPLICATE KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1"
         );
     """
     sql """
         CREATE TABLE test_geomean_bigint (
           `id` INT,
           `value` BIGINT
-        ) ENGINE=OLAP
-        DUPLICATE KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1"
         );
     """
     sql """
         CREATE TABLE test_geomean_smallint (
           `id` INT,
           `value` SMALLINT
-        ) ENGINE=OLAP
-        DUPLICATE KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1"
         );
     """
     sql """
         CREATE TABLE test_geomean_tinyint (
           `id` INT,
           `value` TINYINT
-        ) ENGINE=OLAP
-        DUPLICATE KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1"
         );
     """
     sql """
         CREATE TABLE test_geomean_float (
           `id` INT,
           `value` FLOAT
-        ) ENGINE=OLAP
-        DUPLICATE KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1"
         );
     """
     sql """
         CREATE TABLE test_geomean_double (
           `id` INT,
           `value` DOUBLE
-        ) ENGINE=OLAP
-        DUPLICATE KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1"
         );
     """
     sql """
         CREATE TABLE test_geomean_single (
           `id` INT,
           `value` DOUBLE
-        ) ENGINE=OLAP
-        DUPLICATE KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1"
         );
     """
 
