@@ -22,8 +22,8 @@ import org.apache.doris.catalog.LLMResource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
@@ -35,7 +35,7 @@ import com.google.common.base.Strings;
  * Base class for LLM related functions.
  */
 public abstract class LLMFunction extends ScalarFunction
-        implements AlwaysNullable, ExplicitlyCastableSignature {
+        implements PropagateNullable, ExplicitlyCastableSignature {
     /**
      * constructor with at least 1 argument.
      */
