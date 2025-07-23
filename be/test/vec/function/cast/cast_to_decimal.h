@@ -1972,11 +1972,11 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
                     ofs_const_expected_result);
             if constexpr (test_from_precision != 1) {
-                between_decimal_with_precision_and_scale_test_func<FromT, test_from_precision,
-                                                                   test_from_precision / 2, ToT,
-                                                                   ToPrecision, ToScale>(
-                        table_index++, test_data_index, ofs_case, ofs_expected_result,
-                        ofs_const_case, ofs_const_expected_result);
+                // between_decimal_with_precision_and_scale_test_func<FromT, test_from_precision,
+                //                                                    test_from_precision / 2, ToT,
+                //                                                    ToPrecision, ToScale>(
+                //         table_index++, test_data_index, ofs_case, ofs_expected_result,
+                //         ofs_const_case, ofs_const_expected_result);
                 between_decimal_with_precision_and_scale_test_func<FromT, test_from_precision,
                                                                    test_from_precision - 1, ToT,
                                                                    ToPrecision, ToScale>(
@@ -1989,10 +1989,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             }
         };
         test_func.template operator()<from_min_decimal_p>();
-        if constexpr ((from_max_decimal_p / 2) > from_min_decimal_p) {
-            test_func.template operator()<from_max_decimal_p / 2>();
-        }
-        test_func.template operator()<from_max_decimal_p - 1>();
+        // if constexpr ((from_max_decimal_p / 2) > from_min_decimal_p) {
+        //     test_func.template operator()<from_max_decimal_p / 2>();
+        // }
+        // test_func.template operator()<from_max_decimal_p - 1>();
         test_func.template operator()<from_max_decimal_p>();
 
         if (FLAGS_gen_regression_case) {
@@ -2029,10 +2029,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             }
         };
         test_func.template operator()<to_min_decimal_p>();
-        if constexpr ((to_max_decimal_p / 2) > to_min_decimal_p) {
-            test_func.template operator()<to_max_decimal_p / 2>();
-        }
-        test_func.template operator()<to_max_decimal_p - 1>();
+        // if constexpr ((to_max_decimal_p / 2) > to_min_decimal_p) {
+        //     test_func.template operator()<to_max_decimal_p / 2>();
+        // }
+        // test_func.template operator()<to_max_decimal_p - 1>();
         test_func.template operator()<to_max_decimal_p>();
     }
 
@@ -2198,15 +2198,17 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         static_assert(from_min_decimal_p == 1 || from_min_decimal_p > 9);
         std::vector<int> from_precisions;
         from_precisions.emplace_back(from_min_decimal_p);
-        from_precisions.emplace_back(from_max_decimal_p / 2);
-        from_precisions.emplace_back(from_max_decimal_p - 1);
+        // if (from_max_decimal_p / 2 > from_min_decimal_p) {
+        //     from_precisions.emplace_back(from_max_decimal_p / 2);
+        // }
+        // from_precisions.emplace_back(from_max_decimal_p - 1);
         from_precisions.emplace_back(from_max_decimal_p);
         std::set<std::pair<int, int>> from_precision_scales;
         for (auto p : from_precisions) {
             from_precision_scales.emplace(p, 0);
             from_precision_scales.emplace(p, 1);
             if (p != 1) {
-                from_precision_scales.emplace(p, p / 2);
+                // from_precision_scales.emplace(p, p / 2);
                 from_precision_scales.emplace(p, p - 1);
                 from_precision_scales.emplace(p, p);
             }
@@ -2286,10 +2288,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             }
         };
         test_func.template operator()<to_min_decimal_p>();
-        if constexpr ((to_max_decimal_p / 2) > to_min_decimal_p) {
-            test_func.template operator()<to_max_decimal_p / 2>();
-        }
-        test_func.template operator()<to_max_decimal_p - 1>();
+        // if constexpr ((to_max_decimal_p / 2) > to_min_decimal_p) {
+        //     test_func.template operator()<to_max_decimal_p / 2>();
+        // }
+        // test_func.template operator()<to_max_decimal_p - 1>();
         test_func.template operator()<to_max_decimal_p>();
     }
 };

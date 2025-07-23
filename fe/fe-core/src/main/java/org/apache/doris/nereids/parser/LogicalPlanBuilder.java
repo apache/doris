@@ -1926,7 +1926,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> labelParts = visitMultipartIdentifier(ctx.lableName);
         String labelName = null;
         String labelDbName = null;
-        if (ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
+        if (ConnectContext.get() != null && ConnectContext.get().getDatabase() != null
+                && ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
             throw new AnalysisException("Current database is not set.");
         } else if (labelParts.size() == 1) {
             labelName = labelParts.get(0);

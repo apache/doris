@@ -1190,9 +1190,11 @@ public class Coordinator implements CoordInterface {
         }
 
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
-            if (resultBatch.isEos()) {
-                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
-            }
+            // In BE: vmysql_result_writer.cpp:GetResultBatchCtx::on_close()
+            //      statistics->set_returned_rows(returned_rows);
+            // In a multi-mysql_result_writer scenario, since each mysql_result_writer will set this rows, in order
+            // to avoid missing rows when dry_run_query = true, they should all be added up.
+            numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
