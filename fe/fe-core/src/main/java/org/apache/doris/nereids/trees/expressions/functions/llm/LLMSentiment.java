@@ -46,7 +46,7 @@ public class LLMSentiment extends LLMFunction {
      * constructor with 1 argument.
      */
     public LLMSentiment(Expression arg) {
-        this(new StringLiteral(getResourceName("llm_sentiment")), arg);
+        this(new StringLiteral(getResourceName()), arg);
     }
 
     /**
@@ -61,7 +61,7 @@ public class LLMSentiment extends LLMFunction {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2,
                 "LLM_SENTIMENT only accepts 1 or 2 arguments");
         if (children.size() == 1) {
-            return new LLMSentiment(new StringLiteral(getResourceName("llm_sentiment")),
+            return new LLMSentiment(new StringLiteral(getResourceName()),
                     children.get(0));
         }
         return new LLMSentiment(children.get(0), children.get(1));

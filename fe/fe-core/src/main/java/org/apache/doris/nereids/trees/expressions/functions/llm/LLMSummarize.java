@@ -46,7 +46,7 @@ public class LLMSummarize extends LLMFunction {
      * constructor with 1 argument.
      */
     public LLMSummarize(Expression arg) {
-        this(new StringLiteral(getResourceName("llm_summarize")), arg);
+        this(new StringLiteral(getResourceName()), arg);
     }
 
     /**
@@ -61,7 +61,7 @@ public class LLMSummarize extends LLMFunction {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2,
                 "LLM_SUMMARIZE only accepts 1 or 2 arguments");
         if (children.size() == 1) {
-            return new LLMSummarize(new StringLiteral(getResourceName("llm_summarize")),
+            return new LLMSummarize(new StringLiteral(getResourceName()),
                     children.get(0));
         }
         return new LLMSummarize(children.get(0), children.get(1));

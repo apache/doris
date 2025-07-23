@@ -49,7 +49,7 @@ public class LLMTranslate extends LLMFunction {
      * constructor with 2 argument.
      */
     public LLMTranslate(Expression arg0, Expression arg1) {
-        this(new StringLiteral(getResourceName("llm_translate")), arg0, arg1);
+        this(new StringLiteral(getResourceName()), arg0, arg1);
     }
 
     /**
@@ -64,7 +64,7 @@ public class LLMTranslate extends LLMFunction {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3,
                 "LLM_TRANSLATE only accepts 2 or 3 arguments");
         if (children.size() == 2) {
-            return new LLMTranslate(new StringLiteral(getResourceName("llm_translate")),
+            return new LLMTranslate(new StringLiteral(getResourceName()),
                     children.get(0), children.get(1));
         }
         return new LLMTranslate(children.get(0), children.get(1), children.get(2));

@@ -786,14 +786,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
     public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
-    public static final String DEFAULT_LLM_TRANSLATE_RESOURCE = "default_llm_translate_resource";
-    public static final String DEFAULT_LLM_CLASSIFY_RESOURCE = "default_llm_classify_resource";
-    public static final String DEFAULT_LLM_EXTRACT_RESOURCE = "default_llm_extract_resource";
-    public static final String DEFAULT_LLM_FIXGRAMMAR_RESOURCE = "default_llm_fixgrammar_resource";
-    public static final String DEFAULT_LLM_GENERATE_RESOURCE = "default_llm_generate_resource";
-    public static final String DEFAULT_LLM_MASK_RESOURCE = "default_llm_mask_resource";
-    public static final String DEFAULT_LLM_SENTIMENT_RESOURCE = "default_llm_sentiment_resource";
-    public static final String DEFAULT_LLM_SUMMARIZE_RESOURCE = "default_llm_summarize_resource";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2766,36 +2759,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DEFAULT_LLM_RESOURCE, needForward = true,
             description = {
-                    "当函数参数或特定函数会话未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
+                    "当函数参数未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
                     "Defines the default LLM resource to be used when no specific LLM resource is specified "
-                            + "in the function arguments or a particular function session."
+                            + "in the function arguments."
             })
     public String defaultLLMResource = "";
-
-    // Specify default resource when calling a specific function
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_CLASSIFY_RESOURCE, needForward = true)
-    public String defaultLLMClassifyResource = "";
-
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_EXTRACT_RESOURCE, needForward = true)
-    public String defaultLLMExtractResource = "";
-
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_FIXGRAMMAR_RESOURCE, needForward = true)
-    public String defaultLLMFixGrammarResource = "";
-
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_GENERATE_RESOURCE, needForward = true)
-    public String defaultLLMGenerateResource = "";
-
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_MASK_RESOURCE, needForward = true)
-    public String defaultLLMMaskResource = "";
-
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_SENTIMENT_RESOURCE, needForward = true)
-    public String defaultLLMSentimentResource = "";
-
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_SUMMARIZE_RESOURCE, needForward = true)
-    public String defaultLLMSummarizeResource = "";
-
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_TRANSLATE_RESOURCE, needForward = true)
-    public String defaultLLMTranslateResource = "";
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;

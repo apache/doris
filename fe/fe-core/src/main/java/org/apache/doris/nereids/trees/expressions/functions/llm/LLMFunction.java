@@ -64,47 +64,14 @@ public abstract class LLMFunction extends ScalarFunction
      *  the current session variable will automatically allocate a resource.
      *  <p>
      *  1. First, attempt to use the user-specified argument passed to the function.
-     *  2. If not available, try using a specific function-level session, e.g., default_llm_xxx_resource.
-     *  3. If that also fails, fall back to the global default LLM resource.
+     *  2. If not available, try using the global default LLM resource.
      */
-    public static String getResourceName(String functionName) throws AnalysisException {
-        String resourceName = "";
-        switch (functionName) {
-            case "llm_classify":
-                resourceName = ConnectContext.get().getSessionVariable().defaultLLMClassifyResource;
-                break;
-            case "llm_extract":
-                resourceName = ConnectContext.get().getSessionVariable().defaultLLMExtractResource;
-                break;
-            case "llm_fixgrammar":
-                resourceName = ConnectContext.get().getSessionVariable().defaultLLMFixGrammarResource;
-                break;
-            case "llm_generate":
-                resourceName = ConnectContext.get().getSessionVariable().defaultLLMGenerateResource;
-                break;
-            case "llm_mask":
-                resourceName = ConnectContext.get().getSessionVariable().defaultLLMMaskResource;
-                break;
-            case "llm_sentiment":
-                resourceName = ConnectContext.get().getSessionVariable().defaultLLMSentimentResource;
-                break;
-            case "llm_summarize":
-                resourceName = ConnectContext.get().getSessionVariable().defaultLLMSummarizeResource;
-                break;
-            case "llm_translate":
-                resourceName = ConnectContext.get().getSessionVariable().defaultLLMTranslateResource;
-                break;
-            default:
-                throw new AnalysisException("Unknown LLM_Function: " + functionName);
-        }
+    public static String getResourceName() throws AnalysisException {
+        String resourceName = ConnectContext.get().getSessionVariable().defaultLLMResource;
         if (Strings.isNullOrEmpty(resourceName)) {
-            resourceName = ConnectContext.get().getSessionVariable().defaultLLMResource;
-            if (Strings.isNullOrEmpty(resourceName)) {
-                throw new AnalysisException("Please specify the LLM Resource in argument "
-                        + "or session variable.");
-            }
+            throw new AnalysisException("Please specify the LLM Resource in argument "
+                    + "or session variable.");
         }
-
         return resourceName;
     }
 
