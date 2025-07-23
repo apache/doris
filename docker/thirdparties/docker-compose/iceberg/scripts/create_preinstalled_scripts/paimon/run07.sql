@@ -2,10 +2,11 @@ use paimon;
 
 create database if not exists test_paimon_partition;
 
+use test_paimon_partition;
 -- ============================================
 -- 1. Create Date Partition Table
 -- ============================================
-CREATE TABLE IF NOT EXISTS sales_by_date (
+CREATE TABLE IF NOT EXISTS test_paimon_partition.sales_by_date (
     id BIGINT,
     product_name STRING,
     price DECIMAL(10,2),
@@ -19,7 +20,7 @@ TBLPROPERTIES (
     'bucket' = '2'
 );
 
-INSERT INTO sales_by_date VALUES
+INSERT INTO test_paimon_partition.sales_by_date VALUES
     (1, 'iPhone 15', 999.99, 2, DATE '2024-01-15', TIMESTAMP '2024-01-15 10:30:00'),
     (2, 'MacBook Pro', 2499.99, 1, DATE '2024-01-15', TIMESTAMP '2024-01-15 11:00:00'),
     (3, 'iPad Air', 599.99, 3, DATE '2024-01-16', TIMESTAMP '2024-01-16 09:15:00'),
@@ -29,7 +30,7 @@ INSERT INTO sales_by_date VALUES
 -- ============================================
 -- 2. Create Region Partition Table
 -- ============================================
-CREATE TABLE sales_by_region (
+CREATE TABLE test_paimon_partition.sales_by_region (
     id BIGINT,
     customer_name STRING,
     product_name STRING,
@@ -43,7 +44,7 @@ CREATE TABLE sales_by_region (
     'file.format' = 'parquet'
 );
 
-INSERT INTO sales_by_region VALUES
+INSERT INTO test_paimon_partition.sales_by_region VALUES
     (1, 'Zhang Wei', 'iPhone 15', 999.99, 1, 'China-Beijing', TIMESTAMP '2024-01-15 10:30:00'),
     (2, 'John Smith', 'MacBook Pro', 2499.99, 1, 'USA-California', TIMESTAMP '2024-01-15 11:00:00'),
     (3, 'Tanaka Taro', 'iPad Air', 599.99, 2, 'Japan-Tokyo', TIMESTAMP '2024-01-16 09:15:00');
@@ -68,7 +69,7 @@ TBLPROPERTIES (
     'file.format' = 'parquet'
 );
 
-INSERT INTO sales_by_date_region VALUES
+INSERT INTO test_paimon_partition.sales_by_date_region VALUES
     (1, 'Wang Qiang', 'iPhone 15', 999.99, 1, DATE '2024-01-15', 'China-Beijing', TIMESTAMP '2024-01-15 10:30:00'),
     (2, 'Alice Brown', 'MacBook Pro', 2499.99, 1, DATE '2024-01-15', 'USA-California', TIMESTAMP '2024-01-15 11:00:00'),
     (3, 'Yamada Taro', 'iPad Air', 599.99, 2, DATE '2024-01-15', 'Japan-Tokyo', TIMESTAMP '2024-01-15 09:15:00'),
@@ -80,7 +81,7 @@ INSERT INTO sales_by_date_region VALUES
 -- ============================================
 -- 4. Create Timestamp Partition Table (Hourly Partition)
 -- ============================================
-CREATE TABLE events_by_hour (
+CREATE TABLE test_paimon_partition.events_by_hour (
     id BIGINT,
     event_type STRING,
     user_id STRING,
@@ -96,7 +97,7 @@ TBLPROPERTIES (
 );
 
 
-INSERT INTO events_by_hour VALUES
+INSERT INTO test_paimon_partition.events_by_hour VALUES
     (1, 'login', 'user001', 'successful login', TIMESTAMP '2024-01-15 10:30:00', '2024-01-15-10'),
     (2, 'purchase', 'user002', 'bought iPhone', TIMESTAMP '2024-01-15 10:45:00', '2024-01-15-10'),
     (3, 'logout', 'user001', 'session ended', TIMESTAMP '2024-01-15 11:15:00', '2024-01-15-11'),
@@ -108,7 +109,7 @@ INSERT INTO events_by_hour VALUES
 -- ============================================
 -- 5. Create Composite Time Partition Table (Year-Month-Day Hierarchical Partition)
 -- ============================================
-CREATE TABLE logs_by_date_hierarchy (
+CREATE TABLE test_paimon_partition.logs_by_date_hierarchy (
     log_id BIGINT,
     log_level STRING,
     message STRING,
@@ -124,7 +125,7 @@ TBLPROPERTIES (
     'bucket' = '2',
     'file.format' = 'parquet'
 );
-INSERT INTO logs_by_date_hierarchy VALUES
+INSERT INTO test_paimon_partition.logs_by_date_hierarchy VALUES
     (1, 'INFO', 'Service started successfully', 'user-service', TIMESTAMP '2024-01-15 08:00:00', 2024, 1, 15),
     (2, 'WARN', 'High memory usage detected', 'order-service', TIMESTAMP '2024-01-15 10:30:00', 2024, 1, 15),
     (3, 'ERROR', 'Database connection failed', 'payment-service', TIMESTAMP '2024-01-16 09:15:00', 2024, 1, 16),
