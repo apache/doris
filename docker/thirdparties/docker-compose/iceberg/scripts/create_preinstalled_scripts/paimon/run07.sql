@@ -14,7 +14,8 @@ CREATE TABLE  test_paimon_partition.sales_by_date (
     quantity INT,
     sale_date DATE,
     created_at TIMESTAMP
-) PARTITIONED BY (sale_date)
+)
+PARTITIONED BY (sale_date)
 TBLPROPERTIES (
     'primary-key' = 'id,sale_date',
     'file.format' = 'parquet',
@@ -31,16 +32,18 @@ INSERT INTO test_paimon_partition.sales_by_date VALUES
 -- ============================================
 -- 2. Create Region Partition Table
 -- ============================================
-DROP TABLE IF EXISTS sales_by_region;
-CREATE TABLE test_paimon_partition.sales_by_region (
+DROP TABLE IF EXISTS test_paimon_partition.sales_by_region;
+CREATE TABLE sales_by_region (
     id BIGINT,
     customer_name STRING,
     product_name STRING,
     price DECIMAL(10,2),
     quantity INT,
     region STRING,
-    created_at TIMESTAMP(3)
-) PARTITIONED BY (region) WITH (
+    created_at TIMESTAMP
+)
+PARTITIONED BY (region)
+TBLPROPERTIES (
     'primary-key' = 'id,region',
     'bucket' = '2',
     'file.format' = 'parquet'
@@ -64,7 +67,7 @@ CREATE TABLE test_paimon_partition.sales_by_date_region (
     sale_date DATE,
     region STRING,
     created_at TIMESTAMP
-) USING PAIMON
+)
 PARTITIONED BY (sale_date, region)
 TBLPROPERTIES (
     'primary-key' = 'id,sale_date,region',
@@ -92,7 +95,7 @@ CREATE TABLE test_paimon_partition.events_by_hour (
     event_data STRING,
     event_timestamp TIMESTAMP,
     hour_partition STRING
-) USING PAIMON
+)
 PARTITIONED BY (hour_partition)
 TBLPROPERTIES (
     'primary-key' = 'id,hour_partition',
@@ -123,7 +126,7 @@ CREATE TABLE test_paimon_partition.logs_by_date_hierarchy (
     year_val INT,
     month_val INT,
     day_val INT
-) USING PAIMON
+)
 PARTITIONED BY (year_val, month_val, day_val)
 TBLPROPERTIES (
     'primary-key' = 'log_id,year_val,month_val,day_val',
