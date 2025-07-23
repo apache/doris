@@ -133,7 +133,7 @@ public class PaimonUtil {
                 } else {
                     sb.append(entry.getValue()).append("/");
                 }
-
+                index++;
             }
             if (sb.length() > 0) {
                 sb.deleteCharAt(sb.length() - 1);
