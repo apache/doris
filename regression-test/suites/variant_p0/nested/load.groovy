@@ -115,7 +115,6 @@ suite("variant_nested_type_load", "p0"){
         sql """
             insert into ${table_name_1} values (1, '{"nested": [{"a": 1, "c": 1.1}, {"b": "1"}]}'); 
             """
-        desc_table(table_name_1)
         sql_select_batch(table_name_1)
         sql_test_cast_to_array(table_name_1)
         sql_test_cast_to_scalar(table_name_1)
@@ -142,7 +141,6 @@ suite("variant_nested_type_load", "p0"){
         sql """
             insert into ${table_name_1} values (7, '{"nested": [{"a": 2.5}, {"c": 123.1}, {"b": "123.1"}]}');
             """
-        desc_table(table_name_1)
         sql_select_batch(table_name_1)
         sql_test_cast_to_array(table_name_1)
         sql_test_cast_to_scalar(table_name_1)
@@ -158,7 +156,6 @@ suite("variant_nested_type_load", "p0"){
         sql """
             insert into ${table_name_1} values (1, '{"nested": {"a": 2.5, "b": "123.1"}}');
             """
-        desc_table(table_name_1)
         sql_select_batch(table_name_1)
         sql_test_cast_to_array(table_name_1)
         sql_test_cast_to_scalar(table_name_1)
@@ -185,7 +182,6 @@ suite("variant_nested_type_load", "p0"){
         sql """
             insert into ${table_name_1} values (7, '{"nested": {"a": 2.5, "b": "123.1", "c": 123.1}}');
             """
-        desc_table(table_name_1)
         sql_select_batch(table_name_1)
         sql_test_cast_to_array(table_name_1)
         sql_test_cast_to_scalar(table_name_1)

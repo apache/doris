@@ -108,8 +108,7 @@ Status process_dictionary(SchemaCloudDictionary& dict,
                           const google::protobuf::RepeatedPtrField<ItemPB>& items,
                           const std::function<bool(const ItemPB&)>& filter,
                           const std::function<void(int32_t)>& add_dict_key_fn,
-                          RowsetMetaCloudPB* rowset_meta,
-                          bool enable_variant_flatten_nested = false) {
+                          RowsetMetaCloudPB* rowset_meta) {
     if (items.empty()) {
         return Status::OK();
     }
@@ -124,7 +123,7 @@ Status process_dictionary(SchemaCloudDictionary& dict,
         return output;
     };
 
-    google::protobuf::RepeatedPtrField<ItemPB> none_ext_items;
+    google::protobuf::RepeatedPtrField<ItemPB> none_extracted_items;
     std::unordered_map<std::string, int> reversed_dict;
     for (const auto& [key, val] : item_dict) {
         reversed_dict[serialize_fn(val)] = key;
@@ -133,7 +132,7 @@ Status process_dictionary(SchemaCloudDictionary& dict,
     for (const auto& item : items) {
         if (filter(item)) {
             // Filter none extended items, mainly extended columns and extended indexes
-            *none_ext_items.Add() = item;
+            *none_extracted_items.Add() = item;
             continue;
         }
         const std::string serialized_key = serialize_fn(item);
@@ -150,7 +149,7 @@ Status process_dictionary(SchemaCloudDictionary& dict,
     }
     // clear extended items to prevent writing them to fdb
     if (result != nullptr) {
-        result->Swap(&none_ext_items);
+        result->Swap(&none_extracted_items);
     }
     return Status::OK();
 }
@@ -175,8 +174,7 @@ Status SchemaCloudDictionaryCache::replace_schema_to_dict_keys(int64_t index_id,
     auto column_dict_adder = [&](int32_t key) { dict_list->add_column_dict_key_list(key); };
     RETURN_IF_ERROR(process_dictionary<ColumnPB>(
             *dict, dict->column_dict(), rowset_meta->mutable_tablet_schema()->mutable_column(),
-            rowset_meta->tablet_schema().column(), column_filter, column_dict_adder, rowset_meta,
-            rowset_meta->tablet_schema().enable_variant_flatten_nested()));
+            rowset_meta->tablet_schema().column(), column_filter, column_dict_adder, rowset_meta));
 
     // Process index dictionary: add keys for indexes with an empty index_suffix_name.
     auto index_filter = [&](const doris::TabletIndexPB& index_pb) -> bool {
