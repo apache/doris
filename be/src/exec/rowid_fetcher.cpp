@@ -76,6 +76,7 @@
 #include "vec/exec/scan/file_scanner.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/jsonb/serialize.h"
+#include "semaphore"
 
 namespace doris {
 

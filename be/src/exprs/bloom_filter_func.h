@@ -48,9 +48,15 @@ public:
             // m is the number of bits we would need to get the fpp specified
             double m = -K * (double)runtime_size / std::log(1 - std::pow(FPP, 1.0 / K));
 
+#ifdef __APPLE__
+            constexpr double LN2 = 0.693147180559945309417;
+#else
+            constexpr double LN2 = std::numbers::ln2;
+#endif
+
             // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
             int log_filter_size =
-                    std::max(0, (int)(std::ceil(std::log(m / 8) / std::numbers::ln2)));
+                    std::max(0, (int)(std::ceil(std::log(m / 8) / LN2)));
             auto be_calculate_size = (((int64_t)1) << log_filter_size);
             // if FE do use ndv stat to predict the bf size, BE only use the row count. FE have more
             // exactly row count stat. which one is min is more correctly.
