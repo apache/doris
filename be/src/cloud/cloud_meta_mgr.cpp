@@ -820,6 +820,10 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         // add all rowsets directly, warmup async
                         tablet->add_rowsets(std::move(new_rowsets), version_overlap, wlock, true);
                         for (auto rs : overlapping_rowsets) {
+                            if (rs->version().second == 1) {
+                                // [0-1] rowset is empty for each tablet, skip it
+                                continue;
+                            }
                             // the rowset will be added to tablet meta in the callback method after warm up
                             tablet->warm_up_rowset_unlocked(rs, true, true);
                         }
