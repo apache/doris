@@ -74,6 +74,9 @@ enum class TieBreakingMode {
     Bankers, // use banker's rounding
 };
 
+template <auto>
+struct always_false : std::false_type {};
+
 template <PrimitiveType Type, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode, typename U>
 struct IntegerRoundingComputation {
@@ -494,7 +497,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            static_assert(false);
+            static_assert(always_false<T>::value, "Unsupported");
         }
     }
 
@@ -572,7 +575,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            static_assert(false);
+            static_assert(always_false<T>::value, "Unsupported");
         }
     }
 
@@ -655,7 +658,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            static_assert(false);
+            static_assert(always_false<T>::value, "Unsupported");
         }
     }
 };
