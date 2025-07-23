@@ -46,6 +46,7 @@ bvar::Adder<uint64_t> g_file_cache_download_submitted_num("file_cache_download_s
 bvar::Adder<uint64_t> g_file_cache_download_finished_num("file_cache_download_finished_num");
 bvar::Adder<uint64_t> g_file_cache_download_failed_num("file_cache_download_failed_num");
 bvar::Adder<uint64_t> block_file_cache_downloader_task_total("file_cache_downloader_queue_total");
+bvar::Adder<uint64_t> g_file_cache_download_submitted_num("file_cache_download_submitted_num");
 
 FileCacheBlockDownloader::FileCacheBlockDownloader(CloudStorageEngine& engine) : _engine(engine) {
     _poller = std::thread(&FileCacheBlockDownloader::polling_download_task, this);
