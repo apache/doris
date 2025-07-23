@@ -20,7 +20,7 @@
 #include <sys/types.h>
 
 #include <cstdint>
-#include <memory>
+#include <unordered_map>
 
 #include "column_reader.h"
 #include "common/be_mock_util.h"
@@ -49,12 +49,12 @@ public:
 
 #ifdef BE_TEST
     vectorized::IColumn::Ptr get_materialized_column() const { return _materialized_column_ptr; }
-    const std::map<uint64_t, uint64_t>& get_row_id_to_idx() const { return _row_id_to_idx; }
+    const std::unordered_map<size_t, size_t>& get_row_id_to_idx() const { return _row_id_to_idx; }
 #endif
 private:
     vectorized::IColumn::Ptr _materialized_column_ptr;
     // segment rowid to index in column.
-    std::map<uint64_t, uint64_t> _row_id_to_idx;
+    std::unordered_map<size_t, size_t> _row_id_to_idx;
     doris::vectorized::IColumn::Filter _filter;
     size_t _size = 0;
     size_t _max_ordinal = 0;

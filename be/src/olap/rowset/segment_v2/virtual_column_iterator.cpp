@@ -17,6 +17,7 @@
 
 #include "virtual_column_iterator.h"
 
+#include <cstddef>
 #include <cstring>
 #include <memory>
 
@@ -34,7 +35,6 @@ Status VirtualColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-// TODO(zhiqiang): What if input is empty?
 void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr column,
                                                     std::unique_ptr<std::vector<uint64_t>> labels) {
     DCHECK(labels->size() == column->size()) << "labels size: " << labels->size()
@@ -50,25 +50,24 @@ void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr col
         _max_ordinal = 0;
         return;
     }
-    std::vector<size_t> order(n);
-    // global_row_id_to_idx:
+    std::vector<std::pair<size_t, size_t>> order(n);
     // {5:0, 4:1, 1:2, 10:3, 7:4, 2:5}
-    std::map<size_t, size_t> global_row_id_to_idx;
     for (size_t i = 0; i < n; ++i) {
-        order[i] = labels_ref[i];
-        global_row_id_to_idx[labels_ref[i]] = i;
+        order[i] = {labels_ref[i], i};
     }
-
-    // orders: [1,2,4,5,7,10]
-    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return a < b; });
-    _max_ordinal = order[n - 1];
+    // Sort by labels, so we can scatter the column by global row id.
+    // After sort, order will be:
+    // order: {1-2, 2-5, 4-1, 5-0, 7-4, 10-3}
+    std::sort(order.begin(), order.end(),
+              [&](const auto& a, const auto& b) { return a.first < b.first; });
+    _max_ordinal = order[n - 1].first;
     // 2. scatter column
     auto scattered_column = column->clone_empty();
     // We need a mapping from global row id to local index in the materialized column.
     _row_id_to_idx.clear();
     for (size_t i = 0; i < n; ++i) {
-        size_t global_idx = order[i];
-        size_t original_col_idx = global_row_id_to_idx[global_idx];
+        size_t global_idx = order[i].first;        // global row id
+        size_t original_col_idx = order[i].second; // original index in the column
         _row_id_to_idx[global_idx] = i;
         scattered_column->insert_from(*column, original_col_idx);
     }

@@ -548,8 +548,6 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                         }
                         it = _common_expr_ctxs_push_down.erase(it);
                     }
-                    VLOG_DEBUG << fmt::format("Inverted index evaluated for expr: {}",
-                                              (*it)->root()->debug_string());
                 } else {
                     ++it;
                 }
@@ -2066,7 +2064,7 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    // Append virtual columns to the end of block before getting each batch.
+    // Replace virtual columns with ColumnNothing at the begining of each next_batch call.
     _init_virtual_columns(block);
 
     auto status = [&]() {
@@ -2480,15 +2478,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
             std::string vir_cid_to_idx_in_block_msg =
                     fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
-            LOG_ERROR(
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
                     "Column in idx {} is nothing, block columns {}, normal_columns {}, "
                     "vir_cid_to_idx_in_block_msg {}",
                     idx, block->columns(), _schema->num_column_ids(), vir_cid_to_idx_in_block_msg);
-
-            return Status::InternalError(
-                    "Column in idx {} is nothing, block columns {}, normal_columns {}, "
-                    "virtual_columns {}",
-                    idx, block->columns(), _schema->num_column_ids(), _virtual_column_exprs.size());
         } else if (entry.column->size() != rows) {
             throw doris::Exception(
                     ErrorCode::INTERNAL_ERROR,
@@ -2794,19 +2788,12 @@ Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* bl
         auto column_expr = cid_and_expr.second;
         size_t idx_in_block = _vir_cid_to_idx_in_block[cid];
         if (block->columns() <= idx_in_block) {
-            LOG_ERROR("Block columns: {}, virtual column idx {}", block->columns(), idx_in_block);
             return Status::InternalError(
                     "Virtual column index {} is out of range, block columns {}, "
                     "virtual columns size {}, virtual column expr {}",
                     idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
                     column_expr->root()->debug_string());
-
         } else if (block->get_by_position(idx_in_block).column.get() == nullptr) {
-            LOG_ERROR(
-                    "Virtual column idx {} is null, block columns {}, virtual columns size {}, "
-                    "virtual column expr {}",
-                    idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
-                    column_expr->root()->debug_string());
             return Status::InternalError(
                     "Virtual column index {} is null, block columns {}, virtual columns size {}, "
                     "virtual column expr {}",
