@@ -46,7 +46,7 @@ public class LLMFixGrammar extends LLMFunction {
      * constructor with 1 argument.
      */
     public LLMFixGrammar(Expression arg) {
-        this(new StringLiteral(getResourceName("llm_fixgrammar")), arg);
+        this(new StringLiteral(getResourceName()), arg);
     }
 
     /**
@@ -61,7 +61,7 @@ public class LLMFixGrammar extends LLMFunction {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2,
                 "LLM_FIXGRAMMAR only accepts 1 or 2 arguments");
         if (children.size() == 1) {
-            return new LLMFixGrammar(new StringLiteral(getResourceName("llm_fixgrammar")), children.get(0));
+            return new LLMFixGrammar(new StringLiteral(getResourceName()), children.get(0));
         }
         return new LLMFixGrammar(children.get(0), children.get(1));
     }

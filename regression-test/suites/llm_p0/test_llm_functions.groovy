@@ -53,19 +53,6 @@ suite("test_llm_functions") {
 
     }
 
-    // Test a specific function resource
-    try {
-        sql """set query_timeout=5;"""
-        sql """set default_llm_summarize_resource='${resourceName}';"""
-        test {
-            sql """${summarize_query}"""
-            exception "timeout when waiting for send fragments rpc, query timeout:5"
-        }
-    } finally {
-        sql """UNSET VARIABLE query_timeout;"""
-        sql """UNSET VARIABLE default_llm_summarize_resource;"""
-    }
-
     // test the default resource
     try {
         sql """set query_timeout=5;"""

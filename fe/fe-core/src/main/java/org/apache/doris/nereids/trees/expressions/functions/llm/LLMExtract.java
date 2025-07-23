@@ -50,7 +50,7 @@ public class LLMExtract extends LLMFunction {
      * Constructor with 2 arguments
      */
     public LLMExtract(Expression arg0, Expression arg1) {
-        this(new StringLiteral(getResourceName("llm_extract")), arg0, arg1);
+        this(new StringLiteral(getResourceName()), arg0, arg1);
     }
 
     /**
@@ -65,7 +65,7 @@ public class LLMExtract extends LLMFunction {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3,
                 "LLM_EXTRACT only accepts 2 or 3 arguments");
         if (children.size() == 2) {
-            return new LLMExtract(new StringLiteral(getResourceName("llm_extract")),
+            return new LLMExtract(new StringLiteral(getResourceName()),
                     children.get(0), children.get(1));
         }
         return new LLMExtract(children.get(0), children.get(1), children.get(2));

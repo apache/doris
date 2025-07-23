@@ -50,7 +50,7 @@ public class LLMClassify extends LLMFunction {
      * Constructor with 2 arguments
      */
     public LLMClassify(Expression arg0, Expression arg1) {
-        this(new StringLiteral(getResourceName("llm_classify")), arg0, arg1);
+        this(new StringLiteral(getResourceName()), arg0, arg1);
     }
 
     /**
@@ -65,7 +65,7 @@ public class LLMClassify extends LLMFunction {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3,
                 "LLM_CLASSIFY only accepts 2 or 3 arguments");
         if (children.size() == 2) {
-            return new LLMClassify(new StringLiteral(getResourceName("llm_classify")),
+            return new LLMClassify(new StringLiteral(getResourceName()),
                     children.get(0), children.get(1));
         }
         return new LLMClassify(children.get(0), children.get(1), children.get(2));

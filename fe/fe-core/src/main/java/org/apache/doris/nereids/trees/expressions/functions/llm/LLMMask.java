@@ -50,7 +50,7 @@ public class LLMMask extends LLMFunction {
      * Constructor with 2 arguments
      */
     public LLMMask(Expression arg0, Expression arg1) {
-        this(new StringLiteral(getResourceName("llm_mask")), arg0, arg1);
+        this(new StringLiteral(getResourceName()), arg0, arg1);
     }
 
     /**
@@ -65,7 +65,7 @@ public class LLMMask extends LLMFunction {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3,
                 "LLM_Mask only accepts 2 or 3 arguments");
         if (children.size() == 2) {
-            return new LLMMask(new StringLiteral(getResourceName("llm_mask")),
+            return new LLMMask(new StringLiteral(getResourceName()),
                     children.get(0), children.get(1));
         }
         return new LLMMask(children.get(0), children.get(1), children.get(2));

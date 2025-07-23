@@ -46,7 +46,7 @@ public class LLMGenerate extends LLMFunction {
      * constructor with 1 argument.
      */
     public LLMGenerate(Expression arg) {
-        this(new StringLiteral(getResourceName("llm_generate")), arg);
+        this(new StringLiteral(getResourceName()), arg);
     }
 
     /**
@@ -61,7 +61,7 @@ public class LLMGenerate extends LLMFunction {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2,
                 "LLM_GENERATE only accepts 1 or 2 arguments");
         if (children.size() == 1) {
-            return new LLMGenerate(new StringLiteral(getResourceName("llm_generate")),
+            return new LLMGenerate(new StringLiteral(getResourceName()),
                     children.get(0));
         }
         return new LLMGenerate(children.get(0), children.get(1));
