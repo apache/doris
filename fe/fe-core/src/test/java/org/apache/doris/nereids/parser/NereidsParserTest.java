@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -53,6 +54,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -897,6 +899,34 @@ public class NereidsParserTest extends ParserTestBase {
                 Assertions.assertEquals(offResult,
                         ((StringLikeLiteral) nereidsParser.parseExpression(sql)).getStringValue());
             }
+        }
+    }
+
+    @Test
+    public void testComment() {
+        NereidsParser parser = new NereidsParser();
+
+        List<String> validComments = Lists.newArrayList(
+                "SELECT 1 as a /* this is comment */, 1",
+                "SELECT 1 as a /* this is comment /* */ */, 1",
+                "SELECT 1 as a /* this is comment /* */, 1",
+                "SELECT 1 as a /* this is comment -- */, 1",
+                "SELECT 1 as a -- this is comment\n, 1",
+                "SELECT 1 as a, 1 -- this is comment\\n, 1"
+        );
+
+        for (String sql : validComments) {
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertEquals(2, ((UnboundOneRowRelation) logicalPlan.child(0)).getProjects().size(), sql);
+        }
+
+        List<String> invalidComments = Lists.newArrayList(
+                "SELECT 1 as a /* this is comment */*/, 1",
+                "SELECT 1 as a /* this is comment, 1"
+        );
+
+        for (String sql : invalidComments) {
+            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql), sql);
         }
     }
 }

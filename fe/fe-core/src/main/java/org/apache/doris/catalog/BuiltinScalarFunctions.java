@@ -130,7 +130,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
@@ -140,6 +139,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Csc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
@@ -613,7 +613,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTo.class, "convert_to"),
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
-            scalar(Cosec.class, "cosec"),
+            scalar(Csc.class, "csc"),
             scalar(Cosh.class, "cosh"),
             scalar(Cot.class, "cot"),
             scalar(CosineDistance.class, "cosine_distance"),

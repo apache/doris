@@ -348,6 +348,8 @@ public:
 
     std::unordered_map<int64_t, std::unique_ptr<TaskWorkerPoolIf>>* workers;
 
+    int64_t get_compaction_num_per_round() const { return _compaction_num_per_round; }
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -570,6 +572,8 @@ private:
     scoped_refptr<Thread> _check_delete_bitmap_score_thread;
 
     int64_t _last_get_peers_replica_backends_time_ms {0};
+
+    int64_t _compaction_num_per_round {1};
 };
 
 // lru cache for create tabelt round robin in disks

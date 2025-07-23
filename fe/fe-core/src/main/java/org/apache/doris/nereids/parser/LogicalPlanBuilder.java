@@ -333,6 +333,7 @@ import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
 import org.apache.doris.nereids.DorisParser.ShowAllPropertiesContext;
 import org.apache.doris.nereids.DorisParser.ShowAlterTableContext;
 import org.apache.doris.nereids.DorisParser.ShowAnalyzeContext;
+import org.apache.doris.nereids.DorisParser.ShowAnalyzeTaskContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackupContext;
@@ -723,6 +724,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
@@ -1273,6 +1275,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("tableName and tableId cannot both be null");
         }
         Optional<String> labelName = (ctx.labelName == null) ? Optional.empty() : Optional.of(ctx.labelName.getText());
+        Optional<String> branchName = Optional.empty();
+        if (ctx.optSpecBranch() != null) {
+            branchName = Optional.of(ctx.optSpecBranch().name.getText());
+        }
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         // TODO visit partitionSpecCtx
         LogicalPlan plan = visitQuery(ctx.query());
@@ -1301,7 +1307,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         LogicalPlan command;
         if (isOverwrite) {
-            command = new InsertOverwriteTableCommand(sink, labelName, cte);
+            command = new InsertOverwriteTableCommand(sink, labelName, cte, branchName);
         } else {
             if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()
                     && sink.child() instanceof InlineTable
@@ -1311,7 +1317,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 //  Now handle it as `insert into select`(a separate load job), should fix it as the legacy.
                 command = new BatchInsertIntoTableCommand(sink);
             } else {
-                command = new InsertIntoTableCommand(sink, labelName, Optional.empty(), cte);
+                command = new InsertIntoTableCommand(sink, labelName, Optional.empty(), cte, true, branchName);
             }
         }
         return withExplain(command, ctx.explain());
@@ -1920,7 +1926,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> labelParts = visitMultipartIdentifier(ctx.lableName);
         String labelName = null;
         String labelDbName = null;
-        if (ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
+        if (ConnectContext.get() != null && ConnectContext.get().getDatabase() != null
+                && ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
             throw new AnalysisException("Current database is not set.");
         } else if (labelParts.size() == 1) {
             labelName = labelParts.get(0);
@@ -4848,6 +4855,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowAuthors(ShowAuthorsContext ctx) {
         return new ShowAuthorsCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowAnalyzeTask(ShowAnalyzeTaskContext ctx) {
+        long jobId = Long.parseLong(ctx.jobId.getText());
+        return new ShowAnalyzeTaskCommand(jobId);
     }
 
     @Override

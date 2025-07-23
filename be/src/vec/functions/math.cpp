@@ -321,13 +321,13 @@ double sec(double x) {
 }
 using FunctionSec = FunctionMathUnary<UnaryFunctionPlain<SecName, sec>>;
 
-struct CosecName {
-    static constexpr auto name = "cosec";
+struct CscName {
+    static constexpr auto name = "csc";
 };
-double cosec(double x) {
+double csc(double x) {
     return 1.0 / std::sin(x);
 }
-using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CosecName, cosec>>;
+using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CscName, csc>>;
 
 template <typename A>
 struct RadiansImpl {
