@@ -25,6 +25,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "common/status.h"
 #include "runtime/decimalv2_value.h"
 #include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -50,13 +51,9 @@ struct AggregateFunctionAvgWeightedData {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        // remove those wrong implementations after upgrade
-        // this function will only support double input
-        if constexpr (T == TYPE_DECIMALV2) {
-            DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
-            data_sum = data_sum + (double(value) * weight_val);
-        } else if constexpr (is_decimal(T)) {
-            data_sum += double(data_val.value) * weight_val;
+        if constexpr (is_decimal(T)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Decimal type is not supported in avg_weighted");
         } else {
             data_sum = data_sum + (double(data_val) * weight_val);
         }

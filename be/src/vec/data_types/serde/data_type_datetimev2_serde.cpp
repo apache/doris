@@ -31,7 +31,6 @@
 #include "util/string_parser.hpp"
 #include "vec/columns/column_const.h"
 #include "vec/common/int_exp.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
