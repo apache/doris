@@ -60,8 +60,8 @@ AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
     mock_agg_fn_evaluator->_function = AggregateFunctionSimpleFactory::instance().get(
             agg_fn_name, args_types, result_nullable, BeExecVersionManager::get_newest_version(),
             {.enable_decimal256 = false,
-             .column_names = {},
-             .is_window_function = is_window_function});
+             .is_window_function = is_window_function,
+             .column_names = {}});
     EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
     for (int i = 0; i < args_types.size(); i++) {
         mock_agg_fn_evaluator->_input_exprs_ctxs.push_back(

@@ -161,6 +161,7 @@ struct creator_without_type {
     template <typename AggregateFunctionTemplate, typename... TArgs>
     static AggregateFunctionPtr create_ignore_nullable(const DataTypes& argument_types_,
                                                        const bool /*result_is_nullable*/,
+                                                       const AggregateFunctionAttr& /*attr*/,
                                                        TArgs&&... args) {
         std::unique_ptr<IAggregateFunction> result = std::make_unique<AggregateFunctionTemplate>(
                 std::forward<TArgs>(args)..., argument_types_);

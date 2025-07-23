@@ -212,15 +212,15 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     AggregateFunctionSimpleFactory::result_nullable_by_foreach(_data_type),
                     state->be_exec_version(),
                     {.enable_decimal256 = state->enable_decimal256(),
-                     .column_names = std::move(column_names),
-                     .is_window_function = _is_window_function});
+                     .is_window_function = _is_window_function,
+                     .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types, _data_type->is_nullable(),
                     state->be_exec_version(),
                     {.enable_decimal256 = state->enable_decimal256(),
-                     .column_names = std::move(column_names),
-                     .is_window_function = _is_window_function});
+                     .is_window_function = _is_window_function,
+                     .column_names = std::move(column_names)});
         }
     }
     if (_function == nullptr) {

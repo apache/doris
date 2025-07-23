@@ -114,8 +114,8 @@ TEST(AggTest, window_function_test) {
     bool is_window_function = true;
     auto agg_function = factory.get("group_bit_or", data_types, true, -1,
                                     {.enable_decimal256 = false,
-                                     .column_names = {},
-                                     .is_window_function = is_window_function});
+                                     .is_window_function = is_window_function,
+                                     .column_names = {}});
     auto size = agg_function->size_of_data();
     EXPECT_EQ(size, 6);
     size = agg_function->align_of_data();
@@ -124,8 +124,8 @@ TEST(AggTest, window_function_test) {
     is_window_function = false;
     auto agg_function2 = factory.get("group_bit_or", data_types, true, -1,
                                      {.enable_decimal256 = false,
-                                      .column_names = {},
-                                      .is_window_function = is_window_function});
+                                      .is_window_function = is_window_function,
+                                      .column_names = {}});
     auto size2 = agg_function2->size_of_data();
     EXPECT_EQ(size2, 2);
     size2 = agg_function2->align_of_data();
@@ -141,21 +141,21 @@ TEST(AggTest, window_function_test2) {
     bool is_window_function = true;
     auto agg_function_sum = factory.get("sum", {std::make_shared<DataTypeInt32>()}, true, -1,
                                         {.enable_decimal256 = false,
-                                         .column_names = {},
-                                         .is_window_function = is_window_function});
+                                         .is_window_function = is_window_function,
+                                         .column_names = {}});
 
     auto agg_function_group =
             factory.get("group_bit_or", {make_nullable(std::make_shared<DataTypeInt8>())}, true, -1,
                         {.enable_decimal256 = false,
-                         .column_names = {},
-                         .is_window_function = is_window_function});
+                         .is_window_function = is_window_function,
+                         .column_names = {}});
 
     auto agg_function_topn = factory.get(
             "topn", {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()}, true,
             -1,
             {.enable_decimal256 = false,
-             .column_names = {},
-             .is_window_function = is_window_function});
+             .is_window_function = is_window_function,
+             .column_names = {}});
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
     _agg_functions.push_back(agg_function_sum);
     _agg_functions.push_back(agg_function_group);

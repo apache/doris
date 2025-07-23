@@ -215,8 +215,8 @@ struct ArrayAggregateImpl {
                 static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
         auto function = Function::create(data_type_array->get_nested_type(),
                                          {.enable_decimal256 = enable_decimal256,
-                                          .column_names = {},
-                                          .is_window_function = false});
+                                          .is_window_function = false,
+                                          .column_names = {}});
         if (function) {
             return function->get_return_type();
         } else {
@@ -278,8 +278,8 @@ struct ArrayAggregateImpl {
         static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
         auto function = Function::create(type, {.enable_decimal256 = enable_decimal256,
-                                                .column_names = {},
-                                                .is_window_function = false});
+                                                .is_window_function = false,
+                                                .column_names = {}});
         auto guard = AggregateFunctionGuard(function.get());
         Arena arena;
         auto nullable_column = make_nullable(data->get_ptr());

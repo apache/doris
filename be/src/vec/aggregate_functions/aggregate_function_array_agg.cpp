@@ -30,8 +30,8 @@ AggregateFunctionPtr do_create_agg_function_collect(const DataTypes& argument_ty
                                                     const AggregateFunctionAttr& attr) {
     if (argument_types[0]->is_nullable()) {
         return creator_without_type::create_ignore_nullable<
-                AggregateFunctionArrayAgg<AggregateFunctionArrayAggData<T>>>(argument_types,
-                                                                             result_is_nullable);
+                AggregateFunctionArrayAgg<AggregateFunctionArrayAggData<T>>>(
+                argument_types, result_is_nullable, attr);
     } else {
         return creator_without_type::create<
                 AggregateFunctionCollect<AggregateFunctionCollectListData<T, false>, false>>(
