@@ -1078,37 +1078,40 @@ Status BaseTablet::generate_new_block_for_partial_update(
             //         before, even the `strict_mode` is true (which requires partial update
             //         load job can't insert new keys), this "new" key MUST be written into
             //         the new generated segment file.
-            bool use_default = false;
             bool new_row_delete_sign =
                     (new_block_delete_signs != nullptr && new_block_delete_signs[idx]);
-            bool old_row_delete_sign = (old_block_delete_signs != nullptr &&
-                                        old_block_delete_signs[read_index_old[idx]] != 0);
-            if (old_row_delete_sign) {
-                if (!rowset_schema->has_sequence_col()) {
-                    use_default = true;
-                } else if (have_input_seq_column || !rs_column.is_seqeunce_col()) {
-                    // to keep the sequence column value not decreasing, we should read values of seq column
-                    // from old rows even if the old row is deleted when the input don't specify the sequence column, otherwise
-                    // it may cause the merge-on-read based compaction to produce incorrect results
-                    use_default = true;
-                }
-            }
-
             if (new_row_delete_sign) {
                 mutable_column->insert_default();
-            } else if (use_default) {
-                if (rs_column.has_default_value()) {
-                    mutable_column->insert_from(*default_value_block.get_by_position(i).column, 0);
-                } else if (rs_column.is_nullable()) {
-                    assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                            mutable_column.get())
-                            ->insert_null_elements(1);
-                } else {
-                    mutable_column->insert(rs_column.get_vec_type()->get_default());
-                }
             } else {
-                mutable_column->insert_from(*old_block.get_by_position(i).column,
-                                            read_index_old[idx]);
+                bool use_default = false;
+                bool old_row_delete_sign = (old_block_delete_signs != nullptr &&
+                                            old_block_delete_signs[read_index_old.at(idx)] != 0);
+                if (old_row_delete_sign) {
+                    if (!rowset_schema->has_sequence_col()) {
+                        use_default = true;
+                    } else if (have_input_seq_column || !rs_column.is_seqeunce_col()) {
+                        // to keep the sequence column value not decreasing, we should read values of seq column
+                        // from old rows even if the old row is deleted when the input don't specify the sequence column, otherwise
+                        // it may cause the merge-on-read based compaction to produce incorrect results
+                        use_default = true;
+                    }
+                }
+
+                if (use_default) {
+                    if (rs_column.has_default_value()) {
+                        mutable_column->insert_from(*default_value_block.get_by_position(i).column,
+                                                    0);
+                    } else if (rs_column.is_nullable()) {
+                        assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                                mutable_column.get())
+                                ->insert_null_elements(1);
+                    } else {
+                        mutable_column->insert(rs_column.get_vec_type()->get_default());
+                    }
+                } else {
+                    mutable_column->insert_from(*old_block.get_by_position(i).column,
+                                                read_index_old[idx]);
+                }
             }
         }
     }
