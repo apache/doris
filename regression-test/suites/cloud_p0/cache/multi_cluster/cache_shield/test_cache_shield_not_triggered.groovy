@@ -175,11 +175,11 @@ suite('test_cache_shield_not_triggered', 'docker') {
         clearFileCacheOnAllBackends()
         sleep(15000)
 
-        sql """insert into test values (1, '{"a" : 1.0}')"""
-        sql """insert into test values (2, '{"a" : 111.1111}')"""
-        sql """insert into test values (3, '{"a" : "11111"}')"""
-        sql """insert into test values (4, '{"a" : 1111111111}')"""
-        sql """insert into test values (5, '{"a" : 1111.11111}')"""
+        sql """insert into test values (1, '{"a" : 1.0}')"""        // [2-2]
+        sql """insert into test values (2, '{"a" : 111.1111}')"""   // [3-3]
+        sql """insert into test values (3, '{"a" : "11111"}')"""    // [4-4]
+        sql """insert into test values (4, '{"a" : 1111111111}')""" // [5-5]
+        sql """insert into test values (5, '{"a" : 1111.11111}')""" // [6-6]
 
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
@@ -188,15 +188,16 @@ suite('test_cache_shield_not_triggered', 'docker') {
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
 
         // switch to source cluster
-        // write data, then compaction, which can't trigger the cache shield
-        // due to new synced rowsets is not overlap with existing rowsets
+        // write data, then compaction, which will not trigger the cache shield
         sql """use @${clusterName1}"""
-        sql """insert into test values (6, '{"a" : 1111.11111}')"""
-        trigger_and_wait_compaction("test", "cumulative")
-        sql """insert into test values (7, '{"a" : 1111.11111}')"""
+        sql """insert into test values (6, '{"a" : 1111.11111}')""" // [7-7]
+        trigger_and_wait_compaction("test", "cumulative")           // [2-7]
+        sql """insert into test values (7, '{"a" : 1111.11111}')""" // [8-8]
         sleep(2000)
 
         // switch to read cluster, trigger a sync rowset
+        // max version of read cluster is 6, but we synced [2-7] and [8-8],
+        // the file cache shield is not triggered
         sql """use @${clusterName2}"""
         sql """set enable_profile=true"""
         qt_sql """select * from test"""
