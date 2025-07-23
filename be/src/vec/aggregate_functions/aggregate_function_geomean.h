@@ -41,13 +41,13 @@ struct AggregateFunctionGeomeanData {
     Int32 count_negative = 0;
     Int32 count_positive = 0;
     Float64 sum_log_abs = 0.0;
-    
+
     void write(BufferWritable& buf) const {
-            buf.write_binary(count_positive);
-            buf.write_binary(count_negative);
-            buf.write_binary(has_zero);
-            buf.write_binary(sum_log_abs);
-        }
+        buf.write_binary(count_positive);
+        buf.write_binary(count_negative);
+        buf.write_binary(has_zero);
+        buf.write_binary(sum_log_abs);
+    }
 
     void read(BufferReadable& buf) {
         buf.read_binary(count_positive);
@@ -62,7 +62,7 @@ struct AggregateFunctionGeomeanData {
         has_zero = false;
         sum_log_abs = 0.0;
     }
-    
+
     void merge(const AggregateFunctionGeomeanData& rhs) {
         if (has_zero || rhs.has_zero || (rhs.count_negative + rhs.count_positive) == 0) {
             return;
