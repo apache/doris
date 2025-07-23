@@ -41,7 +41,7 @@ import java.util.List;
  * AggregateFunction 'geomean'.
  */
 public class Geomean extends NullableAggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements BinaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
@@ -73,7 +73,7 @@ public class Geomean extends NullableAggregateFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
         DataType dataType = getArgument(0).getDataType();
-        if (!dataType.isNumericType() && !dataType.isNullType() || dataType.isOnlyMetricType()) {
+        if ((!dataType.isNumericType() && !dataType.isNullType()) || dataType.isOnlyMetricType()) {
             throw new AnalysisException("GEOMEAN requires numeric parameter: " + toSql());
         }
     }

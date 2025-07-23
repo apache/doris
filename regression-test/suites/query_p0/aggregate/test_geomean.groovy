@@ -17,7 +17,12 @@
 
 suite("test_geomean") {
     sql """ DROP TABLE IF EXISTS test_geomean_int """
+    sql """ DROP TABLE IF EXISTS test_geomean_bigint """
+    sql """ DROP TABLE IF EXISTS test_geomean_smallint """
+    sql """ DROP TABLE IF EXISTS test_geomean_tinyint """
+    sql """ DROP TABLE IF EXISTS test_geomean_float """
     sql """ DROP TABLE IF EXISTS test_geomean_double """
+    sql """ DROP TABLE IF EXISTS test_geomean_single """
 
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """
@@ -27,6 +32,50 @@ suite("test_geomean") {
         CREATE TABLE test_geomean_int (
           `id` INT,
           `value` INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY (`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        CREATE TABLE test_geomean_bigint (
+          `id` INT,
+          `value` BIGINT
+        ) ENGINE=OLAP
+        DUPLICATE KEY (`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        CREATE TABLE test_geomean_smallint (
+          `id` INT,
+          `value` SMALLINT
+        ) ENGINE=OLAP
+        DUPLICATE KEY (`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        CREATE TABLE test_geomean_tinyint (
+          `id` INT,
+          `value` TINYINT
+        ) ENGINE=OLAP
+        DUPLICATE KEY (`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        CREATE TABLE test_geomean_float (
+          `id` INT,
+          `value` FLOAT
         ) ENGINE=OLAP
         DUPLICATE KEY (`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
@@ -45,199 +94,238 @@ suite("test_geomean") {
           "replication_allocation" = "tag.location.default: 1"
         );
     """
+    sql """
+        CREATE TABLE test_geomean_single (
+          `id` INT,
+          `value` DOUBLE
+        ) ENGINE=OLAP
+        DUPLICATE KEY (`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+        );
+    """
 
     // Test empty table
-    // agg function without group by should return NULL
-    qt_sql_empty_1 "SELECT GEOMEAN(value) FROM test_geomean_int"
-    // agg function with group by should return empty set
-    qt_sql_empty_2 "SELECT GEOMEAN(value) FROM test_geomean_int GROUP BY id"
+    qt_sql_empty_1 """ SELECT GEOMEAN(value) FROM test_geomean_int """
+    // Expected: NULL (no non-NULL values)
 
     // Insert test data for INT
-    sql """
-        INSERT INTO test_geomean_int VALUES
-        (1, 2),
-        (1, 4),
-        (1, 8),
-        (2, 0),
-        (2, 16),
-        (3, 2147483647), -- Max INT
-        (4, 1),
-        (5, -1), -- Negative value
-        (6, -2),
-        (6, -8), -- Multiple negative values
-        (7, 0),
-        (7, -1); -- Zero and negative
+    sql """ INSERT INTO test_geomean_int VALUES
+        (1, 2), (1, 4), (1, 8), -- Positive values
+        (2, 0), (2, 16), -- Contains zero
+        (3, -1), -- Single negative
+        (4, -2), (4, -8), -- Two negatives (even)
+        (5, -2), (5, -8), (5, -4), -- Three negatives (odd)
+        (6, 2147483647), -- Max INT
+        (7, NULL) -- Only NULL
+    """
+
+    // Insert test data for BIGINT
+    sql """ INSERT INTO test_geomean_bigint VALUES
+        (1, 2), (1, 4), (1, 8), -- Positive values
+        (2, 0), (2, 16), -- Contains zero
+        (3, -1), -- Single negative
+        (4, -2), (4, -8), -- Two negatives (even)
+        (5, -2), (5, -8), (5, -4), -- Three negatives (odd)
+        (6, 9223372036854775807), -- Max BIGINT
+        (7, NULL) -- Only NULL
+    """
+
+    // Insert test data for SMALLINT
+    sql """ INSERT INTO test_geomean_smallint VALUES
+        (1, 2), (1, 4), (1, 8), -- Positive values
+        (2, 0), (2, 16), -- Contains zero
+        (3, -1), -- Single negative
+        (4, -2), (4, -8), -- Two negatives (even)
+        (5, -2), (5, -8), (5, -4), -- Three negatives (odd)
+        (6, 32767), -- Max SMALLINT
+        (7, NULL) -- Only NULL
+    """
+
+    // Insert test data for TINYINT
+    sql """ INSERT INTO test_geomean_tinyint VALUES
+        (1, 2), (1, 4), (1, 8), -- Positive values
+        (2, 0), (2, 16), -- Contains zero
+        (3, -1), -- Single negative
+        (4, -2), (4, -8), -- Two negatives (even)
+        (5, -2), (5, -8), (5, -4), -- Three negatives (odd)
+        (6, 127), -- Max TINYINT
+        (7, NULL) -- Only NULL
+    """
+
+    // Insert test data for FLOAT
+    sql """ INSERT INTO test_geomean_float VALUES
+        (1, 2.5), (1, 4.75), (1, 8.25), -- Positive values
+        (2, 0.0), (2, 16.5), -- Contains zero
+        (3, -1.5), -- Single negative
+        (4, -2.5), (4, -8.25), -- Two negatives (even)
+        (5, -2.5), (5, -8.25), (5, -4.75), -- Three negatives (odd)
+        (6, 3.4028235e38), -- Max FLOAT
+        (7, NULL) -- Only NULL
     """
 
     // Insert test data for DOUBLE
-    sql """
-        INSERT INTO test_geomean_double VALUES
-        (1, 2.5),
-        (1, 4.75),
-        (1, 8.25),
-        (2, 0.0),
-        (2, 16.5),
-        (3, 1.7976931348623157e308), -- Max DOUBLE
-        (4, 2.2250738585072014e-308), -- Min positive DOUBLE
-        (5, -1.5), -- Negative value
-        (6, -2.5),
-        (6, -8.25), -- Multiple negative values
-        (7, 0.0),
-        (7, -1.5); -- Zero and negative
+    sql """ INSERT INTO test_geomean_double VALUES
+        (1, 2.5), (1, 4.75), (1, 8.25), -- Positive values
+        (2, 0.0), (2, 16.5), -- Contains zero
+        (3, -1.5), -- Single negative
+        (4, -2.5), (4, -8.25), -- Two negatives (even)
+        (5, -2.5), (5, -8.25), (5, -4.75), -- Three negatives (odd)
+        (6, 1.7976931348623157e308), -- Max DOUBLE
+        (7, 2.2250738585072014e-308), -- Min positive DOUBLE
+        (8, NULL) -- Only NULL
+    """
+
+    // Insert test data for single row
+    sql """ INSERT INTO test_geomean_single VALUES
+        (1, 5.0) -- Single positive value
     """
 
     // Test INT values
-    qt_sql_int_1 "SELECT GEOMEAN(value) FROM test_geomean_int"
-    qt_sql_int_2 "SELECT GEOMEAN(non_nullable(value)) FROM test_geomean_int WHERE value IS NOT NULL"
-    qt_sql_int_3 """
-        SELECT id, GEOMEAN(value) AS geometric_mean
-        FROM test_geomean_int
-        GROUP BY id
-        ORDER BY id
-    """
-    qt_sql_int_4 """
-        SELECT id, GEOMEAN(non_nullable(value)) AS geometric_mean
-        FROM test_geomean_int
-        WHERE value IS NOT NULL
-        GROUP BY id
-        ORDER BY id
-    """
+    qt_sql_int_1 """ SELECT GEOMEAN(value) FROM test_geomean_int WHERE id = 1 """
+    // Expected: (2 * 4 * 8)^(1/3) = 4.0
+    qt_sql_int_2 """ SELECT GEOMEAN(value) FROM test_geomean_int WHERE id = 2 """
+    // Expected: 0.0 (contains zero)
+    qt_sql_int_3 """ SELECT GEOMEAN(value) FROM test_geomean_int WHERE id = 3 """
+    // Expected: -1 (single negative)
+    qt_sql_int_4 """ SELECT GEOMEAN(value) FROM test_geomean_int WHERE id = 4 """
+    // Expected: (2 * 8)^(1/2) = 4.0 (two negatives, even)
+    qt_sql_int_5 """ SELECT GEOMEAN(value) FROM test_geomean_int WHERE id = 5 """
+    // Expected: -(2 * 8 * 4)^(1/3) = -4.0 (three negatives, odd)
+    qt_sql_int_6 """ SELECT GEOMEAN(value) FROM test_geomean_int WHERE id = 6 """
+    // Expected: 2147483647.0000021
+    qt_sql_int_7 """ SELECT GEOMEAN(value) FROM test_geomean_int WHERE id = 7 """
+    // Expected: NULL (only NULL)
 
-    // Expected results for qt_sql_int_3 and qt_sql_int_4:
-    // id=1: [2, 4, 8] -> (2 * 4 * 8)^(1/3) = 4.0
-    // id=2: [0, 16] -> 0.0
-    // id=3: [2147483647] -> 2147483647
-    // id=4: [1] -> 1
-    // id=5: [-1] -> NaN
-    // id=6: [-2, -8] -> NaN
-    // id=7: [0, -1] -> NaN
+    // Test BIGINT values
+    qt_sql_bigint_1 """ SELECT GEOMEAN(value) FROM test_geomean_bigint WHERE id = 1 """
+    // Expected: (2 * 4 * 8)^(1/3) = 4.0
+    qt_sql_bigint_2 """ SELECT GEOMEAN(value) FROM test_geomean_bigint WHERE id = 2 """
+    // Expected: 0.0 (contains zero)
+    qt_sql_bigint_3 """ SELECT GEOMEAN(value) FROM test_geomean_bigint WHERE id = 3 """
+    // Expected: -1 (single negative)
+    qt_sql_bigint_4 """ SELECT GEOMEAN(value) FROM test_geomean_bigint WHERE id = 4 """
+    // Expected: (2 * 8)^(1/2) = 4.0 (two negatives, even)
+    qt_sql_bigint_5 """ SELECT GEOMEAN(value) FROM test_geomean_bigint WHERE id = 5 """
+    // Expected: -(2 * 8 * 4)^(1/3) = -4.0 (three negatives, odd)
+    qt_sql_bigint_6 """ SELECT GEOMEAN(value) FROM test_geomean_bigint WHERE id = 6 """
+    // Expected: 9.223372036854745e+18
+    qt_sql_bigint_7 """ SELECT GEOMEAN(value) FROM test_geomean_bigint WHERE id = 7 """
+    // Expected: NULL (only NULL)
+
+    // Test SMALLINT values
+    qt_sql_smallint_1 """ SELECT GEOMEAN(value) FROM test_geomean_smallint WHERE id = 1 """
+    // Expected: (2 * 4 * 8)^(1/3) = 4.0
+    qt_sql_smallint_2 """ SELECT GEOMEAN(value) FROM test_geomean_smallint WHERE id = 2 """
+    // Expected: 0.0 (contains zero)
+    qt_sql_smallint_3 """ SELECT GEOMEAN(value) FROM test_geomean_smallint WHERE id = 3 """
+    // Expected: -1 (single negative)
+    qt_sql_smallint_4 """ SELECT GEOMEAN(value) FROM test_geomean_smallint WHERE id = 4 """
+    // Expected: (2 * 8)^(1/2) = 4.0 (two negatives, even)
+    qt_sql_smallint_5 """ SELECT GEOMEAN(value) FROM test_geomean_smallint WHERE id = 5 """
+    // Expected: -(2 * 8 * 4)^(1/3) = -4.0 (three negatives, odd)
+    qt_sql_smallint_6 """ SELECT GEOMEAN(value) FROM test_geomean_smallint WHERE id = 6 """
+    // Expected: 32767.000000000004
+    qt_sql_smallint_7 """ SELECT GEOMEAN(value) FROM test_geomean_smallint WHERE id = 7 """
+    // Expected: NULL (only NULL)
+
+    // Test TINYINT values
+    qt_sql_tinyint_1 """ SELECT GEOMEAN(value) FROM test_geomean_tinyint WHERE id = 1 """
+    // Expected: (2 * 4 * 8)^(1/3) = 4.0
+    qt_sql_tinyint_2 """ SELECT GEOMEAN(value) FROM test_geomean_tinyint WHERE id = 2 """
+    // Expected: 0.0 (contains zero)
+    qt_sql_tinyint_3 """ SELECT GEOMEAN(value) FROM test_geomean_tinyint WHERE id = 3 """
+    // Expected: -1 (single negative)
+    qt_sql_tinyint_4 """ SELECT GEOMEAN(value) FROM test_geomean_tinyint WHERE id = 4 """
+    // Expected: (2 * 8)^(1/2) = 4.0 (two negatives, even)
+    qt_sql_tinyint_5 """ SELECT GEOMEAN(value) FROM test_geomean_tinyint WHERE id = 5 """
+    // Expected: -(2 * 8 * 4)^(1/3) = -4.0 (three negatives, odd)
+    qt_sql_tinyint_6 """ SELECT GEOMEAN(value) FROM test_geomean_tinyint WHERE id = 6 """
+    // Expected: 126.99999999999999
+    qt_sql_tinyint_7 """ SELECT GEOMEAN(value) FROM test_geomean_tinyint WHERE id = 7 """
+    // Expected: NULL (only NULL)
+
+    // Test FLOAT values
+    qt_sql_float_1 """ SELECT GEOMEAN(value) FROM test_geomean_float WHERE id = 1 """
+    // Expected: (2.5 * 4.75 * 8.25)^(1/3) ≈ 4.609946185082068
+    qt_sql_float_2 """ SELECT GEOMEAN(value) FROM test_geomean_float WHERE id = 2 """
+    // Expected: 0.0 (contains zero)
+    qt_sql_float_3 """ SELECT GEOMEAN(value) FROM test_geomean_float WHERE id = 3 """
+    // Expected: -1.5 (single negative)
+    qt_sql_float_4 """ SELECT GEOMEAN(value) FROM test_geomean_float WHERE id = 4 """
+    // Expected: (2.5 * 8.25)^(1/2) ≈ 4.541475531146237
+    qt_sql_float_5 """ SELECT GEOMEAN(value) FROM test_geomean_float WHERE id = 5 """
+    // Expected: -(2.5 * 8.25 * 4.75)^(1/3) ≈ -4.609946185082068
+    qt_sql_float_6 """ SELECT GEOMEAN(value) FROM test_geomean_float WHERE id = 6 """
+    // Expected: 3.4028234663852844e+38
+    qt_sql_float_7 """ SELECT GEOMEAN(value) FROM test_geomean_float WHERE id = 7 """
+    // Expected: NULL (only NULL)
 
     // Test DOUBLE values
-    qt_sql_double_1 "SELECT GEOMEAN(value) FROM test_geomean_double"
-    qt_sql_double_2 "SELECT GEOMEAN(non_nullable(value)) FROM test_geomean_double WHERE value IS NOT NULL"
-    qt_sql_double_3 """
-        SELECT id, GEOMEAN(value) AS geometric_mean
-        FROM test_geomean_double
-        GROUP BY id
-        ORDER BY id
-    """
-    qt_sql_double_4 """
-        SELECT id, GEOMEAN(non_nullable(value)) AS geometric_mean
-        FROM test_geomean_double
-        WHERE value IS NOT NULL
-        GROUP BY id
-        ORDER BY id
-    """
+    qt_sql_double_1 """ SELECT GEOMEAN(value) FROM test_geomean_double WHERE id = 1 """
+    // Expected: (2.5 * 4.75 * 8.25)^(1/3) ≈ 4.609946185082068
+    qt_sql_double_2 """ SELECT GEOMEAN(value) FROM test_geomean_double WHERE id = 2 """
+    // Expected: 0.0 (contains zero)
+    qt_sql_double_3 """ SELECT GEOMEAN(value) FROM test_geomean_double WHERE id = 3 """
+    // Expected: -1.5 (single negative)
+    qt_sql_double_4 """ SELECT GEOMEAN(value) FROM test_geomean_double WHERE id = 4 """
+    // Expected: (2.5 * 8.25)^(1/2) ≈ 4.541475531146237
+    qt_sql_double_5 """ SELECT GEOMEAN(value) FROM test_geomean_double WHERE id = 5 """
+    // Expected: -(2.5 * 8.25 * 4.75)^(1/3) ≈ -4.609946185082068
+    qt_sql_double_6 """ SELECT GEOMEAN(value) FROM test_geomean_double WHERE id = 6 """
+    // Expected: 1.7976931348622732e+308
+    qt_sql_double_7 """ SELECT GEOMEAN(value) FROM test_geomean_double WHERE id = 7 """
+    // Expected: 2.2250738585072626e-308
+    qt_sql_double_8 """ SELECT GEOMEAN(value) FROM test_geomean_double WHERE id = 8 """
+    // Expected: NULL (only NULL)
 
-    // Expected results for qt_sql_double_3 and qt_sql_double_4:
-    // id=1: [2.5, 4.75, 8.25] -> (2.5 * 4.75 * 8.25)^(1/3) ≈ 4.614
-    // id=2: [0.0, 16.5] -> 0.0
-    // id=3: [1.7976931348623157e308] -> 1.7976931348623157e308
-    // id=4: [2.2250738585072014e-308] -> 2.2250738585072014e-308
-    // id=5: [-1.5] -> NaN
-    // id=6: [-2.5, -8.25] -> NaN
-    // id=7: [0.0, -1.5] -> NaN
+    // Test single row
+    qt_sql_single_1 """ SELECT GEOMEAN(value) FROM test_geomean_single """
+    // Expected: 4.999999999999999
 
-    // Test with NULL values
-    sql """ TRUNCATE TABLE test_geomean_int """
-    sql """
-        INSERT INTO test_geomean_int VALUES
-        (1, 2),
-        (1, NULL),
-        (1, 8),
-        (2, NULL),
-        (2, NULL),
-        (3, 4),
-        (3, 16),
-        (4, 0),
-        (5, -1),
-        (6, -2),
-        (6, -8),
-        (7, 0),
-        (7, -1);
-    """
-
-    sql """ TRUNCATE TABLE test_geomean_double """
-    sql """
-        INSERT INTO test_geomean_double VALUES
-        (1, 2.5),
-        (1, NULL),
-        (1, 8.25),
-        (2, NULL),
-        (2, NULL),
-        (3, 4.75),
-        (3, 16.5),
-        (4, 0.0),
-        (5, -1.5),
-        (6, -2.5),
-        (6, -8.25),
-        (7, 0.0),
-        (7, -1.5);
-    """
-
-    // Test INT with NULL
-    qt_sql_int_null_1 "SELECT GEOMEAN(value) FROM test_geomean_int"
-    qt_sql_int_null_2 "SELECT GEOMEAN(non_nullable(value)) FROM test_geomean_int WHERE value IS NOT NULL"
-    qt_sql_int_null_3 """
-        SELECT id, GEOMEAN(value) AS geometric_mean
-        FROM test_geomean_int
-        GROUP BY id
-        ORDER BY id
-    """
-    qt_sql_int_null_4 """
-        SELECT id, GEOMEAN(non_nullable(value)) AS geometric_mean
-        FROM test_geomean_int
-        WHERE value IS NOT NULL
-        GROUP BY id
-        ORDER BY id
-    """
-
-    // Expected results for qt_sql_int_null_3 and qt_sql_int_null_4:
-    // id=1: [2, NULL, 8] -> (2 * 8)^(1/2) = 4.0
-    // id=2: [NULL, NULL] -> NULL
-    // id=3: [4, 16] -> (4 * 16)^(1/2) = 8.0
-    // id=4: [0] -> 0.0
-    // id=5: [-1] -> NaN
-    // id=6: [-2, -8] -> NaN
-    // id=7: [0, -1] -> NaN
-
-    // Test DOUBLE with NULL
-    qt_sql_double_null_1 "SELECT GEOMEAN(value) FROM test_geomean_double"
-    qt_sql_double_null_2 "SELECT GEOMEAN(non_nullable(value)) FROM test_geomean_double WHERE value IS NOT NULL"
-    qt_sql_double_null_3 """
-        SELECT id, GEOMEAN(value) AS geometric_mean
-        FROM test_geomean_double
-        GROUP BY id
-        ORDER BY id
-    """
-    qt_sql_double_null_4 """
-        SELECT id, GEOMEAN(non_nullable(value)) AS geometric_mean
-        FROM test_geomean_double
-        WHERE value IS NOT NULL
-        GROUP BY id
-        ORDER BY id
-    """
-
-    // Expected results for qt_sql_double_null_3 and qt_sql_double_null_4:
-    // id=1: [2.5, NULL, 8.25] -> (2.5 * 8.25)^(1/2) ≈ 4.541
-    // id=2: [NULL, NULL] -> NULL
-    // id=3: [4.75, 16.5] -> (4.75 * 16.5)^(1/2) ≈ 8.854
-    // id=4: [0.0] -> 0.0
-    // id=5: [-1.5] -> NaN
-    // id=6: [-2.5, -8.25] -> NaN
-    // id=7: [0.0, -1.5] -> NaN
+    // Test scalar corner cases
+    qt_sql_scalar_1 """ SELECT GEOMEAN(1) """
+    // Expected: 1.0
+    qt_sql_scalar_2 """ SELECT GEOMEAN(-1) """
+    // Expected: -1.0
+    qt_sql_scalar_3 """ SELECT GEOMEAN(0) """
+    // Expected: 0.0
+    qt_sql_scalar_4 """ SELECT GEOMEAN(1.7976931348623157e308) """
+    // Expected: 1.7976931348622732e+308
+    qt_sql_scalar_5 """ SELECT GEOMEAN(2.2250738585072014e-308) """
+    // Expected: 2.2250738585072626e-308
+    qt_sql_scalar_6 """ SELECT GEOMEAN(CAST(9223372036854775807 AS BIGINT)) """
+    // Expected: 9.223372036854745e+18
+    qt_sql_scalar_7 """ SELECT GEOMEAN(CAST(32767 AS SMALLINT)) """
+    // Expected: 32767.000000000004
+    qt_sql_scalar_8 """ SELECT GEOMEAN(CAST(127 AS TINYINT)) """
+    // Expected: 126.99999999999999
+    qt_sql_scalar_9 """ SELECT GEOMEAN(CAST(3.4028235e38 AS FLOAT)) """
+    // Expected: 3.4028234663852844e+38
 
     // Test invalid parameter types
     test {
-        sql """SELECT GEOMEAN('invalid')"""
+        sql """ SELECT GEOMEAN('invalid') """
         exception "GEOMEAN requires numeric parameter"
     }
     test {
-        sql """SELECT GEOMEAN(true)"""
+        sql """ SELECT GEOMEAN(true) """
         exception "GEOMEAN requires numeric parameter"
     }
     test {
-        sql """SELECT GEOMEAN(value, 1) FROM test_geomean_int"""
+        sql """ SELECT GEOMEAN(value, 1) FROM test_geomean_int """
         exception "GEOMEAN expects exactly one parameter"
+    }
+
+    // Test odd number of negatives with even n
+    sql """ INSERT INTO test_geomean_double VALUES
+        (9, -1.0), (9, 1.0),
+        (10, -1.0), (10, -1.0), (10, 1.0), (10, 1.0)
+    """
+
+    test {
+        sql """ SELECT GEOMEAN(value) FROM test_geomean_double WHERE id = 9 """
+        exception "Geometric mean is undefined for odd number of negatives with even n"
     }
 }

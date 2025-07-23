@@ -27,76 +27,81 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-// geomean = (x1 * x2 * ... * xn)^(1/n), directly compute
-// (x1*x2*...*xn) maybe overflow easily, so we compute
-// geomean = exp((log(x1) + log(x2) + ... + log(xn)) / n)
-// like DuckDB, xi < 0 is not allowed but we allow xi = zero
-// e.g. (0 * 4 * 8)  ^ {1/3} => 0
+// geomean = (x1 * x2 * ... * xn)^(1/n)
+// Supports negative numbers , zero and NULL based on mathematical definition:
+// - If any value is 0, result is 0.
+// - If value is NULL, ignore it.
+// - If number of negative values is odd and n is even, result is undefined (complex).
+// - Otherwise, result is sign * exp(sum(log(|x|)) / n), where sign is -1 for odd negatives, 1 otherwise.
 
 template <PrimitiveType T>
 struct AggregateFunctionGeomeanData {
     using DataType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     bool has_zero = false;
-    bool has_negative = false;
+    Int32 count_negative = 0;
     Int32 count_positive = 0;
-    Float64 sum_log {};
-
+    Float64 sum_log_abs = 0.0;
+    
     void write(BufferWritable& buf) const {
-        buf.write_binary(has_zero);
-        buf.write_binary(has_negative);
-        buf.write_binary(count_positive);
-        buf.write_binary(sum_log);
-    }
+            buf.write_binary(count_positive);
+            buf.write_binary(count_negative);
+            buf.write_binary(has_zero);
+            buf.write_binary(sum_log_abs);
+        }
 
     void read(BufferReadable& buf) {
-        buf.read_binary(has_zero);
-        buf.read_binary(has_negative);
         buf.read_binary(count_positive);
-        buf.read_binary(sum_log);
+        buf.read_binary(count_negative);
+        buf.read_binary(has_zero);
+        buf.read_binary(sum_log_abs);
     }
 
     void reset() {
-        has_zero = false;
-        has_negative = false;
         count_positive = 0;
-        sum_log = {};
+        count_negative = 0;
+        has_zero = false;
+        sum_log_abs = 0.0;
     }
-
+    
     void merge(const AggregateFunctionGeomeanData& rhs) {
-        if (has_negative || has_zero || rhs.has_negative || rhs.has_zero ||
-            rhs.count_positive == 0) {
+        if (has_zero || rhs.has_zero || (rhs.count_negative + rhs.count_positive) == 0) {
             return;
         }
 
         count_positive += rhs.count_positive;
-        sum_log += rhs.sum_log;
+        count_negative += rhs.count_negative;
+        sum_log_abs += rhs.sum_log_abs;
     }
 
     // the caller makes sure `value_x` is not NULL
     void add(const DataType& value_x) {
-        if (has_negative) {
-            return;
-        } else if (double(value_x) < 0) { // the conversion is safe here
-            has_negative = true;
-            return;
-        } else if (has_zero) {
-            return;
-        } else if (double(value_x) == 0) {
+        double value = double(value_x); // the conversion is safe here
+        if (has_zero || value == 0) {
             has_zero = true;
             return;
         }
 
-        count_positive++; // value_x > 0
-        sum_log += std::log((double)value_x);
+        if (value < 0) {
+            count_negative++;
+        } else {
+            count_positive++;
+        }
+
+        sum_log_abs += std::log(std::abs(value));
     }
 
-    Float64 get_geomean() const {
-        if (has_negative) {
-            return std::numeric_limits<Float64>::quiet_NaN();
-        } else if (has_zero || count_positive == 0) {
-            return 0;
+    Status get_geomean(Float64& res) const {
+        if (has_zero || (count_negative + count_positive) == 0) {
+            res = 0.0;
+            return Status::OK();
         }
-        return std::exp(sum_log / count_positive);
+        if ((count_negative & 1) & (count_positive & 1)) {
+            return Status::InvalidArgument("Geometric mean is undefined for odd number of negatives with even n");
+        }
+
+        Float64 sign = (count_negative % 2 == 1) ? -1.0 : 1.0;
+        res = sign * std::exp(sum_log_abs / (count_positive + count_negative));
+        return Status::OK();
     }
 };
 
@@ -142,7 +147,12 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColumnFloat64&>(to);
-        column.get_data().push_back(this->data(place).get_geomean());
+        Float64 res;
+        auto status = this->data(place).get_geomean(res);
+        if (!status.ok()) {
+            throw Exception(status);
+        }
+        column.get_data().push_back(res);
     }
 };
 
