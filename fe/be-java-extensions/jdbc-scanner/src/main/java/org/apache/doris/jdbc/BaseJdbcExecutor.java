@@ -238,13 +238,13 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             do {
                 for (int j = 0; j < outputColumnCount; ++j) {
                     String outputColumnName = outputTable.getFields()[j];
-                    Integer columnIndex = columnIndexMap.get(outputColumnName);
+                    Integer columnIndex = columnIndexMap.get(outputColumnName.toLowerCase());
 
                     if (columnIndex != null) {
                         ColumnType type = convertTypeIfNecessary(j, outputTable.getColumnType(j), replaceStringList);
                         block.get(j)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
                     } else {
-                        throw new RuntimeException("Column not found in result set: " + outputColumnName);
+                        throw new RuntimeException("Column not found in columnIndexMap: " + outputColumnName);
                     }
                 }
                 curBlockRows++;
@@ -252,7 +252,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
             for (int j = 0; j < outputColumnCount; ++j) {
                 String outputColumnName = outputTable.getFields()[j];
-                Integer columnIndex = columnIndexMap.get(outputColumnName);
+                Integer columnIndex = columnIndexMap.get(outputColumnName.toLowerCase());
 
                 if (columnIndex != null) {
                     ColumnType type = outputTable.getColumnType(j);
@@ -268,7 +268,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                             isNullable
                     );
                 } else {
-                    throw new RuntimeException("Column not found in result set: " + outputColumnName);
+                    throw new RuntimeException("Column not found in columnIndexMap: " + outputColumnName);
                 }
             }
         } catch (Exception e) {
@@ -717,3 +717,4 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return hexString.toString();
     }
 }
+
