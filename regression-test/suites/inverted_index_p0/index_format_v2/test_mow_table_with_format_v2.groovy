@@ -171,6 +171,22 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
             backend_id = tablet.BackendId
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
+            int max_wait_time = 300
+            int waited = 0
+            while (running && waited < max_wait_time) {
+                def exit_code, stdout, stderr
+                (exit_code, stdout, stderr) = be_get_compaction_status(ip, port, tablet.TabletId)
+                assert exit_code == 0: "get compaction status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+                def compactionStatus = parseJson(stdout.trim())
+                assert compactionStatus.status.toLowerCase() == "success": "compaction failed, be host: ${ip}, tablet id: ${tablet.TabletId}, status: ${compactionStatus.status}"
+                running = compactionStatus.run_status
+                if (running) {
+                    logger.info("compaction is still running, be host: ${ip}, tablet id: ${tablet.TabletId}")
+                    sleep(1000)
+                    waited += 1
+                }
+            }
+            assert !running : "wait compaction timeout, be host: ${ip}, tablet id: ${tablet.TabletId}"
             check_nested_index_file(ip, port, tablet_id, 2, 3, "V2")
         }
 
