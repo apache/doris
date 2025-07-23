@@ -71,9 +71,9 @@ bvar::Adder<int64_t> g_unused_rowsets_bytes("unused_rowsets_bytes");
 bvar::Adder<uint64_t> g_file_cache_shield_delayed_rowset_num(
         "file_cache_shield_delayed_rowset_num");
 bvar::Adder<uint64_t> g_file_cache_shield_delayed_rowset_add_num(
-    "file_cache_shield_delayed_rowset_add_num");
+        "file_cache_shield_delayed_rowset_add_num");
 bvar::Adder<uint64_t> g_file_cache_shield_delayed_rowset_add_failure_num(
-    "file_cache_shield_delayed_rowset_add_failure_num");
+        "file_cache_shield_delayed_rowset_add_failure_num");
 
 static constexpr int LOAD_INITIATOR_ID = -1;
 
@@ -300,8 +300,8 @@ void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_o
     }
     if (delay_add_rowset) {
         g_file_cache_shield_delayed_rowset_num << 1;
-        LOG(INFO) << "triggered a warm up for overlapping rowset " << rowset->version() <<
-                ", will add it to tablet meta latter";
+        LOG(INFO) << "triggered a warm up for overlapping rowset " << rowset->version()
+                  << ", will add it to tablet meta latter";
     }
     // warmup rowset data in background
     bool download_task_submitted = false;
@@ -451,7 +451,8 @@ void CloudTablet::warm_up_done_cb(RowsetSharedPtr rowset, Status status, bool de
         _rowset_warm_up_states.erase(rowset->rowset_id());
     }
     if (config::enable_read_cluster_file_cache_shield && delay_add_rowset) {
-        LOG(INFO) << "warm up completed, rowset: " << rowset->rowset_id() << ", version: " << rowset->version();
+        LOG(INFO) << "warm up completed, rowset: " << rowset->rowset_id()
+                  << ", version: " << rowset->version();
         for (auto [ver, rs] : _rs_version_map) {
             // e.g. ver = [5-10]
             // if rs->version() is [5-8], it should not be added
