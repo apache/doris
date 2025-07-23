@@ -932,7 +932,7 @@ Status ScanLocalState<Derived>::_normalize_is_null_predicate(vectorized::VExpr* 
     // cast(var['a'] as int) is null, (var is a variant column)
     // In this case, we cannot remove the cast and generate predicate, because we need to execute the cast first to determine if it's null.
     if (!expr->children().empty() && expr->children()[0]->node_type() == TExprNodeType::CAST_EXPR &&
-        slot->type().is_variant_type()) {
+        slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
         return Status::OK();
     }
 
