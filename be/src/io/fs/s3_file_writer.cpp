@@ -62,12 +62,18 @@ S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string 
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
     Aws::Http::SetCompliantRfc3986Encoding(true);
-    if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
-        _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
-                opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
-                BlockFileCache::hash(_obj_storage_path_opts.path.filename().native()),
-                FileCacheFactory::instance()->get_by_path(
-                        BlockFileCache::hash(_obj_storage_path_opts.path.filename().native()))});
+
+    if (config::enable_file_cache && opts != nullptr) {
+        io::UInt128Wrapper path_hash =
+                BlockFileCache::hash(_obj_storage_path_opts.path.filename().native());
+        BlockFileCache* file_cache_ptr = FileCacheFactory::instance()->get_by_path(path_hash);
+        if (opts->write_file_cache || ((opts->approximate_write_bytes > 0) &&
+                                       (file_cache_ptr->approximate_available_cache_size() >
+                                        opts->approximate_write_bytes))) {
+            _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
+                    opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
+                    path_hash, file_cache_ptr});
+        }
     }
 }
 
