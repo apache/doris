@@ -110,7 +110,7 @@ private:
     OlapScanKeys _scan_keys;
     std::vector<FilterOlapParam<TCondition>> _olap_filters;
     // If column id in this set, indicate that we need to read data after index filtering
-    std::set<int32_t> _output_column_unique_ids;
+    std::set<int32_t> _maybe_read_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;

@@ -68,9 +68,6 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
     if (tdesc.__isset.virtual_column_expr) {
         // Make sure virtual column is valid.
         if (tdesc.virtual_column_expr.nodes.empty()) {
-            LOG_ERROR("Virtual column expr node is empty, col_name={}, col_unique_id={}",
-                      tdesc.colName, tdesc.col_unique_id);
-
             throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
                                    "Virtual column expr node is empty, col_name: {}, "
                                    "col_unique_id: {}",
@@ -78,9 +75,6 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
         }
         const auto& node = tdesc.virtual_column_expr.nodes[0];
         if (node.node_type == TExprNodeType::SLOT_REF) {
-            LOG_ERROR(
-                    "Virtual column expr node is slot ref, col_name={}, col_unique_id={}, expr: {}",
-                    tdesc.colName, tdesc.col_unique_id, apache::thrift::ThriftDebugString(tdesc));
             throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
                                    "Virtual column expr node is slot ref, col_name: {}, "
                                    "col_unique_id: {}",

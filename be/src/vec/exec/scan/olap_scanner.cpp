@@ -72,7 +72,7 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
           _tablet_reader_params({
                   .tablet = std::move(params.tablet),
                   .tablet_schema {},
-                  .is_pre_aggregation = params.is_pre_aggregation,
+                  .aggregation = params.aggregation,
                   .version = {0, params.version},
                   .start_key {},
                   .end_key {},
@@ -85,7 +85,7 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                   .target_cast_type_for_variants {},
                   .rs_splits {},
                   .return_columns {},
-                  .output_column_unique_ids {},
+                  .output_columns {},
                   .remaining_conjunct_roots {},
                   .common_expr_ctxs_push_down {},
                   .topn_filter_source_node_ids {},
@@ -160,7 +160,8 @@ Status OlapScanner::init() {
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
-            tablet->tablet_schema()->num_variant_columns() == 0) {
+            tablet->tablet_schema()->num_variant_columns() == 0 &&
+            tablet->tablet_schema()->num_virtual_columns() == 0) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
                                                 olap_scan_node.schema_version);
@@ -269,11 +270,10 @@ Status OlapScanner::_init_tablet_reader_params(
 
     if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
-        _tablet_reader_params.is_pre_aggregation = true;
+        _tablet_reader_params.aggregation = true;
     } else {
         auto push_down_agg_type = _local_state->get_push_down_agg_type();
-        _tablet_reader_params.direct_mode = _tablet_reader_params.is_pre_aggregation ||
-                                            single_version ||
+        _tablet_reader_params.direct_mode = _tablet_reader_params.aggregation || single_version ||
                                             (push_down_agg_type != TPushAggOp::NONE &&
                                              push_down_agg_type != TPushAggOp::COUNT_ON_INDEX);
     }
@@ -299,8 +299,8 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
     _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
-    _tablet_reader_params.output_column_unique_ids =
-            ((pipeline::OlapScanLocalState*)_local_state)->_output_column_unique_ids;
+    _tablet_reader_params.output_columns =
+            ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] =
@@ -470,16 +470,6 @@ Status OlapScanner::_init_variant_columns() {
 }
 
 Status OlapScanner::_init_return_columns() {
-#ifndef NDEBUG
-    std::vector<std::string> debug_strings;
-    for (const auto* slot : _output_tuple_desc->slots()) {
-        debug_strings.push_back(slot->debug_string());
-    }
-
-    LOG_INFO("OlapScanner init return columns, output tuple slots:\n{}",
-             fmt::join(debug_strings, ",\n"));
-#endif
-
     for (auto* slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;

@@ -126,7 +126,7 @@ public:
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
-        bool is_pre_aggregation = false;
+        bool aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query and config::disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
@@ -153,7 +153,7 @@ public:
         // return_columns is init from query schema
         std::vector<ColumnId> return_columns;
         // output_columns only contain columns in OrderByExprs and outputExprs
-        std::set<int32_t> output_column_unique_ids;
+        std::set<int32_t> output_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
@@ -303,7 +303,7 @@ protected:
     DeleteHandler _delete_handler;
 
     // Indicates whether the tablets has do a aggregation in storage engine.
-    bool _is_pre_aggregation = false;
+    bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;

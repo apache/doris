@@ -91,7 +91,6 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
                 state->desc_tbl().debug_string());
     }
     const TExpr& expr = *slot_desc->get_virtual_column_expr();
-    // LOG_INFO("Virtual column expr is {}", apache::thrift::ThriftDebugString(expr));
     // Create a temp_ctx only for create_expr_tree.
     VExprContextSPtr temp_ctx;
     RETURN_IF_ERROR(VExpr::create_expr_tree(expr, temp_ctx));

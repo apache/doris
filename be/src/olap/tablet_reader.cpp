@@ -69,7 +69,7 @@ void TabletReader::ReaderParams::check_validation() const {
 std::string TabletReader::ReaderParams::to_string() const {
     std::stringstream ss;
     ss << "tablet=" << tablet->tablet_id() << " reader_type=" << int(reader_type)
-       << " is_pre_aggregation=" << is_pre_aggregation << " version=" << version
+       << " is_pre_aggregation=" << aggregation << " version=" << version
        << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
     for (const auto& key : start_key) {
@@ -212,7 +212,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             // unique keys with merge on write, no need to merge sort keys in rowset
             need_ordered_result = false;
         }
-        if (_is_pre_aggregation) {
+        if (_aggregation) {
             // compute engine will aggregate rows with the same key,
             // it's ok for rowset to return unordered result
             need_ordered_result = false;
@@ -260,7 +260,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
-    _reader_context.output_columns = &read_params.output_column_unique_ids;
+    _reader_context.output_columns = &read_params.output_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     _reader_context.ttl_seconds = _tablet->ttl_seconds();
 
@@ -290,7 +290,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
     _direct_mode = read_params.direct_mode;
-    _is_pre_aggregation = read_params.is_pre_aggregation;
+    _aggregation = read_params.aggregation;
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;

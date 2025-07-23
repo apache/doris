@@ -214,7 +214,9 @@ private:
                                        vectorized::MutableColumns& column_block, size_t nrows);
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read);
     void _replace_version_col(size_t num_rows);
-    Status _init_return_columns(vectorized::Block* block, uint32_t nrows_read_limit);
+    Status _init_current_block(vectorized::Block* block,
+                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector,
+                               uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _collect_runtime_filter_predicate();
@@ -417,10 +419,12 @@ private:
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
-    std::vector<ColumnId> _cols_read_by_column_predicate;
-    std::vector<ColumnId> _cols_read_by_common_expr;
+    std::vector<ColumnId> _predicate_column_ids;
+    std::vector<ColumnId> _non_predicate_column_ids;
+    // TODO: Should use std::vector<size_t>
     std::vector<ColumnId> _columns_to_filter;
     std::vector<ColumnId> _converted_column_ids;
+    // TODO: Should use std::vector<size_t>
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
