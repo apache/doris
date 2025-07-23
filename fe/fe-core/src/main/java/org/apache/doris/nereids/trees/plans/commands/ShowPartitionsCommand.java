@@ -73,7 +73,6 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Range;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -94,7 +93,7 @@ import java.util.stream.Collectors;
  * show partitions command
  */
 public class ShowPartitionsCommand extends ShowCommand {
-    public static final ImmutableList<String> TITLE_NAMES = new Builder<String>()
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId").add("PartitionName")
             .add("VisibleVersion").add("VisibleVersionTime")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
@@ -519,8 +518,7 @@ public class ShowPartitionsCommand extends ShowCommand {
                     .addColumn(new Column("PartitionKey", ScalarType.createVarchar(300)))
                     .addColumn(new Column("RecordCount", ScalarType.createVarchar(300)))
                     .addColumn(new Column("FileSizeInBytes", ScalarType.createVarchar(300)))
-                    .addColumn(new Column("FileCount", ScalarType.createVarchar(300)))
-                    .addColumn(new Column("LastFileCreateTime", ScalarType.createVarchar(300)));
+                    .addColumn(new Column("FileCount", ScalarType.createVarchar(300)));
 
         } else {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
