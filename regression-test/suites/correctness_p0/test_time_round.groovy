@@ -177,6 +177,8 @@ suite("test_time_round") {
     qt_select "select week_floor(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select month_ceil(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select month_floor(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select_quarter1 "select quarter_ceil(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select_quarter2 "select quarter_floor(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select day_ceil(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select day_floor(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select hour_ceil(dt, p, o) from dbround where id > 3 order by id;"
@@ -197,6 +199,10 @@ suite("test_time_round") {
     qt_select "select week_floor('2022-05-25 00:00:00', 100, '2022-01-02 00:00:00')"
     qt_select "select month_ceil('2022-05-15 12:30:45', 100, '2022-01-10 00:00:00')"
     qt_select "select month_floor('2022-05-15 12:30:45', 100, '2022-01-10 00:00:00')"
+    qt_select "select quarter_ceil('2022-05-15 12:30:45', 100, '2020-01-10 00:00:00')"
+    qt_select "select quarter_floor('2022-05-15 12:30:45', 100, '2020-01-10 00:00:00')"
+    testFoldConst("select quarter_ceil('2022-05-15 12:30:45', 100, '2020-01-10 00:00:00')")
+    testFoldConst("select quarter_floor('2022-05-15 12:30:45', 100, '2020-01-10 00:00:00')")
     qt_select "select year_ceil('2022-05-15 12:30:45', 100, '2020-06-15 00:00:00')"
     qt_select "select year_floor('2022-05-15 12:30:45', 100, '2020-06-15 00:00:00')"
     
@@ -205,6 +211,10 @@ suite("test_time_round") {
     qt_select "select week_floor('2022-01-02 00:00:00', 1, '2022-01-02 00:00:00')"
     qt_select "select month_ceil('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
     qt_select "select month_floor('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select_quarter3 "select quarter_ceil('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select_quarter4 "select quarter_floor('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    testFoldConst("select quarter_ceil('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')")
+    testFoldConst("select quarter_floor('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')")
     qt_select "select year_ceil('2020-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
     qt_select "select year_floor('2020-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
     
@@ -213,6 +223,10 @@ suite("test_time_round") {
     qt_select "select week_floor('2021-01-02 00:00:00', 1, '2022-01-02 00:00:00')"
     qt_select "select month_ceil('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
     qt_select "select month_floor('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select_quarter5 "select quarter_ceil('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select_quarter6 "select quarter_floor('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    testFoldConst("select quarter_ceil('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')")
+    testFoldConst("select quarter_floor('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')")
     qt_select "select year_ceil('2019-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
     qt_select "select year_floor('2019-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
 }
