@@ -81,8 +81,10 @@ TEST_F(FunctionCastTest, test_from_string_to_ipv6) {
             // Invalid formats
             {{std::string("x")}, Null()},
             {{std::string("2001:db8::gggg")}, Null()},
-            // {{std::string("2001:db8:::1")}, Null()},           // Double ::
+            {{std::string("2001:db8:::1")}, Null()},           // Double ::
             {{std::string("2001:db8::1::2")}, Null()},         // Multiple ::
+            {{std::string("1:1:::1")}, Null()},                // Double ::
+            {{std::string("1:1:1::1:1:1:1:1")}, Null()},       //  :: not use
             {{std::string("2001:db8:0:0:0:0:0:0:1")}, Null()}, // Too many segments
 
             // Valid formats - standard
@@ -174,10 +176,18 @@ TEST_F(FunctionCastTest, test_from_string_to_ipv6_strict_mode) {
         check_function_for_cast_strict_mode<DataTypeIPv6>(
                 input_types, {{{std::string("2001:db8::gggg")}, Null()}}, "fail");
     }
-    // {
-    //     check_function_for_cast_strict_mode<DataTypeIPv6>(
-    //             input_types, {{{std::string("2001:db8:::1")}, Null()}}, "fail");
-    // }
+    {
+        check_function_for_cast_strict_mode<DataTypeIPv6>(
+                input_types, {{{std::string("2001:db8:::1")}, Null()}}, "fail");
+    }
+    {
+        check_function_for_cast_strict_mode<DataTypeIPv6>(
+                input_types, {{{std::string("1:1:::1")}, Null()}}, "fail");
+    }
+    {
+        check_function_for_cast_strict_mode<DataTypeIPv6>(
+                input_types, {{{std::string(" 1:1:1::1:1:1:1:1")}, Null()}}, "fail");
+    }
     {
         check_function_for_cast_strict_mode<DataTypeIPv6>(input_types,
                                                           {{{std::string("")}, Null()}}, "fail");
@@ -219,6 +229,49 @@ TEST_F(FunctionCastTest, test_ip_to_string) {
         };
         check_function_for_cast<DataTypeString>(input_types, data_set);
     }
+}
+
+TEST_F(FunctionCastTest, test_non_strict_cast_string_to_ipv4) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("192.168.1.1")}, ipv4_from_string("192.168.1.1")},
+            {{std::string("0.0.0.0")}, ipv4_from_string("0.0.0.0")},
+            {{std::string("255.255.255.255")}, ipv4_from_string("255.255.255.255")},
+            {{std::string("10.20.30.40")}, ipv4_from_string("10.20.30.40")},
+            {{std::string(" 192.168.1.1 ")}, ipv4_from_string("192.168.1.1")},
+            {{std::string("192.168.01.1")}, ipv4_from_string("192.168.1.1")},
+            {{std::string("1.2.3")}, Null()},
+            {{std::string("1.2.3.4.5")}, Null()},
+            {{std::string("256.0.0.1")}, Null()},
+            {{std::string("1.300.2.3")}, Null()},
+            {{std::string("1.2.3.")}, Null()},
+            {{std::string(".1.2.3")}, Null()},
+            {{std::string("1..2.3")}, Null()},
+            {{std::string("a.b.c.d")}, Null()},
+            {{std::string("1.2.+3.4")}, Null()},
+    };
+    check_function_for_cast<DataTypeIPv4>(input_types, data_set);
+}
+
+TEST_F(FunctionCastTest, test_non_strict_cast_string_to_ipv6) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("2001:db8:85a3:0000:0000:8a2e:0370:7334")},
+             ipv6_from_string("2001:db8:85a3:0000:0000:8a2e:0370:7334")},
+            {{std::string("::")}, ipv6_from_string("::")},
+            {{std::string("2001:db8::")}, ipv6_from_string("2001:db8::")},
+            {{std::string("::ffff:192.168.1.1")}, ipv6_from_string("::ffff:192.168.1.1")},
+            {{std::string(" 2001:db8::1 ")}, ipv6_from_string("2001:db8::1")},
+            {{std::string("2001:db8::1::2")}, Null()},
+            {{std::string("2001:db8:85a3:0000:0000:8a2e:0370:7334:1234")}, Null()},
+            {{std::string("2001:db8:85a3:0000:8a2e:0370")}, Null()},
+            {{std::string("2001:db8:85g3:0000:0000:8a2e:0370:7334")}, Null()},
+            {{std::string("2001:db8::ffff:192.168.1.260")}, Null()},
+            {{std::string("2001:db8::ffff:192.168..1")}, Null()},
+            {{std::string("2001:0db8:85a3:::8a2e:0370:7334")}, Null()},
+            {{std::string("20001:db8::1")}, Null()},
+    };
+    check_function_for_cast<DataTypeIPv6>(input_types, data_set);
 }
 
 } // namespace doris::vectorized
