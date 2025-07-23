@@ -1055,6 +1055,8 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string&
                               rs_meta_pb.index_id(), req.mutable_rowset_meta())
                     : Status::OK();
     // if the replaced_st is not ok and alse not NotFound, then we need to just return the replaced_st
+    VLOG_DEBUG << "replace schema to dict keys failed, replaced_st: " << replaced_st.to_string();
+    VLOG_DEBUG << "replaced_st.is<ErrorCode::NOT_FOUND>(): " << replaced_st.is<ErrorCode::NOT_FOUND>();
     if (!replaced_st.ok() && !replaced_st.is<ErrorCode::NOT_FOUND>()) {
         return replaced_st;
     }
