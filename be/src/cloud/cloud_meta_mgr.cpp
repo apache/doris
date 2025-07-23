@@ -774,8 +774,9 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                     std::vector<RowsetSharedPtr> overlapping_rowsets;
                     if (tablet->split_rowsets_by_version_overlap(rowsets, &new_rowsets,
                                                                  &overlapping_rowsets)) {
-                        VLOG_DEBUG << "warmup rowset, split into 2 sets, new_rowsets: " << new_rowsets.size() <<
-                                      ", overlapping_rowsets: " << overlapping_rowsets.size();
+                        VLOG_DEBUG << "warmup rowset, split into 2 sets, new_rowsets: "
+                                   << new_rowsets.size()
+                                   << ", overlapping_rowsets: " << overlapping_rowsets.size();
                         // add all rowsets directly, warmup async
                         tablet->add_rowsets(std::move(new_rowsets), version_overlap, wlock, true);
                         for (auto rs : overlapping_rowsets) {
@@ -792,7 +793,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                << config::enable_read_cluster_file_cache_shield
                                << ", is mow: " << tablet->enable_unique_key_merge_on_write()
                                << ", version_overlap: " << version_overlap
-                               << ", warmup_delta_data: " << warmup_delta_data;
+                               << ", warmup_delta_data: " << options.warmup_delta_data;
                     tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
                                         version_overlap || options.warmup_delta_data);
                 }
