@@ -53,9 +53,7 @@ Status HeapSorter::append_block(Block* block) {
 
 Status HeapSorter::prepare_for_read(bool is_spill) {
     if (is_spill) {
-        _limit += _offset;
-        _offset = 0;
-        _state->ignore_offset();
+        return Status::InternalError("HeapSorter does not support spill");
     }
     while (_queue.is_valid()) {
         auto [current, current_rows] = _queue.current();
