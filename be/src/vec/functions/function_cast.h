@@ -850,7 +850,7 @@ struct ConvertNothingToJsonb {
     }
 };
 
-template <TypeIndex type_index, typename ColumnType>
+template <TypeIndex type_index, typename ColumnType, typename ToDataType>
 struct ConvertImplFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const size_t result, size_t input_rows_count) {
@@ -897,6 +897,18 @@ struct ConvertImplFromJsonb {
                     res[i] = 0;
                     continue;
                 }
+
+                // if value is string, convert by parse, otherwise the result is null if ToDataType is not string
+                if (value->isString()) {
+                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
+                    const auto& data = blob->getBlob();
+                    size_t len = blob->getBlobLen();
+                    ReadBuffer rb((char*)(data), len);
+                    bool parsed = try_parse_impl<ToDataType>(res[i], rb, context);
+                    null_map[i] = !parsed;
+                    continue;
+                }
+
                 if constexpr (type_index == TypeIndex::UInt8) {
                     // cast from json value to boolean type
                     if (value->isTrue()) {
@@ -1991,22 +2003,22 @@ private:
                                      bool jsonb_string_as_string) const {
         switch (to_type->get_type_id()) {
         case TypeIndex::UInt8:
-            return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8, DataTypeUInt8>::execute;
         case TypeIndex::Int8:
-            return &ConvertImplFromJsonb<TypeIndex::Int8, ColumnInt8>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int8, ColumnInt8, DataTypeInt8>::execute;
         case TypeIndex::Int16:
-            return &ConvertImplFromJsonb<TypeIndex::Int16, ColumnInt16>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int16, ColumnInt16, DataTypeInt16>::execute;
         case TypeIndex::Int32:
-            return &ConvertImplFromJsonb<TypeIndex::Int32, ColumnInt32>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int32, ColumnInt32, DataTypeInt32>::execute;
         case TypeIndex::Int64:
-            return &ConvertImplFromJsonb<TypeIndex::Int64, ColumnInt64>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int64, ColumnInt64, DataTypeInt64>::execute;
         case TypeIndex::Int128:
-            return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128, DataTypeInt128>::execute;
         case TypeIndex::Float64:
-            return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64,
+                                         DataTypeFloat64>::execute;
         case TypeIndex::String:
             if (!jsonb_string_as_string) {
-                // Conversion from String through parsing.
                 return &ConvertImplGenericToString::execute2;
             } else {
                 return ConvertImplGenericFromJsonb::execute;

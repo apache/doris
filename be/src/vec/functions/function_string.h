@@ -1807,11 +1807,15 @@ public:
         bool is_const;
         std::tie(argument_column_2, is_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
+        auto* result_column = assert_cast<ColumnString*>(res_column.get());
 
-        auto result_column = assert_cast<ColumnString*>(res_column.get());
-
-        RETURN_IF_ERROR(Impl::execute(context, result_column, argument_column, argument_column_2,
-                                      input_rows_count));
+        if (is_const) {
+            RETURN_IF_ERROR(Impl::template execute<true>(context, result_column, argument_column,
+                                                         argument_column_2, input_rows_count));
+        } else {
+            RETURN_IF_ERROR(Impl::template execute<false>(context, result_column, argument_column,
+                                                          argument_column_2, input_rows_count));
+        }
 
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();
@@ -3180,8 +3184,8 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
 }
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringRef do_format_round(FunctionContext* context, const string& value,
-                                 Int32 decimal_places) {
+static inline StringRef do_format_round(FunctionContext* context, const string& value,
+                                        Int32 decimal_places) {
     bool is_positive = (value[0] != '-');
     int32_t result_len =
             value.size() +
@@ -3361,6 +3365,7 @@ struct FormatRoundDoubleImpl {
         return {std::make_shared<DataTypeFloat64>(), std::make_shared<vectorized::DataTypeInt32>()};
     }
 
+    template <bool is_const>
     static Status execute(FunctionContext* context, ColumnString* result_column,
                           const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
                           size_t input_rows_count) {
@@ -3369,7 +3374,7 @@ struct FormatRoundDoubleImpl {
         const auto* data_column = assert_cast<const ColumnFloat64*>(col_ptr.get());
         // when scale is above 38, we will go here
         for (size_t i = 0; i < input_rows_count; i++) {
-            int32_t decimal_places = arg_column_data_2[i];
+            int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
             if (decimal_places < 0) {
                 return Status::InvalidArgument(
                         "The second argument is {}, it can not be less than 0.", decimal_places);
@@ -3390,6 +3395,7 @@ struct FormatRoundInt64Impl {
         return {std::make_shared<DataTypeInt64>(), std::make_shared<vectorized::DataTypeInt32>()};
     }
 
+    template <bool is_const>
     static Status execute(FunctionContext* context, ColumnString* result_column,
                           const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
                           size_t input_rows_count) {
@@ -3397,7 +3403,7 @@ struct FormatRoundInt64Impl {
         const auto& arg_column_data_2 =
                 assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
         for (size_t i = 0; i < input_rows_count; i++) {
-            int32_t decimal_places = arg_column_data_2[i];
+            int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
             if (decimal_places < 0) {
                 return Status::InvalidArgument(
                         "The second argument is {}, it can not be less than 0.", decimal_places);
@@ -3417,6 +3423,7 @@ struct FormatRoundInt128Impl {
         return {std::make_shared<DataTypeInt128>(), std::make_shared<vectorized::DataTypeInt32>()};
     }
 
+    template <bool is_const>
     static Status execute(FunctionContext* context, ColumnString* result_column,
                           const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
                           size_t input_rows_count) {
@@ -3427,7 +3434,7 @@ struct FormatRoundInt128Impl {
         // get "170,141,183,460,469,231,731,687,303,715,884,105,727.00" in doris,
         // see https://github.com/apache/doris/blob/788abf2d7c3c7c2d57487a9608e889e7662d5fb2/be/src/vec/data_types/data_type_number_base.cpp#L124
         for (size_t i = 0; i < input_rows_count; i++) {
-            int32_t decimal_places = arg_column_data_2[i];
+            int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
             if (decimal_places < 0) {
                 return Status::InvalidArgument(
                         "The second argument is {}, it can not be less than 0.", decimal_places);
@@ -3448,13 +3455,14 @@ struct FormatRoundDecimalImpl {
                 std::make_shared<vectorized::DataTypeInt32>()};
     }
 
+    template <bool is_const>
     static Status execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
                           ColumnPtr decimal_places_col_ptr, size_t input_rows_count) {
         const auto& arg_column_data_2 =
                 assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
         if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
-                int32_t decimal_places = arg_column_data_2[i];
+                int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
                 if (decimal_places < 0) {
                     return Status::InvalidArgument(
                             "The second argument is {}, it can not be less than 0.",
@@ -3475,7 +3483,7 @@ struct FormatRoundDecimalImpl {
                            check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
-                int32_t decimal_places = arg_column_data_2[i];
+                int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
                 if (decimal_places < 0) {
                     return Status::InvalidArgument(
                             "The second argument is {}, it can not be less than 0.",
@@ -3494,7 +3502,7 @@ struct FormatRoundDecimalImpl {
                            check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
-                int32_t decimal_places = arg_column_data_2[i];
+                int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
                 if (decimal_places < 0) {
                     return Status::InvalidArgument(
                             "The second argument is {}, it can not be less than 0.",
@@ -3513,7 +3521,7 @@ struct FormatRoundDecimalImpl {
                            check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
-                int32_t decimal_places = arg_column_data_2[i];
+                int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
                 if (decimal_places < 0) {
                     return Status::InvalidArgument(
                             "The second argument is {}, it can not be less than 0.",

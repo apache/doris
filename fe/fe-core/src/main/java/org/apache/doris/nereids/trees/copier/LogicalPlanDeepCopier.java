@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -129,13 +128,16 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<Expression> correlationSlot = apply.getCorrelationSlot().stream()
                 .map(s -> ExpressionDeepCopier.INSTANCE.deepCopy(s, context))
                 .collect(ImmutableList.toImmutableList());
-        SubqueryExpr subqueryExpr = (SubqueryExpr) ExpressionDeepCopier.INSTANCE
-                .deepCopy(apply.getSubqueryExpr(), context);
+        Optional<Expression> compareExpr = apply.getCompareExpr()
+                .map(f -> ExpressionDeepCopier.INSTANCE.deepCopy(f, context));
+        Optional<Expression> typeCoercionExpr = apply.getTypeCoercionExpr()
+                .map(f -> ExpressionDeepCopier.INSTANCE.deepCopy(f, context));
         Optional<Expression> correlationFilter = apply.getCorrelationFilter()
                 .map(f -> ExpressionDeepCopier.INSTANCE.deepCopy(f, context));
         Optional<MarkJoinSlotReference> markJoinSlotReference = apply.getMarkJoinSlotReference()
                 .map(m -> (MarkJoinSlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(m, context));
-        return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
+        return new LogicalApply<>(correlationSlot, apply.getSubqueryType(), apply.isNot(),
+                compareExpr, typeCoercionExpr, correlationFilter,
                 markJoinSlotReference, apply.isNeedAddSubOutputToProjects(), apply.isInProject(),
                 apply.isMarkJoinSlotNotNull(), left, right);
     }

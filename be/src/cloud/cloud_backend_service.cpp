@@ -36,6 +36,9 @@
 
 namespace doris {
 
+bvar::Adder<uint64_t> g_file_cache_warm_up_cache_async_submitted_segment_num(
+        "file_cache_warm_up_cache_async_submitted_segment_num");
+
 CloudBackendService::CloudBackendService(CloudStorageEngine& engine, ExecEnv* exec_env)
         : BaseBackendService(exec_env), _engine(engine) {}
 
@@ -93,8 +96,15 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
         LOG_INFO("receive the warm up request.")
                 .tag("request_type", "SET_JOB")
                 .tag("job_id", request.job_id);
-        st = manager.check_and_set_job_id(request.job_id);
-        if (!st) {
+        if (request.__isset.event) {
+            st = manager.set_event(request.job_id, request.event);
+            if (st.ok()) {
+                break;
+            }
+        } else {
+            st = manager.check_and_set_job_id(request.job_id);
+        }
+        if (!st.ok()) {
             LOG_WARNING("SET_JOB failed.").error(st);
             break;
         }
@@ -142,7 +152,11 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
         LOG_INFO("receive the warm up request.")
                 .tag("request_type", "CLEAR_JOB")
                 .tag("job_id", request.job_id);
-        st = manager.clear_job(request.job_id);
+        if (request.__isset.event) {
+            st = manager.set_event(request.job_id, request.event, /* clear: */ true);
+        } else {
+            st = manager.clear_job(request.job_id);
+        }
         break;
     }
     default:
@@ -181,6 +195,8 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
     PGetFileCacheMetaResponse brpc_response;
     brpc_stub->get_file_cache_meta_by_tablet_id(&cntl, &brpc_request, &brpc_response, nullptr);
     if (!cntl.Failed()) {
+        g_file_cache_warm_up_cache_async_submitted_segment_num
+                << brpc_response.file_cache_block_metas().size();
         _engine.file_cache_block_downloader().submit_download_task(
                 std::move(*brpc_response.mutable_file_cache_block_metas()));
     } else {

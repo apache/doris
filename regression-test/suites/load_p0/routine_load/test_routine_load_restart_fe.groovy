@@ -50,15 +50,14 @@ suite("test_routine_load_restart_fe", "docker") {
                 producer.send(record)
             }
         }
-    }
 
-    def options = new ClusterOptions()
-    options.setFeNum(1)
-    docker(options) {
-        def load_with_injection = { injection ->
-            def jobName = "test_routine_load_restart"
-            def tableName = "dup_tbl_basic_multi_table"
-            if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def options = new ClusterOptions()
+        options.setFeNum(1)
+        options.enableDebugPoints()
+        def jobName = "test_routine_load_restart"
+        def tableName = "dup_tbl_basic_multi_table"
+        docker(options) {
+            def load_with_injection = { injection ->
                 try {
                     GetDebugPoint().enableDebugPointForAllBEs(injection)
                     sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
@@ -104,32 +103,32 @@ suite("test_routine_load_restart_fe", "docker") {
                         } else {
                             continue;
                         }
-                    }
-                    sql "stop routine load for ${jobName}"
+                    }                    
                 } catch (Exception e) {
                     log.info("exception: {}", e)
+                    sql "stop routine load for ${jobName}"
                     sql "DROP TABLE IF EXISTS ${tableName}"
                 }
             }
-        }
-        load_with_injection("KafkaDataConsumer.group_consume.out_of_range")
+            load_with_injection("KafkaDataConsumer.group_consume.out_of_range")
 
-        cluster.restartFrontends()
-        sleep(30000)
-        context.reconnectFe()
+            cluster.restartFrontends()
+            sleep(30000)
+            context.reconnectFe()
 
-        def res = sql "show routine load for ${jobName}"
-        def state = res[0][8].toString()
-        if (state == "PAUSED") {
-            log.info("reason of state changed: ${res[0][17].toString()}".toString())
-            assertTrue(res[0][17].toString().contains("Offset out of range"))
-            assertTrue(res[0][17].toString().contains("consume partition"))
-            assertTrue(res[0][17].toString().contains("consume offset"))
-        } else {
-            assertEquals(1, 2)
+            def res = sql "show routine load for ${jobName}"
+            def state = res[0][8].toString()
+            if (state == "PAUSED") {
+                log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                assertTrue(res[0][17].toString().contains("Offset out of range"))
+                assertTrue(res[0][17].toString().contains("consume partition"))
+                assertTrue(res[0][17].toString().contains("consume offset"))
+            } else {
+                assertEquals(1, 2)
+            }
+            sql "stop routine load for ${jobName}"
+            sql "DROP TABLE IF EXISTS ${tableName}"
         }
-        sql "stop routine load for ${jobName}"
-        sql "DROP TABLE IF EXISTS ${tableName}"
     }
 }
 

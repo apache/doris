@@ -121,10 +121,24 @@ enum ClusterStatus {
     MANUAL_SHUTDOWN = 4;
 }
 
+// just for virtual cluster
+message ClusterPolicy {
+    enum PolicyType {
+        ActiveStandby = 0;
+    }
+    optional PolicyType type = 1;
+    optional string active_cluster_name = 2;
+    repeated string standby_cluster_names = 3;
+    optional int64 failover_failure_threshold = 4;
+    optional int64 unhealthy_node_threshold_percent = 5;
+    repeated string cache_warmup_jobids = 6;
+}
+
 message ClusterPB {
     enum Type {
         SQL = 0;
         COMPUTE = 1;
+        VIRTUAL = 2;
     }
     optional string cluster_id = 1;
     optional string cluster_name = 2;
@@ -135,6 +149,10 @@ message ClusterPB {
     optional string public_endpoint = 7;
     optional string private_endpoint = 8;
     optional ClusterStatus cluster_status = 9;
+    optional int64 ctime = 10;
+    optional int64 mtime = 11;
+    repeated string cluster_names = 12; // clusters in virtual cluster
+    optional ClusterPolicy cluster_policy = 13; // virtual cluster policy
 }
 
 message NodeInfoPB {
@@ -659,6 +677,7 @@ message ServiceRegistryPB {
 message BeginTxnRequest {
     optional string cloud_unique_id = 1; // For auth
     optional TxnInfoPB txn_info = 2;
+    optional string request_ip = 3;
 }
 
 message BeginTxnResponse {
@@ -675,6 +694,7 @@ message PrecommitTxnRequest {
     optional int64 txn_id = 3;
     optional TxnCommitAttachmentPB commit_attachment = 4;
     optional int64 precommit_timeout_ms = 5;
+    optional string request_ip = 6;
 }
 
 message PrecommitTxnResponse {
@@ -696,6 +716,7 @@ message CommitTxnRequest {
     optional bool is_txn_load = 9;
     repeated SubTxnInfo sub_txn_infos = 10;
     optional bool enable_txn_lazy_commit = 11;
+    optional string request_ip = 12;
 }
 
 message SubTxnInfo {
@@ -729,6 +750,7 @@ message AbortTxnRequest {
     optional string label = 4;
     optional string reason = 5;
     optional TxnCommitAttachmentPB commit_attachment = 6;
+    optional string request_ip = 7;
 }
 
 message AbortTxnResponse {
@@ -741,6 +763,7 @@ message GetTxnRequest {
     optional int64 db_id = 2;
     optional int64 txn_id = 3;
     optional string label = 4;
+    optional string request_ip = 5;
 }
 
 message GetTxnResponse {
@@ -753,6 +776,7 @@ message GetTxnIdRequest {
     optional int64 db_id = 2;
     optional string label = 3;
     repeated TxnStatusPB txn_status = 4;
+    optional string request_ip = 5;
 }
 
 message GetTxnIdResponse {
@@ -770,6 +794,7 @@ message BeginSubTxnRequest {
     repeated int64 table_ids = 5;
     // a random label used to generate a sub_txn_id
     optional string label = 6;
+    optional string request_ip = 7;
 }
 
 message BeginSubTxnResponse {
@@ -788,6 +813,7 @@ message AbortSubTxnRequest {
     optional int64 db_id = 5;
     // set table_ids in txn_info
     repeated int64 table_ids = 6;
+    optional string request_ip = 7;
 }
 
 message AbortSubTxnResponse {
@@ -797,6 +823,7 @@ message AbortSubTxnResponse {
 
 message GetCurrentMaxTxnRequest {
     optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
 }
 
 message GetCurrentMaxTxnResponse {
@@ -809,6 +836,7 @@ message AbortTxnWithCoordinatorRequest {
     optional string ip = 2;
     optional int64 id = 3;
     optional int64 start_time = 4;
+    optional string request_ip = 5;
 }
 
 message AbortTxnWithCoordinatorResponse {
@@ -821,6 +849,7 @@ message CheckTxnConflictRequest {
     optional int64 end_txn_id = 3;
     repeated int64 table_ids = 4;
     optional bool ignore_timeout_txn = 5;
+    optional string request_ip = 6;
 }
 
 message CheckTxnConflictResponse {
@@ -833,6 +862,7 @@ message CleanTxnLabelRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     repeated string labels = 3;
+    optional string request_ip = 4;
 }
 
 message CleanTxnLabelResponse {
@@ -853,6 +883,8 @@ message GetVersionRequest {
 
     // True if get table version
     optional bool is_table_version = 9;
+
+    optional string request_ip = 10;
 };
 
 message GetVersionResponse {
@@ -870,6 +902,7 @@ message GetVersionResponse {
 
 message GetObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
 };
 
 message AlterObjStoreInfoRequest {
@@ -896,6 +929,7 @@ message AlterObjStoreInfoRequest {
     optional Operation op = 3;
     optional StorageVaultPB vault = 4;
     optional bool set_as_default_storage_vault = 5;
+    optional string request_ip = 6;
 }
 
 message AlterObjStoreInfoResponse {
@@ -908,6 +942,7 @@ message UpdateAkSkRequest {
     optional string instance_id = 1;
     repeated RamUserPB internal_bucket_user = 2;
     optional RamUserPB ram_user = 3;
+    optional string request_ip = 4;
 }
 
 message UpdateAkSkResponse {
@@ -928,6 +963,7 @@ message CreateTabletsRequest {
     repeated doris.TabletMetaCloudPB tablet_metas = 2;
     optional string storage_vault_name = 3;
     optional int64 db_id = 4;
+    optional string request_ip = 5;
 }
 
 message CreateTabletsResponse {
@@ -939,6 +975,7 @@ message CreateTabletsResponse {
 message UpdateTabletRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated TabletMetaInfoPB tablet_meta_infos = 2;
+    optional string request_ip = 3;
 }
 
 message UpdateTabletResponse {
@@ -949,6 +986,7 @@ message UpdateTabletSchemaRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 tablet_id = 2;
     optional doris.TabletSchemaCloudPB tablet_schema = 3;
+    optional string request_ip = 4;
 }
 
 message UpdateTabletSchemaResponse {
@@ -958,12 +996,14 @@ message UpdateTabletSchemaResponse {
 message DropTabletRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 tablet_id = 2;
+    optional string request_ip = 3;
     // TODO: There are more fields TBD
 }
 
 message GetTabletRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 tablet_id = 2;
+    optional string request_ip = 3;
     // TODO: There are more fields TBD
 }
 
@@ -978,6 +1018,7 @@ message CreateRowsetRequest {
     optional bool temporary = 3;
     optional int64 txn_id = 4;
     optional string tablet_job_id = 5;
+    optional string request_ip = 6;
 }
 
 message CreateRowsetResponse {
@@ -1001,6 +1042,7 @@ message GetRowsetRequest {
     // returned schema format on rowset schema, used in variant type directly.
     // for compability reason we use FILL_WITH_DICT as default
     optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
+    optional string request_ip = 9;
 }
 
 message GetRowsetResponse {
@@ -1014,6 +1056,7 @@ message GetRowsetResponse {
 message GetSchemaDictRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 index_id = 2;
+    optional string request_ip = 3;
 }
 
 message GetSchemaDictResponse {
@@ -1028,6 +1071,7 @@ message IndexRequest {
     optional int64 expiration = 4;
     optional int64 db_id = 5;
     optional bool is_new_table = 6; // For table version
+    optional string request_ip = 7;
 }
 
 message IndexResponse {
@@ -1042,6 +1086,7 @@ message PartitionRequest {
     optional int64 expiration = 5;
     optional int64 db_id = 6;
     optional bool need_update_table_version = 7;
+    optional string request_ip = 8;
 }
 
 message PartitionResponse {
@@ -1067,6 +1112,7 @@ message CreateInstanceRequest {
     optional RamUserPB ram_user = 5;
     optional bool sse_enabled = 6;
     optional StorageVaultPB vault = 7;
+    optional string request_ip = 8;
 }
 
 message CreateInstanceResponse {
@@ -1087,6 +1133,7 @@ message AlterInstanceRequest {
     optional string instance_id = 1;
     optional Operation op = 2;
     optional string name = 3;
+    optional string request_ip = 4;
 }
 
 message AlterInstanceResponse {
@@ -1096,6 +1143,7 @@ message AlterInstanceResponse {
 message GetInstanceRequest {
     optional string instance_id = 1;
     optional string cloud_unique_id = 2;
+    optional string request_ip = 3;
 }
 
 message GetInstanceResponse {
@@ -1116,6 +1164,7 @@ message AlterClusterRequest {
         NOTIFY_DECOMMISSIONED = 8;
         UPDATE_CLUSTER_ENDPOINT = 9;
         SET_CLUSTER_STATUS = 10;
+        ALTER_VCLUSTER_INFO = 11;
     }
     optional string instance_id = 1;
     optional string cloud_unique_id = 2; // For auth
@@ -1123,6 +1172,7 @@ message AlterClusterRequest {
     optional Operation op = 4;
     // for SQL mode rename cluster, rename to cluster name eq instance empty cluster name, need drop empty cluster
     optional bool replace_if_existing_empty_target_cluster = 5;
+    optional string request_ip = 6;
 }
 
 message AlterClusterResponse {
@@ -1135,12 +1185,14 @@ message GetClusterRequest {
     optional string cluster_id = 3;
     optional string cluster_name = 4;
     optional string mysql_user_name = 5;
+    optional string request_ip = 6;
 }
 
 message GetClusterStatusRequest {
     repeated string instance_ids = 1; // Redundant field
     repeated string cloud_unique_ids = 2;
     optional ClusterStatus status = 3;
+    optional string request_ip = 4;
 }
 
 message GetClusterStatusResponse {
@@ -1161,6 +1213,7 @@ message GetClusterResponse {
 message GetTabletStatsRequest {
     optional string cloud_unique_id = 1;
     repeated TabletIndexPB tablet_idx = 2;
+    optional string request_ip = 3;
 }
 
 message GetTabletStatsResponse {
@@ -1171,6 +1224,7 @@ message GetTabletStatsResponse {
 message CreateStageRequest {
     optional string cloud_unique_id = 1;
     optional StagePB stage = 2;
+    optional string request_ip = 3;
 }
 
 message CreateStageResponse {
@@ -1183,6 +1237,7 @@ message GetStageRequest {
     optional string mysql_user_name = 3;
     optional StagePB.StageType type = 4;
     optional string mysql_user_id = 5;
+    optional string request_ip = 6;
 }
 
 message GetStageResponse {
@@ -1197,6 +1252,7 @@ message DropStageRequest {
     optional StagePB.StageType type = 4;
     optional string mysql_user_id = 5;
     optional string reason = 6;
+    optional string request_ip = 7;
 }
 
 message DropStageResponse {
@@ -1205,6 +1261,7 @@ message DropStageResponse {
 
 message GetIamRequest {
     optional string cloud_unique_id = 1;
+    optional string request_ip = 2;
 }
 
 message GetIamResponse {
@@ -1217,6 +1274,7 @@ message AlterIamRequest {
     optional string account_id = 1;
     optional string ak = 2;
     optional string sk = 3;
+    optional string request_ip = 4;
 }
 
 message AlterIamResponse {
@@ -1226,6 +1284,7 @@ message AlterIamResponse {
 message AlterRamUserRequest {
     optional string instance_id = 1;
     optional RamUserPB ram_user = 2;
+    optional string request_ip = 3;
 }
 
 message AlterRamUserResponse {
@@ -1235,6 +1294,7 @@ message AlterRamUserResponse {
 message StartTabletJobRequest {
     optional string cloud_unique_id = 1; // For auth
     optional TabletJobInfoPB job = 2;
+    optional string request_ip = 3;
 }
 
 message StartTabletJobResponse {
@@ -1253,6 +1313,7 @@ message FinishTabletJobRequest {
     optional string cloud_unique_id = 1; // For auth
     optional Action action = 2;
     optional TabletJobInfoPB job = 3;
+    optional string request_ip = 4;
 }
 
 message FinishTabletJobResponse {
@@ -1274,6 +1335,7 @@ message BeginCopyRequest {
     optional int64 file_num_limit = 10;
     optional int64 file_size_limit = 11;
     optional int64 file_meta_size_limit = 12;
+    optional string request_ip = 13;
 }
 
 message BeginCopyResponse {
@@ -1296,6 +1358,7 @@ message FinishCopyRequest {
     optional int32 group_id = 6;
     optional Action action = 7;
     optional int64 finish_time_ms = 8;
+    optional string request_ip = 9;
 }
 
 message FinishCopyResponse {
@@ -1308,6 +1371,7 @@ message GetCopyJobRequest {
     optional int64 table_id = 3;
     optional string copy_id = 4;
     optional int32 group_id = 5;
+    optional string request_ip = 6;
 }
 
 message GetCopyJobResponse {
@@ -1319,6 +1383,7 @@ message GetCopyFilesRequest {
     optional string cloud_unique_id = 1;
     optional string stage_id = 2;
     optional int64 table_id = 3;
+    optional string request_ip = 4;
 }
 
 message GetCopyFilesResponse {
@@ -1331,6 +1396,7 @@ message FilterCopyFilesRequest {
     optional string stage_id = 2;
     optional int64 table_id = 3;
     repeated ObjectFilePB object_files = 4;
+    optional string request_ip = 5;
 }
 
 message FilterCopyFilesResponse {
@@ -1340,6 +1406,12 @@ message FilterCopyFilesResponse {
 
 message RecycleInstanceRequest {
     repeated string instance_ids = 1;
+    optional string request_ip = 2;
+}
+
+message StatisticsRecycleRequest {
+    repeated string instance_ids = 1;
+    repeated string resource_type = 2;
 }
 
 message RecycleInstanceResponse {
@@ -1442,6 +1514,7 @@ message UpdateDeleteBitmapRequest {
 
     // for load txn only
     optional int64 next_visible_version = 14;
+    optional string request_ip = 15;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1458,6 +1531,7 @@ message GetDeleteBitmapRequest {
     optional int64 base_compaction_cnt = 7;
     optional int64 cumulative_compaction_cnt = 8;
     optional int64 cumulative_point = 9;
+    optional string request_ip = 10;
 }
 
 message GetDeleteBitmapResponse {
@@ -1476,6 +1550,7 @@ message RemoveDeleteBitmapRequest {
     repeated string rowset_ids = 3;
     repeated int64 begin_versions = 4;
     repeated int64 end_versions = 5;
+    optional string request_ip = 6;
 }
 
 message RemoveDeleteBitmapResponse {
@@ -1501,6 +1576,7 @@ message GetDeleteBitmapUpdateLockRequest {
     optional int64 expiration = 6;
     optional bool require_compaction_stats = 7 [default = false];
     repeated TabletIndexPB tablet_indexes = 8;
+    optional string request_ip = 9;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
@@ -1517,6 +1593,7 @@ message RemoveDeleteBitmapUpdateLockRequest {
     optional int64 tablet_id = 3;
     optional int64 lock_id = 4;
     optional int64 initiator = 5;
+    optional string request_ip = 6;
 }
 
 message RemoveDeleteBitmapUpdateLockResponse {
@@ -1527,6 +1604,7 @@ message GetRLTaskCommitAttachRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     optional int64 job_id = 3;
+    optional string request_ip = 4;
 }
 
 message GetRLTaskCommitAttachResponse {
@@ -1539,6 +1617,7 @@ message ResetRLProgressRequest {
     optional int64 db_id = 2;
     optional int64 job_id = 3;
     map<int32, int64> partition_to_offset = 4;
+    optional string request_ip = 5;
 }
 
 message ResetRLProgressResponse {
@@ -1559,7 +1638,8 @@ message CheckKVRequest {
     }
     optional string cloud_unique_id = 1; // For auth
     optional CheckKeyInfos check_keys = 2;
-    optional Operation op = 3; 
+    optional Operation op = 3;
+    optional string request_ip = 4;
 }
 
 message CheckKVResponse {

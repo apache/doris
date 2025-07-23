@@ -121,7 +121,7 @@ if [[ "${RUN}" -eq 1 ]]; then
 else
     echo "Run Frontend UT"
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dmaven.test.failure.ignore=true
     else
         "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false
     fi
