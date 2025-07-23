@@ -416,13 +416,13 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
         }
-        statementContext.setNeedPreRewrite(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        statementContext.setNeedPreMvRewrite(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
         // init materialization context for mv rewrite
         cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(cascadesContext));
     }
 
     protected void preMaterializedViewRewrite() {
-        if (!cascadesContext.getStatementContext().isNeedPreRewrite()) {
+        if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             return;
         }
         if (LOG.isDebugEnabled()) {
@@ -456,7 +456,7 @@ public class NereidsPlanner extends Planner {
         // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
         statementContext.getRewrittenPlansByMv().clear();
         // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
-        this.cascadesContext.getStatementContext().setPreRewritten(true);
+        this.cascadesContext.getStatementContext().setPreMvRewritten(true);
         if (plansWhichContainMv.isEmpty()) {
             return;
         }
