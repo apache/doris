@@ -18,7 +18,6 @@
 
 #pragma once
 
-#include <absl/strings/ascii.h>
 #include <fmt/compile.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -31,6 +30,7 @@
 #include <vector>
 
 namespace doris {
+
 template <typename T>
 std::string to_string(const T& t) {
     return fmt::format("{}", t);
@@ -115,7 +115,7 @@ int to_buffer(const T& value, int width, char* buffer) {
         snprintf_result = snprintf(buffer, width, "%.*g", DIG + 2, value);
         // Should never overflow; see above.
         DCHECK(snprintf_result > 0 && snprintf_result < width);
-        return snprintf_result;
     }
-
+    return snprintf_result;
+}
 } // namespace doris
