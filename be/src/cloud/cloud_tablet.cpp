@@ -301,42 +301,42 @@ void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_o
                         ? 0
                         : rowset_meta->newest_write_timestamp() + _tablet_meta->ttl_seconds();
         // clang-format off
-                    _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
-                            .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
-                            .file_size = rowset->rowset_meta()->segment_file_size(seg_id),
-                            .file_system = storage_resource.value()->fs,
-                            .ctx =
-                                    {
-                                            .expiration_time = expiration_time,
-                                            .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                                    },
-                            .download_done {[this, rowset, delay_add_rowset](Status st) {
-                                warm_up_done_cb(rowset, st, delay_add_rowset);
-                                if (!st) {
-                                    LOG_WARNING("add rowset warm up error ").error(st);
-                                }
-                            }},
-                    });
-                    download_task_submitted = true;
+        _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
+                .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
+                .file_size = rowset->rowset_meta()->segment_file_size(seg_id),
+                .file_system = storage_resource.value()->fs,
+                .ctx =
+                        {
+                                .expiration_time = expiration_time,
+                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                        },
+                .download_done {[this, rowset, delay_add_rowset](Status st) {
+                    warm_up_done_cb(rowset, st, delay_add_rowset);
+                    if (!st) {
+                        LOG_WARNING("add rowset warm up error ").error(st);
+                    }
+                }},
+        });
+        download_task_submitted = true;
 
-                    auto download_idx_file = [&](const io::Path& idx_path) {
-                        io::DownloadFileMeta meta {
-                                .path = idx_path,
-                                .file_size = -1,
-                                .file_system = storage_resource.value()->fs,
-                                .ctx =
-                                        {
-                                                .expiration_time = expiration_time,
-                                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                                        },
-                                .download_done {[](Status st) {
-                                    if (!st) {
-                                        LOG_WARNING("add rowset warm up error ").error(st);
-                                    }
-                                }},
-                        };
-                        _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
-                    };
+        auto download_idx_file = [&](const io::Path& idx_path) {
+            io::DownloadFileMeta meta {
+                    .path = idx_path,
+                    .file_size = -1,
+                    .file_system = storage_resource.value()->fs,
+                    .ctx =
+                            {
+                                    .expiration_time = expiration_time,
+                                    .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                            },
+                    .download_done {[](Status st) {
+                        if (!st) {
+                            LOG_WARNING("add rowset warm up error ").error(st);
+                        }
+                    }},
+            };
+            _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
+        };
         // clang-format on
         auto schema_ptr = rowset_meta->tablet_schema();
         auto idx_version = schema_ptr->get_inverted_index_storage_format();
