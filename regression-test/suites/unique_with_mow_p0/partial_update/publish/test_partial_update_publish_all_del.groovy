@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_partial_update_publish_all_del") {
+    if (isCloudMode()) {
+        logger.info("skip test_partial_update_publish_all_del in cloud mode")
+        return
+    }
     def dbName = context.config.getDbNameByFile(context.file)
 
     def tableName = "test_partial_update_publish_all_del"
