@@ -96,7 +96,8 @@ struct AggregateFunctionGeomeanData {
             return Status::OK();
         }
         if ((count_negative & 1) & (count_positive & 1)) {
-            return Status::InvalidArgument("Geometric mean is undefined for odd number of negatives with even n");
+            return Status::InvalidArgument(
+                    "Geometric mean is undefined for odd number of negatives with even n");
         }
 
         Float64 sign = (count_negative % 2 == 1) ? -1.0 : 1.0;

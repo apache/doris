@@ -315,7 +315,7 @@ suite("test_geomean") {
     }
     test {
         sql """ SELECT GEOMEAN(value, 1) FROM test_geomean_int """
-        exception "GEOMEAN expects exactly one parameter"
+        exception "Can not found function 'GEOMEAN' which has 2 arity. Candidate functions are: [GEOMEAN(Expression)]"
     }
 
     // Test odd number of negatives with even n
