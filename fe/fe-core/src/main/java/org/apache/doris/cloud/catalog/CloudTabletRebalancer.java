@@ -171,14 +171,20 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     public Set<Long> getSnapshotTabletsInPrimaryByBeId(Long beId) {
         Set<Long> tabletIds = Sets.newHashSet();
-        Set<Tablet> tablets = new HashSet<>(beToTabletsGlobal.get(beId)); // Create a copy
-        for (Tablet tablet : tablets) {
-            tabletIds.add(tablet.getId());
+        Set<Tablet> tablets = beToTabletsGlobal.get(beId);
+        if (tablets != null) {
+            //  Create a copy
+            for (Tablet tablet : new HashSet<>(tablets)) {
+                tabletIds.add(tablet.getId());
+            }
         }
 
-        tablets = new HashSet<>(beToColocateTabletsGlobal.get(beId)); // Create a copy
-        for (Tablet tablet : tablets) {
-            tabletIds.add(tablet.getId());
+        Set<Tablet> colocateTablets = beToColocateTabletsGlobal.get(beId);
+        if (colocateTablets != null) {
+            //  Create a copy
+            for (Tablet tablet : new HashSet<>(colocateTablets)) {
+                tabletIds.add(tablet.getId());
+            }
         }
 
         return tabletIds;
@@ -186,9 +192,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     public Set<Long> getSnapshotTabletsInSecondaryByBeId(Long beId) {
         Set<Long> tabletIds = Sets.newHashSet();
-        Set<Tablet> tablets = new HashSet<>(beToTabletsGlobalInSecondary.get(beId)); // Create a copy
-        for (Tablet tablet : tablets) {
-            tabletIds.add(tablet.getId());
+        Set<Tablet> tablets = beToTabletsGlobalInSecondary.get(beId);
+        if (tablets != null) {
+            //  Create a copy
+            for (Tablet tablet : new HashSet<>(tablets)) {
+                tabletIds.add(tablet.getId());
+            }
         }
         return tabletIds;
     }
@@ -201,10 +210,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public int getTabletNumByBackendId(long beId) {
-        Set<Tablet> tablets = new HashSet<>(beToTabletsGlobal.get(beId));
-        Set<Tablet> colocateTablets = new HashSet<>(beToColocateTabletsGlobal.get(beId));
+        Set<Tablet> tablets = beToTabletsGlobal.get(beId);
+        Set<Tablet> colocateTablets = beToColocateTabletsGlobal.get(beId);
 
-        return tablets.size() + colocateTablets.size();
+        int tabletsSize = (tablets == null) ? 0 : tablets.size();
+        int colocateTabletsSize = (colocateTablets == null) ? 0 : colocateTablets.size();
+
+        return tabletsSize + colocateTabletsSize;
     }
 
     // 1 build cluster to backends info
