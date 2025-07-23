@@ -57,6 +57,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -637,6 +638,24 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
     }
 
+    private Map<Literal, Float> computeHotValuesForInPredicates(ColumnStatistic colStats,
+                                                                List<Literal> options) {
+        if (colStats.getHotValues() != null) {
+            Map<Literal, Float> hotValues = colStats.getHotValues();
+            Map<Literal, Float> matchedHotValues = new HashMap<>();
+            for (Expression option : options) {
+                Float hotIndex = hotValues.get(option);
+                if (hotIndex != null) {
+                    matchedHotValues.put((Literal) option, hotIndex);
+                }
+            }
+            if (!matchedHotValues.isEmpty()) {
+                return matchedHotValues;
+            }
+        }
+        return null;
+    }
+
     private ColumnStatistic updateInPredicateColumnStatistics(InPredicate inPredicate, EstimationContext context,
             ColumnStatistic compareExprStats) {
         List<Expression> options = inPredicate.getOptions();
@@ -666,12 +685,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             */
             int validInOptCount = 0;
             int nonLiteralOptionCount = 0;
+            List<Literal> literalOptions = new ArrayList<>();
             for (Expression option : options) {
                 ColumnStatistic optionStats = ExpressionEstimation.estimate(option, context.statistics);
                 if (option instanceof Literal) {
                     // remove the options which is out of compareExpr.range
                     Preconditions.checkState(Math.abs(optionStats.maxValue - optionStats.minValue) < 1e-06,
                             "literal's min/max doesn't equal");
+                    literalOptions.add((Literal) option);
                     double constValue = optionStats.maxValue;
                     if (compareExprStats.minValue <= constValue && compareExprStats.maxValue >= constValue) {
                         validInOptCount++;
@@ -688,6 +709,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     }
                 } else {
                     nonLiteralOptionCount++;
+                }
+                if (!literalOptions.isEmpty() && compareExprStats.getHotValues() != null) {
+                    Map<Literal, Float> matchedHotValues =
+                            computeHotValuesForInPredicates(compareExprStats, literalOptions);
+                    compareExprStatsBuilder.setHotValues(matchedHotValues);
                 }
             }
             if (nonLiteralOptionCount > 0) {
@@ -730,8 +756,21 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         ColumnStatistic newCompareExprStats = updateInPredicateColumnStatistics(inPredicate, context, compareExprStats);
         double selectivity;
         if (!newCompareExprStats.isMinMaxInvalid()) {
-            selectivity = Statistics.getValidSelectivity(
-                    Math.min(StatsMathUtil.divide(newCompareExprStats.ndv, compareExprStats.ndv), 1));
+            if (newCompareExprStats.getHotValues() == null) {
+                selectivity = Statistics.getValidSelectivity(
+                        Math.min(StatsMathUtil.divide(newCompareExprStats.ndv, compareExprStats.ndv), 1));
+            } else {
+                double nonHotRatio = 1 - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
+                if (nonHotRatio > 0) {
+                    double nonHotSel = nonHotRatio
+                            * (newCompareExprStats.ndv - newCompareExprStats.getHotValues().size())
+                            / (compareExprStats.ndv - compareExprStats.getHotValues().size());
+                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
+                    selectivity = nonHotSel + hotSel;
+                } else {
+                    selectivity = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
+                }
+            }
         } else {
             selectivity = Statistics.getValidSelectivity(
                     Math.min(options.size() / compareExprStats.getOriginalNdv(), 1));
