@@ -444,7 +444,6 @@ import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UninstallPluginContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UnlockTablesContext;
-import org.apache.doris.nereids.DorisParser.UnsupportedContext;
 import org.apache.doris.nereids.DorisParser.UnsupportedStartTransactionContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
@@ -837,7 +836,6 @@ import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
-import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
@@ -4748,11 +4746,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         long id = Long.parseLong(ctx.id.getText());
 
         return ParserUtils.withOrigin(ctx, () -> new DropCatalogRecycleBinCommand(idType, id));
-    }
-
-    @Override
-    public Object visitUnsupported(UnsupportedContext ctx) {
-        return UnsupportedCommand.INSTANCE;
     }
 
     @Override
