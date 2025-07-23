@@ -63,6 +63,27 @@ SchemaCloudDictionarySPtr SchemaCloudDictionaryCache::_lookup(int64_t index_id) 
     return dict;
 }
 
+Status check_path_amibigus(const SchemaCloudDictionary& schema, RowsetMetaCloudPB* rowset_meta) {
+    // if enable_variant_flatten_nested is false, then we don't need to check path amibigus
+    if (!rowset_meta->tablet_schema().enable_variant_flatten_nested()) {
+        return Status::OK();
+    }
+    // try to get all the paths in the rowset meta
+    vectorized::PathsInData all_paths;
+    for (const auto& column : rowset_meta->tablet_schema().column()) {
+        vectorized::PathInData path_in_data;
+        path_in_data.from_protobuf(column.column_path_info());
+        all_paths.push_back(path_in_data);
+    }
+    // try to get all the paths in the schema dict
+    for (const auto& [_, column] : schema.column_dict()) {
+        vectorized::PathInData path_in_data;
+        path_in_data.from_protobuf(column.column_path_info());
+        all_paths.push_back(path_in_data);
+    }
+    RETURN_IF_ERROR(vectorized::schema_util::check_variant_has_no_ambiguous_paths(all_paths));
+    return Status::OK();
+}
 /**
  * Processes dictionary entries by matching items from the given item map.
  * It maps items to their dictionary keys, then adds these keys to the rowset metadata.
@@ -131,33 +152,6 @@ Status process_dictionary(SchemaCloudDictionary& dict,
     if (result != nullptr) {
         result->Swap(&none_ext_items);
     }
-
-    if constexpr (std::is_same_v<ItemPB, ColumnPB>) {
-        // if enable_variant_flatten_nested is true, we need to check if the paths in data are ambiguous
-        // which defined in `schema_util::check_variant_has_no_ambiguous_paths` which will throw exception: DataQualityError
-        // if there exists a prefix with matched names, but not matched structure (is Nested, number of dimensions).
-        // for example, if there are two columns with path "a.b" and "a.b.c", and the column "a.b.c" is not nested,
-        // then the paths are ambiguous.
-        std::vector<vectorized::PathInData> all_paths;
-        // print debug for enable_variant_flatten_nested and none_ext_items
-        VLOG_DEBUG << "enable_variant_flatten_nested: " << enable_variant_flatten_nested;
-        VLOG_DEBUG << "none_ext_items size: " << none_ext_items.size();
-        if (enable_variant_flatten_nested && !none_ext_items.empty()) {
-            for (const auto& item : none_ext_items) {
-                vectorized::PathInData path_in_data;
-                path_in_data.from_protobuf(item.column_path_info());
-                all_paths.emplace_back(path_in_data);
-                VLOG_DEBUG << "path_in_data in none_ext_items: " << path_in_data.to_jsonpath();
-            }
-            for (const auto& [key, val] : dict.column_dict()) {
-                vectorized::PathInData path_in_data;
-                path_in_data.from_protobuf(val.column_path_info());
-                all_paths.emplace_back(path_in_data);
-            }
-            RETURN_IF_ERROR(
-                    vectorized::schema_util::check_variant_has_no_ambiguous_paths(all_paths));
-        }
-    }
     return Status::OK();
 }
 
@@ -166,11 +160,15 @@ Status SchemaCloudDictionaryCache::replace_schema_to_dict_keys(int64_t index_id,
     if (!rowset_meta->has_variant_type_in_schema()) {
         return Status::OK();
     }
+    // first attempt to get dict from cache
     auto dict = _lookup(index_id);
     if (!dict) {
-        g_schema_dict_cache_miss_count << 1;
-        return Status::NotFound<false>("Not found dict {}", index_id);
+        // if not found the dict in cache, then refresh the dict from remote meta service
+        RETURN_IF_ERROR(refresh_dict(index_id, &dict));
     }
+    // here we should have the dict
+    DCHECK(dict);
+    RETURN_IF_ERROR(check_path_amibigus(*dict, rowset_meta));
     auto* dict_list = rowset_meta->mutable_schema_dict_key_list();
     // Process column dictionary: add keys for non-extended columns.
     auto column_filter = [&](const doris::ColumnPB& col) -> bool { return col.unique_id() >= 0; };

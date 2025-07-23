@@ -205,16 +205,7 @@ TEST(SchemaCloudDictionaryCacheTest, ProcessDictionary_VariantPathConflict_Throw
         segment_v2::ColumnPathInfo path_info3;
         path_in_data3.to_protobuf(&path_info3, 0);
         col_schema1->mutable_column_path_info()->CopyFrom(path_info3);
-        auto* dict_list = rs_meta.mutable_schema_dict_key_list();
-        // Process column dictionary: add keys for non-extended columns.
-        auto column_filter = [&](const doris::ColumnPB& col) -> bool {
-            return col.unique_id() >= 0;
-        };
-        auto column_dict_adder = [&](int32_t key) { dict_list->add_column_dict_key_list(key); };
-        auto st = process_dictionary<doris::ColumnPB>(
-                *dict, dict->column_dict(), rs_meta.mutable_tablet_schema()->mutable_column(),
-                rs_meta.tablet_schema().column(), column_filter, column_dict_adder, &rs_meta,
-                rs_meta.tablet_schema().enable_variant_flatten_nested());
+        auto st = check_path_amibigus(*dict, &rs_meta);
         EXPECT_FALSE(st.ok());
         EXPECT_EQ(st.code(), TStatusCode::DATA_QUALITY_ERROR);
     }
@@ -233,16 +224,7 @@ TEST(SchemaCloudDictionaryCacheTest, ProcessDictionary_VariantPathConflict_Throw
         path_in_data5.to_protobuf(&path_info5, 0);
         col_schema3->mutable_column_path_info()->CopyFrom(path_info5);
         // assert no exception
-        auto* dict_list = rs_meta.mutable_schema_dict_key_list();
-        // Process column dictionary: add keys for non-extended columns.
-        auto column_filter = [&](const doris::ColumnPB& col) -> bool {
-            return col.unique_id() >= 0;
-        };
-        auto column_dict_adder = [&](int32_t key) { dict_list->add_column_dict_key_list(key); };
-        auto st = process_dictionary<doris::ColumnPB>(
-                *dict, dict->column_dict(), rs_meta.mutable_tablet_schema()->mutable_column(),
-                rs_meta.tablet_schema().column(), column_filter, column_dict_adder, &rs_meta,
-                rs_meta.tablet_schema().enable_variant_flatten_nested());
+        auto st = check_path_amibigus(*dict, &rs_meta);
         EXPECT_TRUE(st.ok()) << st.to_string();
     }
 }
