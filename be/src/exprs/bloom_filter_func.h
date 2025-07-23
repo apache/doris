@@ -55,8 +55,7 @@ public:
 #endif
 
             // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
-            int log_filter_size =
-                    std::max(0, (int)(std::ceil(std::log(m / 8) / LN2)));
+            int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / LN2)));
             auto be_calculate_size = (((int64_t)1) << log_filter_size);
             // if FE do use ndv stat to predict the bf size, BE only use the row count. FE have more
             // exactly row count stat. which one is min is more correctly.
