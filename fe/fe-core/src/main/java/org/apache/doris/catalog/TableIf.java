@@ -143,10 +143,6 @@ public interface TableIf {
 
     Column getColumn(String name);
 
-    default boolean isExternalIndex(long indexId) {
-        return false;
-    }
-
     default int getBaseColumnIdxByName(String colName) {
         int i = 0;
         for (Column col : getBaseSchema()) {
