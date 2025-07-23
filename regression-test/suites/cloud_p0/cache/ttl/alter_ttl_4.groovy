@@ -156,9 +156,20 @@ suite("alter_ttl_4") {
             assertTrue(flag2)
     }
     sleep(60000)
-    // one customer table would take about 2.3GB, the total cache size is 20GB
-    // the following would take 23G all
+    // one customer table would take about 1.3GB, the total cache size is 20GB
+    // the following would take 20G all
     // evict customer_ttl
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
     load_customer_once("customer")
     load_customer_once("customer")
     load_customer_once("customer")

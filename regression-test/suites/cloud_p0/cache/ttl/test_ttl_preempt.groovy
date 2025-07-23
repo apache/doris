@@ -131,8 +131,19 @@ suite("test_ttl_preempt") {
         respCode, body -> {}
     }
 
-    // one customer table would take about 2.3GB, the total cache size is 20GB
-    // the following would take 23G all
+    // one customer table would take about 1.3GB, the total cache size is 20GB
+    // the following would take 20G all
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
     load_customer_once("customer")
     load_customer_once("customer")
     load_customer_once("customer")
