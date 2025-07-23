@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-public interface ViewIf extends TableIf{
+public interface ViewIf extends TableIf {
     String getViewText();
 }
 
