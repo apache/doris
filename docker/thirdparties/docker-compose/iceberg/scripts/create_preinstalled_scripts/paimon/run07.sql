@@ -138,5 +138,3 @@ INSERT INTO test_paimon_partition.logs_by_date_hierarchy VALUES
     (5, 'DEBUG', 'Cache miss for user data', 'user-service', TIMESTAMP '2024-01-17 11:45:00', 2024, 1, 17),
     (6, 'ERROR', 'Payment processing failed', 'payment-service', TIMESTAMP '2024-02-01 13:30:00', 2024, 2, 1);
 
- drop database test_paimon_partition;
-
