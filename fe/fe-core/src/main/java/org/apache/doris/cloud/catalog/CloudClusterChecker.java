@@ -209,7 +209,8 @@ public class CloudClusterChecker extends MasterDaemon {
         boolean netChanged = false;
         String remotePublicEndpoint = remoteClusterPb.getPublicEndpoint();
         String localPublicEndpoint = be.getTagMap().get(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT);
-        if (!localPublicEndpoint.equals(remotePublicEndpoint)) {
+        if ((localPublicEndpoint == null && !Strings.isNullOrEmpty(remotePublicEndpoint))
+                || (localPublicEndpoint != null && !localPublicEndpoint.equals(remotePublicEndpoint))) {
             LOG.info("be {} has changed public_endpoint from {} to {}",
                     be, localPublicEndpoint, remotePublicEndpoint);
             be.getTagMap().put(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, remotePublicEndpoint);
@@ -218,7 +219,8 @@ public class CloudClusterChecker extends MasterDaemon {
 
         String remotePrivateEndpoint = remoteClusterPb.getPrivateEndpoint();
         String localPrivateEndpoint = be.getTagMap().get(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT);
-        if (!localPrivateEndpoint.equals(remotePrivateEndpoint)) {
+        if (localPrivateEndpoint == null && !Strings.isNullOrEmpty(remotePrivateEndpoint)
+                || (localPrivateEndpoint != null && !localPrivateEndpoint.equals(remotePrivateEndpoint))) {
             LOG.info("be {} has changed private_endpoint from {} to {}",
                     be, localPrivateEndpoint, remotePrivateEndpoint);
             be.getTagMap().put(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, remotePrivateEndpoint);
@@ -226,7 +228,7 @@ public class CloudClusterChecker extends MasterDaemon {
         }
         if (netChanged) {
             // edit log
-            Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
+            Env.getCurrentEnv().getEditLog().logModifyBackend(be);
         }
     }
 
@@ -370,7 +372,7 @@ public class CloudClusterChecker extends MasterDaemon {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin checkFeNodesMapValid");
         }
-        Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
+        Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend(false);
         Set<String> clusterIds = new HashSet<>();
         Set<String> clusterNames = new HashSet<>();
         clusterIdToBackend.forEach((clusterId, bes) -> {
@@ -384,7 +386,7 @@ public class CloudClusterChecker extends MasterDaemon {
             });
         });
 
-        Map<String, String> nameToId = cloudSystemInfoService.getCloudClusterNameToId();
+        Map<String, String> nameToId = cloudSystemInfoService.getCloudClusterNameToId(false);
         nameToId.forEach((clusterName, clusterId) -> {
             if (!clusterIdToBackend.containsKey(clusterId)) {
                 LOG.warn("impossible, somewhere err, clusterId {}, clusterName {}, clusterNameToIdMap {}",
@@ -517,7 +519,7 @@ public class CloudClusterChecker extends MasterDaemon {
     }
 
     private void checkCloudBackends() {
-        Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
+        Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend(false);
         //rpc to ms, to get mysql user can use cluster_id
         // NOTE: rpc args all empty, use cluster_unique_id to get a instance's all cluster info.
         Cloud.GetClusterResponse response = cloudSystemInfoService.getCloudCluster("", "", "");
@@ -531,7 +533,7 @@ public class CloudClusterChecker extends MasterDaemon {
         Set<String> localClusterIds = clusterIdToBackend.keySet();
         // clusterId -> clusterPB
         Map<String, ClusterPB> remoteClusterIdToPB = response.getClusterList().stream()
-                .filter(c -> c.getType() != Type.SQL)
+                .filter(c -> c.getType() == Type.COMPUTE)
                 .collect(Collectors.toMap(ClusterPB::getClusterId, clusterPB -> clusterPB));
         LOG.info("get cluster info  clusterIds: {}", remoteClusterIdToPB);
 
@@ -543,7 +545,7 @@ public class CloudClusterChecker extends MasterDaemon {
             // local - remote > 0, drop bes from local
             checkToDelCluster(remoteClusterIdToPB, localClusterIds, clusterIdToBackend);
 
-            clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
+            clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend(false);
 
             if (remoteClusterIdToPB.keySet().size() != clusterIdToBackend.keySet().size()) {
                 LOG.warn("impossible cluster id size not match, check it local {}, remote {}",
@@ -559,13 +561,14 @@ public class CloudClusterChecker extends MasterDaemon {
 
         }
         LOG.info("daemon cluster get cluster info succ, current cloudClusterIdToBackendMap: {} clusterNameToId {}",
-                cloudSystemInfoService.getCloudClusterIdToBackend(), cloudSystemInfoService.getCloudClusterNameToId());
+                cloudSystemInfoService.getCloudClusterIdToBackend(false),
+                cloudSystemInfoService.getCloudClusterNameToId(false));
     }
 
     private void updateCloudMetrics() {
         // Metric
-        Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
-        Map<String, String> clusterNameToId = cloudSystemInfoService.getCloudClusterNameToId();
+        Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend(false);
+        Map<String, String> clusterNameToId = cloudSystemInfoService.getCloudClusterNameToId(true);
         for (Map.Entry<String, String> entry : clusterNameToId.entrySet()) {
             int aliveNum = 0;
             List<Backend> bes = clusterIdToBackend.get(entry.getValue());

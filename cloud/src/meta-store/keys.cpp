@@ -17,6 +17,8 @@
 
 #include "meta-store/keys.h"
 
+#include <set>
+
 #include "meta-store/codec.h"
 
 namespace doris::cloud {
@@ -526,5 +528,20 @@ int decode_key(std::string_view* in,
     }
     return 0;
 }
-
+//==================================================================================
+// Key Prefix Map
+//==================================================================================
+std::set<std::string> get_key_prefix_contants() {
+    std::set<std::string> key_prefix_set;
+    key_prefix_set.insert(INSTANCE_KEY_PREFIX);
+    key_prefix_set.insert(TXN_KEY_PREFIX);
+    key_prefix_set.insert(VERSION_KEY_PREFIX);
+    key_prefix_set.insert(META_KEY_PREFIX);
+    key_prefix_set.insert(RECYCLE_KEY_PREFIX);
+    key_prefix_set.insert(STATS_KEY_PREFIX);
+    key_prefix_set.insert(JOB_KEY_PREFIX);
+    key_prefix_set.insert(COPY_KEY_PREFIX);
+    key_prefix_set.insert(VAULT_KEY_PREFIX);
+    return key_prefix_set;
+}
 } // namespace doris::cloud

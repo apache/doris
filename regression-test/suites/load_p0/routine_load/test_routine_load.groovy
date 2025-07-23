@@ -1834,6 +1834,7 @@ suite("test_routine_load","p0") {
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"num_as_string\" = \"true\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"fuzzy_parse\" = \"true\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"workload_group\" = \"alter_routine_load_group\");"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"max_filter_ratio\" = \"0.5\");"
                 res = sql "show routine load for ${jobs[i]}"
                 log.info("routine load job properties: ${res[0][11].toString()}".toString())
 
@@ -1844,8 +1845,7 @@ suite("test_routine_load","p0") {
                 assertEquals("300001", json.max_batch_rows.toString())
                 assertEquals("209715201", json.max_batch_size.toString())
                 assertEquals("6", json.max_batch_interval.toString())
-                //TODO(bug): Can not update
-                //assertEquals("0.5", json.max_filter_ratio.toString())
+                assertEquals("0.5", json.max_filter_ratio.toString())
                 assertEquals("jsonpaths", json.jsonpaths.toString())
                 assertEquals("json_root", json.json_root.toString())
                 assertEquals("true", json.strict_mode.toString())

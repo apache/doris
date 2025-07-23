@@ -154,6 +154,10 @@ class StreamLoadAction implements SuiteAction {
     void isCloud(Closure<Boolean> isCloud) {
     }
 
+    void setFeAddr(String beHost, int beHttpPort) {
+        this.address = new InetSocketAddress(beHost, beHttpPort)
+    }
+
     void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }

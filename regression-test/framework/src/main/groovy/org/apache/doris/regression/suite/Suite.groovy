@@ -23,8 +23,6 @@ import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 
-import static java.util.concurrent.TimeUnit.SECONDS
-
 import com.google.common.base.Strings
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
@@ -278,13 +276,22 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, connInfo.conn.getMetaData().getURL(), actionSupplier)
     }
 
-    public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
-        def connInfo = context.threadLocalConn.get()
-        Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
-            {
-                connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-            }
-        )
+    // delete 'dockerAwaitUntil', should call 'Awaitility.await()...' directly or use 'awaitUntil(..., f)'
+    // public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+    //     def connInfo = context.threadLocalConn.get()
+    //     Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+    //         {
+    //             connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+    //         }
+    //     )
+    // }
+    public void awaitUntil(int atMostSeconds, double intervalSecond = 1, Closure actionSupplier) {
+        Awaitility
+            .with().pollInSameThread()
+            .await()
+            .atMost(atMostSeconds, TimeUnit.SECONDS)
+            .pollInterval((int) (1000 * intervalSecond), TimeUnit.MILLISECONDS)
+            .until(actionSupplier)
     }
 
     // more explaination can see example file: demo_p0/docker_action.groovy
@@ -319,6 +326,7 @@ class Suite implements GroovyInterceptable {
 
     private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
         logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
+        def originConnection = context.threadLocalConn.get()
         try {
             cluster.destroy(true)
             cluster.init(options, isCloud)
@@ -345,18 +353,18 @@ class Suite implements GroovyInterceptable {
 
             // wait be report
             Thread.sleep(5000)
-            def url = String.format(
+            def jdbcUrl = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
-            def conn = DriverManager.getConnection(url, user, password)
-            def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
-            logger.info("try create database if not exists {}", context.dbName)
-            JdbcUtils.executeToList(conn, sql)
-
-            url = Config.buildUrlWithDb(url, context.dbName)
-            logger.info("connect to docker cluster: suite={}, url={}", name, url)
-            connect(user, password, url, actionSupplier)
+            cluster.jdbcUrl = jdbcUrl
+            context.threadLocalConn.remove()
+            actionSupplier.call()
         } finally {
+            if (originConnection == null) {
+                context.threadLocalConn.remove()
+            } else {
+                context.threadLocalConn.set(originConnection)
+            }
             if (!context.config.dockerEndNoKill) {
                 cluster.destroy(context.config.dockerEndDeleteFiles)
             }
@@ -650,7 +658,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getCurDbConnectUrl() {
-        return context.config.getConnectionUrlByDbName(getCurDbName())
+        return Config.buildUrlWithDb(context.getJdbcUrl(), getCurDbName())
     }
 
     long getDbId() {
@@ -1893,8 +1901,7 @@ class Suite implements GroovyInterceptable {
 
     void waitAddFeFinished(String host, int port) {
         logger.info("waiting for ${host}:${port}")
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             logger.info("frontends ${frontends}")
             boolean matched = false
@@ -1906,12 +1913,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropFeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        logger.info("waiting drop fe ${host}:${port}");
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             boolean matched = false
             for (frontend: frontends) {
@@ -1920,13 +1927,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waitAddBeFinished(String host, int port) {
         logger.info("waiting ${host}:${port} added");
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -1937,12 +1943,11 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropBeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -1953,7 +1958,7 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waiteCreateTableFinished(String tableName) {
@@ -2507,7 +2512,7 @@ class Suite implements GroovyInterceptable {
 
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
-    def get_be_metric = { ip, port, field ->
+    def get_be_metric = { ip, port, field, type="" ->
         def metric_api = { request_body, check_func ->
             httpTest {
                 endpoint ip + ":" + port
@@ -2529,7 +2534,8 @@ class Suite implements GroovyInterceptable {
                 log.info("get be metric resp: ${respCode}".toString())
                 def json = parseJson(body)
                 for (item : json) {
-                    if (item.tags.metric == field) {
+                    if (item.tags.metric == field && (type.isEmpty() || type == item.tags.type)) {
+                        log.info("get be metric resp: ${item}".toString())
                         ret = item.value
                     }
                 }
@@ -2572,7 +2578,46 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def get_cluster = { be_unique_id , MetaService ms=null->
+    def add_vcluster = { cluster_name, cluster_id, active, standby ->
+        def jsonOutput = new JsonOutput()
+        def ci = [
+                     type: "VIRTUAL",
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     cluster_names: [
+                        active,
+                        standby
+                     ],
+                     cluster_policy: [
+                         type: "ActiveStandby",
+                         active_cluster_name: active,
+                         standby_cluster_names: [
+                             standby
+                         ]
+                     ]
+                 ]
+        def map = [instance_id: "${instance_id}", cluster: ci]
+        def js = jsonOutput.toJson(map)
+        log.info("add cluster req: ${js} ".toString())
+
+        def add_cluster_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/add_cluster?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        add_cluster_api.call(js) {
+            respCode, body ->
+                log.info("add cluster resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+    }
+
+    def get_cluster = { be_unique_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def map = [instance_id: "${instance_id}", cloud_unique_id: "${be_unique_id}" ]
         def js = jsonOutput.toJson(map)
@@ -2611,7 +2656,6 @@ class Suite implements GroovyInterceptable {
     def drop_cluster = { cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
-                     type: "COMPUTE",
                      cluster_name : cluster_name,
                      cluster_id : cluster_id,
                      nodes: [
@@ -2815,7 +2859,85 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def rename_cloud_cluster = { cluster_name, cluster_id ->
+    def checkProfileNew = { fe, addrSet, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
+        def query_profile_api = { check_func ->
+            httpTest {
+                op "get"
+                endpoint feEndPoint
+                uri "/rest/v1/query_profile"
+                check check_func
+                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+            }
+        }
+
+        query_profile_api.call() {
+            respCode, body ->
+                def json = parseJson(body)
+                assertTrue(json.msg.equalsIgnoreCase("success"))
+                log.info("lw query profile resp json : ${json}".toString())
+                log.info("lw query profile resp: ${json.data.rows[0]['Profile ID']}".toString())
+                checkProfileByQueryId.call(fe, addrSet, json.data.rows[0]['Profile ID'], shouldContain)
+        }
+    }
+
+    def checkProfileByQueryId = { fe, addrSet, query_id, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
+        def query_profile_api = { check_func ->
+            httpTest {
+                op "get"
+                endpoint feEndPoint
+                uri "/api/profile?query_id=${query_id}"
+                check check_func
+                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+            }
+        }
+
+        query_profile_api.call() { respCode, body ->
+            def json = parseJson(body)
+            assertTrue(json.msg.equalsIgnoreCase("success"))
+
+            def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
+            if (instanceLineMatcher.find()) {
+                // Extract the instance string section
+                def instancesStr = instanceLineMatcher.group(1).trim()
+                def instanceEntries = instancesStr.split(/\s*,\s*/)
+                def result = []
+
+                // Parse each instance entry (format like "10.1.1.1:9000:4") and extract IP:port
+                instanceEntries.each { entry ->
+                    def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
+                    if (matcher.matches()) {
+                        def ip = matcher.group(1)
+                        def port = matcher.group(2)
+                        result.add(ip + ":" + port)
+                    }
+                }
+
+                if (shouldContain) {
+                    // All items in result should exist in addrSet
+                    assertTrue(addrSet.containsAll(result),
+                        "Check failed: Some result addresses are missing in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Missing: ${result.findAll { !addrSet.contains(it) }}")
+                } else {
+                    // No item in result should exist in addrSet
+                    assertTrue(addrSet.intersect(result).isEmpty(),
+                        "Check failed: Some result addresses unexpectedly exist in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Overlap: ${addrSet.intersect(result)}")
+                }
+            } else {
+                log.info("Instance info not found in profile")
+            }
+        }
+    }
+
+    def rename_cloud_cluster = { cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
                           cluster_name : cluster_name,
@@ -2827,7 +2949,11 @@ class Suite implements GroovyInterceptable {
 
         def rename_cluster_api = { request_body, check_func ->
             httpTest {
-                endpoint context.config.metaServiceHttpAddress
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 uri "/MetaService/http/rename_cluster?token=${token}"
                 body request_body
                 check check_func

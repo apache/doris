@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+
 suite("drop_policy") {
     def storage_exist = { name ->
         def show_storage_policy = sql """
@@ -84,7 +88,7 @@ suite("drop_policy") {
             CREATE STORAGE POLICY ${use_policy}
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
-            "cooldown_datetime" = "2025-06-08 00:00:00"
+            "cooldown_datetime" = "2035-06-08 00:00:00"
             );
         """
         assertEquals(storage_exist.call(use_policy), true)
@@ -100,12 +104,13 @@ suite("drop_policy") {
         """
         // can drop, no table use
         assertEquals(drop_policy_ret.size(), 1)
-
+        def zonedDateTime = ZonedDateTime.now(ZoneId.of("UTC")).plusYears(1)
+        def futureTime = zonedDateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
         def create_succ_2 = try_sql """
             CREATE STORAGE POLICY IF NOT EXISTS drop_policy_test_has_table_binded
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
-            "cooldown_datetime" = "2025-06-08 00:00:00"
+            "cooldown_datetime" = "${futureTime}"
             );
         """
         assertEquals(storage_exist.call("drop_policy_test_has_table_binded"), true)
@@ -114,7 +119,7 @@ suite("drop_policy") {
             CREATE STORAGE POLICY IF NOT EXISTS drop_policy_test_has_table_bind_1
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
-            "cooldown_datetime" = "2025-06-08 00:00:00"
+            "cooldown_datetime" = "${futureTime}"
             );
         """
         assertEquals(storage_exist.call("drop_policy_test_has_table_bind_1"), true)

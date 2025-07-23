@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import org.awaitility.Awaitility
 
 suite("regression_test_variant", "p0"){
 
@@ -238,7 +239,7 @@ suite("regression_test_variant", "p0"){
 
         // 12. jsonb values
         table_name = "jsonb_values"
-        create_table table_name
+        create_table.call(table_name, "DUPLICATE", "1")
         sql """insert into ${table_name} values (1, '{"a" : ["123", 123, [123]]}')"""
         // FIXME array -> jsonb will parse error
         // sql """insert into ${table_name} values (2, '{"a" : ["123"]}')"""
@@ -251,6 +252,8 @@ suite("regression_test_variant", "p0"){
         // sql """insert into ${table_name} values (8, '{"a" : [123, 111........]}')"""
         sql """insert into ${table_name} values (9, '{"a" : [123, {"a" : 1}]}')"""
         sql """insert into ${table_name} values (10, '{"a" : [{"a" : 1}, 123]}')"""
+        sql "select v['a'] from ${table_name} order by k"
+        trigger_and_wait_compaction(table_name, "full")
         qt_sql_29 "select cast(v['a'] as string) from ${table_name} order by k"
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
         qt_sql_30 "select v['b']['e'], v['a'], v['b'], v['b']['c'] from jsonb_values where cast(v['b']['e'] as double) > 1;"

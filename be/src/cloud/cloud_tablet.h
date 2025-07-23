@@ -41,6 +41,12 @@ struct SyncRowsetStats {
     int64_t tablet_meta_cache_miss {0};
 };
 
+struct RecycledRowsets {
+    RowsetId rowset_id;
+    int64_t num_segments;
+    std::vector<std::string> index_file_names;
+};
+
 class CloudTablet final : public BaseTablet {
 public:
     CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta);
@@ -259,8 +265,6 @@ public:
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
-
     // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
     Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
 
@@ -268,6 +272,9 @@ public:
 
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
+
+    static std::vector<RecycledRowsets> recycle_cached_data(
+            const std::vector<RowsetSharedPtr>& rowsets);
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version

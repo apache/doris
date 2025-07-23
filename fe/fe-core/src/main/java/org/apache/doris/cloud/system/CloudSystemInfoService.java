@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
@@ -88,7 +89,129 @@ public class CloudSystemInfoService extends SystemInfoService {
     // clusterName -> clusterId
     protected Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
 
+    // clusterId -> ComputeGroup
+    protected Map<String, ComputeGroup> computeGroupIdToComputeGroup = new ConcurrentHashMap<>();
+
     private InstanceInfoPB.Status instanceStatus;
+
+    public void addVirtualClusterInfoToMapsNoLock(String clusterId, String clusterName) {
+        LOG.info("add virtual cluster info to maps, clusterId={}, clusterName={}", clusterId, clusterName);
+        clusterNameToId.put(clusterName, clusterId);
+        clusterIdToBackend.computeIfAbsent(clusterId, k -> new ArrayList<>());
+    }
+
+    public void removeVirtualClusterInfoFromMapsNoLock(String clusterId, String clusterName) {
+        LOG.info("remove virtual cluster info from maps, clusterId={}, clusterName={}", clusterId, clusterName);
+        clusterIdToBackend.remove(clusterId);
+        clusterNameToId.remove(clusterName);
+    }
+
+    public void renameVirtualClusterInfoFromMapsNoLock(String clusterId, String oldClusterName, String newClusterName) {
+        LOG.info("remove virtual cluster info from maps, clusterId={}, name from {} to {}",
+                clusterId, oldClusterName, newClusterName);
+        clusterNameToId.put(newClusterName, clusterId);
+        clusterNameToId.remove(oldClusterName);
+    }
+
+    public ComputeGroup getComputeGroupByName(String computeGroupName) {
+        LOG.debug("get id {} computeGroupIdToComputeGroup : {} ", computeGroupName, computeGroupIdToComputeGroup);
+        try {
+            rlock.lock();
+            if (!clusterNameToId.containsKey(computeGroupName)) {
+                return null;
+            }
+            return computeGroupIdToComputeGroup.get(clusterNameToId.get(computeGroupName));
+        } finally {
+            rlock.unlock();
+        }
+    }
+
+    public ComputeGroup getComputeGroupById(String computeGroupId) {
+        try {
+            rlock.lock();
+            return computeGroupIdToComputeGroup.get(computeGroupId);
+        } finally {
+            rlock.unlock();
+        }
+    }
+
+    public void addComputeGroup(String computeGroupId, ComputeGroup computeGroup) {
+        LOG.debug("add id {} computeGroupIdToComputeGroup : {} ", computeGroupId, computeGroupIdToComputeGroup);
+        try {
+            wlock.lock();
+            computeGroupIdToComputeGroup.put(computeGroupId, computeGroup);
+            addVirtualClusterInfoToMapsNoLock(computeGroupId, computeGroup.getName());
+        } finally {
+            wlock.unlock();
+        }
+    }
+
+    public boolean isStandByComputeGroup(String clusterName) {
+        List<ComputeGroup> virtualGroups = getComputeGroups(true);
+        for (ComputeGroup vcg : virtualGroups) {
+            if (vcg.getPolicy().getStandbyComputeGroup().equals(clusterName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public List<ComputeGroup> getComputeGroups(boolean virtual) {
+        LOG.debug("get virtual {} computeGroupIdToComputeGroup : {} ", virtual, computeGroupIdToComputeGroup);
+        try {
+            rlock.lock();
+            return computeGroupIdToComputeGroup.values().stream().filter(computeGroup -> {
+                if (virtual) {
+                    return computeGroup.isVirtual();
+                }
+                return true;
+            }).collect(Collectors.toList());
+        } finally {
+            rlock.unlock();
+        }
+    }
+
+    // get sub compute group Owned by which virtual compute group
+    public String ownedByVirtualComputeGroup(String computeGroupName) {
+        try {
+            rlock.lock();
+            for (ComputeGroup vcg : getComputeGroups(true)) {
+                if (computeGroupName.equals(vcg.getPolicy().getActiveComputeGroup())) {
+                    return vcg.getName();
+                }
+                if (vcg.getPolicy().getStandbyComputeGroup().contains(computeGroupName)) {
+                    return vcg.getName();
+                }
+                if (vcg.getSubComputeGroups().contains(computeGroupName)) {
+                    return vcg.getName();
+                }
+            }
+            return null;
+        } finally {
+            rlock.unlock();
+        }
+    }
+
+    public void removeComputeGroup(String computeGroupId, String computeGroupName) {
+        try {
+            wlock.lock();
+            computeGroupIdToComputeGroup.remove(computeGroupId);
+            removeVirtualClusterInfoFromMapsNoLock(computeGroupId, computeGroupName);
+        } finally {
+            wlock.unlock();
+        }
+    }
+
+    public void renameVirtualComputeGroup(String computeGroupId, String oldComputeGroupName,
+                                          ComputeGroup newComputeGroup) {
+        try {
+            wlock.lock();
+            computeGroupIdToComputeGroup.put(computeGroupId, newComputeGroup);
+            renameVirtualClusterInfoFromMapsNoLock(computeGroupId, oldComputeGroupName, newComputeGroup.getName());
+        } finally {
+            wlock.unlock();
+        }
+    }
 
     @Override
     public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
@@ -232,6 +355,10 @@ public class CloudSystemInfoService extends SystemInfoService {
             }
 
             clusterNameToId.put(clusterName, clusterId);
+            // add to computeGroupIdToComputeGroup
+            ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+            addComputeGroup(clusterId, cg);
+
             List<Backend> be = clusterIdToBackend.get(clusterId);
             if (be == null) {
                 be = new ArrayList<>();
@@ -278,6 +405,10 @@ public class CloudSystemInfoService extends SystemInfoService {
             if (be.isEmpty()) {
                 LOG.info("del clusterId {} and clusterName {} due to be nodes eq 0", clusterId, clusterName);
                 boolean succ = clusterNameToId.remove(clusterName, clusterId);
+
+                // remove from computeGroupIdToComputeGroup
+                removeComputeGroup(clusterId, clusterName);
+
                 if (!succ) {
                     LOG.warn("impossible, somewhere err, clusterNameToId {}, "
                             + "want remove cluster name {}, cluster id {}",
@@ -319,6 +450,82 @@ public class CloudSystemInfoService extends SystemInfoService {
             } catch (DdlException e) {
                 LOG.warn("failed to add cloud frontend={} ", fe);
             }
+        }
+    }
+
+    public static void updateFileCacheJobIds(ComputeGroup cg, List<String> jobIds) {
+        Cloud.ClusterPolicy policy = Cloud.ClusterPolicy.newBuilder()
+                .setType(Cloud.ClusterPolicy.PolicyType.ActiveStandby)
+                .addAllCacheWarmupJobids(jobIds).build();
+
+        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+                .setClusterId(cg.getId())
+                .setClusterPolicy(policy)
+                .build();
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setOp(Cloud.AlterClusterRequest.Operation.ALTER_VCLUSTER_INFO)
+                .setCluster(clusterPB)
+                .build();
+
+        Cloud.AlterClusterResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("update file cache jobIds, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("update file cache jobIds, response: {}", response);
+            }
+        } catch (RpcException e) {
+            LOG.warn("failed to update file cache jobIds {}", cg, e);
+        }
+    }
+
+    /*
+    message ClusterPolicy {
+        enum PolicyType {
+            ActiveStandby = 0;
+        }
+        optional PolicyType type = 1;
+        optional string active_cluster_name = 2;
+        repeated string standby_cluster_names = 3;
+        optional int64 failover_failure_threshold = 4;
+        optional int64 unhealthy_node_threshold_percent = 5;
+        repeated string cacheWarmupJobIds = 6;
+    }
+    */
+
+    private void switchActiveStandby(ComputeGroup cg, String active, String standby) {
+        Cloud.ClusterPolicy policy = cg.getPolicy().toPb().toBuilder()
+                .clearStandbyClusterNames()
+                .addStandbyClusterNames(active)
+                .setActiveClusterName(standby)
+                .build();
+
+        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+                .setClusterId(cg.getId())
+                .setClusterPolicy(policy)
+                .build();
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(Cloud.AlterClusterRequest.Operation.ALTER_VCLUSTER_INFO)
+                .setCluster(clusterPB)
+                .build();
+
+        Cloud.AlterClusterResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("switch compute group, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to switch compute group, response: {}", response);
+                /*
+                throw new DdlException("failed to alter backends errorCode: " + response.getStatus().getCode()
+                    + " msg: " + response.getStatus().getMsg());
+                */
+            }
+        } catch (RpcException e) {
+            //throw new DdlException("failed to alter backends", e);
+            LOG.warn("failed to switch compute group {}", e);
         }
     }
 
@@ -546,7 +753,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<Backend> getBackendsByClusterName(final String clusterName) {
-        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
+        String physicalClusterName = getPhysicalCluster(clusterName);
+        String clusterId = clusterNameToId.getOrDefault(physicalClusterName, "");
         if (clusterId.isEmpty()) {
             return new ArrayList<>();
         }
@@ -555,8 +763,110 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<Backend> getBackendsByClusterId(final String clusterId) {
+        String clusterName = getClusterNameByClusterId(clusterId);
+        String physicalClusterName = getPhysicalCluster(clusterName);
+        String physicalClusterId = getCloudClusterIdByName(physicalClusterName);
+
         // copy a new List
-        return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
+        return new ArrayList<>(clusterIdToBackend.getOrDefault(physicalClusterId, new ArrayList<>()));
+    }
+
+    public String getPhysicalCluster(String clusterName) {
+        ComputeGroup cg = getComputeGroupByName(clusterName);
+        if (cg == null) {
+            return clusterName;
+        }
+
+        if (!cg.isVirtual()) {
+            return clusterName;
+        }
+
+        ComputeGroup.Policy policy = cg.getPolicy();
+        // todo check policy
+        String acgName = policy.getActiveComputeGroup();
+        if (acgName != null) {
+            ComputeGroup acg = getComputeGroupByName(acgName);
+            if (acg != null) {
+                if (isComputeGroupAvailable(acgName, policy.getUnhealthyNodeThresholdPercent())) {
+                    acg.setUnavailableSince(-1);
+                    return acgName;
+                } else {
+                    if (acg.getUnavailableSince() <= 0) {
+                        acg.setUnavailableSince(System.currentTimeMillis()
+                                - computeGroupFailureCount(acgName) * Config.heartbeat_interval_second * 1000);
+                    }
+                }
+            }
+        }
+
+        String scgName = policy.getStandbyComputeGroup();
+        if (scgName != null) {
+            ComputeGroup scg = getComputeGroupByName(scgName);
+            if (scg != null) {
+                if (isComputeGroupAvailable(scgName, policy.getUnhealthyNodeThresholdPercent())) {
+                    scg.setUnavailableSince(-1);
+                    ComputeGroup acg = getComputeGroupByName(acgName);
+                    if (acg == null || System.currentTimeMillis() - acg.getUnavailableSince()
+                            > policy.getFailoverFailureThreshold() * Config.heartbeat_interval_second * 1000) {
+                        switchActiveStandby(cg, acgName, scgName);
+                        policy.setActiveComputeGroup(scgName);
+                        policy.setStandbyComputeGroup(acgName);
+                        cg.setNeedRebuildFileCache(true);
+                    }
+                    return scgName;
+                } else {
+                    if (scg.getUnavailableSince() <= 0) {
+                        scg.setUnavailableSince(System.currentTimeMillis()
+                                - computeGroupFailureCount(scgName) * Config.heartbeat_interval_second * 1000);
+                    }
+                }
+            }
+        }
+
+        if (acgName != null) {
+            return acgName;
+        } else {
+            return clusterName;
+        }
+    }
+
+    public boolean isComputeGroupAvailable(String cg, long unhealthyNodeThresholdPercent) {
+        List<Backend> bes = getBackendsByClusterName(cg);
+        if (bes == null || bes.isEmpty()) {
+            return false;
+        }
+
+        long deadBeNum = 0;
+        for (Backend be : bes) {
+            if (!be.isAlive()) {
+                deadBeNum++;
+            }
+        }
+        if (deadBeNum * 100 / bes.size() >= unhealthyNodeThresholdPercent) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public int computeGroupFailureCount(String cg) {
+        List<Backend> bes = getBackendsByClusterName(cg);
+        if (bes == null || bes.isEmpty()) {
+            return 0;
+        }
+
+        int failureCount = 0;
+        for (Backend be : bes) {
+            if (!be.isAlive()) {
+                if (failureCount == 0) {
+                    failureCount = be.getHeartbeatFailureCounter();
+                } else {
+                    failureCount = Math.min(be.getHeartbeatFailureCounter(), failureCount);
+                }
+            }
+        }
+
+        return failureCount;
     }
 
     public String getClusterNameByBeAddr(String beEndpoint) {
@@ -623,6 +933,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public String getCloudClusterIdByName(String clusterName) {
+        LOG.debug("clusterNameToId {}", clusterNameToId);
         return clusterNameToId.get(clusterName);
     }
 
@@ -754,10 +1065,24 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     // Return the ref of concurrentMap clusterIdToBackend
-    public Map<String, List<Backend>> getCloudClusterIdToBackend() {
+    public Map<String, List<Backend>> getCloudClusterIdToBackend(boolean needVirtual) {
+        Map<String, List<Backend>> map = new ConcurrentHashMap<>();
         rlock.lock();
         try {
-            return new ConcurrentHashMap<>(clusterIdToBackend);
+            for (Map.Entry<String, List<Backend>> idBe : clusterIdToBackend.entrySet()) {
+                String clusterId = idBe.getKey();
+                if (!computeGroupIdToComputeGroup.containsKey(clusterId)) {
+                    LOG.warn("cant find clusterId {} in computeGroupIdToComputeGroup {}",
+                            clusterId, computeGroupIdToComputeGroup);
+                    continue;
+                }
+                ComputeGroup computeGroup = computeGroupIdToComputeGroup.get(clusterId);
+                if (!needVirtual && computeGroup.isVirtual()) {
+                    continue;
+                }
+                map.put(clusterId, idBe.getValue());
+            }
+            return map;
         } finally {
             rlock.unlock();
         }
@@ -773,9 +1098,10 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public ImmutableMap<Long, Backend> getCloudIdToBackendNoLock(String clusterName) {
-        String clusterId = clusterNameToId.get(clusterName);
+        String physicalClusterName = getPhysicalCluster(clusterName);
+        String clusterId = clusterNameToId.get(physicalClusterName);
         if (Strings.isNullOrEmpty(clusterId)) {
-            LOG.warn("cant find clusterId, this cluster may be has been dropped, clusterName={}", clusterName);
+            LOG.warn("cant find clusterId, this cluster may be has been dropped, clusterName={}", physicalClusterName);
             return ImmutableMap.of();
         }
         List<Backend> backends = clusterIdToBackend.get(clusterId);
@@ -787,10 +1113,24 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     // Return the ref of concurrentMap clusterNameToId
-    public Map<String, String> getCloudClusterNameToId() {
+    public Map<String, String> getCloudClusterNameToId(boolean needVirtual) {
+        Map<String, String> map = new ConcurrentHashMap<>();
         rlock.lock();
         try {
-            return new ConcurrentHashMap<>(clusterNameToId);
+            for (Map.Entry<String, String> nameAndId : clusterNameToId.entrySet()) {
+                String clusterId = nameAndId.getValue();
+                ComputeGroup computeGroup = computeGroupIdToComputeGroup.get(clusterId);
+                if (computeGroup == null) {
+                    LOG.warn("cant find clusterId {} in computeGroupIdToComputeGroup {}",
+                            clusterId, computeGroupIdToComputeGroup);
+                    continue;
+                }
+                if (!needVirtual && computeGroup.isVirtual()) {
+                    continue;
+                }
+                map.put(nameAndId.getKey(), clusterId);
+            }
+            return map;
         } finally {
             rlock.unlock();
         }

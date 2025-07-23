@@ -42,11 +42,13 @@ jobs:
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
 
-      - name: Setup Maven Action
+      - name: Set up JDK with Maven
         if: steps.filter.outputs.fe_changes == 'true'
-        uses: ./.github/actions/setup-maven
+        uses: actions/setup-java@v4
         with:
-          maven-version: 3.8.4
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'    
 
       - name: Run java checkstyle
         if: steps.filter.outputs.fe_changes == 'true'

@@ -88,5 +88,13 @@ DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
+DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
+
+DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
+
+DEFINE_mBool(enable_standby_passive_compaction, "true");
+
+DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
