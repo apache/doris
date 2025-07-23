@@ -335,7 +335,7 @@ public class MaterializedViewUtils {
         if (rewrittenPlanOutputsBeforeOptimize.equals(rewrittenPlanOutputsAfterOptimized)) {
             return rewrittenPlan;
         }
-        // the expr id would change for some rule, once happened, not check result colum order
+        // the expr id would change for some rule, once happened, not check result column order
         List<NamedExpression> adjustedOrderProjects = new ArrayList<>();
         for (ExprId exprId : rewrittenPlanOutputsBeforeOptimize) {
             Slot output = rewrittenPlanAfterOptimizedExprIdToOutputMap.get(exprId);

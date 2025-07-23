@@ -201,7 +201,7 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(RuleFactory ruleFactory) {
         PlanChecker planChecker = applyTopDown(ruleFactory.buildRules());
-        cascadesContext.getStatementContext().setNeedPreRewrite(
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
                 PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
         collectTableInfoAndInitHook(cascadesContext);
         return planChecker;
@@ -212,7 +212,7 @@ public class PlanChecker {
                         ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
         MemoTestUtils.initMemoAndValidState(cascadesContext);
-        cascadesContext.getStatementContext().setNeedPreRewrite(
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
                 PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
         collectTableInfoAndInitHook(cascadesContext);
         return this;
@@ -240,7 +240,7 @@ public class PlanChecker {
             }
         });
         MemoValidator.validate(cascadesContext.getMemo());
-        cascadesContext.getStatementContext().setNeedPreRewrite(
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
                 PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
         collectTableInfoAndInitHook(cascadesContext);
         return this;
@@ -251,7 +251,7 @@ public class PlanChecker {
                         ImmutableList.of(Rewriter.bottomUp(rule)))
                 .execute();
         MemoTestUtils.initMemoAndValidState(cascadesContext);
-        cascadesContext.getStatementContext().setNeedPreRewrite(
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
                 PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
         collectTableInfoAndInitHook(cascadesContext);
         return this;
@@ -262,7 +262,7 @@ public class PlanChecker {
                         ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteBottomUpJob::new, true)))
                 .execute();
         MemoTestUtils.initMemoAndValidState(cascadesContext);
-        cascadesContext.getStatementContext().setNeedPreRewrite(
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
                 PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
         collectTableInfoAndInitHook(cascadesContext);
         return this;
@@ -282,7 +282,7 @@ public class PlanChecker {
             }
         });
         MemoValidator.validate(cascadesContext.getMemo());
-        cascadesContext.getStatementContext().setNeedPreRewrite(
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
                 PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
         collectTableInfoAndInitHook(cascadesContext);
         return this;
@@ -292,7 +292,7 @@ public class PlanChecker {
         cascadesContext.withPlanProcess(true, () -> {
             Rewriter.getWholeTreeRewriter(cascadesContext).execute();
             cascadesContext.toMemo();
-            cascadesContext.getStatementContext().setNeedPreRewrite(
+            cascadesContext.getStatementContext().setNeedPreMvRewrite(
                     PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
             collectTableInfoAndInitHook(cascadesContext);
         });
@@ -300,7 +300,7 @@ public class PlanChecker {
     }
 
     private static void collectTableInfoAndInitHook(CascadesContext cascadesContext) {
-        if (cascadesContext.getStatementContext().isNeedPreRewrite()) {
+        if (cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
                 MaterializedViewUtils.collectTableUsedPartitions(plan, cascadesContext);
             }
@@ -313,7 +313,7 @@ public class PlanChecker {
     }
 
     public PlanChecker preMvRewrite() {
-        if (!cascadesContext.getStatementContext().isNeedPreRewrite()) {
+        if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             return this;
         }
         StatementContext statementContext = cascadesContext.getStatementContext();
@@ -334,7 +334,7 @@ public class PlanChecker {
             plansWhichContainMv.add(ruleOptimizedPlan);
         }
         // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
-        this.cascadesContext.getStatementContext().setPreRewritten(true);
+        this.cascadesContext.getStatementContext().setPreMvRewritten(true);
         if (plansWhichContainMv.isEmpty()) {
             return this;
         }

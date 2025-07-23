@@ -233,8 +233,6 @@ public class Memo {
                 continuousJoinCount += child.first;
             }
             continuousJoinCount += 1;
-        } else if (plan instanceof LogicalProject) {
-            return children.get(0);
         }
         return Pair.of(continuousJoinCount, Math.max(continuousJoinCount, maxJoinCount));
     }
