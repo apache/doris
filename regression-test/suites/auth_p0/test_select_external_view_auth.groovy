@@ -42,6 +42,7 @@ suite("test_select_external_view_auth","p0,auth") {
 
             try_sql("drop user ${user}")
             sql """create user '${user}' IDENTIFIED by '${pwd}'"""
+            sql """grant select_priv on regression_test to ${user}"""
 
             //cloud-mode
             if (isCloudMode()) {
