@@ -385,7 +385,9 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
                 if (range.isConnected(o.range)) {
                     RangeValue rangeValue = new RangeValue(context, reference, originExpr);
                     rangeValue.range = range.intersection(o.range);
-                    return rangeValue;
+                    if (!rangeValue.range.isEmpty()) {
+                        return rangeValue;
+                    }
                 }
                 return new EmptyValue(context, reference, originExpr);
             }
