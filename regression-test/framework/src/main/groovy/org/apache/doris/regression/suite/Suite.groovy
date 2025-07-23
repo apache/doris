@@ -234,7 +234,7 @@ class Suite implements GroovyInterceptable {
                 try {
                     Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
                     if (connInfo != null) {
-                        context.threadLocalConn.set(connInfo)
+                        context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
                     }
                     context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
 
