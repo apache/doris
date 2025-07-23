@@ -60,6 +60,7 @@
 #include "runtime/runtime_state.h" // RuntimeState
 #include "runtime/types.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "semaphore"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -76,7 +77,6 @@
 #include "vec/exec/scan/file_scanner.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/jsonb/serialize.h"
-#include "semaphore"
 
 namespace doris {
 
