@@ -51,41 +51,64 @@ suite("test_llm_functions") {
 
     }
 
-    // test the default resource
-    try {
-        sql """set query_timeout=5;"""
-        sql """set default_llm_resource='${resourceName}';"""
-        test {
-            sql """${sentiment_query}"""
-            exception "timeout when waiting for send fragments rpc, query timeout:5"
-        }
-    } finally {
-        sql """UNSET VARIABLE query_timeout;"""
-        sql """UNSET VARIABLE default_llm_resource;"""
-    }
- 
-    String test_table_for_non_const_resource = "test_table_for_non_const_resource"
-    String query_with_not_const_resource = "SELECT LLM_TRANSLATE(resource_name, text, tar_lag) FROM ${test_table_for_non_const_resource};"
+    String test_table_for_llm_functions = "test_table_for_llm_functions"
+    String query_with_not_const_resource = "SELECT LLM_TRANSLATE(resource_name, text, tar_lag) FROM ${test_table_for_llm_functions};"
 
-    
-    sql """CREATE TABLE IF NOT EXISTS ${test_table_for_non_const_resource} (
+    try_sql("""DROP TABLE IF EXISTS ${test_table_for_llm_functions}""")
+    sql """CREATE TABLE IF NOT EXISTS ${test_table_for_llm_functions} (
             resource_name VARCHAR(100),
             text VARCHAR(100),
-            tar_lag VARCHAR(100)
+            tar_lag VARCHAR(100),
+            label ARRAY<VARCHAR(100)>
         )
         DUPLICATE KEY(resource_name)
         DISTRIBUTED BY HASH(resource_name) BUCKETS 1
         PROPERTIES("replication_num" = "1");"""
 
-    sql """INSERT INTO ${test_table_for_non_const_resource}(resource_name, text, tar_lag)
-            VALUES ('${resourceName}', 'this is a test', 'zh-CN');"""
+    sql """INSERT INTO ${test_table_for_llm_functions}(resource_name, text, tar_lag, label)
+            VALUES ('${resourceName}', 'this is a test', 'zh-CN', ['label']);"""
 
     // the llm resource must be literal
     test {
         sql """${query_with_not_const_resource}"""
         exception "LLM Function must accept literal for the resource name."
     }
-    try_sql("""DROP TABLE IF EXISTS ${test_table_for_non_const_resource}""")
 
+    // Test for normal call
+    // test the default resource
+    try {
+        sql """set query_timeout=2;"""
+        sql """set default_llm_resource='${resourceName}';"""
+        test {
+            sql """${sentiment_query}"""
+            exception "timeout when waiting for send fragments rpc, query timeout:2"
+        }
+    } finally {
+        sql """UNSET VARIABLE query_timeout;"""
+        sql """UNSET VARIABLE default_llm_resource;"""
+    }
+
+    def test_query_timeout_exception = { sql_text ->
+        try {
+            sql """set query_timeout=2;"""
+            test {
+                sql """${sql_text}"""
+                exception "query timeout"
+            }
+        } finally {
+            sql """UNSET VARIABLE query_timeout;"""
+        }
+    }
+
+    test_query_timeout_exception("SELECT LLM_TRANSLATE('${resourceName}', text, 'zh-CN') FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT LLM_CLASSIFY('${resourceName}', text, label) FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT LLM_EXTRACT('${resourceName}', 'this is a test', ['task']) FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT LLM_FIXGRAMMAR('${resourceName}', text) FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT LLM_GENERATE('${resourceName}', 'generate something');")
+    test_query_timeout_exception("SELECT LLM_SUMMARIZE('${resourceName}', 'test,test,test,test')")
+    test_query_timeout_exception("SELECT LLM_SENTIMENT('${resourceName}', 'this is a test');")
+    test_query_timeout_exception("SELECT LLM_MASK('${resourceName}', 'this is a test', label) FROM ${test_table_for_llm_functions};")
+
+    try_sql("""DROP TABLE IF EXISTS ${test_table_for_llm_functions}""")
     try_sql("""DROP RESOURCE IF EXISTS '${resourceName}'""")
 }
