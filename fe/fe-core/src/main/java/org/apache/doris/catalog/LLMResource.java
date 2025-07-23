@@ -247,7 +247,7 @@ public class LLMResource extends Resource {
     }
 
     public TLLMResource toThrift() throws NumberFormatException {
-        TLLMResource tLLMResource = new  TLLMResource();
+        TLLMResource tLLMResource = new TLLMResource();
         tLLMResource.setProviderType(properties.get(LLMProperties.PROVIDER_TYPE));
         tLLMResource.setEndpoint(properties.get(LLMProperties.ENDPOINT));
         tLLMResource.setApiKey(properties.get(LLMProperties.API_KEY));

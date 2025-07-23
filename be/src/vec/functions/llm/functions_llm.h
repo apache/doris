@@ -78,9 +78,8 @@ public:
         return assert_cast<const Derived&>(*this).number_of_arguments;
     }
 
+    // The llm resource must be literal
     Status init_from_resource(const Block& block, const ColumnNumbers& arguments, size_t row_num) {
-        Status status;
-
         // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         if (const auto* col_const_resource =
@@ -90,11 +89,7 @@ public:
                     std::string(resource_name_ref.data, resource_name_ref.size);
             _config = LLMFunctionUtil::instance().get_llm_resource(resource_name);
         } else {
-            const auto* col_resource =
-                    assert_cast<const ColumnString*>(resource_column.column.get());
-            StringRef resource_name_ref = col_resource->get_data_at(row_num);
-            std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
-            _config = LLMFunctionUtil::instance().get_llm_resource(resource_name);
+            return Status::InternalError("LLM Function must accept literal for the resource name.");
         }
 
         // 2. Create an adapter based on provider_type
@@ -104,10 +99,6 @@ public:
         }
         _adapter->init(_config);
 
-        if (!status.ok()) {
-            throw Status::InternalError("Failed to initialize FunctionLLMTranslate: " +
-                                        status.to_string());
-        }
         return Status::OK();
     }
 
