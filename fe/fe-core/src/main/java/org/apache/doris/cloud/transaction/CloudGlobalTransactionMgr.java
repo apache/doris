@@ -399,8 +399,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         try {
-            LOG.info("try to commit transaction, transactionId: {}, tableIds: {}", transactionId,
-                    tableList.stream().map(Table::getId).collect(Collectors.toList()));
+            String tabletDebugStr = tabletCommitInfos.stream().map(t -> "[tablet=" + t.getTabletId() + ", backend=" + t.getBackendId() + "]")
+                .collect(Collectors.joining(" , "));
+            LOG.info("try to commit transaction, transactionId: {}, tableIds: {}, tabletCommitInfos: {}", transactionId, tableList.stream().map(Table::getId).collect(Collectors.toList()), tabletDebugStr);
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
             if (!mowTableList.isEmpty()) {
                 if (!checkTransactionStateBeforeCommit(dbId, transactionId)) {
@@ -413,6 +414,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                             "The partition info is empty, table may be dropped, txnid=" + transactionId);
                 }
                 backendToPartitionInfos = getCalcDeleteBitmapInfo(lockContext, null);
+                LOG.info("table_id={}, txn_id={}, backendToPartitionInfos: {}", tableList.stream().map(Table::getId).collect(Collectors.toList()), transactionId, backendToPartitionInfos);
             }
             commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
                     mowTableList, backendToPartitionInfos);
