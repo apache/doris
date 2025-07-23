@@ -87,33 +87,33 @@ ysql> select cast('1111111111111111111111111111111111111111111111111111111111111
 */
 TEST_F(FunctionCastToDecimalTest, test_from_string_invalid_input) {
     int table_index = 0;
-    from_string_invalid_input_test_func<Decimal32, 9, 3>(table_index++);
+    from_string_invalid_input_test_func<Decimal32>(9, 3, table_index++);
 }
 TEST_F(FunctionCastToDecimalTest, test_from_bool) {
-    from_bool_test_func<Decimal32, 9, 0>();
-    from_bool_test_func<Decimal32, 9, 1>();
-    from_bool_test_func<Decimal32, 9, 3>();
-    from_bool_test_func<Decimal32, 9, 8>();
+    from_bool_test_func<Decimal32>(9, 0);
+    from_bool_test_func<Decimal32>(9, 1);
+    from_bool_test_func<Decimal32>(9, 3);
+    from_bool_test_func<Decimal32>(9, 8);
 
-    from_bool_test_func<Decimal64, 18, 0>();
-    from_bool_test_func<Decimal64, 18, 1>();
-    from_bool_test_func<Decimal64, 18, 9>();
-    from_bool_test_func<Decimal64, 18, 17>();
+    from_bool_test_func<Decimal64>(18, 0);
+    from_bool_test_func<Decimal64>(18, 1);
+    from_bool_test_func<Decimal64>(18, 9);
+    from_bool_test_func<Decimal64>(18, 17);
 
-    from_bool_test_func<Decimal128V2, 27, 9>();
+    from_bool_test_func<Decimal128V2>(27, 9);
     // from_bool_test_func<Decimal128V2, 27, 1>();
     // from_bool_test_func<Decimal128V2, 27, 13>();
     // from_bool_test_func<Decimal128V2, 27, 26>();
 
-    from_bool_test_func<Decimal128V3, 38, 0>();
-    from_bool_test_func<Decimal128V3, 38, 1>();
-    from_bool_test_func<Decimal128V3, 38, 19>();
-    from_bool_test_func<Decimal128V3, 38, 37>();
+    from_bool_test_func<Decimal128V3>(38, 0);
+    from_bool_test_func<Decimal128V3>(38, 1);
+    from_bool_test_func<Decimal128V3>(38, 19);
+    from_bool_test_func<Decimal128V3>(38, 37);
 
-    from_bool_test_func<Decimal256, 76, 0>();
-    from_bool_test_func<Decimal256, 76, 1>();
-    from_bool_test_func<Decimal256, 76, 38>();
-    from_bool_test_func<Decimal256, 76, 75>();
+    from_bool_test_func<Decimal256>(76, 0);
+    from_bool_test_func<Decimal256>(76, 1);
+    from_bool_test_func<Decimal256>(76, 38);
+    from_bool_test_func<Decimal256>(76, 75);
 }
 
 TEST_F(FunctionCastToDecimalTest, test_from_bool_overflow) {
