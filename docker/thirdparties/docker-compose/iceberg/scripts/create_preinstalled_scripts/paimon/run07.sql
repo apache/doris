@@ -6,7 +6,8 @@ use test_paimon_partition;
 -- ============================================
 -- 1. Create Date Partition Table
 -- ============================================
-CREATE TABLE IF NOT EXISTS test_paimon_partition.sales_by_date (
+DROP TABLE IF EXISTS sales_by_date;
+CREATE TABLE  test_paimon_partition.sales_by_date (
     id BIGINT,
     product_name STRING,
     price DECIMAL(10,2),
@@ -30,6 +31,7 @@ INSERT INTO test_paimon_partition.sales_by_date VALUES
 -- ============================================
 -- 2. Create Region Partition Table
 -- ============================================
+DROP TABLE IF EXISTS sales_by_region;
 CREATE TABLE test_paimon_partition.sales_by_region (
     id BIGINT,
     customer_name STRING,
@@ -52,7 +54,8 @@ INSERT INTO test_paimon_partition.sales_by_region VALUES
 -- ============================================
 -- 3. Create Date and Region Mixed Partition Table
 -- ============================================
-CREATE TABLE sales_by_date_region (
+DROP TABLE IF EXISTS sales_by_date_region;
+CREATE TABLE test_paimon_partition.sales_by_date_region (
     id BIGINT,
     customer_name STRING,
     product_name STRING,
@@ -81,6 +84,7 @@ INSERT INTO test_paimon_partition.sales_by_date_region VALUES
 -- ============================================
 -- 4. Create Timestamp Partition Table (Hourly Partition)
 -- ============================================
+DROP TABLE IF EXISTS events_by_hour;
 CREATE TABLE test_paimon_partition.events_by_hour (
     id BIGINT,
     event_type STRING,
@@ -109,6 +113,7 @@ INSERT INTO test_paimon_partition.events_by_hour VALUES
 -- ============================================
 -- 5. Create Composite Time Partition Table (Year-Month-Day Hierarchical Partition)
 -- ============================================
+DROP TABLE IF EXISTS logs_by_date_hierarchy;
 CREATE TABLE test_paimon_partition.logs_by_date_hierarchy (
     log_id BIGINT,
     log_level STRING,
@@ -132,4 +137,6 @@ INSERT INTO test_paimon_partition.logs_by_date_hierarchy VALUES
     (4, 'INFO', 'User login successful', 'auth-service', TIMESTAMP '2024-01-16 14:20:00', 2024, 1, 16),
     (5, 'DEBUG', 'Cache miss for user data', 'user-service', TIMESTAMP '2024-01-17 11:45:00', 2024, 1, 17),
     (6, 'ERROR', 'Payment processing failed', 'payment-service', TIMESTAMP '2024-02-01 13:30:00', 2024, 2, 1);
+
+ drop database test_paimon_partition;
 
