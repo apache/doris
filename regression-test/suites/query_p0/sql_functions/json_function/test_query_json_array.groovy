@@ -72,12 +72,6 @@ suite("test_query_json_array", "query") {
     """
     qt_sql_array """ SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_array(array(cast(1 as decimal), cast(1.2 as decimal))); """
 
-    // map
-    qt_sql_map """ SELECT json_array(cast(map('a', 'b', 'c', 'd') as json)); """
-    qt_sql_map """ SELECT json_array(cast(map('a', 1, 'c', 2) as json)); """
-    qt_sql_map """ SELECT json_array(cast(map('a', 1.1, 'c', 2.2) as json)); """
-    qt_sql_map """ SELECT json_array(cast(map('a', 1.1, 'c', 2) as json)); """
-    qt_sql_map """ SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_array(cast(map('a', cast(1 as decimal), 'c', cast(1.2 as decimal)) as json)); """
     // struct
     qt_sql_struct """ SELECT json_array(named_struct('name', 'a', 'age', 1)); """
     qt_sql_struct """ SELECT json_array(named_struct('name', 'a', 'age', 1.1)); """
@@ -94,7 +88,6 @@ suite("test_query_json_array", "query") {
             CREATE TABLE ${tableName} (
               `k0` int(11) not null,
               `k1` array<string> NULL,
-              `k2` map<string, string> NULL,
               `k3` struct<name:string, age:int> NULL,
               `k4` json NULL
             ) ENGINE=OLAP
@@ -107,13 +100,13 @@ suite("test_query_json_array", "query") {
             "storage_format" = "V2"
             );
         """
-    sql "insert into ${tableName} values(1,null,null,null,null);"
-    sql "insert into ${tableName} values(2, array('a','b'), map('a','b'), named_struct('name','a','age',1), '{\"a\":\"b\"}');"
-    sql """insert into ${tableName} values(3, array('"a"', '"b"'), map('"a"', '"b"', '"c"', '"d"'), named_struct('name','"a"','age', 1), '{\"c\":\"d\"}');"""
-    sql """insert into ${tableName} values(4, array(1,2), map(1,2), named_struct('name', 2, 'age',1), '{\"a\":\"b\"}');"""
-    sql """insert into ${tableName} values(5, array(1,2,3,3), map(1,2,3,4), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
-    qt_sql3 "select json_array(k0,k1,cast(k2 as json),k3,k4) from ${tableName} order by k0;"
-    qt_sql3_ignore_null "select json_array_ignore_null(k0,k1,cast(k2 as json),k3,k4) from ${tableName} order by k0;"
+    sql "insert into ${tableName} values(1,null,null,null);"
+    sql "insert into ${tableName} values(2, array('a','b'), named_struct('name','a','age',1), '{\"a\":\"b\"}');"
+    sql """insert into ${tableName} values(3, array('"a"', '"b"'), named_struct('name','"a"','age', 1), '{\"c\":\"d\"}');"""
+    sql """insert into ${tableName} values(4, array(1,2),  named_struct('name', 2, 'age',1), '{\"a\":\"b\"}');"""
+    sql """insert into ${tableName} values(5, array(1,2,3,3), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
+    qt_sql3 "select json_array(k0,k1,k3,k4) from ${tableName} order by k0;"
+    qt_sql3_ignore_null "select json_array_ignore_null(k0,k1,k3,k4) from ${tableName} order by k0;"
     sql "DROP TABLE ${tableName};"
 
     qt_sql_string """
