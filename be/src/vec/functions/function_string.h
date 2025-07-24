@@ -4964,13 +4964,6 @@ public:
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             argument_primitive_types[i] =
                     block.get_by_position(arguments[i]).type->get_primitive_type();
-            LOG_INFO("[verbose] crc32_internal")
-                    .tag("rows", input_rows_count)
-                    .tag("slot_name", block.get_by_position(arguments[i]).name)
-                    .tag("type", block.get_by_position(arguments[i]).type->get_name())
-                    .tag("primitive_type",
-                         static_cast<uint32_t>(
-                                 block.get_by_position(arguments[i]).type->get_primitive_type()));
         }
 
         auto res_col = ColumnInt64::create();
@@ -4989,7 +4982,6 @@ public:
                     hash_val = HashUtil::zlib_crc_hash_null(hash_val);
                 }
             }
-            LOG_INFO("[verbose] crc32_internal data").tag("row", i).tag("hash_val", hash_val);
             res_data[i] = hash_val;
         }
 
