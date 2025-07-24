@@ -328,6 +328,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         pb.SerializeToString(&to_save_val);
     }
     bool need_commit = false;
+    bool is_versioned_write = is_version_write_enabled(instance_id);
     DropIndexLogPB drop_index_log;
     drop_index_log.set_db_id(request->db_id());
     drop_index_log.set_table_id(request->table_id());
@@ -338,9 +339,12 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
-            LOG_INFO("put recycle index").tag("key", hex(key));
-            txn->put(key, to_save_val);
-            drop_index_log.add_index_ids(index_id);
+            if (is_versioned_write) {
+                drop_index_log.add_index_ids(index_id);
+            } else {
+                LOG_INFO("put recycle index").tag("key", hex(key));
+                txn->put(key, to_save_val);
+            }
             need_commit = true;
             continue;
         }
@@ -375,7 +379,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     }
     if (!need_commit) return;
 
-    if (drop_index_log.index_ids_size() > 0 && is_version_write_enabled(instance_id)) {
+    if (drop_index_log.index_ids_size() > 0 && is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
@@ -387,6 +391,10 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
             return;
         }
         versioned_put(txn.get(), operation_log_key, operation_log_value);
+        LOG(INFO) << "put drop index operation log"
+                  << " instance_id=" << instance_id << " table_id=" << request->table_id()
+                  << " index_ids=" << drop_index_log.index_ids_size()
+                  << " log_size=" << operation_log_value.size();
     }
 
     err = txn->commit();
