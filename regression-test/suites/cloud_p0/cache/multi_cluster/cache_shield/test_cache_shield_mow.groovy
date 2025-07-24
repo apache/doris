@@ -196,6 +196,7 @@ suite('test_cache_shield_mow', 'docker') {
         qt_sql """select * from test"""
         sleep(1000)
 
+        // mow table should not trigger the cache shield
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         // due to a bug of profile, skip the check for now
         // verifyProfileContent("select * from test");
