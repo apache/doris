@@ -313,6 +313,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -4100,6 +4101,8 @@ public class Env {
         // dbId -> (tableId -> partitionId)
         HashMap<Long, Multimap<Long, Long>> changedPartitionsMap = new HashMap<Long, Multimap<Long, Long>>();
         long currentTimeMs = System.currentTimeMillis();
+        long zonedTimeMillis
+                = Instant.ofEpochMilli(currentTimeMs).atZone(TimeUtils.getDorisZoneId()).toInstant().toEpochMilli();
         List<Long> dbIds = getInternalCatalog().getDbIds();
 
         for (long dbId : dbIds) {
@@ -4134,6 +4137,26 @@ public class Env {
                                 changedPartitionsMap.put(dbId, multimap);
                             }
                             multimap.put(tableId, partitionId);
+                        } else if (!Strings.isNullOrEmpty(dataProperty.getStoragePolicy())
+                                && partition.getRemoteDataSize() > 0) {
+                            if (partition.getRemoteDataSize() > dataProperty.getRemoteDataSize()) {
+                                // if the remote data size increased, that means a bunch of new data is cooled
+                                // and we update the cooldownTimeMs
+                                DataProperty newDataProperty = new DataProperty(dataProperty.getStorageMedium(),
+                                        zonedTimeMillis, dataProperty.getStoragePolicy());
+                                newDataProperty.setRemoteDataSize(partition.getRemoteDataSize());
+                                partitionInfo.setDataProperty(partition.getId(), newDataProperty);
+                                // log
+                                ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(),
+                                        partition.getId(), newDataProperty, ReplicaAllocation.NOT_SET,
+                                        partitionInfo.getIsInMemory(partition.getId()),
+                                        partitionInfo.getStoragePolicy(partitionId), Maps.newHashMap());
+                                editLog.logModifyPartition(info);
+                            } else if (partition.getRemoteDataSize() < dataProperty.getRemoteDataSize()) {
+                                // if the remote data is removed, set up-to-date remote data information.
+                                dataProperty.setRemoteDataSize(partition.getRemoteDataSize());
+                                partitionInfo.setDataProperty(partition.getId(), dataProperty);
+                            }
                         } else {
                             storageMediumMap.put(partitionId, dataProperty.getStorageMedium());
                         }
