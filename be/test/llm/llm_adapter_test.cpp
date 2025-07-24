@@ -18,10 +18,16 @@
 #include "vec/functions/llm/llm_adapter.h"
 
 #include <curl/curl.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
 #include <string>
 #include <vector>
+
+#include "vec/functions/llm/llm_classify.h"
+#include "vec/functions/llm/llm_extract.h"
+#include "vec/functions/llm/llm_sentiment.h"
+#include "vec/functions/llm/llm_summarize.h"
 
 namespace doris::vectorized {
 class MockHttpClient : public HttpClient {
@@ -35,7 +41,7 @@ private:
 
 TEST(LLM_ADAPTER_TEST, local_adapter_request) {
     LocalAdapter adapter;
-    LLMConfig config;
+    TLLMResource config;
     config.model_name = "ollama";
     config.temperature = 0.7;
     config.max_tokens = 128;
@@ -49,7 +55,8 @@ TEST(LLM_ADAPTER_TEST, local_adapter_request) {
 
     std::vector<std::string> inputs = {"hello world"};
     std::string request_body;
-    Status st = adapter.build_request_payload(inputs, request_body);
+    Status st = adapter.build_request_payload(inputs, FunctionLLMSummarize::system_prompt,
+                                              request_body);
     ASSERT_TRUE(st.ok());
 
     // body test
@@ -77,6 +84,13 @@ TEST(LLM_ADAPTER_TEST, local_adapter_request) {
     if (doc.HasMember("messages")) {
         ASSERT_TRUE(doc["messages"].IsArray()) << "Messages is not an array";
         ASSERT_GT(doc["messages"].Size(), 0) << "Messages array is empty";
+        // system_prompt
+        const auto& first_message = doc["messages"][0];
+        ASSERT_TRUE(first_message.HasMember("role")) << "Message missing role field";
+        ASSERT_TRUE(first_message["role"].IsString()) << "Role field is not a string";
+        ASSERT_STREQ(first_message["role"].GetString(), "system");
+        ASSERT_STREQ(first_message["content"].GetString(), FunctionLLMSummarize::system_prompt);
+
         const auto& last_message = doc["messages"][doc["messages"].Size() - 1];
         ASSERT_TRUE(last_message.HasMember("content")) << "Message missing content field";
         ASSERT_TRUE(last_message["content"].IsString()) << "Content field is not a string";
@@ -123,7 +137,7 @@ TEST(LLM_ADAPTER_TEST, local_adapter_parse_response) {
 
 TEST(LLM_ADAPTER_TEST, openai_adapter_request) {
     OpenAIAdapter adapter;
-    LLMConfig config;
+    TLLMResource config;
     config.model_name = "gpt-3.5-turbo";
     config.temperature = 0.5;
     config.max_tokens = 64;
@@ -140,7 +154,8 @@ TEST(LLM_ADAPTER_TEST, openai_adapter_request) {
 
     std::vector<std::string> inputs = {"hi openai"};
     std::string request_body;
-    Status st = adapter.build_request_payload(inputs, request_body);
+    Status st = adapter.build_request_payload(inputs, FunctionLLMSentiment::system_prompt,
+                                              request_body);
     ASSERT_TRUE(st.ok());
 
     // body
@@ -163,11 +178,17 @@ TEST(LLM_ADAPTER_TEST, openai_adapter_request) {
     ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
     ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
     ASSERT_EQ(doc["max_tokens"].GetInt(), 64);
-
     // msg
     ASSERT_TRUE(doc.HasMember("messages")) << "Missing messages field";
     ASSERT_TRUE(doc["messages"].IsArray()) << "Messages is not an array";
     ASSERT_GT(doc["messages"].Size(), 0) << "Messages array is empty";
+
+    // system_prompt
+    const auto& first_message = doc["messages"][0];
+    ASSERT_TRUE(first_message.HasMember("role")) << "Message missing role field";
+    ASSERT_TRUE(first_message["role"].IsString()) << "Role field is not a string";
+    ASSERT_STREQ(first_message["role"].GetString(), "system");
+    ASSERT_STREQ(first_message["content"].GetString(), FunctionLLMSentiment::system_prompt);
 
     // The content of the last message
     const auto& last_message = doc["messages"][doc["messages"].Size() - 1];
@@ -188,7 +209,7 @@ TEST(LLM_ADAPTER_TEST, openai_adapter_parse_response) {
 
 TEST(LLM_ADAPTER_TEST, gemini_adapter_request) {
     GeminiAdapter adapter;
-    LLMConfig config;
+    TLLMResource config;
     config.temperature = 0.2;
     config.max_tokens = 32;
     config.api_key = "test_gemini_key";
@@ -204,7 +225,8 @@ TEST(LLM_ADAPTER_TEST, gemini_adapter_request) {
 
     std::vector<std::string> inputs = {"hello gemini"};
     std::string request_body;
-    Status st = adapter.build_request_payload(inputs, request_body);
+    Status st =
+            adapter.build_request_payload(inputs, FunctionLLMExtract::system_prompt, request_body);
     ASSERT_TRUE(st.ok());
 
     // body test
@@ -225,6 +247,21 @@ TEST(LLM_ADAPTER_TEST, gemini_adapter_request) {
     ASSERT_TRUE(gen_cfg.HasMember("maxOutputTokens")) << "Missing maxOutputTokens field";
     ASSERT_TRUE(gen_cfg["maxOutputTokens"].IsInt());
     ASSERT_EQ(gen_cfg["maxOutputTokens"].GetInt(), 32);
+
+    // system_prompt
+    ASSERT_TRUE(doc.HasMember("system_instruction")) << "Missing system field";
+    ASSERT_TRUE(doc["system_instruction"].IsArray()) << "System field is not an array";
+    ASSERT_GT(doc["system_instruction"].Size(), 0) << "system_instruction field is empty";
+
+    const auto& content_sys = doc["system_instruction"][0];
+    ASSERT_TRUE(content_sys.HasMember("parts")) << "system_instruction missing parts field";
+    ASSERT_TRUE(content_sys["parts"].IsArray()) << "Parts is not an array";
+    ASSERT_GT(content_sys["parts"].Size(), 0) << "Parts array is empty";
+
+    const auto& part_sys = content_sys["parts"][0];
+    ASSERT_TRUE(part_sys.HasMember("text")) << "parts missing text field";
+    ASSERT_TRUE(part_sys["text"].IsString()) << "Text field is not a string";
+    ASSERT_STREQ(part_sys["text"].GetString(), FunctionLLMExtract::system_prompt);
 
     // content structure
     ASSERT_TRUE(doc.HasMember("contents")) << "Missing contents field";
@@ -255,7 +292,7 @@ TEST(LLM_ADAPTER_TEST, gemini_adapter_parse_response) {
 
 TEST(LLM_ADAPTER_TEST, anthropic_adapter_request) {
     AnthropicAdapter adapter;
-    LLMConfig config;
+    TLLMResource config;
     config.model_name = "claude-3";
     config.temperature = 1.0;
     config.max_tokens = 256;
@@ -274,7 +311,8 @@ TEST(LLM_ADAPTER_TEST, anthropic_adapter_request) {
 
     std::vector<std::string> inputs = {"hi anthropic"};
     std::string request_body;
-    Status st = adapter.build_request_payload(inputs, request_body);
+    Status st =
+            adapter.build_request_payload(inputs, FunctionLLMClassify::system_prompt, request_body);
     ASSERT_TRUE(st.ok());
 
     // body
@@ -297,6 +335,11 @@ TEST(LLM_ADAPTER_TEST, anthropic_adapter_request) {
     ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
     ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
     ASSERT_EQ(doc["max_tokens"].GetInt(), 256);
+
+    // system_prompt
+    ASSERT_TRUE(doc.HasMember("system")) << "Missing system field";
+    ASSERT_TRUE(doc["system"].IsString()) << "System field is not a string";
+    ASSERT_STREQ(doc["system"].GetString(), FunctionLLMClassify::system_prompt);
 
     // message Format
     ASSERT_TRUE(doc.HasMember("messages")) << "Missing messages field";
