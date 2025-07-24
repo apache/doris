@@ -1420,48 +1420,22 @@ void MetaServiceImpl::commit_txn_immediately(
             if (code != MetaServiceCode::OK) return;
 
             if (is_versioned_write) {
-                std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
-
-                // Try to read existing versioned tablet stats
-                std::string stats_val;
                 TabletStatsPB stats_pb;
-                TxnErrorCode err = txn->get(stats_key, &stats_val);
-                if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                    // If versioned stats doesn't exist, read from single version
-                    TabletStats detached_stats;
-                    internal_get_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx,
-                                              stats_pb, detached_stats, false);
-                    if (code != MetaServiceCode::OK) {
-                        LOG(WARNING) << "failed to get tablet stats for versioned write: " << msg;
-                        return;
-                    }
-                } else if (err == TxnErrorCode::TXN_OK) {
-                    // Parse existing versioned stats
-                    if (!stats_pb.ParseFromString(stats_val)) {
-                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                        msg = fmt::format("malformed versioned tablet stats, key={}",
-                                          hex(stats_key));
-                        LOG(WARNING) << msg;
-                        return;
-                    }
-                } else {
-                    code = cast_as<ErrCategory::READ>(err);
-                    msg = fmt::format("failed to get versioned tablet stats, err={}", err);
-                    LOG(WARNING) << msg;
+                internal_get_versioned_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx,
+                                                    stats_pb);
+                if (code != MetaServiceCode::OK) {
+                    LOG(WARNING) << "update versioned tablet stats failed, code=" << code
+                                 << " msg=" << msg << " txn_id=" << txn_id
+                                 << " tablet_id=" << tablet_id;
                     return;
                 }
 
-                stats_pb.set_data_size(stats_pb.data_size() + stats.data_size);
-                stats_pb.set_num_rows(stats_pb.num_rows() + stats.num_rows);
-                stats_pb.set_num_rowsets(stats_pb.num_rowsets() + stats.num_rowsets);
-                stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
-                stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
-                stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
-
+                merge_tablet_stats(stats_pb, stats);
+                std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
                 if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
                     code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                     msg = "failed to serialize versioned tablet stats";
-                    LOG(WARNING) << msg;
+                    LOG(WARNING) << msg << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
                     return;
                 }
                 LOG(INFO) << "put versioned tablet stats key=" << hex(stats_key)
@@ -2026,7 +2000,8 @@ void MetaServiceImpl::commit_txn_eventually(
                 return;
             }
             versioned_put(txn.get(), log_key, operation_log_value);
-            LOG(INFO) << "put log_key key=" << hex(log_key) << " txn_id=" << txn_id;
+            LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
+                      << " txn_id=" << txn_id << " log_size=" << operation_log_value.size();
         }
 
         VLOG_DEBUG << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
@@ -2644,47 +2619,22 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         if (code != MetaServiceCode::OK) return;
 
         if (is_versioned_write) {
-            std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
-
-            // Try to read existing versioned tablet stats
-            std::string stats_val;
             TabletStatsPB stats_pb;
-            TxnErrorCode err = txn->get(stats_key, &stats_val);
-            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                // If versioned stats doesn't exist, read from single version
-                TabletStats detached_stats;
-                internal_get_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx, stats_pb,
-                                          detached_stats, false);
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "failed to get tablet stats for versioned write: " << msg;
-                    return;
-                }
-            } else if (err == TxnErrorCode::TXN_OK) {
-                // Parse existing versioned stats
-                if (!stats_pb.ParseFromString(stats_val)) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    msg = fmt::format("malformed versioned tablet stats, key={}", hex(stats_key));
-                    LOG(WARNING) << msg;
-                    return;
-                }
-            } else {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get versioned tablet stats, err={}", err);
-                LOG(WARNING) << msg;
+            internal_get_versioned_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx,
+                                                stats_pb);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "update versioned tablet stats failed, code=" << code
+                             << " msg=" << msg << " txn_id=" << txn_id
+                             << " tablet_id=" << tablet_id;
                 return;
             }
 
-            stats_pb.set_data_size(stats_pb.data_size() + stats.data_size);
-            stats_pb.set_num_rows(stats_pb.num_rows() + stats.num_rows);
-            stats_pb.set_num_rowsets(stats_pb.num_rowsets() + stats.num_rowsets);
-            stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
-            stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
-            stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
-
+            merge_tablet_stats(stats_pb, stats);
+            std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
             if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 msg = "failed to serialize versioned tablet stats";
-                LOG(WARNING) << msg;
+                LOG(WARNING) << msg << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
                 return;
             }
             LOG(INFO) << "put versioned tablet stats key=" << hex(stats_key)
@@ -2722,8 +2672,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             return;
         }
         versioned_put(txn.get(), log_key, operation_log_value);
-        LOG(INFO) << "xxx commit_txn_with_sub_txn put operation log key=" << hex(recycle_key)
-                  << " txn_id=" << txn_id;
+        LOG(INFO) << "put commit txn operation log key=" << hex(recycle_key) << " txn_id=" << txn_id
+                  << " log_size=" << operation_log_value.size();
     } else {
         if (!recycle_pb.SerializeToString(&recycle_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -2732,7 +2682,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             return;
         }
         txn->put(recycle_key, recycle_val);
-        LOG(INFO) << "xxx commit_txn put recycle_txn_key key=" << hex(recycle_key)
+        LOG(INFO) << "commit_txn put recycle_txn_key key=" << hex(recycle_key)
                   << " txn_id=" << txn_id;
     }
 
