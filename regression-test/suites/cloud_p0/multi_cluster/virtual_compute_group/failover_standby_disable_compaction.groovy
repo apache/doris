@@ -153,6 +153,31 @@ suite('failover_standby_disable_compaction', 'multi_cluster,docker') {
             """
 
             cluster.stopBackends(4, 5)
+
+            def reconnectFe = {
+                sleep(10000)
+                logger.info("Reconnecting to a new frontend...")
+                def newFe
+                if (options.connectToFollower) {
+                    newFe = cluster.getOneFollowerFe()
+                } else {
+                    newFe = cluster.getMasterFe()
+                }
+                if (newFe) {
+                    logger.info("New frontend found: ${newFe.host}:${newFe.httpPort}")
+                    def url = String.format(
+                            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                            newFe.host, newFe.queryPort)
+                    url = context.config.buildUrlWithDb(url, context.dbName)
+                    context.connectTo(url, context.config.jdbcUser, context.config.jdbcPassword)
+                    logger.info("Successfully reconnected to the new frontend")
+                } else {
+                    logger.error("No new frontend found to reconnect")
+                }
+            }
+
+            reconnectFe()
+
             sleep(30000)
             sql """ insert into ${tbl} (k1, k2) values (1, "10") """
             sql """ SELECT count(*) FROM ${tableName} """
@@ -274,9 +299,8 @@ suite('failover_standby_disable_compaction', 'multi_cluster,docker') {
 
             assertTrue(before_cluster2_be0_compaction < after_cluster2_be0_compaction || before_cluster2_be1_compaction < after_cluster2_be1_compaction )
 
-            def set = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
+            def addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            checkProfileNew.call(set, false)
             if (options.connectToFollower) {
                 checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
             } else {
