@@ -17,11 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.MaterializedViewHandler;
+import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DataSortInfo;
-import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -48,14 +50,11 @@ import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
-import org.apache.doris.nereids.hint.Hint;
-import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -363,31 +362,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return indexes.getIndexIds();
     }
 
-    /**
-     * Checks if the table contains at least one index of the specified type.
-     * @param indexType The index type to check for
-     * @return true if the table has at least one index of the specified type, false otherwise
-     */
-    public boolean hasIndexOfType(IndexDef.IndexType indexType) {
-        if (indexes == null) {
-            return false;
-        }
-        return indexes.getIndexes().stream()
-                .anyMatch(index -> index.getIndexType() == indexType);
-    }
-
     @Override
     public TableIndexes getTableIndexes() {
         return indexes;
-    }
-
-    public Map<String, Index> getIndexesMap() {
-        Map<String, Index> indexMap = new HashMap<>();
-        if (indexes != null) {
-            Optional.ofNullable(indexes.getIndexes()).orElse(Collections.emptyList()).forEach(
-                    i -> indexMap.put(i.getIndexName(), i));
-        }
-        return indexMap;
     }
 
     public void checkAndSetName(String newName, boolean onlyCheck) throws DdlException {
@@ -555,11 +532,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return indexNameToId.get(indexName);
     }
 
-    public Long getSegmentV2FormatIndexId() {
-        String v2RollupIndexName = MaterializedViewHandler.NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + getName();
-        return indexNameToId.get(v2RollupIndexName);
-    }
-
     public String getIndexNameById(long indexId) {
         for (Map.Entry<String, Long> entry : indexNameToId.entrySet()) {
             if (entry.getValue() == indexId) {
@@ -595,74 +567,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             visibleMVs.put(mv.getId(), indexIdToMeta.get(mv.getId()));
         }
         return visibleMVs;
-    }
-
-    public Long getBestMvIdWithHint(List<Long> orderedMvs) {
-        Optional<UseMvHint> useMvHint = ConnectContext.get().getStatementContext().getUseMvHint("USE_MV");
-        Optional<UseMvHint> noUseMvHint = ConnectContext.get().getStatementContext().getUseMvHint("NO_USE_MV");
-        List<String> names = new ArrayList<>();
-        InternalCatalog catalog = Env.getCurrentEnv().getInternalCatalog();
-        names.add(catalog.getName());
-        names.add(getDBName());
-        names.add(this.name);
-        if (useMvHint.isPresent() && noUseMvHint.isPresent()) {
-            return getMvIdWithUseMvHint(useMvHint.get(), names, orderedMvs);
-        } else if (useMvHint.isPresent()) {
-            return getMvIdWithUseMvHint(useMvHint.get(), names, orderedMvs);
-        } else if (noUseMvHint.isPresent()) {
-            return getMvIdWithNoUseMvHint(noUseMvHint.get(), names, orderedMvs);
-        }
-        return orderedMvs.get(0);
-    }
-
-    private Long getMvIdWithUseMvHint(UseMvHint useMvHint, List<String> names, List<Long> orderedMvs) {
-        if (useMvHint.isAllMv()) {
-            useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
-            useMvHint.setErrorMessage("use_mv hint should only have one mv in one table: "
-                    + this.name);
-            return orderedMvs.get(0);
-        } else {
-            for (Map.Entry<String, Long> entry : indexNameToId.entrySet()) {
-                String mvName = entry.getKey();
-                names.add(mvName);
-                if (useMvHint.getUseMvTableColumnMap().containsKey(names)) {
-                    useMvHint.getUseMvTableColumnMap().put(names, true);
-                    Long choosedIndexId = indexNameToId.get(mvName);
-                    if (orderedMvs.contains(choosedIndexId)) {
-                        useMvHint.setStatus(Hint.HintStatus.SUCCESS);
-                        return choosedIndexId;
-                    } else {
-                        useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
-                        useMvHint.setErrorMessage("do not have mv: " + mvName + " in table: " + this.name);
-                    }
-                }
-            }
-        }
-        return orderedMvs.get(0);
-    }
-
-    private Long getMvIdWithNoUseMvHint(UseMvHint noUseMvHint, List<String> names, List<Long> orderedMvs) {
-        if (noUseMvHint.isAllMv()) {
-            noUseMvHint.setStatus(Hint.HintStatus.SUCCESS);
-            return getBaseIndex().getId();
-        } else {
-            Set<Long> forbiddenIndexIds = Sets.newHashSet();
-            for (Map.Entry<String, Long> entry : indexNameToId.entrySet()) {
-                String mvName = entry.getKey();
-                names.add(mvName);
-                if (noUseMvHint.getNoUseMvTableColumnMap().containsKey(names)) {
-                    noUseMvHint.getNoUseMvTableColumnMap().put(names, true);
-                    Long forbiddenIndexId = indexNameToId.get(mvName);
-                    forbiddenIndexIds.add(forbiddenIndexId);
-                }
-            }
-            for (int i = 0; i < orderedMvs.size(); i++) {
-                if (!forbiddenIndexIds.contains(orderedMvs.get(i))) {
-                    return orderedMvs.get(i);
-                }
-            }
-        }
-        return orderedMvs.get(0);
     }
 
     public List<MaterializedIndex> getVisibleIndex() {

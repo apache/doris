@@ -592,4 +592,19 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     public List<String> getOriginHiveKeys() {
         return originHiveKeys;
     }
+
+
+    public static List<PartitionValue> toPartitionValue(PartitionKey partitionKey) {
+        return partitionKey.getKeys().stream().map(expr -> {
+            if (expr == MaxLiteral.MAX_VALUE) {
+                return PartitionValue.MAX_VALUE;
+            } else if (expr instanceof DateLiteral) {
+                return new PartitionValue(expr.getStringValue());
+            } else if (expr instanceof NullLiteral) {
+                return new PartitionValue("NULL", true);
+            } else {
+                return new PartitionValue(expr.getRealValue().toString());
+            }
+        }).collect(Collectors.toList());
+    }
 }
