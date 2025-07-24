@@ -16,6 +16,7 @@
 // under the License.
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
+
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -24,33 +25,38 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
-public class PreviousDay extends ScalarFunction implements BinaryExpression, 
-ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
-	private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-		FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, StringType.INSTANCE));
+/**
+ * PreviousDay function for date arithmetic.
+ */
+public class PreviousDay extends ScalarFunction implements BinaryExpression,
+        ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, StringType.INSTANCE));
 
-	public PreviousDay(Expression arg0, Expression arg1) {
-		super("previous_day", arg0, arg1);
-	}
+    public PreviousDay(Expression arg0, Expression arg1) {
+        super("previous_day", arg0, arg1);
+    }
 
-	@Override
-	public PreviousDay withChildren(List<Expression> children) {
-		Preconditions.checkArgument(children.size() == 2);
-		return new PreviousDay(children.get(0), children.get(1));
-	}
+    @Override
+    public PreviousDay withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new PreviousDay(children.get(0), children.get(1));
+    }
 
-	@Override
-	public List<FunctionSignature> getSignatures(){
-		return SIGNATURES;
-	}
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
+    }
 
-	@Override
-	public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-		return visitor.visitPreviousDay(this, context);
-	}
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitPreviousDay(this, context);
+    }
 }
 

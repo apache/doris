@@ -1268,10 +1268,13 @@ public class DateTimeExtractAndTransform {
         return date.plusDays(daysToAdd);
     }
 
+    /**
+     * date arithmetic function previous_day
+     */
     @ExecFunction(name = "previous_day")
     public static Expression previousDay(DateV2Literal date, StringLiteral day) {
         int dayOfWeek = getDayOfWeek(day.getValue());
-        if(dayOfWeek == 0) {
+        if (dayOfWeek == 0) {
             throw new RuntimeException("Invalid day of week : " + day.getValue());
         }
         int daysToSubtract = (date.getDayOfWeek() - dayOfWeek + 7) % 7;
