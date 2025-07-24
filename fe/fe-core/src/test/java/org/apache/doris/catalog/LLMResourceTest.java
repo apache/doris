@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -65,8 +63,6 @@ public class LLMResourceTest {
     private String timeoutMs;
     private Map<String, String> llmProperties;
 
-    private Analyzer analyzer;
-
     @Before
     public void setUp() {
         name = "openai-gpt";
@@ -88,8 +84,6 @@ public class LLMResourceTest {
         llmProperties.put("llm.api_key", apiKey);
         llmProperties.put("llm.model_name", modelName);
         llmProperties.put("llm.validity_check", "false");
-
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test
