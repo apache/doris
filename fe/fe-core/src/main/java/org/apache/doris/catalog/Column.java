@@ -350,7 +350,7 @@ public class Column implements GsonPostProcessable {
                 c.setIsAllowNull(field.getContainsNull());
                 column.addChildrenColumn(c);
             }
-        } else if (type.isVariantType()) {
+        } else if (type.isVariantType() && type instanceof VariantType) {
             // variant may contain predefined structured fields
             ArrayList<VariantField> fields = ((VariantType) type).getPredefinedFields();
             for (VariantField field : fields) {
@@ -520,11 +520,11 @@ public class Column implements GsonPostProcessable {
     }
 
     public int getVariantMaxSubcolumnsCount() {
-        return type.isVariantType() ? ((VariantType) type).getVariantMaxSubcolumnsCount() : -1;
+        return type.isVariantType() ? ((ScalarType) type).getVariantMaxSubcolumnsCount() : -1;
     }
 
     public boolean getVariantEnableTypedPathsToSparse() {
-        return type.isVariantType() ? ((VariantType) type).getEnableTypedPathsToSparse() : false;
+        return type.isVariantType() ? ((ScalarType) type).getVariantEnableTypedPathsToSparse() : false;
     }
 
     public AggregateType getAggregationType() {
@@ -890,8 +890,7 @@ public class Column implements GsonPostProcessable {
                 builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
             }
         } else if (this.type.isVariantType()) {
-            VariantType variantType = (VariantType) this.getType();
-            builder.setVariantMaxSubcolumnsCount(variantType.getVariantMaxSubcolumnsCount());
+            builder.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
             // variant may contain predefined structured fields
             addChildren(builder);
