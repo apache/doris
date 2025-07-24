@@ -5091,7 +5091,7 @@ public class SessionVariable implements Serializable, Writable {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().feDebug;
         } else {
-            return true;
+            return false;
         }
     }
 }

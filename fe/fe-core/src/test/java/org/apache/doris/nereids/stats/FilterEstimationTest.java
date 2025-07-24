@@ -18,10 +18,8 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -44,17 +42,12 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -71,10 +64,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 class FilterEstimationTest {
-    private static final NereidsParser PARSER = new NereidsParser();
-    private static final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
-    private static final float HOT_VALUE_PERCENTAGE = 30f;
-
     // a > 500 or b < 100
     // b isNaN
     @Test
@@ -1614,141 +1603,54 @@ class FilterEstimationTest {
         Assertions.assertFalse(stats.findColumnStatistics(b).isUnKnown());
     }
 
-    private Literal castStrToLiteral(String str, DataType dataType) {
-        Literal literal = new StringLiteral(str);
-        try {
-            return (Literal) literal.checkedCastTo(dataType);
-        } catch (Exception e) {
-            // ignore
-        }
-        return literal;
-    }
-    private ColumnStatistic createColumnStatistic(
-            String colName,
-            double ndv, double rowCount,
-            String minExprStr, String maxExprStr,
-            double numNulls,
-            String[] hot) {
-        DataType dataType = guessDataType(colName);
-        Map<Literal, Float> hotValues = null;
-        if (hot.length > 0) {
-            hotValues = new HashMap<>();
-            for (String oneHot : hot) {
-                Literal literal = castStrToLiteral(oneHot, dataType);
-                hotValues.put(literal, HOT_VALUE_PERCENTAGE);
-            }
-        }
-        LiteralExpr minExpr = null;
-        double minValue = Double.NEGATIVE_INFINITY;
-        if (minExprStr != null) {
-            Literal literal = castStrToLiteral(minExprStr, dataType);
-            minExpr = literal.toLegacyLiteral();
-            minValue = literal.getDouble();
-        }
-        LiteralExpr maxExpr = null;
-        double maxValue = Double.POSITIVE_INFINITY;
-        if (maxExprStr != null) {
-            Literal literal = castStrToLiteral(maxExprStr, dataType);
-            maxExpr = literal.toLegacyLiteral();
-            maxValue = literal.getDouble();
-        }
-
-        return new ColumnStatisticBuilder(rowCount)
-                .setNdv(ndv)
-                .setMinExpr(minExpr)
-                .setMinValue(minValue)
-                .setMaxExpr(maxExpr)
-                .setMaxValue(maxValue)
-                .setAvgSizeByte(4)
-                .setNumNulls(numNulls)
-                .setHotValues(hotValues)
-                .build();
-    }
-
-    private Pair<Expression, ArrayList<SlotReference>> createExpr(String expr) {
-        ArrayList<SlotReference> slots = new ArrayList<>();
-        Expression unbound = PARSER.parseExpression(expr);
-        Map<String, SlotReference> slotNameMap = new HashMap<>();
-        Expression bound = unbound.rewriteDownShortCircuit(e -> {
-            if (e instanceof UnboundSlot) {
-                String colName = ((UnboundSlot) e).getName();
-                SlotReference slot = slotNameMap.get(colName);
-                if (slot == null) {
-                    slot = new SlotReference(colName, guessDataType(colName));
-                    slots.add(slot);
-                }
-                return slot;
-            } else {
-                return e;
-            }
-        });
-        return Pair.of(bound, slots);
-    }
-
-    private DataType guessDataType(String value) {
-        if (value.startsWith("str")) {
-            return StringType.INSTANCE;
-        }
-        if (value.startsWith("i")) {
-            return IntegerType.INSTANCE;
-        }
-        if (value.startsWith("f")) {
-            return FloatType.INSTANCE;
-        }
-        if (value.startsWith("d")) {
-            return DateTimeV2Type.SYSTEM_DEFAULT;
-        }
-        throw new RuntimeException("cannot guess datatype by name: " + value);
-    }
-
     @Test
     public void testSkewFilterEqual() {
         double rowCont = 1000;
-        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia = 10");
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia = 10");
         Expression expr = pair.first;
         ArrayList<SlotReference> slots = pair.second;
-        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCont, "0", "1000", 0, new String[]{"10"});
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCont, "0", "1000", 0, new String[]{"10"});
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCont);
         Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-        Assertions.assertEquals(HOT_VALUE_PERCENTAGE * rowCont / ColumnStatistic.ONE_HUNDRED, stats.getRowCount(), 0.1);
+        Assertions.assertEquals(StatsTestUtil.HOT_VALUE_PERCENTAGE * rowCont / ColumnStatistic.ONE_HUNDRED, stats.getRowCount(), 0.1);
     }
 
     @Test
     public void testSkewFilterGreater() {
         double rowCount = 1000;
             {
-                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia > 80");
+                Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia > 80");
                 Expression expr = pair.first;
                 ArrayList<SlotReference> slots = pair.second;
-                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[] {"1", "90"});
+                ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[] {"1", "90"});
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((0.4 * 0.2 + HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount,
+                Assertions.assertEquals((0.4 * 0.2 + StatsTestUtil.HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount,
                         stats.getRowCount(), 0.1);
                 Assertions.assertEquals((100 - 2) * 0.2 + 1, // (leftStats.ndv - hotValueCount) * selectivity + matchedHotValues.size();
                         stats.findColumnStatistics(slots.get(0)).ndv, 0.1);
             }
             {
-                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia > 10");
+                Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia > 10");
                 Expression expr = pair.first;
                 ArrayList<SlotReference> slots = pair.second;
-                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "10", 0, new String[]{"1", "10"});
+                ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "10", 0, new String[]{"1", "10"});
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
                 Assertions.assertEquals(FilterEstimation.RANGE_SELECTIVITY_THRESHOLD * rowCount, stats.getRowCount(), 0.1);
             }
             {
-                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia >= 10");
+                Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia >= 10");
                 Expression expr = pair.first;
                 ArrayList<SlotReference> slots = pair.second;
-                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "10", 0, new String[]{"1", "10"});
+                ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "10", 0, new String[]{"1", "10"});
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((0.4 * 0.01 + HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount, stats.getRowCount(), 0.1);
+                Assertions.assertEquals((0.4 * 0.01 + StatsTestUtil.HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount, stats.getRowCount(), 0.1);
             }
     }
 
@@ -1756,47 +1658,47 @@ class FilterEstimationTest {
     public void testSkewFilterLess() {
         double rowCount = 1000;
             {
-                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia < 80");
+                Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia < 80");
                 Expression expr = pair.first;
                 ArrayList<SlotReference> slots = pair.second;
-                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[] {"0", "100"});
+                ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[] {"0", "100"});
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((0.4 * 0.8 + HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount,
+                Assertions.assertEquals((0.4 * 0.8 + StatsTestUtil.HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount,
                         stats.getRowCount(), 0.1);
             }
 
             {
-                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia < 0");
+                Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia < 0");
                 Expression expr = pair.first;
                 ArrayList<SlotReference> slots = pair.second;
-                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "100"});
+                ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "100"});
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
                 Assertions.assertEquals(FilterEstimation.RANGE_SELECTIVITY_THRESHOLD * rowCount, stats.getRowCount(), 0.1);
             }
             {
-                Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia <= 0");
+                Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia <= 0");
                 Expression expr = pair.first;
                 ArrayList<SlotReference> slots = pair.second;
-                ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "100"});
+                ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "100"});
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((0.4 * 0.01 + HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount, stats.getRowCount(), 0.1);
+                Assertions.assertEquals((0.4 * 0.01 + StatsTestUtil.HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount, stats.getRowCount(), 0.1);
             }
     }
 
     @Test
     public void testInPredicateSkew() {
         double rowCount = 1000;
-        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia in (1, 2, 3)");
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia in (1, 2, 3)");
         Expression expr = pair.first;
         ArrayList<SlotReference> slots = pair.second;
 
-        ColumnStatistic iaStats = createColumnStatistic("ia", 102, rowCount, "0", "100", 0, new String[]{"0", "1"});
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 102, rowCount, "0", "100", 0, new String[]{"0", "1"});
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
         Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
@@ -1809,11 +1711,11 @@ class FilterEstimationTest {
     @Test
     public void testAndSkew() {
         double rowCount = 1000;
-        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia > 10 and ia < 80");
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia > 10 and ia < 80");
         Expression expr = pair.first;
         SlotReference slotA = pair.second.get(0);
 
-        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "90"});
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "90"});
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
         Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
@@ -1824,11 +1726,11 @@ class FilterEstimationTest {
     @Test
     public void testOrSkew() {
         double rowCount = 1000;
-        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia > 10 or ia < 80");
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia > 10 or ia < 80");
         Expression expr = pair.first;
         SlotReference slotA = pair.second.get(0);
 
-        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "90"});
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0, new String[]{"0", "90"});
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
         Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
@@ -1838,11 +1740,11 @@ class FilterEstimationTest {
     @Test
     public void testNotSkew() {
         double rowCount = 1000;
-        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("not ia in (80, 90)");
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("not ia in (80, 90)");
         Expression expr = pair.first;
         SlotReference slotA = pair.second.get(0);
 
-        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
                 new String[]{"10", "20", "30", "40", "50", "60", "70", "80", "90"});
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
@@ -1855,11 +1757,11 @@ class FilterEstimationTest {
     public void testIsNullSkew() {
         // no hot values after is_null
         double rowCount = 1000;
-        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia is null");
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia is null");
         Expression expr = pair.first;
         SlotReference slotA = pair.second.get(0);
 
-        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
                 new String[]{"10", "20", "30", "40", "50", "60", "70", "80", "90"});
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
@@ -1872,11 +1774,11 @@ class FilterEstimationTest {
     public void testNotIsNullSkew() {
         // no hot values after is_null
         double rowCount = 1000;
-        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia is not null");
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia is not null");
         Expression expr = pair.first;
         SlotReference slotA = pair.second.get(0);
 
-        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
                 new String[]{"10", "20", "30", "40", "50", "60", "70", "80", "90"});
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
@@ -1889,10 +1791,10 @@ class FilterEstimationTest {
     @Test
     public void testLikeSkew() {
         double rowCount = 1000;
-        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("strA like 'ab%'");
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("strA like 'ab%'");
         Expression expr = pair.first;
         SlotReference slotA = pair.second.get(0);
-        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
                 new String[] {"ab", "abc", "ddd"});
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
@@ -1904,15 +1806,38 @@ class FilterEstimationTest {
     @Test
     public void testNotLikeSkew() {
         double rowCount = 1000;
-        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("strA not like 'ab%'");
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("strA not like 'ab%'");
         Expression expr = pair.first;
         SlotReference slotA = pair.second.get(0);
-        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
                 new String[] {"ab", "abc", "ddd"});
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
         Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
         ColumnStatistic iaStats2 = stats.findColumnStatistics(slotA);
+        Assertions.assertEquals(1, iaStats2.getHotValues().size());
+    }
+
+    @Test
+    public void testColEqualColSkew() {
+        double rowCount = 1000;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia = ib");
+        Expression expr = pair.first;
+        SlotReference slotA = pair.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+                new String[] {"10", "20"});
+        SlotReference slotB = pair.second.get(1);
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 100, rowCount, "0", "100", 0,
+                new String[] {"80", "90"});
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        Statistics inputStats = statsBuilder
+                .putColumnStatistics(slotA, iaStats)
+                .putColumnStatistics(slotB, ibStats)
+                .setRowCount(rowCount)
+                .build();
+        Statistics outputStats = new FilterEstimation().estimate(expr, inputStats);
+        ColumnStatistic iaStats2 = outputStats.findColumnStatistics(slotA);
+        ColumnStatistic ibStats2 = outputStats.findColumnStatistics(slotB);
         Assertions.assertEquals(1, iaStats2.getHotValues().size());
     }
 }
