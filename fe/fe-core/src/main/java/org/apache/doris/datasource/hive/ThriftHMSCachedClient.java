@@ -96,7 +96,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private final HiveConf hiveConf;
     private ExecutionAuthenticator executionAuthenticator;
 
-    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize) {
+    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
         if (hiveConf != null) {
             HiveConf.setVar(hiveConf, ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
@@ -105,10 +105,6 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
         this.isClosed = false;
-    }
-
-    public void setExecutionAuthenticator(ExecutionAuthenticator executionAuthenticator) {
-        this.executionAuthenticator = executionAuthenticator;
     }
 
     @Override
