@@ -161,6 +161,7 @@ public:
     static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
     static FieldType get_field_type_by_string(const std::string& str);
     static FieldType get_field_type_by_type(PrimitiveType type);
+    static PrimitiveType get_primitive_type_by_field_type(FieldType type);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
     bool is_row_store_column() const;
