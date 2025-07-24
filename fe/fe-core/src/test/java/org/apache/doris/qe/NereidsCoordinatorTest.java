@@ -63,24 +63,29 @@ public class NereidsCoordinatorTest extends TestWithFeService {
 
     @Test
     public void testSimpleQueryUseOneInstance() throws IOException {
-        NereidsPlanner planner = plan("select * from test.tbl");
+        ConnectContext connectContext = createDefaultCtx();
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 10;
+        NereidsPlanner planner = plan("select * from test.tbl", connectContext);
         for (PlanFragment fragment : planner.getFragments()) {
             Assertions.assertEquals(1, fragment.getParallelExecNum());
         }
 
-        planner = plan("select * from test.tbl where id=1");
+        planner = plan("select * from test.tbl where id=1", connectContext);
         for (PlanFragment fragment : planner.getFragments()) {
             Assertions.assertEquals(1, fragment.getParallelExecNum());
         }
 
-        planner = plan("select id, id + 1 from test.tbl where id = 2 limit 1");
+        planner = plan("select id, id + 1 from test.tbl where id = 2 limit 1", connectContext);
         for (PlanFragment fragment : planner.getFragments()) {
             Assertions.assertEquals(1, fragment.getParallelExecNum());
         }
     }
 
     private NereidsPlanner plan(String sql) throws IOException {
-        ConnectContext connectContext = createDefaultCtx();
+        return plan(sql, createDefaultCtx());
+    }
+
+    private NereidsPlanner plan(String sql, ConnectContext connectContext) throws IOException {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION,OLAP_SCAN_TABLET_PRUNE");
         connectContext.setThreadLocalInfo();
 
