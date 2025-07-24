@@ -74,12 +74,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergScanNode extends FileQueryScanNode {
@@ -100,7 +100,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     private long countFromSnapshot;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private long targetSplitSize;
-    private ConcurrentHashMap.KeySetView<Object, Boolean> partitionPathSet;
+    // This is used to avoid repeatedly calculating partition info map for the same partition data.
+    private Map<PartitionData, Map<String, String>> partitionMapInfos;
     private boolean isPartitionedTable;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
@@ -147,7 +148,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         icebergTable = source.getIcebergTable();
         targetSplitSize = getRealFileSplitSize(0);
-        partitionPathSet = ConcurrentHashMap.newKeySet();
+        partitionMapInfos = new HashMap<>();
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
@@ -334,11 +335,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (isPartitionedTable) {
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
             if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                split.setIcebergPartitionValues(
-                        IcebergUtils.getPartitionInfoMap(partitionData, sessionVariable.getTimeZone()));
+                // If the partition data is not in the map, we need to calculate the partition
+                Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(partitionData, k -> {
+                    return IcebergUtils.getPartitionInfoMap(partitionData, sessionVariable.getTimeZone());
+                });
+                split.setIcebergPartitionValues(partitionInfoMap);
+            } else {
+                partitionMapInfos.put(partitionData, null);
             }
-            // Counts the number of partitions read
-            partitionPathSet.add(partitionData.toString());
         }
         return split;
     }
@@ -368,7 +372,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
-        selectedPartitionNum = partitionPathSet.size();
+        selectedPartitionNum = partitionMapInfos.size();
         return splits;
     }
 
@@ -554,7 +558,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public int numApproximateSplits() {
-        return NUM_SPLITS_PER_PARTITION * partitionPathSet.size() > 0 ? partitionPathSet.size() : 1;
+        return NUM_SPLITS_PER_PARTITION * partitionMapInfos.size() > 0 ? partitionMapInfos.size() : 1;
     }
 
     private Optional<NotSupportedException> checkNotSupportedException(Exception e) {
