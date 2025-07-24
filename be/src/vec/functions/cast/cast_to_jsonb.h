@@ -25,7 +25,7 @@
 #include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized::CastWrapper {
-
+#include "common/compile_check_begin.h"
 struct ConvertNothingToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
@@ -223,8 +223,7 @@ struct ConvertImplFromJsonb {
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count,
-                          const NullMap::value_type* null_map = nullptr) {
+                          uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         // result column must set type
@@ -310,7 +309,7 @@ struct ConvertImplFromJsonb {
                                      type == PrimitiveType::TYPE_LARGEINT) {
                     // cast from json value to integer types
                     if (value->isInt()) {
-                        res[i] = value->int_val();
+                        res[i] = static_cast<typename ColumnType::value_type>(value->int_val());
                     } else if (value->isDouble()) {
                         res[i] = static_cast<ColumnType::value_type>(
                                 value->unpack<JsonbDoubleVal>()->val());
@@ -334,7 +333,7 @@ struct ConvertImplFromJsonb {
                     } else if (value->isFalse()) {
                         res[i] = 0;
                     } else if (value->isInt()) {
-                        res[i] = value->int_val();
+                        res[i] = static_cast<typename ColumnType::value_type>(value->int_val());
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -431,5 +430,5 @@ WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const Dat
         return cast_from_generic_to_jsonb;
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::CastWrapper
