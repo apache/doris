@@ -681,6 +681,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
+    // disable variant flatten nested as session variable, default is true,
+    // which means disable variant flatten nested when create table
+    public static final String DISABLE_VARIANT_FLATTEN_NESTED = "disable_variant_flatten_nested";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -1279,6 +1283,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
+
+    @VariableMgr.VarAttr(name = DISABLE_VARIANT_FLATTEN_NESTED, needForward = true)
+    private boolean disableVariantFlattenNested = true;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -4787,6 +4794,36 @@ public class SessionVariable implements Serializable, Writable {
         return disableInvertedIndexV1ForVaraint;
     }
 
+    public void setDisableVariantFlattenNested(boolean disableVariantFlattenNested) {
+        this.disableVariantFlattenNested = disableVariantFlattenNested;
+    }
+
+    public boolean getDisableVariantFlattenNested() {
+        return disableVariantFlattenNested;
+    }
+
+    public void setProfileLevel(String profileLevel) {
+        int profileLevelTmp = Integer.valueOf(profileLevel);
+        if (profileLevelTmp < 1 || profileLevelTmp > 3) {
+            LOG.warn("Profile level shuold be in the range of 1-3.");
+        } else {
+            this.profileLevel = profileLevelTmp;
+        }
+
+    }
+
+    public void checkProfileLevel(String profileLevel) {
+        int value = Integer.valueOf(profileLevel);
+        if (value < 1 || value > 3) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException("Profile level can not be set to " + profileLevel
+                            + ", it must be in the range of 1-3");
+            LOG.warn("Check profile_level failed", exception);
+            throw exception;
+        }
+    }
+
+>>>>>>> 958e9eefe4 ([fix](variant) fix the reading core caused by inserting nested column and scalar column in variant sub-column (#53083))
     public void checkSqlConvertorFeatures(String features) {
         if (Strings.isNullOrEmpty(features)) {
             return;
