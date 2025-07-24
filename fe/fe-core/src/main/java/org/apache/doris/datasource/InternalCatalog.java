@@ -2661,6 +2661,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
+            // session variable: disable_variant_flatten_nested = true
+            // with table property: variant_enable_flatten_nested = true we should throw error
+            if (ctx.getSessionVariable().getDisableVariantFlattenNested() && variantEnableFlattenNested) {
+                throw new DdlException("If you want to enable variant flatten nested, "
+                        + "please set session variable: disable_variant_flatten_nested = false");
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
