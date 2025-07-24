@@ -235,7 +235,6 @@ public:
             compute_function = [this](vectorized::Block* block, uint32_t row,
                                       const VOlapTablePartition& partition) -> uint32_t {
                 uint32_t hash_val = 0;
-                std::vector<std::string> msgs;
                 for (unsigned short _distributed_slot_loc : _distributed_slot_locs) {
                     auto* slot_desc = _slots[_distributed_slot_loc];
                     auto& column = block->get_by_position(_distributed_slot_loc).column;
@@ -247,24 +246,7 @@ public:
                     } else {
                         hash_val = HashUtil::zlib_crc_hash_null(hash_val);
                     }
-                    auto type_in_block = block->get_by_position(_distributed_slot_loc).type;
-                    msgs.emplace_back(fmt::format(
-                            "[slot_name: {}, type: {}, type_primitive_type: {}, type_in_block: {}, "
-                            "type_in_block_primitive_type: {}]",
-                            slot_desc->col_name(), slot_desc->type()->get_name(),
-                            static_cast<uint32_t>(slot_desc->type()->get_primitive_type()),
-                            type_in_block->get_name(),
-                            static_cast<uint32_t>(type_in_block->get_primitive_type())));
                 }
-                LOG_INFO("[verbose] find_tablets")
-                        .tag("db_id", db_id())
-                        .tag("table_id", table_id())
-                        .tag("types", fmt::format("{}", fmt::join(msgs, ",")))
-                        .tag("row", row)
-                        .tag("hash_val", hash_val)
-                        .tag("partition.num_buckets", partition.num_buckets)
-                        .tag("ret", hash_val % partition.num_buckets)
-                        .tag("row data", block->dump_one_line(row, block->columns()));
                 return hash_val % partition.num_buckets;
             };
         } else { // random distribution
