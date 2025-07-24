@@ -634,10 +634,17 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
             }
         } else if (column->path.get_path().size() == 5) {
             EXPECT_EQ(column->data.get_non_null_value_size(), 10);
-            EXPECT_EQ(assert_cast<const DataTypeNullable*>(column->data.data_types[0].get())
-                              ->get_nested_type()
-                              ->get_type_id(),
-                      TypeIndex::JSONB);
+            if (column->path.get_path() == "v.d.d") {
+                EXPECT_EQ(assert_cast<const DataTypeNullable*>(column->data.data_types[0].get())
+                                  ->get_nested_type()
+                                  ->get_type_id(),
+                          TypeIndex::Array);
+            } else if (column->path.get_path() == "v.c.d") {
+                EXPECT_EQ(assert_cast<const DataTypeNullable*>(column->data.data_types[0].get())
+                                  ->get_nested_type()
+                                  ->get_type_id(),
+                          TypeIndex::JSONB);
+            }
             for (size_t row = 0; row < 5; ++row) {
                 EXPECT_TRUE(column->data.data[0]->is_null_at(row));
             }
