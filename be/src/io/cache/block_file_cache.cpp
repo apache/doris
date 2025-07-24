@@ -1812,8 +1812,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         return;
     }
     auto [space_percentage, inode_percentage] = percent;
-    size_t size_percentage = static_cast<size_t>(
-            (static_cast<double>(_cur_cache_size) / static_cast<double>(_capacity)) * 100);
+    int size_percentage = (_cur_cache_size / _capacity) * 100;
     auto is_insufficient = [](const int& percentage) {
         return percentage >= config::file_cache_enter_need_evict_cache_in_advance_percent;
     };
@@ -1832,7 +1831,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
     }
     if (is_insufficient(space_percentage) || is_insufficient(inode_percentage) ||
-        is_insufficient(static_cast<int>(size_percentage))) {
+        is_insufficient(size_percentage)) {
         _need_evict_cache_in_advance = true;
         _need_evict_cache_in_advance_metrics->set_value(1);
     } else if (_need_evict_cache_in_advance &&
@@ -1847,8 +1846,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
                      << " inode_percent=" << inode_percentage << " size_percent=" << size_percentage
                      << " is_space_insufficient=" << is_insufficient(space_percentage)
                      << " is_inode_insufficient=" << is_insufficient(inode_percentage)
-                     << " is_size_insufficient="
-                     << is_insufficient(static_cast<int>(size_percentage))
+                     << " is_size_insufficient=" << is_insufficient(size_percentage)
                      << " need evict cache in advance";
     }
 }
