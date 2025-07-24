@@ -1684,7 +1684,7 @@ public abstract class RoutineLoadJob
     }
 
     public void setCloudCluster() {
-        if (this.cloudCluster.isEmpty()) {
+        if (Strings.isNullOrEmpty(cloudCluster)) {
             this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getClusterNameByClusterId(cloudClusterId);
         }
