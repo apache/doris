@@ -21,6 +21,7 @@ import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -58,6 +59,24 @@ public class NereidsCoordinatorTest extends TestWithFeService {
                 .createCoordinator(connectContext, null, planner, null);
         int scanRangeNum = coordinator.getScanRangeNum();
         Assertions.assertEquals(0, scanRangeNum);
+    }
+
+    @Test
+    public void testSimpleQueryUseOneInstance() throws IOException {
+        NereidsPlanner planner = plan("select * from test.tbl");
+        for (PlanFragment fragment : planner.getFragments()) {
+            Assertions.assertEquals(1, fragment.getParallelExecNum());
+        }
+
+        planner = plan("select * from test.tbl where id=1");
+        for (PlanFragment fragment : planner.getFragments()) {
+            Assertions.assertEquals(1, fragment.getParallelExecNum());
+        }
+
+        planner = plan("select id, id + 1 from test.tbl where id = 2 limit 1");
+        for (PlanFragment fragment : planner.getFragments()) {
+            Assertions.assertEquals(1, fragment.getParallelExecNum());
+        }
     }
 
     private NereidsPlanner plan(String sql) throws IOException {
