@@ -140,7 +140,7 @@ suite("test_show_create_mtmv","mtmv") {
     sql """
             ${showCreateMTMVResult[0][1]}
         """
-    def showCreateMTMVResultAgain = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    showCreateMTMVResultAgain = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
     logger.info("showCreateMTMVAgainResult: " + showCreateMTMVResultAgain.toString())
     assertEquals(showCreateMTMVResult.toString(), showCreateMTMVResultAgain.toString())
 
