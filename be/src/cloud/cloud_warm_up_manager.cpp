@@ -293,9 +293,9 @@ void CloudWarmUpManager::handle_jobs() {
             _finish_job.push_back(cur_job);
             // _pending_job_metas may be cleared by a CLEAR_JOB request
             // so we need to check it again.
-            // We can not call pop_front before the job is finished,
-            // because GET_CURRENT_JOB_STATE_AND_LEASE is relying on the pending job size.
             if (!_pending_job_metas.empty()) {
+                // We can not call pop_front before the job is finished,
+                // because GET_CURRENT_JOB_STATE_AND_LEASE is relying on the pending job size.
                 _pending_job_metas.pop_front();
             }
         }
