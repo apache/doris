@@ -44,7 +44,7 @@ suite("load") {
                     
                 )
                 UNIQUE KEY(`k`)
-                DISTRIBUTED BY RANDOM BUCKETS 5 
+                DISTRIBUTED BY HASH(k) BUCKETS 5 
                 properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "false");
             """
         streamLoad {
