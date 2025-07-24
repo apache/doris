@@ -217,7 +217,7 @@ public class ListPartitionInfo extends PartitionInfo {
             String partitionName = partition.getName();
 
             List<PartitionKey> partitionKeys = entry.getValue().getItems();
-            List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
+            List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionKey::toPartitionValue)
                     .collect(Collectors.toList());
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createIn(inValues);
 
