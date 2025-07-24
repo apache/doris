@@ -19,7 +19,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/array/function_array_utils.h"
 
@@ -126,7 +125,6 @@ private:
                                 const std::string& null_replace_str, DataTypePtr& nested_type,
                                 ColumnString* dest_column_ptr) {
         using NestType = typename ColumnType::value_type;
-        bool is_decimal = IsDecimalNumber<NestType>;
 
         const ColumnType* src_data_concrete = assert_cast<const ColumnType*>(&src_column);
         if (!src_data_concrete) {
@@ -147,14 +145,8 @@ private:
                     }
                 }
 
-                if (is_decimal) {
-                    auto decimal_value = DecimalV2Value(src_data_concrete->get_data()[j]);
-                    std::string decimal_str = decimal_value.to_string();
-                    _fill_result_string(decimal_str, sep_str, result_str, is_first_elem);
-                } else {
-                    std::string elem_str = remove_nullable(nested_type)->to_string(src_column, j);
-                    _fill_result_string(elem_str, sep_str, result_str, is_first_elem);
-                }
+                std::string elem_str = remove_nullable(nested_type)->to_string(src_column, j);
+                _fill_result_string(elem_str, sep_str, result_str, is_first_elem);
             }
 
             dest_column_ptr->insert_data(result_str.c_str(), result_str.size());
@@ -265,6 +257,10 @@ private:
             res = _execute_number<ColumnDecimal128V3>(src_column, src_offsets, src_null_map,
                                                       sep_str, null_replace_str, nested_type,
                                                       dest_column_ptr);
+            break;
+        case TYPE_DECIMAL256:
+            res = _execute_number<ColumnDecimal256>(src_column, src_offsets, src_null_map, sep_str,
+                                                    null_replace_str, nested_type, dest_column_ptr);
             break;
         case TYPE_DECIMALV2:
             res = _execute_number<ColumnDecimal128V2>(src_column, src_offsets, src_null_map,

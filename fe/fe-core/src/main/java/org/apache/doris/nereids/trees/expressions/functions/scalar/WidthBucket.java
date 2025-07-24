@@ -23,10 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -54,15 +50,7 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
             FunctionSignature.ret(BigIntType.INSTANCE).args(FloatType.INSTANCE,
                     FloatType.INSTANCE, FloatType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE,
-                    DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateType.INSTANCE,
-                    DateType.INSTANCE, DateType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE,
-                    DateV2Type.INSTANCE, DateV2Type.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeType.INSTANCE,
-                    DateTimeType.INSTANCE, DateTimeType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT,
-                    DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, TinyIntType.INSTANCE)
+                    DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE)
             );
 
     /**
