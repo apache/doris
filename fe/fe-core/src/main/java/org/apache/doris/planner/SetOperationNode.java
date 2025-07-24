@@ -18,7 +18,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
@@ -105,14 +104,6 @@ public abstract class SetOperationNode extends PlanNode {
         constExprLists.add(exprs);
     }
 
-    public void clearMaterializedConstExprLists() {
-        this.materializedConstExprLists.clear();
-    }
-
-    public void clearMaterializedResultExprLists() {
-        this.materializedResultExprLists.clear();
-    }
-
     public List<List<Expr>> getConstExprLists() {
         return constExprLists;
     }
@@ -121,16 +112,16 @@ public abstract class SetOperationNode extends PlanNode {
         return resultExprLists;
     }
 
-    public void addMaterializedConstExprLists(List<Expr> exprs) {
-        this.materializedConstExprLists.add(exprs);
+    public void setMaterializedConstExprLists(List<List<Expr>> exprs) {
+        this.materializedConstExprLists = exprs;
+    }
+
+    public void setMaterializedResultExprLists(List<List<Expr>> exprs) {
+        this.materializedResultExprLists = exprs;
     }
 
     public List<List<Expr>> getMaterializedResultExprLists() {
         return materializedResultExprLists;
-    }
-
-    public void addMaterializedResultExprLists(List<Expr> exprs) {
-        this.materializedResultExprLists.add(exprs);
     }
 
     public void addResultExprLists(List<Expr> exprs) {
@@ -227,11 +218,5 @@ public abstract class SetOperationNode extends PlanNode {
         }
         numInstances = Math.max(1, numInstances);
         return numInstances;
-    }
-
-    /**
-     * just for Nereids.
-     */
-    public void finalizeForNereids(List<SlotDescriptor> constExprSlots, List<SlotDescriptor> resultExprSlots) {
     }
 }

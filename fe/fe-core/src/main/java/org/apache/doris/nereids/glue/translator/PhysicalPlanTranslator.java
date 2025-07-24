@@ -3152,7 +3152,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (node == null || constExprSlots == null || resultExprSlots == null) {
             return;
         }
-        node.clearMaterializedConstExprLists();
+
+        List<List<Expr>> materializedConstExprLists = Lists.newArrayList();
         for (List<Expr> exprList : node.getConstExprLists()) {
             Preconditions.checkState(exprList.size() == constExprSlots.size());
             List<Expr> newExprList = Lists.newArrayList();
@@ -3161,10 +3162,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     newExprList.add(exprList.get(i));
                 }
             }
-            node.addMaterializedConstExprLists(newExprList);
+            materializedConstExprLists.add(newExprList);
         }
+        node.setMaterializedConstExprLists(materializedConstExprLists);
 
-        node.clearMaterializedResultExprLists();
+        List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
         List<List<Expr>> resultExprLists = node.getResultExprLists();
         int resultExprSize = resultExprLists.size();
         Preconditions.checkState(resultExprSize == node.getChildren().size());
@@ -3180,8 +3182,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             .setIsNullable(resultExprSlots.get(j).getIsNullable() || exprList.get(j).isNullable());
                 }
             }
-            node.addMaterializedResultExprLists(newExprList);
+            materializedResultExprLists.add(newExprList);
         }
+        node.setMaterializedResultExprLists(materializedResultExprLists);
         Preconditions.checkState(node.getMaterializedResultExprLists().size() == node.getChildren().size());
     }
 }
