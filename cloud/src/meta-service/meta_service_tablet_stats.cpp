@@ -185,20 +185,14 @@ void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg
     std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
 
     // Try to read existing versioned tablet stats
-    std::string stats_val;
-    TabletStatsPB stats_pb;
-    TxnErrorCode err = txn->get(stats_key, &stats_val, snapshot);
+    Versionstamp versionstamp;
+    TxnErrorCode err = versioned::document_get(txn, stats_key, &stats, &versionstamp, snapshot);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // If versioned stats doesn't exist, read from single version
-        internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, stats_pb, snapshot);
+        internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, stats, snapshot);
     } else if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get versioned tablet stats, err={}", err);
-        LOG(WARNING) << msg << " tablet_id=" << tablet_id;
-        return;
-    } else if (!stats_pb.ParseFromString(stats_val)) {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = fmt::format("malformed versioned tablet stats, key={}", hex(stats_key));
         LOG(WARNING) << msg << " tablet_id=" << tablet_id;
         return;
     }
