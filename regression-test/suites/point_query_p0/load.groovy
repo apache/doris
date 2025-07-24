@@ -17,6 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
+
 suite("test_point_query_load", "p0") {
 
     def dataFile = """${getS3Url()}/regression/datatypes/test_scalar_types_10w.csv"""
