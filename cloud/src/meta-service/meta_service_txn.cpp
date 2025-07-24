@@ -772,7 +772,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
 }
 
 void get_txn_db_id(TxnKv* txn_kv, const std::string& instance_id, int64_t txn_id,
-                   MetaServiceCode& code, std::string& msg, int64_t* db_id) {
+                   MetaServiceCode& code, std::string& msg, int64_t* db_id, KVStats* stats) {
     std::stringstream ss;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -783,6 +783,12 @@ void get_txn_db_id(TxnKv* txn_kv, const std::string& instance_id, int64_t txn_id
         LOG(WARNING) << msg;
         return;
     }
+
+    DORIS_CLOUD_DEFER {
+        if (!stats || !txn) return;
+        stats->get_bytes += txn->get_bytes();
+        stats->get_counter += txn->num_get_keys();
+    };
 
     // Get db id with txn id
     std::string index_val;
@@ -2800,7 +2806,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     int64_t db_id;
-    get_txn_db_id(txn_kv_.get(), instance_id, txn_id, code, msg, &db_id);
+    get_txn_db_id(txn_kv_.get(), instance_id, txn_id, code, msg, &db_id, &stats);
     if (code != MetaServiceCode::OK) {
         LOG(WARNING) << "get_txn_db_id failed, txn_id=" << txn_id << " code=" << code;
         return;

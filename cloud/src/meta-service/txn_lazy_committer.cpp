@@ -35,7 +35,7 @@ using namespace std::chrono;
 namespace doris::cloud {
 
 void get_txn_db_id(TxnKv* txn_kv, const std::string& instance_id, int64_t txn_id,
-                   MetaServiceCode& code, std::string& msg, int64_t* db_id);
+                   MetaServiceCode& code, std::string& msg, int64_t* db_id, KVStats* stats);
 
 void scan_tmp_rowset(
         const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
@@ -431,7 +431,7 @@ void TxnLazyCommitTask::commit() {
     };
 
     int64_t db_id;
-    get_txn_db_id(txn_kv_.get(), instance_id_, txn_id_, code_, msg_, &db_id);
+    get_txn_db_id(txn_kv_.get(), instance_id_, txn_id_, code_, msg_, &db_id, nullptr);
     if (code_ != MetaServiceCode::OK) {
         LOG(WARNING) << "get_txn_db_id failed, txn_id=" << txn_id_ << " code=" << code_
                      << " msg=" << msg_;
