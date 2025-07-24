@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import lombok.extern.slf4j.Slf4j;
@@ -56,7 +57,7 @@ public class HMSProperties extends AbstractHMSProperties {
         hmsBaseProperties = HMSBaseProperties.of(origProps);
         hmsBaseProperties.initAndCheckParams();
         this.hiveConf = hmsBaseProperties.getHiveConf();
-        this.hdfsAuthenticator = hmsBaseProperties.getHdfsAuthenticator();
+        this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
 
 

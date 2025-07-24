@@ -85,7 +85,7 @@ public class HMSBaseProperties {
     private HiveConf hiveConf;
 
     @Getter
-    private HadoopAuthenticator hdfsAuthenticator;
+    private HadoopAuthenticator hmsAuthenticator;
 
     private Map<String, String> userOverriddenHiveConfig = new HashMap<>();
 
@@ -137,12 +137,12 @@ public class HMSBaseProperties {
         if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("kerberos")) {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hiveMetastoreClientPrincipal, this.hiveMetastoreClientKeytab, hiveConf);
-            this.hdfsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+            this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }
         if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("simple")) {
             AuthenticationConfig authenticationConfig = AuthenticationConfig.getSimpleAuthenticationConfig(hiveConf);
-            this.hdfsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+            this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }
 
@@ -150,11 +150,11 @@ public class HMSBaseProperties {
                 && this.hdfsAuthenticationType.equalsIgnoreCase("kerberos")) {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hdfsKerberosPrincipal, this.hdfsKerberosKeytab, hiveConf);
-            this.hdfsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+            this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }
         AuthenticationConfig simpleAuthenticationConfig = AuthenticationConfig.getSimpleAuthenticationConfig(hiveConf);
-        this.hdfsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(simpleAuthenticationConfig);
+        this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(simpleAuthenticationConfig);
     }
 
 

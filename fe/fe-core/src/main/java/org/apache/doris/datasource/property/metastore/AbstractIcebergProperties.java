@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import lombok.Getter;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 
@@ -37,6 +39,9 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             description = "The location of the Iceberg warehouse. This is where the tables will be stored."
     )
     protected String warehouse;
+
+    @Getter
+    protected ExecutionAuthenticator executionAuthenticator = new ExecutionAuthenticator(){};
 
     public abstract String getIcebergCatalogType();
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -59,6 +60,7 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
         super.initNormalizeAndCheckProps();
         hmsBaseProperties = HMSBaseProperties.of(origProps);
         hmsBaseProperties.initAndCheckParams();
+        this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
 
     @Override
@@ -72,7 +74,7 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
         hiveCatalog.setConf(conf);
 
         try {
-            hiveCatalog.initialize(catalogName, catalogProps);
+            this.executionAuthenticator.execute(() -> hiveCatalog.initialize(catalogName, catalogProps));
             return hiveCatalog;
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize HiveCatalog for Iceberg. "
