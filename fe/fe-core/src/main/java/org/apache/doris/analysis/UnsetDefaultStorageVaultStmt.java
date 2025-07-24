@@ -33,7 +33,7 @@ public class UnsetDefaultStorageVaultStmt extends DdlStmt implements NotFallback
     public UnsetDefaultStorageVaultStmt() {}
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (Config.isNotCloudMode()) {
             throw new AnalysisException("Storage Vault is only supported for cloud mode");
         }
@@ -49,7 +49,7 @@ public class UnsetDefaultStorageVaultStmt extends DdlStmt implements NotFallback
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        super.analyze(analyzer);
+        super.analyze();
     }
 
     @Override

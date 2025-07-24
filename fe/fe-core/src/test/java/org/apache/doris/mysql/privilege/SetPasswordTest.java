@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -42,8 +41,6 @@ public class SetPasswordTest {
     private Auth auth;
     @Mocked
     public Env env;
-    @Mocked
-    private Analyzer analyzer;
     @Mocked
     private EditLog editLog;
 
@@ -92,7 +89,7 @@ public class SetPasswordTest {
         user1.setIsAnalyzed();
         SetPassVar setPassVar = new SetPassVar(user1, null);
         try {
-            setPassVar.analyze(analyzer);
+            setPassVar.analyze();
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();
@@ -101,7 +98,7 @@ public class SetPasswordTest {
         // set password without for
         SetPassVar setPassVar2 = new SetPassVar(null, null);
         try {
-            setPassVar2.analyze(analyzer);
+            setPassVar2.analyze();
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();
@@ -121,7 +118,7 @@ public class SetPasswordTest {
         // set password without for
         SetPassVar setPassVar3 = new SetPassVar(null, null);
         try {
-            setPassVar3.analyze(analyzer);
+            setPassVar3.analyze();
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();
@@ -132,7 +129,7 @@ public class SetPasswordTest {
         user2.setIsAnalyzed();
         SetPassVar setPassVar4 = new SetPassVar(user2, null);
         try {
-            setPassVar4.analyze(analyzer);
+            setPassVar4.analyze();
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();

@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -270,7 +271,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
             List<String> row = Lists.newArrayList();
             // p data structure is Pair<Pair<IndexName, ColumnName>, ColumnStatistic>
             row.add(p.first.second);
-            row.add(p.first.first);
+            row.add(Util.getTempTableDisplayName(p.first.first));
             row.add(String.valueOf(p.second.count));
             row.add(String.valueOf(p.second.ndv));
             row.add(String.valueOf(p.second.numNulls));

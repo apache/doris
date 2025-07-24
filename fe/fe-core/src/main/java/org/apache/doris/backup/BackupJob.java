@@ -17,8 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Database;
@@ -38,6 +36,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -145,7 +145,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
         this.commitSeq = commitSeq;
-        properties.put(BackupStmt.PROP_CONTENT, content.name());
+        properties.put(BackupCommand.PROP_CONTENT, content.name());
         properties.put(SNAPSHOT_COMMIT_SEQ, String.valueOf(commitSeq));
     }
 
@@ -170,8 +170,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public BackupContent getContent() {
-        if (properties.containsKey(BackupStmt.PROP_CONTENT)) {
-            return BackupStmt.BackupContent.valueOf(properties.get(BackupStmt.PROP_CONTENT).toUpperCase());
+        if (properties.containsKey(BackupCommand.PROP_CONTENT)) {
+            return BackupCommand.BackupContent.valueOf(properties.get(BackupCommand.PROP_CONTENT).toUpperCase());
         }
         return BackupContent.ALL;
     }

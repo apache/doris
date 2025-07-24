@@ -703,6 +703,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
+    // disable variant flatten nested as session variable, default is true,
+    // which means disable variant flatten nested when create table
+    public static final String DISABLE_VARIANT_FLATTEN_NESTED = "disable_variant_flatten_nested";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -1385,6 +1389,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
 
+    @VariableMgr.VarAttr(name = DISABLE_VARIANT_FLATTEN_NESTED, needForward = true)
+    private boolean disableVariantFlattenNested = true;
+
     public int getBeNumberForTest() {
         return beNumberForTest;
     }
@@ -1787,7 +1794,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableShareHashTableForBroadcastJoin = true;
 
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
-    public boolean enableUnicodeNameSupport = false;
+    public boolean enableUnicodeNameSupport = true;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN, affectQueryResult = true)
     public long groupConcatMaxLen = 2147483646;
@@ -2756,7 +2763,7 @@ public class SessionVariable implements Serializable, Writable {
         return enableESParallelScroll;
     }
 
-    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, fuzzy = true, description = {
+    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, needForward = true, description = {
             "是否启用仅对新数据生效的索引添加模式，开启时新建索引只对后续写入的数据生效，关闭时对全部数据重建索引",
             "Whether to enable add index mode that only affects new data, "
                     + "when enabled new indexes only affect subsequently written data, "
@@ -5022,6 +5029,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getDisableInvertedIndexV1ForVaraint() {
         return disableInvertedIndexV1ForVaraint;
+    }
+
+    public void setDisableVariantFlattenNested(boolean disableVariantFlattenNested) {
+        this.disableVariantFlattenNested = disableVariantFlattenNested;
+    }
+
+    public boolean getDisableVariantFlattenNested() {
+        return disableVariantFlattenNested;
     }
 
     public void setProfileLevel(String profileLevel) {

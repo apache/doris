@@ -29,15 +29,12 @@ import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
@@ -53,7 +50,6 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SlotRef;
@@ -4953,13 +4949,6 @@ public class Env {
         this.alter.processAlterView(command, ConnectContext.get());
     }
 
-    /**
-     * used for handling AlterViewStmt (the ALTER VIEW command).
-     */
-    public void alterView(AlterViewStmt stmt) throws UserException {
-        this.alter.processAlterView(stmt, ConnectContext.get());
-    }
-
     public void createMaterializedView(CreateMaterializedViewStmt stmt)
             throws AnalysisException, DdlException, MetaNotFoundException {
         this.alter.processCreateMaterializedView(stmt);
@@ -4994,17 +4983,6 @@ public class Env {
      */
     public void cancelBuildIndex(CancelBuildIndexCommand command) throws DdlException {
         this.getSchemaChangeHandler().cancelIndexJob(command);
-    }
-
-    /*
-     * used for handling backup opt
-     */
-    public void backup(BackupStmt stmt) throws DdlException {
-        getBackupHandler().process(stmt);
-    }
-
-    public void restore(RestoreStmt stmt) throws DdlException {
-        getBackupHandler().process(stmt);
     }
 
     public void cancelBackup(CancelBackupCommand command) throws DdlException {
@@ -5933,54 +5911,6 @@ public class Env {
             newView.setInlineViewDefWithSqlMode(createViewInfo.getInlineViewDef(),
                     ConnectContext.get().getSessionVariable().getSqlMode());
             if (!((Database) db).createTableWithLock(newView, false, createViewInfo.isIfNotExists()).first) {
-                throw new DdlException("Failed to create view[" + tableName + "].");
-            }
-            LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
-        }
-    }
-
-    public void createView(CreateViewStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTable();
-
-        // check if db exists
-        Database db = getInternalCatalog().getDbOrDdlException(dbName);
-
-        // check if table exists in db
-        boolean replace = false;
-        if (db.getTable(tableName).isPresent()) {
-            if (stmt.isSetIfNotExists()) {
-                LOG.info("create view[{}] which already exists", tableName);
-                return;
-            } else if (stmt.isSetOrReplace()) {
-                replace = true;
-                LOG.info("view[{}] already exists, need to replace it", tableName);
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-            }
-        }
-
-        if (replace) {
-            String comment = stmt.getComment();
-            comment = comment == null || comment.isEmpty() ? null : comment;
-            AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(), comment);
-            alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
-            alterViewStmt.setFinalColumns(stmt.getColumns());
-            try {
-                alterView(alterViewStmt);
-            } catch (UserException e) {
-                throw new DdlException("failed to replace view[" + tableName + "], reason=" + e.getMessage());
-            }
-            LOG.info("successfully replace view[{}]", tableName);
-        } else {
-            List<Column> columns = stmt.getColumns();
-
-            long tableId = Env.getCurrentEnv().getNextId();
-            View newView = new View(tableId, tableName, columns);
-            newView.setComment(stmt.getComment());
-            newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
-                    ConnectContext.get().getSessionVariable().getSqlMode());
-            if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
                 throw new DdlException("Failed to create view[" + tableName + "].");
             }
             LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");

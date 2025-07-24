@@ -59,7 +59,7 @@ protected:
 
         // set config
         config::inverted_index_dict_path =
-                _current_dir + "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
+                _current_dir + "/contrib/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
         config::enable_segcompaction = false;
         config::enable_ordered_data_compaction = false;
         config::total_permits_for_compaction_score = 200000;
