@@ -1288,6 +1288,11 @@ public class EditLog {
                     }
                     break;
                 }
+                case OperationType.OP_OPERATE_KEY: {
+                    KeyOperationInfo info = (KeyOperationInfo) journal.getData();
+                    env.getKeyManager().replaySetRootKey(info.getRootKeyInfo(), info.getMasterKey());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2283,5 +2288,9 @@ public class EditLog {
 
     public void logBranchOrTag(TableBranchOrTagInfo info) {
         logEdit(OperationType.OP_BRANCH_OR_TAG, info);
+    }
+
+    public void logOperateKey(KeyOperationInfo info) {
+        logEdit(OperationType.OP_OPERATE_KEY, info);
     }
 }

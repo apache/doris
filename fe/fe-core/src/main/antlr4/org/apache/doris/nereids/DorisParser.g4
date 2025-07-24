@@ -588,6 +588,7 @@ supportedAdminStatement
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
     | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
+    | ADMIN SET ENCRYPTION ROOT KEY PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetEncryptionRootKey
     ;
 
 supportedRecoverStatement
@@ -1898,6 +1899,7 @@ nonReserved
     | DYNAMIC
     | E
     | ENABLE
+    | ENCRYPTION
     | ENCRYPTKEY
     | ENCRYPTKEYS
     | END
@@ -2064,6 +2066,7 @@ nonReserved
     | RLIKE
     | ROLLBACK
     | ROLLUP
+    | ROOT
     | ROUTINE
     | S3
     | SAMPLE

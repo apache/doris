@@ -98,6 +98,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
+import org.apache.doris.common.encryption.KeyManagerInterface;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
@@ -134,6 +135,8 @@ import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
+import org.apache.doris.encryption.KeyManagerFactory;
+import org.apache.doris.encryption.KeyManagerStore;
 import org.apache.doris.event.EventProcessor;
 import org.apache.doris.event.ReplacePartitionEvent;
 import org.apache.doris.ha.BDBHA;
@@ -589,6 +592,10 @@ public class Env {
 
     private DictionaryManager dictionaryManager;
 
+    private KeyManagerStore keyManagerStore;
+
+    private KeyManagerInterface keyManager;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -689,6 +696,13 @@ public class Env {
 
     public BinlogManager getBinlogManager() {
         return binlogManager;
+    }
+
+    public KeyManagerInterface getKeyManager() throws Exception {
+        if (keyManager == null) {
+            throw new Exception("The keyManager is null, possibly due to a missing implementation of KeyManager");
+        }
+        return keyManager;
     }
 
     private static class SingletonHolder {
@@ -841,6 +855,8 @@ public class Env {
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
         this.dictionaryManager = new DictionaryManager();
+        this.keyManagerStore = new KeyManagerStore();
+        this.keyManager = KeyManagerFactory.getKeyManager();
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -992,6 +1008,10 @@ public class Env {
 
     public PlsqlManager getPlsqlManager() {
         return plsqlManager;
+    }
+
+    public KeyManagerStore getKeyManagerStore() {
+        return keyManagerStore;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1951,6 +1971,9 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+        if (keyManager != null) {
+            keyManager.init();
+        }
     }
 
     // start threads that should run on all FE
@@ -2510,6 +2533,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadKeyManagerStore(DataInputStream in, long checksum) throws IOException {
+        this.keyManagerStore = KeyManagerStore.read(in);
+        LOG.info("finished replay KeyManagerStore from image");
+        return checksum;
+    }
+
     public long saveInsertOverwrite(CountingDataOutputStream out, long checksum) throws IOException {
         this.insertOverwriteManager.write(out);
         LOG.info("finished save iot to image");
@@ -2802,6 +2831,12 @@ public class Env {
 
     public long saveAnalysisMgr(CountingDataOutputStream dos, long checksum) throws IOException {
         analysisManager.write(dos);
+        return checksum;
+    }
+
+    public long saveKeyManagerStore(CountingDataOutputStream out, long checksum) throws IOException {
+        this.keyManagerStore.write(out);
+        LOG.info("finished save KeyManager to image");
         return checksum;
     }
 
