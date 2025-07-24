@@ -1191,8 +1191,7 @@ public class Column implements GsonPostProcessable {
     }
 
     public boolean isMaterializedViewColumn() {
-        return getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
-                || getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+        return defineExpr != null;
     }
 
     public GeneratedColumnInfo getGeneratedColumnInfo() {
