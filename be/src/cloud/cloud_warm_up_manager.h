@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "gen_cpp/BackendService.h"
 
@@ -73,9 +74,7 @@ public:
 
     void warm_up_rowset(RowsetMeta& rs_meta);
 
-    void recycle_cache(int64_t tablet_id, const std::vector<RowsetId>& rowset_ids,
-                       const std::vector<int64_t>& num_segments,
-                       const std::vector<std::vector<std::string>>& index_file_names);
+    void recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);
 
 private:
     void handle_jobs();
