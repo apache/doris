@@ -17,14 +17,14 @@
 
 #include "vec/aggregate_functions/aggregate_function_avg_weighted.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory) {
-    // only register double type avg_weighted after doris release 4.0
-    factory.register_function_both("avg_weighted",
-                                   creator_with_type::creator<AggregateFunctionAvgWeight>);
+    factory.register_function_both(
+            "avg_weighted", creator_without_type::creator<AggregateFunctionAvgWeight<TYPE_DOUBLE>>);
 }
 } // namespace doris::vectorized

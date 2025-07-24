@@ -141,9 +141,9 @@ public:
         auto res_val = _execute_by_type(src_nested_type, *src_nested_column, src_offsets,
                                         src_null_map, res_nested_ptr);
         if (!res_val) {
-            return Status::RuntimeError(
-                    fmt::format("execute failed or unsupported types for function {}({})",
-                                get_name(), block.get_by_position(arguments[0]).type->get_name()));
+            return Status::InvalidArgument(
+                    "execute failed or unsupported types for function {}({})", get_name(),
+                    block.get_by_position(arguments[0]).type->get_name());
         }
 
         ColumnPtr res_array_ptr =
@@ -227,7 +227,7 @@ private:
         using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
 
         // 1. get pod array from src
-        auto src_column_concrete = reinterpret_cast<const ColVecType*>(&src_column);
+        auto src_column_concrete = assert_cast<const ColVecType*>(&src_column);
         if (!src_column_concrete) {
             return false;
         }

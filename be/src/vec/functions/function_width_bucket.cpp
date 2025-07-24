@@ -150,23 +150,6 @@ private:
             _execute<ColumnFloat64>(expr_column, min_value_column, max_value_column, num_buckets,
                                     nested_column_column);
             break;
-            break;
-        case PrimitiveType::TYPE_DATE:
-            _execute<ColumnDate>(expr_column, min_value_column, max_value_column, num_buckets,
-                                 nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DATEV2:
-            _execute<ColumnDateV2>(expr_column, min_value_column, max_value_column, num_buckets,
-                                   nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DATETIME:
-            _execute<ColumnDateTime>(expr_column, min_value_column, max_value_column, num_buckets,
-                                     nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DATETIMEV2:
-            _execute<ColumnDateTimeV2>(expr_column, min_value_column, max_value_column, num_buckets,
-                                       nested_column_column);
-            break;
         default:
             return false;
             break;
