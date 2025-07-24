@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_time") {
+suite("test_func_time") {
     qt_sql_const """ select time('2025-1-1 12:12:12') """
     qt_sql_const_scale1 """ select time(cast('2025-1-1 12:12:12.1' as datetime(1))) """
     qt_sql_const_scale2 """ select time(cast('2025-1-1 12:12:12.12' as datetime(2))) """

@@ -362,13 +362,12 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                            std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> nested_field_types = {
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL,
-                                  {"[0, 1,-1,1]", "[true, false]", "[1,true,t]",
-                                   "[1, false], [,], [1,true,t]", "[,]"},
-                                  {"[0, 1, null, 1]", "[1, 0]", "[1, 1, null]",
-                                   "[1, null, null, 1, null]", "[]"},
-                                  {"[0, 1, null, 1]", "[1, 0]", "[1, 1, null]",
-                                   "[1, null, null, 1, null]", "[]"}),
+                FieldType_RandStr(
+                        FieldType::OLAP_FIELD_TYPE_BOOL,
+                        {"[0, 1,-1,1]", "[true, false]", "[1,true,t]",
+                         "[1, false], [,], [1,true,t]", "[,]"},
+                        {"[0, 1, null, 1]", "[1, 0]", "[1, 1, 1]", "[1, null, null, 1, 1]", "[]"},
+                        {"[0, 1, null, 1]", "[1, 0]", "[1, 1, 1]", "[1, null, null, 1, 1]", "[]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_TINYINT,
                         {"[1111, 12, ]", "[ed, 2,]", "[],[]", "[[]]", "[,1 , 3]"},
@@ -616,10 +615,10 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "{\"2022-07-13 12:30:00\": \"12.45675432\"}",
                          "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
                          "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"},
-                        {"{2022-07-13 12:00:00:30.000000000, 2022-07-13 00:00:00:12.456754320, "
+                        {"{2022-07-13 12:00:00:null, 2022-07-13 00:00:00:12.456754320, "
                          "null:null}",
                          "{null:null}",
-                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:30.000000000}",
+                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:null}",
                          "{2022-07-13 12:30:00:12.456754320, null:12.340000000}"}),
         };
 
@@ -659,6 +658,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         EXPECT_FALSE(st.ok());
                         continue;
                     }
+                    auto deser_result_str = map_data_type_ptr->to_string(*col, 0);
+                    std::cout << "deser_result_str: " << deser_result_str << std::endl;
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
@@ -709,10 +710,10 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "{\"2022-07-13 12:30:00\": \"12.45675432\"}",
                          "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
                          "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"},
-                        {"{2022-07-13 12:00:00:30.000000000, 2022-07-13 00:00:00:12.456754320, "
+                        {"{2022-07-13 12:00:00:null, 2022-07-13 00:00:00:12.456754320, "
                          "null:null}",
                          "{2022-07-13 12:30:00:12.456754320}",
-                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:30.000000000}",
+                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:null}",
                          "{2022-07-13 12:30:00:12.456754320, null:12.340000000}"}),
         };
         for (auto type_pair : field_types) {
@@ -752,6 +753,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         EXPECT_FALSE(st.ok());
                         continue;
                     }
+                    auto deser_result_str = map_data_type_ptr->to_string(*col, 0);
+                    std::cout << "deser_result_str: " << deser_result_str << std::endl;
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());

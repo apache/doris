@@ -24,9 +24,13 @@
 
 #include <string_view>
 
+#include "common/cast_set.h"
 #include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
+
+#include "common/compile_check_begin.h"
+
 PathInData::PathInData(std::string_view path_) : path(path_) {
     const char* begin = path.data();
     const char* end = path.data() + path.size();
@@ -51,8 +55,8 @@ PathInData::PathInData(const PathInData& other) : path(other.path) {
 PathInData::PathInData(const std::string& root, const std::vector<std::string>& paths) {
     PathInDataBuilder path_builder;
     path_builder.append(root, false);
-    for (const std::string& path : paths) {
-        path_builder.append(path, false);
+    for (const std::string& p : paths) {
+        path_builder.append(p, false);
     }
     build_path(path_builder.get_parts());
     build_parts(path_builder.get_parts());
@@ -132,7 +136,8 @@ void PathInData::from_protobuf(const segment_v2::ColumnPathInfo& pb) {
         Part part;
         part.is_nested = part_info.is_nested();
         has_nested |= part.is_nested;
-        part.anonymous_array_level = part_info.anonymous_array_level();
+        part.anonymous_array_level =
+                cast_set<uint8_t, uint32_t, false>(part_info.anonymous_array_level());
         // use string_view to ref data in path
         part.key = std::string_view {begin, part_info.key().length()};
         parts.push_back(part);
@@ -257,4 +262,7 @@ void PathInDataBuilder::pop_back(size_t n) {
     assert(n <= parts.size());
     parts.resize(parts.size() - n);
 }
+
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_cumu_compaction_delay_fault_injection","nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllBEs()
     String backend_id;
 
     def backendId_to_backendIP = [:]

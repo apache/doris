@@ -60,8 +60,7 @@ DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
                     BeConsts::MAX_DECIMALV2_SCALE);
             DCHECK_EQ(res->get_scale(), BeConsts::MAX_DECIMALV2_SCALE);
             return res;
-        } else if (is_string_type(t->get_primitive_type()) ||
-                   t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
+        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
                    t->get_primitive_type() == PrimitiveType::TYPE_LAMBDA_FUNCTION) {
             return DataTypeFactory::instance().create_data_type(TYPE_STRING, t->is_nullable());
         } else {
@@ -338,6 +337,11 @@ Field DataTypeDecimal<T>::get_default() const {
 template <PrimitiveType T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     return ColumnType::create(0, scale);
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimal<T>::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnType>(column);
 }
 
 template <PrimitiveType T>

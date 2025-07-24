@@ -29,10 +29,13 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
 public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
+    private static final Logger LOG = LogManager.getLogger(IcebergHadoopExternalCatalog.class);
 
     public IcebergHadoopExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                         String comment) {
@@ -77,6 +80,7 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
             if (hdfsProperties != null && hdfsProperties.isKerberos()) {
                 catalogProperties.put(CatalogProperties.FILE_IO_IMPL,
                         "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
+                LOG.info("use DelegateFileIO for catalog: {}:{}", getName(), getId());
             }
         }
 

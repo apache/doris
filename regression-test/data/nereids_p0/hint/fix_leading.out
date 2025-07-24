@@ -12,7 +12,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading({ t1 t2 } { t3 t4 } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 
 -- !select2_1_1 --
@@ -241,7 +241,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t1 t2 t3 )
-UnUsed: 
+UnUsed:
 SyntaxError:
 
 -- !select6_1 --
@@ -262,6 +262,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t1 { { t2 t3 } { t4 t5 } } t6 )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

@@ -118,6 +118,10 @@ public:
         return _agg_function->create_serialize_column();
     }
 
+    Status check_column(const IColumn& column) const override {
+        return _agg_serialized_type->check_column(column);
+    }
+
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return _agg_serialized_type->get_serde(nesting_level);
     };

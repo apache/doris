@@ -53,7 +53,7 @@ suite("test_reset_capacity") {
     }
     assertEquals(backendIdToBackendIP.size(), 1)
 
-    backendId = backendIdToBackendIP.keySet()[0]
+    def backendId = backendIdToBackendIP.keySet()[0]
     def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
     logger.info(url)
     def clearFileCache = { check_func ->

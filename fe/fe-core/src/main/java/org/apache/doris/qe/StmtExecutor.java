@@ -17,9 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AnalyzeDBStmt;
-import org.apache.doris.analysis.AnalyzeStmt;
-import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -85,7 +82,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
@@ -456,13 +452,6 @@ public class StmtExecutor {
                     || logicalPlan instanceof DeleteFromCommand;
         }
         return false;
-    }
-
-    public boolean isAnalyzeStmt() {
-        if (parsedStmt == null) {
-            return false;
-        }
-        return parsedStmt instanceof AnalyzeStmt;
     }
 
     /**
@@ -1031,8 +1020,6 @@ public class StmtExecutor {
                 handleLockTablesStmt();
             } else if (parsedStmt instanceof UnsupportedStmt) {
                 handleUnsupportedStmt();
-            } else if (parsedStmt instanceof AnalyzeStmt) {
-                handleAnalyzeStmt();
             } else {
                 context.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, "Do not support this query.");
             }
@@ -1241,7 +1228,12 @@ public class StmtExecutor {
                     context.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
             try {
-                StatementBase parsedStmt = setParsedStmt(SqlParserUtils.getStmt(parser, originStmt.idx));
+                List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
+                if (originStmt.idx >= stmts.size()) {
+                    throw new AnalysisException("Invalid statement index: "
+                            + originStmt.idx + ". size: " + stmts.size());
+                }
+                parsedStmt = stmts.get(originStmt.idx);
                 parsedStmt.setOrigStmt(originStmt);
                 parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             } catch (Error e) {
@@ -1290,9 +1282,6 @@ public class StmtExecutor {
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
-        }
-        if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
-            Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
         }
         if (insertOverwriteTableCommand.isPresent() && needWaitCancelComplete) {
             // Wait for the command to run or cancel completion
@@ -1767,10 +1756,6 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
-    private void handleAnalyzeStmt() throws DdlException, AnalysisException {
-        context.env.getAnalysisManager().createAnalyze((AnalyzeStmt) parsedStmt, isProxy);
-    }
-
     // Process switch catalog
     private void handleSwitchStmt() throws AnalysisException {
         SwitchStmt switchStmt = (SwitchStmt) parsedStmt;
@@ -2169,9 +2154,7 @@ public class StmtExecutor {
     private void handleDdlStmt() {
         try {
             DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
-            if (!(parsedStmt instanceof AnalyzeStmt)) {
-                context.getState().setOk();
-            }
+            context.getState().setOk();
             // copy into used
             if (context.getState().getResultSet() != null) {
                 if (isProxy) {

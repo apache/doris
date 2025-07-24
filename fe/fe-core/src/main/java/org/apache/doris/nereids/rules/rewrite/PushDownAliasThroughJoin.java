@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -97,9 +98,13 @@ public class PushDownAliasThroughJoin extends OneRewriteRuleFactory {
                 List<Expression> newHash = replaceJoinConjuncts(join.getHashJoinConjuncts(), replaceMap);
                 List<Expression> newOther = replaceJoinConjuncts(join.getOtherJoinConjuncts(), replaceMap);
                 List<Expression> newMark = replaceJoinConjuncts(join.getMarkJoinConjuncts(), replaceMap);
-
+                DistributeHint hint = join.getDistributeHint();
+                if (hint.getSkewInfo() != null) {
+                    Expression skewExpr = replaceJoinConjuncts(ImmutableList.of(hint.getSkewExpr()), replaceMap).get(0);
+                    hint.setSkewInfo(hint.getSkewInfo().withSkewExpr(skewExpr));
+                }
                 Plan newJoin = join.withConjunctsChildren(newHash, newOther, newMark, left, right,
-                            join.getJoinReorderContext());
+                        join.getJoinReorderContext());
                 return project.withProjectsAndChild(newProjects, newJoin);
             }).toRule(RuleType.PUSH_DOWN_ALIAS_THROUGH_JOIN);
     }

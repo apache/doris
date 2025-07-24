@@ -75,6 +75,7 @@ public:
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
@@ -116,9 +117,10 @@ public:
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
     bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
+    using SerDeType = DataTypeNullableSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde(nesting_level),
-                                                       nesting_level);
+        return std::make_shared<SerDeType>(nested_data_type->get_serde(nesting_level),
+                                           nesting_level);
     }
     UInt32 get_precision() const override { return nested_data_type->get_precision(); }
     UInt32 get_scale() const override { return nested_data_type->get_scale(); }
