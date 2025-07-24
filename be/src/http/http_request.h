@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <future>
 
 #include "http/http_method.h"
 #include "util/string_util.h"
@@ -86,17 +87,7 @@ public:
 
     void finish_send_reply() { promise.set_value(true); }
 
-    void wait_finish_send_reply() {
-        if (_send_reply_type == REPLY_SYNC) {
-            return;
-        }
-
-        auto status = _futrue.wait_for(std::chrono::seconds(600));
-        if (status != std::future_status::ready) {
-            LOG(WARNING) << "wait for send reply timeout, " << this->debug_string();
-        }
-    }
-
+    void wait_finish_send_reply();
 private:
     SendReplyType _send_reply_type = REPLY_SYNC;
     HttpMethod _method;

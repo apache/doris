@@ -22,12 +22,14 @@
 #include <event2/http_struct.h>
 #include <event2/keyvalq_struct.h>
 
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
 #include "http/http_handler.h"
+#include "runtime/stream_load/stream_load_context.h"
 
 namespace doris {
 
@@ -131,6 +133,26 @@ std::string HttpRequest::get_request_body() {
 
 const char* HttpRequest::remote_host() const {
     return _ev_req->remote_host;
+}
+
+void HttpRequest::wait_finish_send_reply() {
+    if (_send_reply_type == SYNC) {
+        return;
+    }
+
+    std::string infos;
+    if (_handler_ctx != nullptr) {
+        infos = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get())->brief();
+        _handler->free_handler_ctx(_handler_ctx);
+        _handler_ctx = nullptr;
+    }
+    VLOG_NOTICE << "start to wait send reply, infos=" << infos;
+    auto status = _futrue.wait_for(std::chrono::seconds(600));
+    if (status != std::future_status::ready) {
+        LOG(WARNING) << "wait for send reply timeout, " << this->debug_string();
+    } else {
+        VLOG_NOTICE << "wait send reply finished";
+    }
 }
 
 } // namespace doris
