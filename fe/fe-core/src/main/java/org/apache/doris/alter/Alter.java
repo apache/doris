@@ -1075,6 +1075,19 @@ public class Alter {
             Map<String, String> modifiedProperties = Maps.newHashMap();
             modifiedProperties.putAll(properties);
 
+            // 4.2 handle medium_allocation_policy property
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_POLICY)) {
+                String mediumAllocationPolicyValue = properties.get(
+                        PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_POLICY);
+                try {
+                    DataProperty.MediumAllocationPolicy mediumAllocationPolicy
+                            = DataProperty.MediumAllocationPolicy.fromString(mediumAllocationPolicyValue);
+                    dataProperty.setMediumAllocationPolicy(mediumAllocationPolicy);
+                } catch (IllegalArgumentException e) {
+                    throw new AnalysisException(e.getMessage());
+                }
+            }
+
             // 4.3 modify partition storage policy
             // can set multi times storage policy
             String currentStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);

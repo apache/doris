@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -35,6 +36,46 @@ public class DataProperty implements GsonPostProcessable {
 
     public static final DataProperty DEFAULT_HDD_DATA_PROPERTY = new DataProperty(TStorageMedium.HDD);
 
+    public enum MediumAllocationPolicy {
+        STRICT("strict"),
+        ADAPTIVE("adaptive");
+
+        private final String value;
+
+        MediumAllocationPolicy(String value) {
+            this.value = value;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public static MediumAllocationPolicy fromString(String value) throws AnalysisException {
+            String trimmedValue = Strings.nullToEmpty(value).trim();
+            if (trimmedValue.isEmpty()) {
+                throw new AnalysisException("medium_allocation_policy cannot be null or empty");
+            }
+
+            for (MediumAllocationPolicy policy : values()) {
+                if (policy.value.equalsIgnoreCase(trimmedValue)) {
+                    return policy;
+                }
+            }
+
+            throw new AnalysisException(String.format(
+                "Invalid medium_allocation_policy value: '%s'. Valid options are: 'strict', 'adaptive'",
+                value));
+        }
+
+        public boolean isStrict() {
+            return this == STRICT;
+        }
+
+        public boolean isAdaptive() {
+            return this == ADAPTIVE;
+        }
+    }
+
     @SerializedName(value = "storageMedium")
     private TStorageMedium storageMedium;
     @SerializedName(value = "cooldownTimeMs")
@@ -43,7 +84,8 @@ public class DataProperty implements GsonPostProcessable {
     private String storagePolicy;
     @SerializedName(value = "isMutable")
     private boolean isMutable = true;
-    private boolean storageMediumSpecified;
+    @SerializedName(value = "mediumAllocationPolicy")
+    private MediumAllocationPolicy mediumAllocationPolicy = MediumAllocationPolicy.ADAPTIVE;
 
     private DataProperty() {
         // for persist
@@ -53,6 +95,7 @@ public class DataProperty implements GsonPostProcessable {
         this.storageMedium = medium;
         this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         this.storagePolicy = "";
+        this.mediumAllocationPolicy = MediumAllocationPolicy.ADAPTIVE;
     }
 
     public DataProperty(DataProperty other) {
@@ -60,6 +103,7 @@ public class DataProperty implements GsonPostProcessable {
         this.cooldownTimeMs = other.cooldownTimeMs;
         this.storagePolicy = other.storagePolicy;
         this.isMutable = other.isMutable;
+        this.mediumAllocationPolicy = other.mediumAllocationPolicy;
     }
 
     /**
@@ -70,14 +114,16 @@ public class DataProperty implements GsonPostProcessable {
      * @param storagePolicy remote storage policy for remote storage
      */
     public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy) {
-        this(medium, cooldown, storagePolicy, true);
+        this(medium, cooldown, storagePolicy, true, MediumAllocationPolicy.ADAPTIVE);
     }
 
-    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy, boolean isMutable) {
+    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy, boolean isMutable,
+            MediumAllocationPolicy mediumAllocationPolicy) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
         this.storagePolicy = storagePolicy;
         this.isMutable = isMutable;
+        this.mediumAllocationPolicy = mediumAllocationPolicy;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -96,8 +142,12 @@ public class DataProperty implements GsonPostProcessable {
         this.storagePolicy = storagePolicy;
     }
 
-    public boolean isStorageMediumSpecified() {
-        return storageMediumSpecified;
+    public MediumAllocationPolicy getMediumAllocationPolicy() {
+        return mediumAllocationPolicy;
+    }
+
+    public void setMediumAllocationPolicy(MediumAllocationPolicy mediumAllocationPolicy) {
+        this.mediumAllocationPolicy = mediumAllocationPolicy;
     }
 
     public boolean isMutable() {
@@ -108,17 +158,13 @@ public class DataProperty implements GsonPostProcessable {
         isMutable = mutable;
     }
 
-    public void setStorageMediumSpecified(boolean isSpecified) {
-        storageMediumSpecified = isSpecified;
-    }
-
     public void setStorageMedium(TStorageMedium medium) {
         this.storageMedium = medium;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(storageMedium, cooldownTimeMs, storagePolicy);
+        return Objects.hash(storageMedium, cooldownTimeMs, storagePolicy, mediumAllocationPolicy);
     }
 
     @Override
@@ -136,7 +182,8 @@ public class DataProperty implements GsonPostProcessable {
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
                 && Strings.nullToEmpty(this.storagePolicy).equals(Strings.nullToEmpty(other.storagePolicy))
-                && this.isMutable == other.isMutable;
+                && this.isMutable == other.isMutable
+                && this.mediumAllocationPolicy == other.mediumAllocationPolicy;
     }
 
     @Override
@@ -145,6 +192,7 @@ public class DataProperty implements GsonPostProcessable {
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
         sb.append("remote storage policy[").append(this.storagePolicy).append("]. ");
+        sb.append("medium allocation policy[").append(this.mediumAllocationPolicy).append("]. ");
         return sb.toString();
     }
 
@@ -152,6 +200,8 @@ public class DataProperty implements GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         // storagePolicy is a newly added field, it may be null when replaying from old version.
         this.storagePolicy = Strings.nullToEmpty(this.storagePolicy);
+        if (this.mediumAllocationPolicy == null) {
+            this.mediumAllocationPolicy = MediumAllocationPolicy.ADAPTIVE;
+        }
     }
-
 }
