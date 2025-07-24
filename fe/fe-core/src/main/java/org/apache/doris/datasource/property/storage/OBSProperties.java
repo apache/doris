@@ -25,9 +25,9 @@ import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 import java.util.Objects;
@@ -132,6 +132,7 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
         }
         return null;
     }
+
     @Override
     public void initializeHadoopStorageConfig() {
         hadoopStorageConfig = new Configuration();

@@ -22,7 +22,6 @@ import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator
 import org.apache.doris.common.security.authentication.SimpleAuthenticationConfig;
 
 import lombok.Getter;
-import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 
@@ -30,6 +29,8 @@ public abstract class HdfsCompatibleProperties extends StorageProperties {
 
 
     public static final String HDFS_DEFAULT_FS_NAME = "fs.defaultFS";
+
+    protected Map<String, String> backendConfigProperties;
 
     protected HdfsCompatibleProperties(Type type, Map<String, String> origProps) {
         super(type, origProps);
@@ -43,8 +44,9 @@ public abstract class HdfsCompatibleProperties extends StorageProperties {
         return "hadoop.config.resources";
     }
 
-    public Configuration getHadoopConfiguration() {
-        return hadoopStorageConfig;
+    @Override
+    public void initializeHadoopStorageConfig() {
+        //nothing to do
     }
 
 }
