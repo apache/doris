@@ -14,6 +14,6 @@ WHERE (cast(v["type"] as string) = 'PullRequestEvent') AND (cast(v["payload"]["a
 )) AND (lower(cast(v["repo"]["name"] as string)) NOT LIKE '%clickhouse%')
 GROUP BY cast(v["repo"]["name"] as string)
 ORDER BY authors DESC, prs DESC, cast(v["repo"]["name"] as string) DESC
-LIMIT 50
+LIMIT 50;
 
-alter table github_events DROP COLUMN var2
+alter table github_events DROP COLUMN var2;
