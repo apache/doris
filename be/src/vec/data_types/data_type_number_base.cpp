@@ -31,11 +31,11 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
-#include "gutil/strings/numbers.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
+#include "util/to_string.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
@@ -63,10 +63,10 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
     } else if constexpr (std::is_same_v<typename PrimitiveTypeTraits<T>::ColumnItemType, float>) {
         // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
         char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                            TypeCheckOnRelease::DISABLE>(*ptr)
-                                        .get_element(row_num),
-                                MAX_FLOAT_STR_LENGTH + 2, buf);
+        int len = to_buffer(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                        TypeCheckOnRelease::DISABLE>(*ptr)
+                                    .get_element(row_num),
+                            MAX_FLOAT_STR_LENGTH + 2, buf);
         ostr.write(buf, len);
     } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value ||
                          std::numeric_limits<

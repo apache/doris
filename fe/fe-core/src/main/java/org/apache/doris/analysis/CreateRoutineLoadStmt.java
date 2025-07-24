@@ -343,10 +343,10 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         // check dbName and tableName
-        checkDBTable(analyzer);
+        checkDBTable();
         // check name
         try {
             FeNameFormat.checkCommonName(NAME_TYPE, name);
@@ -364,14 +364,14 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         checkDataSourceProperties();
         // analyze merge type
         if (routineLoadDesc != null) {
-            routineLoadDesc.analyze(analyzer);
+            routineLoadDesc.analyze();
         } else if (mergeType == LoadTask.MergeType.MERGE) {
             throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
         }
     }
 
-    public void checkDBTable(Analyzer analyzer) throws AnalysisException {
-        labelName.analyze(analyzer);
+    public void checkDBTable() throws AnalysisException {
+        labelName.analyze();
         dbName = labelName.getDbName();
         name = labelName.getLabelName();
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
@@ -417,7 +417,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
                         throw new AnalysisException("repeat setting of column separator");
                     }
                     columnSeparator = (Separator) parseNode;
-                    columnSeparator.analyze(null);
+                    columnSeparator.analyze();
                 } else if (parseNode instanceof ImportColumnsStmt) {
                     if (isMultiTable) {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
@@ -450,7 +450,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
                         throw new AnalysisException("repeat setting of partition names");
                     }
                     partitionNames = (PartitionNames) parseNode;
-                    partitionNames.analyze(null);
+                    partitionNames.analyze();
                 } else if (parseNode instanceof ImportDeleteOnStmt) {
                     // check delete expr
                     if (importDeleteOnStmt != null) {

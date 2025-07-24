@@ -46,7 +46,7 @@ public class NereidsCoordinatorTest extends TestWithFeService {
     public void testNereidsCoordinatorScanRangeNum() throws IOException {
         NereidsPlanner planner = plan("select * from test.tbl");
         NereidsCoordinator coordinator = (NereidsCoordinator) EnvFactory.getInstance()
-                .createCoordinator(connectContext, null, planner, null);
+                .createCoordinator(connectContext, planner, null);
         int scanRangeNum = coordinator.getScanRangeNum();
         Assertions.assertEquals(10, scanRangeNum);
     }
@@ -55,7 +55,7 @@ public class NereidsCoordinatorTest extends TestWithFeService {
     public void testNereidsCoordinatorScanRangeNum2() throws IOException {
         NereidsPlanner planner = plan("select * from information_schema.columns");
         NereidsCoordinator coordinator = (NereidsCoordinator) EnvFactory.getInstance()
-                .createCoordinator(connectContext, null, planner, null);
+                .createCoordinator(connectContext, planner, null);
         int scanRangeNum = coordinator.getScanRangeNum();
         Assertions.assertEquals(0, scanRangeNum);
     }

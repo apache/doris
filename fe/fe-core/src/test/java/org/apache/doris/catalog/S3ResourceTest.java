@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -67,8 +65,6 @@ public class S3ResourceTest {
     private String s3Bucket;
     private Map<String, String> s3Properties;
 
-    private Analyzer analyzer;
-
     @Before
     public void setUp() {
         name = "s3";
@@ -91,8 +87,6 @@ public class S3ResourceTest {
         s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
         s3Properties.put("AWS_BUCKET", s3Bucket);
         s3Properties.put("s3_validity_check", "false");
-
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test

@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -61,7 +59,7 @@ public class LateralViewRef extends TableRef {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
     }
 
     @Override
@@ -71,17 +69,8 @@ public class LateralViewRef extends TableRef {
 
 
     @Override
-    public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
-        // Create a fake catalog table for the lateral view
-        List<Column> columnList = Lists.newArrayList();
-        columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(), false, null,
-                fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, ""));
-        view = new InlineView(viewName, columnList);
-
-        // Create the non-materialized tuple and set the fake table in it.
-        TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
-        result.setTable(view);
-        return result;
+    public TupleDescriptor createTupleDescriptor() throws AnalysisException {
+        return null;
     }
 
     // The default table name must be origin table name

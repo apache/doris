@@ -54,8 +54,8 @@ public class AlterJobStatusStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         CreateJobStmt.checkAuth();
         String inputCol = ((SlotRef) expr.getChild(0)).getColumnName();
         if (!inputCol.equalsIgnoreCase(columnName)) {

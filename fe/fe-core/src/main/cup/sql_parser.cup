@@ -1240,15 +1240,7 @@ refresh_stmt ::=
     ;
 
 clean_stmt ::=
-    KW_CLEAN KW_LABEL from_or_in ident:db
-    {:
-        RESULT = new CleanLabelStmt(db, null);
-    :}
-    | KW_CLEAN KW_LABEL ident:label from_or_in ident:db
-    {:
-        RESULT = new CleanLabelStmt(db, label);
-    :}
-    | KW_CLEAN KW_ALL KW_PROFILE
+    KW_CLEAN KW_ALL KW_PROFILE
     {:
         RESULT = new CleanProfileStmt();
     :}

@@ -70,6 +70,9 @@ suite("test_multi_char_line_delimiter", "p2") {
         }
     }
 
+    // Test the SHOW CREATE LOAD command
+    checkNereidsExecute("""SHOW CREATE LOAD FOR ${label}""")
+
     def result = sql """ select count(*) from ${tableName}; """
     logger.info("result: ${result[0][0]}")
     assertTrue(result[0][0] == 2060625, "load result is not correct")
