@@ -142,7 +142,18 @@ public class DFSFileSystem extends RemoteFileSystem {
                     try {
                         dfsFileSystem = hdfsProperties.getHadoopAuthenticator().doAs(() -> {
                             try {
-                                return FileSystem.get(remotePath.toUri(), hdfsProperties.getHadoopStorageConfig());
+                                Configuration originalConf = hdfsProperties.getHadoopStorageConfig();
+                                // Create a copy of the original configuration to avoid modifying global settings
+                                Configuration confCopy = new Configuration(originalConf);
+                                // Disable FileSystem caching to ensure a new instance is created every time
+                                // Reason: We manage the lifecycle of FileSystem instances manually.
+                                // Even if the caller doesn't explicitly close the instance, we will do so when needed.
+                                // However, since Hadoop caches FileSystem instances by default,
+                                // other parts of the system may still be using the same instance.
+                                // If we close the shared instance here, it could break those other users.
+                                // Therefore, we disable the cache to ensure isolated, non-shared instances.
+                                confCopy.setBoolean("fs.hdfs.impl.disable.cache", true);
+                                return FileSystem.get(remotePath.toUri(), confCopy);
                             } catch (IOException e) {
                                 throw new RuntimeException(e);
                             }
