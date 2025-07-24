@@ -979,10 +979,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> slots = oneRowRelation.getLogicalProperties().getOutput();
         TupleDescriptor oneRowTuple = generateTupleDesc(slots, null, context);
 
-        List<Expr> legacyExprs = oneRowRelation.getProjects()
-                .stream()
-                .map(expr -> ExpressionTranslator.translate(expr, context))
-                .collect(Collectors.toList());
+        List<Expr> legacyExprs = Lists.newArrayList();
+        List<Expression> expressionList = Lists.newArrayList();
+        for (NamedExpression namedExpression : oneRowRelation.getProjects()) {
+            legacyExprs.add(ExpressionTranslator.translate(namedExpression, context));
+            expressionList.add(namedExpression);
+        }
 
         for (int i = 0; i < legacyExprs.size(); i++) {
             SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
@@ -996,7 +998,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.getNereidsIdToPlanNodeIdMap().put(oneRowRelation.getId(), unionNode.getId());
         unionNode.setCardinality(1L);
         unionNode.addConstExprList(legacyExprs);
-        finalizeForSetOperationNode(unionNode, oneRowTuple.getSlots(), new ArrayList<>());
+        List<List<Expression>> constExpressionList = Lists.newArrayList();
+        constExpressionList.add(expressionList);
+        finalizeForSetOperationNode(unionNode, oneRowTuple.getSlots(), new ArrayList<>(),
+                constExpressionList, new ArrayList<>(), context);
 
         PlanFragment planFragment = createPlanFragment(unionNode, DataPartition.UNPARTITIONED, oneRowRelation);
         context.addPlanFragment(planFragment);
@@ -2266,29 +2271,38 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new RuntimeException("not support set operation type " + setOperation);
         }
         setOperationNode.setNereidsId(setOperation.getId());
+        List<List<Expression>> resultExpressionLists = Lists.newArrayList();
         context.getNereidsIdToPlanNodeIdMap().put(setOperation.getId(), setOperationNode.getId());
         for (List<SlotReference> regularChildrenOutput : setOperation.getRegularChildrenOutputs()) {
             Builder<Expr> translateOutputs = ImmutableList.builderWithExpectedSize(regularChildrenOutput.size());
+            List<Expression> expressionList = new ArrayList<>(regularChildrenOutput.size());
             for (SlotReference childOutput : regularChildrenOutput) {
                 translateOutputs.add(ExpressionTranslator.translate(childOutput, context));
+                expressionList.add(childOutput);
             }
+            resultExpressionLists.add(expressionList);
             setOperationNode.addResultExprLists(translateOutputs.build());
         }
 
+        List<List<Expression>> constExpressionLists = Lists.newArrayList();
         if (setOperation instanceof PhysicalUnion) {
             for (List<NamedExpression> unionConsts : ((PhysicalUnion) setOperation).getConstantExprsList()) {
                 Builder<Expr> translateConsts = ImmutableList.builderWithExpectedSize(unionConsts.size());
+                List<Expression> expressionList = new ArrayList<>(unionConsts.size());
                 for (NamedExpression unionConst : unionConsts) {
                     translateConsts.add(ExpressionTranslator.translate(unionConst, context));
+                    expressionList.add(unionConst);
                 }
                 setOperationNode.addConstExprList(translateConsts.build());
+                constExpressionLists.add(expressionList);
             }
         }
 
         for (PlanFragment childFragment : childrenFragments) {
             setOperationNode.addChild(childFragment.getPlanRoot());
         }
-        finalizeForSetOperationNode(setOperationNode, outputSlotDescs, outputSlotDescs);
+        finalizeForSetOperationNode(setOperationNode, outputSlotDescs, outputSlotDescs,
+                constExpressionLists, resultExpressionLists, context);
 
         PlanFragment setOperationFragment;
         if (childrenFragments.isEmpty()) {
@@ -3147,42 +3161,42 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return Lists.newArrayList();
     }
 
-    private void finalizeForSetOperationNode(SetOperationNode node, List<SlotDescriptor> constExprSlots,
-                                                List<SlotDescriptor> resultExprSlots) {
-        if (node == null || constExprSlots == null || resultExprSlots == null) {
+    private void finalizeForSetOperationNode(SetOperationNode node,
+                                                List<SlotDescriptor> constExprSlots,
+                                                List<SlotDescriptor> resultExprSlots,
+                                                List<List<Expression>> constExpressionLists,
+                                                List<List<Expression>> resultExpressionLists,
+                                                PlanTranslatorContext context) {
+        if (node == null || constExprSlots == null || resultExprSlots == null
+                || constExpressionLists == null || resultExpressionLists == null || context == null) {
             return;
         }
 
         List<List<Expr>> materializedConstExprLists = Lists.newArrayList();
-        for (List<Expr> exprList : node.getConstExprLists()) {
-            Preconditions.checkState(exprList.size() == constExprSlots.size());
-            List<Expr> newExprList = Lists.newArrayList();
-            for (int i = 0; i < exprList.size(); ++i) {
-                if (constExprSlots.get(i).isMaterialized()) {
-                    newExprList.add(exprList.get(i));
-                }
+        for (List<Expression> constExpressionList : constExpressionLists) {
+            Preconditions.checkState(constExpressionList.size() == constExprSlots.size());
+            List<Expr> exprList = Lists.newArrayList();
+            for (Expression expression : constExpressionList) {
+                exprList.add(ExpressionTranslator.translate(expression, context));
             }
-            materializedConstExprLists.add(newExprList);
+            materializedConstExprLists.add(exprList);
         }
         node.setMaterializedConstExprLists(materializedConstExprLists);
 
         List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
-        List<List<Expr>> resultExprLists = node.getResultExprLists();
-        int resultExprSize = resultExprLists.size();
-        Preconditions.checkState(resultExprSize == node.getChildren().size());
-        for (int i = 0; i < resultExprSize; ++i) {
-            List<Expr> exprList = resultExprLists.get(i);
-            List<Expr> newExprList = Lists.newArrayList();
-            Preconditions.checkState(exprList.size() == resultExprSlots.size());
-            for (int j = 0; j < exprList.size(); ++j) {
+        for (int i = 0; i < resultExpressionLists.size(); ++i) {
+            List<Expression> resultExpressionList = resultExpressionLists.get(i);
+            List<Expr> exprList = Lists.newArrayList();
+            Preconditions.checkState(resultExpressionList.size() == resultExprSlots.size());
+            for (int j = 0; j < resultExpressionList.size(); ++j) {
                 if (resultExprSlots.get(j).isMaterialized()) {
-                    newExprList.add(exprList.get(j));
+                    exprList.add(ExpressionTranslator.translate(resultExpressionList.get(j), context));
                     // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
                     resultExprSlots.get(j)
                             .setIsNullable(resultExprSlots.get(j).getIsNullable() || exprList.get(j).isNullable());
                 }
             }
-            materializedResultExprLists.add(newExprList);
+            materializedResultExprLists.add(exprList);
         }
         node.setMaterializedResultExprLists(materializedResultExprLists);
         Preconditions.checkState(node.getMaterializedResultExprLists().size() == node.getChildren().size());
