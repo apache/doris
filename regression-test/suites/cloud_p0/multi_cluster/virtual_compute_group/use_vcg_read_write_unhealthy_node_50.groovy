@@ -243,7 +243,11 @@ suite('use_vcg_read_write_unhealthy_node_50', 'multi_cluster,docker') {
 
             def addrSet = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            checkProfileNew.call(addrSet)
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
 
             cluster.stopBackends(4)
             sleep(10000)
@@ -333,7 +337,11 @@ suite('use_vcg_read_write_unhealthy_node_50', 'multi_cluster,docker') {
 
             addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            checkProfileNew.call(addrSet)
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
 
             sleep(16000)
             sql """
@@ -406,7 +414,11 @@ suite('use_vcg_read_write_unhealthy_node_50', 'multi_cluster,docker') {
 
             addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            checkProfileNew.call(addrSet)
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
 
             sleep(16000)
             // show cluster
