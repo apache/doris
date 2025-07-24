@@ -57,12 +57,13 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 SimplifyCastRule.INSTANCE,
                 DigitalMaskingConvert.INSTANCE,
                 SimplifyArithmeticComparisonRule.INSTANCE,
+                ConcatWsMultiArrayToOne.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
                 CheckCast.INSTANCE
             )
     );
-    
+
     public ExpressionNormalization() {
         super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES));
     }
