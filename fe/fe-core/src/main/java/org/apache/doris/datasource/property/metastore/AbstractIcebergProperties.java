@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import lombok.Getter;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 
@@ -38,6 +37,12 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             description = "The location of the Iceberg warehouse. This is where the tables will be stored."
     )
     protected String warehouse;
+
+    public abstract String getIcebergCatalogType();
+
+    protected AbstractIcebergProperties(Map<String, String> props) {
+        super(Type.ICEBERG, props);
+    }
 
     /**
      * Iceberg Catalog instance responsible for managing metadata and lifecycle of Iceberg tables.
@@ -61,14 +66,5 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      * This field is used to perform metadata operations like creating, querying,
      * and deleting Iceberg tables.
      */
-    @Getter
-    protected Catalog catalog;
-
-    public abstract String getIcebergCatalogType();
-
-    protected AbstractIcebergProperties(Map<String, String> props) {
-        super(Type.ICEBERG, props);
-    }
-
     public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
 }
