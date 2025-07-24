@@ -164,7 +164,8 @@ suite('test_cache_shield_add_rowset_too_late', 'docker') {
         injectAddOverlapRowsetSleep(clusterName2, 20);
         qt_sql """select * from test"""
         assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 7)
-        // not added due to inject sleep
+        // [2-6] is not added due to inject sleep, in this case it will be added to tablet meta
+        // after [2-11], and such operation should fail.
         assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
 
@@ -179,7 +180,6 @@ suite('test_cache_shield_add_rowset_too_late', 'docker') {
         sql """use @${clusterName2}"""
         qt_sql """select * from test""" // will sync [8-8], [9-9], [10-10], [11-11]
         assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 11)
-        // injection only execute once, [2-11] is added
         assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
         assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
 
@@ -200,6 +200,7 @@ suite('test_cache_shield_add_rowset_too_late', 'docker') {
 
         sleep(20000) // wait the inject sleep complete
         assertEquals(2, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
+        // [2-6] is too late, add_rowset fail
         assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_failure_num"))
         qt_sql """select * from test""" // check the result
     }

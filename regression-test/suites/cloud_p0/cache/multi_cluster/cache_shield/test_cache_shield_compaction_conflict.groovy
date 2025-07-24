@@ -190,7 +190,7 @@ suite('test_cache_shield_compaction_conflict', 'docker') {
         sql """use @${clusterName2}"""
         sql """set enable_profile=true"""
 
-        // inject sleep on warm_up_done_cb, to avoid the warmup complete before query
+        // inject sleep on warm_up_done_cb, make warm up inflight for longger time
         injectAddOverlapRowsetSleep(clusterName2, 20);
         qt_sql """select * from test"""
         sleep(1000)
