@@ -43,6 +43,7 @@
 #include "olap/primary_key_index.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
@@ -1025,8 +1026,8 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
         VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is found in cache",
                                   _file_reader->path().native(), _file_reader->size(),
                                   _file_reader->size() - 12);
+        footer_pb_shared = cache_handle.get<std::shared_ptr<SegmentFooterPB>>();
     }
-    footer_pb_shared = cache_handle.get<std::shared_ptr<SegmentFooterPB>>();
     _footer_pb = footer_pb_shared;
     footer_pb = footer_pb_shared;
     return Status::OK();

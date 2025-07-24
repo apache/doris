@@ -37,7 +37,6 @@
 #include "olap/olap_common.h"
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
-#include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
@@ -68,6 +67,7 @@ class Segment;
 class InvertedIndexIterator;
 class InvertedIndexFileReader;
 struct VariantStatistics;
+class ColumnReaderCache;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
