@@ -124,8 +124,6 @@ private:
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str, DataTypePtr& nested_type,
                                 ColumnString* dest_column_ptr) {
-        using NestType = typename ColumnType::value_type;
-
         const ColumnType* src_data_concrete = assert_cast<const ColumnType*>(&src_column);
         if (!src_data_concrete) {
             return false;
