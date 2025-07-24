@@ -43,6 +43,7 @@
 #include "olap/primary_key_index.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"

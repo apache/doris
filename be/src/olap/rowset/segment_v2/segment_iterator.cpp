@@ -50,6 +50,7 @@
 #include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -1089,8 +1090,8 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
             // If the column is an extracted column, we need to find the sub-column in the parent column reader.
+            std::shared_ptr<ColumnReader> column_reader;
             if (column.is_extracted_column()) {
-                std::shared_ptr<ColumnReader> column_reader;
                 if (!_segment->_column_reader_cache->get_column_reader(
                             column.parent_unique_id(), &column_reader, _opts.stats) ||
                     column_reader == nullptr) {
