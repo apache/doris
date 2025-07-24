@@ -1614,6 +1614,15 @@ class FilterEstimationTest {
         Assertions.assertFalse(stats.findColumnStatistics(b).isUnKnown());
     }
 
+    private Literal castStrToLiteral(String str, DataType dataType) {
+        Literal literal = new StringLiteral(str);
+        try {
+            return (Literal) literal.checkedCastTo(dataType);
+        } catch (Exception e) {
+            // ignore
+        }
+        return literal;
+    }
     private ColumnStatistic createColumnStatistic(
             String colName,
             double ndv, double rowCount,
@@ -1625,21 +1634,21 @@ class FilterEstimationTest {
         if (hot.length > 0) {
             hotValues = new HashMap<>();
             for (String oneHot : hot) {
-                Literal literal = (Literal) new StringLiteral(oneHot).checkedCastTo(dataType);
+                Literal literal = castStrToLiteral(oneHot, dataType);
                 hotValues.put(literal, HOT_VALUE_PERCENTAGE);
             }
         }
         LiteralExpr minExpr = null;
         double minValue = Double.NEGATIVE_INFINITY;
         if (minExprStr != null) {
-            Literal literal = (Literal) new StringLiteral(minExprStr).checkedCastTo(dataType);
+            Literal literal = castStrToLiteral(minExprStr, dataType);
             minExpr = literal.toLegacyLiteral();
             minValue = literal.getDouble();
         }
         LiteralExpr maxExpr = null;
         double maxValue = Double.POSITIVE_INFINITY;
         if (maxExprStr != null) {
-            Literal literal = (Literal) new StringLiteral(maxExprStr).checkedCastTo(dataType);
+            Literal literal = castStrToLiteral(maxExprStr, dataType);
             maxExpr = literal.toLegacyLiteral();
             maxValue = literal.getDouble();
         }
@@ -1842,4 +1851,68 @@ class FilterEstimationTest {
         Assertions.assertEquals(7, iaStats2.getHotValues().size());
     }
 
+    @Test
+    public void testIsNullSkew() {
+        // no hot values after is_null
+        double rowCount = 1000;
+        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia is null");
+        Expression expr = pair.first;
+        SlotReference slotA = pair.second.get(0);
+
+        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+                new String[]{"10", "20", "30", "40", "50", "60", "70", "80", "90"});
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
+        Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+        ColumnStatistic iaStats2 = stats.findColumnStatistics(slotA);
+        Assertions.assertNull(iaStats2.getHotValues());
+    }
+
+    @Test
+    public void testNotIsNullSkew() {
+        // no hot values after is_null
+        double rowCount = 1000;
+        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("ia is not null");
+        Expression expr = pair.first;
+        SlotReference slotA = pair.second.get(0);
+
+        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+                new String[]{"10", "20", "30", "40", "50", "60", "70", "80", "90"});
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
+        Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+        ColumnStatistic iaStats2 = stats.findColumnStatistics(slotA);
+        Assertions.assertEquals(iaStats.getHotValues(), iaStats2.getHotValues());
+    }
+
+
+    @Test
+    public void testLikeSkew() {
+        double rowCount = 1000;
+        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("strA like 'ab%'");
+        Expression expr = pair.first;
+        SlotReference slotA = pair.second.get(0);
+        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+                new String[] {"ab", "abc", "ddd"});
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
+        Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+        ColumnStatistic iaStats2 = stats.findColumnStatistics(slotA);
+        Assertions.assertEquals(2, iaStats2.getHotValues().size());
+    }
+
+    @Test
+    public void testNotLikeSkew() {
+        double rowCount = 1000;
+        Pair<Expression, ArrayList<SlotReference>> pair = createExpr("strA not like 'ab%'");
+        Expression expr = pair.first;
+        SlotReference slotA = pair.second.get(0);
+        ColumnStatistic iaStats = createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+                new String[] {"ab", "abc", "ddd"});
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.putColumnStatistics(slotA, iaStats).setRowCount(rowCount);
+        Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+        ColumnStatistic iaStats2 = stats.findColumnStatistics(slotA);
+        Assertions.assertEquals(1, iaStats2.getHotValues().size());
+    }
 }
