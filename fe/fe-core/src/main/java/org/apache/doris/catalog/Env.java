@@ -29,15 +29,12 @@ import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
@@ -53,7 +50,6 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SlotRef;
@@ -188,18 +184,22 @@ import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusComman
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -4943,10 +4943,10 @@ public class Env {
     }
 
     /**
-     * used for handling AlterViewStmt (the ALTER VIEW command).
+     * used for handling AlterViewComand
      */
-    public void alterView(AlterViewStmt stmt) throws UserException {
-        this.alter.processAlterView(stmt, ConnectContext.get());
+    public void alterView(AlterViewCommand command) throws UserException {
+        this.alter.processAlterView(command, ConnectContext.get());
     }
 
     public void createMaterializedView(CreateMaterializedViewStmt stmt)
@@ -4983,17 +4983,6 @@ public class Env {
      */
     public void cancelBuildIndex(CancelBuildIndexCommand command) throws DdlException {
         this.getSchemaChangeHandler().cancelIndexJob(command);
-    }
-
-    /*
-     * used for handling backup opt
-     */
-    public void backup(BackupStmt stmt) throws DdlException {
-        getBackupHandler().process(stmt);
-    }
-
-    public void restore(RestoreStmt stmt) throws DdlException {
-        getBackupHandler().process(stmt);
     }
 
     public void cancelBackup(CancelBackupCommand command) throws DdlException {
@@ -5878,9 +5867,10 @@ public class Env {
         System.gc();
     }
 
-    public void createView(CreateViewStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTable();
+    public void createView(CreateViewCommand command) throws DdlException {
+        CreateViewInfo createViewInfo = command.getCreateViewInfo();
+        String dbName = createViewInfo.getViewName().getDb();
+        String tableName = createViewInfo.getViewName().getTbl();
 
         // check if db exists
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
@@ -5888,10 +5878,10 @@ public class Env {
         // check if table exists in db
         boolean replace = false;
         if (db.getTable(tableName).isPresent()) {
-            if (stmt.isSetIfNotExists()) {
+            if (createViewInfo.isIfNotExists()) {
                 LOG.info("create view[{}] which already exists", tableName);
                 return;
-            } else if (stmt.isSetOrReplace()) {
+            } else if (createViewInfo.isOrReplace()) {
                 replace = true;
                 LOG.info("view[{}] already exists, need to replace it", tableName);
             } else {
@@ -5900,26 +5890,27 @@ public class Env {
         }
 
         if (replace) {
-            String comment = stmt.getComment();
+            String comment = createViewInfo.getComment();
             comment = comment == null || comment.isEmpty() ? null : comment;
-            AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(), comment);
-            alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
-            alterViewStmt.setFinalColumns(stmt.getColumns());
+            AlterViewInfo alterViewInfo = new AlterViewInfo(createViewInfo.getViewName(), comment);
+            alterViewInfo.setInlineViewDef(createViewInfo.getInlineViewDef());
+            alterViewInfo.setFinalColumns(createViewInfo.getColumns());
+            AlterViewCommand alterViewCommand = new AlterViewCommand(alterViewInfo);
             try {
-                alterView(alterViewStmt);
+                alterView(alterViewCommand);
             } catch (UserException e) {
                 throw new DdlException("failed to replace view[" + tableName + "], reason=" + e.getMessage());
             }
             LOG.info("successfully replace view[{}]", tableName);
         } else {
-            List<Column> columns = stmt.getColumns();
+            List<Column> columns = createViewInfo.getColumns();
 
             long tableId = Env.getCurrentEnv().getNextId();
             View newView = new View(tableId, tableName, columns);
-            newView.setComment(stmt.getComment());
-            newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
+            newView.setComment(createViewInfo.getComment());
+            newView.setInlineViewDefWithSqlMode(createViewInfo.getInlineViewDef(),
                     ConnectContext.get().getSessionVariable().getSqlMode());
-            if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
+            if (!((Database) db).createTableWithLock(newView, false, createViewInfo.isIfNotExists()).first) {
                 throw new DdlException("Failed to create view[" + tableName + "].");
             }
             LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");

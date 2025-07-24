@@ -33,7 +33,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/number_traits.h"
-#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_math_log.h"
 #include "vec/functions/function_math_unary.h"
@@ -44,10 +43,6 @@
 #include "vec/utils/stringop_substring.h"
 
 namespace doris::vectorized {
-
-struct LnImpl;
-struct Log10Impl;
-struct Log2Impl;
 
 struct AcosName {
     static constexpr auto name = "acos";
@@ -89,23 +84,6 @@ struct AtanhName {
 using FunctionAtanh =
         FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AtanhName, std::atanh>>;
 
-template <PrimitiveType AType, PrimitiveType BType>
-struct Atan2Impl {
-    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
-    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
-    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
-    static const constexpr bool allow_decimal = false;
-
-    template <PrimitiveType type>
-    static inline double apply(A a, B b) {
-        return std::atan2((double)a, (double)b);
-    }
-};
-struct Atan2Name {
-    static constexpr auto name = "atan2";
-};
-using FunctionAtan2 = FunctionBinaryArithmetic<Atan2Impl, Atan2Name, false>;
-
 struct CosName {
     static constexpr auto name = "cos";
 };
@@ -133,59 +111,15 @@ struct ExpName {
 };
 using FunctionExp = FunctionMathUnary<UnaryFunctionPlain<ExpName, std::exp>>;
 
-struct LogName {
-    static constexpr auto name = "log";
-};
-
-template <PrimitiveType AType, PrimitiveType BType>
-struct LogImpl {
-    using A = typename PrimitiveTypeTraits<AType>::CppNativeType;
-    using B = typename PrimitiveTypeTraits<BType>::CppNativeType;
-    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
-    using Traits = NumberTraits::BinaryOperatorTraits<AType, BType>;
-
-    static const constexpr bool allow_decimal = false;
-    static constexpr double EPSILON = 1e-9;
-
-    template <PrimitiveType Result = ResultType>
-    static void apply(const typename Traits::ArrayA& a, B b,
-                      typename PrimitiveTypeTraits<Result>::ColumnType::Container& c,
-                      typename Traits::ArrayNull& null_map) {
-        size_t size = c.size();
-        UInt8 is_null = b <= 0;
-        memset(null_map.data(), is_null, size);
-
-        if (!is_null) {
-            for (size_t i = 0; i < size; i++) {
-                if (a[i] <= 0 || std::fabs(a[i] - 1.0) < EPSILON) {
-                    null_map[i] = 1;
-                } else {
-                    c[i] = static_cast<Float64>(std::log(static_cast<Float64>(b)) /
-                                                std::log(static_cast<Float64>(a[i])));
-                }
-            }
-        }
-    }
-
-    template <PrimitiveType Result>
-    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(A a, B b,
-                                                                            UInt8& is_null) {
-        is_null = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
-        return static_cast<Float64>(std::log(static_cast<Float64>(b)) /
-                                    std::log(static_cast<Float64>(a)));
-    }
-};
-using FunctionLog = FunctionBinaryArithmetic<LogImpl, LogName, true>;
-
 template <typename A>
 struct SignImpl {
     static constexpr PrimitiveType ResultType = TYPE_TINYINT;
     static inline UInt8 apply(A a) {
         if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>)
             return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
-        else if constexpr (std::is_signed_v<A>)
+        else if constexpr (IsSignedV<A>)
             return static_cast<UInt8>(a < 0 ? -1 : a == 0 ? 0 : 1);
-        else if constexpr (std::is_unsigned_v<A>)
+        else if constexpr (IsUnsignedV<A>)
             return static_cast<UInt8>(a == 0 ? 0 : 1);
     }
 };
@@ -202,12 +136,12 @@ struct AbsImpl {
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
         if constexpr (IsDecimalNumber<A>)
             return a < A(0) ? A(-a) : a;
-        else if constexpr (std::is_integral_v<A> && std::is_signed_v<A>)
+        else if constexpr (IsIntegralV<A> && IsSignedV<A>)
             return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                                       ~a) +
                                       1
                             : a;
-        else if constexpr (std::is_integral_v<A> && std::is_unsigned_v<A>)
+        else if constexpr (IsIntegralV<A> && IsUnsignedV<A>)
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
         else if constexpr (std::is_floating_point_v<A>)
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
@@ -387,13 +321,13 @@ double sec(double x) {
 }
 using FunctionSec = FunctionMathUnary<UnaryFunctionPlain<SecName, sec>>;
 
-struct CosecName {
-    static constexpr auto name = "cosec";
+struct CscName {
+    static constexpr auto name = "csc";
 };
-double cosec(double x) {
+double csc(double x) {
     return 1.0 / std::sin(x);
 }
-using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CosecName, cosec>>;
+using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CscName, csc>>;
 
 template <typename A>
 struct RadiansImpl {
@@ -461,23 +395,176 @@ struct BinImpl {
 
 using FunctionBin = FunctionUnaryToType<BinImpl, NameBin>;
 
-template <PrimitiveType AType, PrimitiveType BType>
 struct PowImpl {
-    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
-    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
-    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
-    static const constexpr bool allow_decimal = false;
-
-    template <PrimitiveType type>
-    static inline double apply(A a, B b) {
-        /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return std::pow((double)a, (double)b);
+    static constexpr auto name = "pow";
+    static constexpr bool need_replace_null_data_to_default = true;
+    static constexpr bool is_nullable = false;
+    static inline double apply(double a, double b) { return std::pow(a, b); }
+};
+struct LogImpl {
+    static constexpr auto name = "log";
+    static constexpr bool need_replace_null_data_to_default = false;
+    static constexpr bool is_nullable = true;
+    static constexpr double EPSILON = 1e-9;
+    static inline double apply(double a, double b, UInt8& is_null) {
+        is_null = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
+        return std::log(b) / std::log(a);
     }
 };
-struct PowName {
-    static constexpr auto name = "pow";
+struct Atan2Impl {
+    static constexpr auto name = "atan2";
+    static constexpr bool need_replace_null_data_to_default = false;
+    static constexpr bool is_nullable = false;
+    static inline double apply(double a, double b) { return std::atan2(a, b); }
 };
-using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
+
+template <typename Impl>
+class FunctionMath : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionMath<Impl>>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto res = std::make_shared<DataTypeFloat64>();
+        return Impl::is_nullable ? make_nullable(res) : res;
+    }
+    bool need_replace_null_data_to_default() const override {
+        return Impl::need_replace_null_data_to_default;
+    }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto& column_left = block.get_by_position(arguments[0]).column;
+        auto& column_right = block.get_by_position(arguments[1]).column;
+        bool is_const_left = is_column_const(*column_left);
+        bool is_const_right = is_column_const(*column_right);
+
+        ColumnPtr column_result = nullptr;
+        if (is_const_left && is_const_right) {
+            column_result = constant_constant(column_left, column_right);
+        } else if (is_const_left) {
+            column_result = constant_vector(column_left, column_right);
+        } else if (is_const_right) {
+            column_result = vector_constant(column_left, column_right);
+        } else {
+            column_result = vector_vector(column_left, column_right);
+        }
+        block.replace_by_position(result, std::move(column_result));
+
+        return Status::OK();
+    }
+
+private:
+    ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
+        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
+        ColumnPtr column_result = nullptr;
+
+        auto res = ColumnFloat64::create(1);
+        if constexpr (Impl::is_nullable) {
+            auto null_map = ColumnUInt8::create(1, 0);
+            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<double>(),
+                                              column_right_ptr->template get_value<double>(),
+                                              null_map->get_element(0));
+            column_result = ColumnNullable::create(std::move(res), std::move(null_map));
+        } else {
+            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<double>(),
+                                              column_right_ptr->template get_value<double>());
+            column_result = std::move(res);
+        }
+
+        return ColumnConst::create(std::move(column_result), column_left->size());
+    }
+
+    ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
+        const auto* column_left_ptr = assert_cast<const ColumnFloat64*>(column_left.get());
+        auto column_result = ColumnFloat64::create(column_left->size());
+
+        if constexpr (Impl::is_nullable) {
+            auto null_map = ColumnUInt8::create(column_left->size(), 0);
+            auto& a = column_left_ptr->get_data();
+            auto& c = column_result->get_data();
+            auto& n = null_map->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<double>(), n[i]);
+            }
+            return ColumnNullable::create(std::move(column_result), std::move(null_map));
+        } else {
+            auto& a = column_left_ptr->get_data();
+            auto& c = column_result->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<double>());
+            }
+            return column_result;
+        }
+    }
+
+    ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
+
+        const auto* column_right_ptr = assert_cast<const ColumnFloat64*>(column_right.get());
+        auto column_result = ColumnFloat64::create(column_right->size());
+
+        if constexpr (Impl::is_nullable) {
+            auto null_map = ColumnUInt8::create(column_right->size(), 0);
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            auto& n = null_map->get_data();
+            size_t size = b.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(column_left_ptr->template get_value<double>(), b[i], n[i]);
+            }
+            return ColumnNullable::create(std::move(column_result), std::move(null_map));
+        } else {
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            size_t size = b.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(column_left_ptr->template get_value<double>(), b[i]);
+            }
+            return column_result;
+        }
+    }
+
+    ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr =
+                assert_cast<const ColumnFloat64*>(column_left->get_ptr().get());
+        const auto* column_right_ptr =
+                assert_cast<const ColumnFloat64*>(column_right->get_ptr().get());
+
+        auto column_result = ColumnFloat64::create(column_left->size());
+
+        if constexpr (Impl::is_nullable) {
+            auto null_map = ColumnUInt8::create(column_result->size(), 0);
+            auto& a = column_left_ptr->get_data();
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            auto& n = null_map->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], b[i], n[i]);
+            }
+            return ColumnNullable::create(std::move(column_result), std::move(null_map));
+        } else {
+            auto& a = column_left_ptr->get_data();
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], b[i]);
+            }
+            return column_result;
+        }
+    }
+};
 
 class FunctionNormalCdf : public IFunction {
 public:
@@ -561,12 +648,13 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAsinh>();
     factory.register_function<FunctionAtan>();
     factory.register_function<FunctionAtanh>();
-    factory.register_function<FunctionAtan2>();
+    factory.register_function<FunctionMath<LogImpl>>();
+    factory.register_function<FunctionMath<PowImpl>>();
+    factory.register_function<FunctionMath<Atan2Impl>>();
     factory.register_function<FunctionCos>();
     factory.register_function<FunctionCosh>();
     factory.register_function<FunctionE>();
     factory.register_alias("ln", "dlog1");
-    factory.register_function<FunctionLog>();
     factory.register_function<FunctionMathLog<ImplLn>>();
     factory.register_function<FunctionMathLog<ImplLog2>>();
     factory.register_function<FunctionMathLog<ImplLog10>>();
@@ -586,7 +674,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCot>();
     factory.register_function<FunctionSec>();
     factory.register_function<FunctionCosec>();
-    factory.register_function<FunctionPow>();
     factory.register_alias("pow", "power");
     factory.register_alias("pow", "dpow");
     factory.register_alias("pow", "fpow");

@@ -107,7 +107,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 class FunctionStrcmp : public IFunction {
 public:
     static constexpr auto name = "strcmp";
@@ -3125,41 +3125,6 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
     return result;
 }
 
-// Note string value must be valid decimal string which contains two digits after the decimal point
-static inline StringRef do_format_round(FunctionContext* context, const std::string& value,
-                                        Int32 decimal_places) {
-    bool is_positive = (value[0] != '-');
-    int32_t result_len =
-            value.size() +
-            (value.size() - (is_positive ? (decimal_places + 2) : (decimal_places + 3))) / 3;
-    StringRef result = context->create_temp_string_val(result_len);
-    char* result_data = const_cast<char*>(result.data);
-    if (!is_positive) {
-        *result_data = '-';
-    }
-    for (int i = value.size() - (decimal_places + 2), j = result_len - (decimal_places + 2); i >= 0;
-         i = i - 3) {
-        *(result_data + j) = *(value.data() + i);
-        if (i - 1 < 0) {
-            break;
-        }
-        *(result_data + j - 1) = *(value.data() + i - 1);
-        if (i - 2 < 0) {
-            break;
-        }
-        *(result_data + j - 2) = *(value.data() + i - 2);
-        if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
-            *(result_data + j - 3) = ',';
-            j -= 4;
-        } else {
-            j -= 3;
-        }
-    }
-    memcpy(result_data + result_len - (decimal_places + 1),
-           value.data() + value.size() - (decimal_places + 1), (decimal_places + 1));
-    return result;
-};
-
 } // namespace FormatRound
 
 struct MoneyFormatDoubleImpl {
@@ -3238,37 +3203,37 @@ struct MoneyFormatDecimalImpl {
         } else if (auto* decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
-                const Decimal32& frac_part = decimal32_column->get_fractional_part(i);
-                const Decimal32& whole_part = decimal32_column->get_whole_part(i);
+                const Int32& frac_part = decimal32_column->get_fractional_part(i);
+                const Int32& whole_part = decimal32_column->get_intergral_part(i);
                 StringRef str =
                         MoneyFormat::do_money_format<Int64, MoneyFormat::MAX_FORMAT_LEN_DEC32()>(
-                                context, scale, static_cast<Int64>(whole_part.value),
-                                static_cast<Int64>(frac_part.value));
+                                context, scale, static_cast<Int64>(whole_part),
+                                static_cast<Int64>(frac_part));
 
                 result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
-                const Decimal64& frac_part = decimal64_column->get_fractional_part(i);
-                const Decimal64& whole_part = decimal64_column->get_whole_part(i);
+                const Int64& frac_part = decimal64_column->get_fractional_part(i);
+                const Int64& whole_part = decimal64_column->get_intergral_part(i);
 
                 StringRef str =
                         MoneyFormat::do_money_format<Int64, MoneyFormat::MAX_FORMAT_LEN_DEC64()>(
-                                context, scale, whole_part.value, frac_part.value);
+                                context, scale, whole_part, frac_part);
 
                 result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal128_column = check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
-                const Decimal128V3& frac_part = decimal128_column->get_fractional_part(i);
-                const Decimal128V3& whole_part = decimal128_column->get_whole_part(i);
+                const Int128& frac_part = decimal128_column->get_fractional_part(i);
+                const Int128& whole_part = decimal128_column->get_intergral_part(i);
 
                 StringRef str =
                         MoneyFormat::do_money_format<Int128,
                                                      MoneyFormat::MAX_FORMAT_LEN_DEC128V3()>(
-                                context, scale, whole_part.value, frac_part.value);
+                                context, scale, whole_part, frac_part);
 
                 result_column->insert_data(str.data, str.size);
             }
@@ -3292,7 +3257,7 @@ struct MoneyFormatDecimalImpl {
                 }
 
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
-                        context, decimal256_column->get_whole_part(i), frac_part);
+                        context, decimal256_column->get_intergral_part(i), frac_part);
 
                 result_column->insert_data(str.data, str.size);
             }
@@ -3303,6 +3268,44 @@ struct MoneyFormatDecimalImpl {
 struct FormatRoundDoubleImpl {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeFloat64>(), std::make_shared<vectorized::DataTypeInt32>()};
+    }
+
+    static std::string add_thousands_separator(const std::string& formatted_num) {
+        //  Find the position of the decimal point
+        size_t dot_pos = formatted_num.find('.');
+        if (dot_pos == std::string::npos) {
+            dot_pos = formatted_num.size();
+        }
+
+        // Handle the integer part
+        int start = (formatted_num[0] == '-') ? 1 : 0;
+        int digit_count = dot_pos - start;
+
+        // There is no need to add commas.
+        if (digit_count <= 3) {
+            return formatted_num;
+        }
+
+        std::string result;
+
+        if (start == 1) result += '-';
+
+        // Add the integer part (with comma)
+        int first_group = digit_count % 3;
+        if (first_group == 0) first_group = 3;
+        result.append(formatted_num, start, first_group);
+
+        for (size_t i = start + first_group; i < dot_pos; i += 3) {
+            result += ',';
+            result.append(formatted_num, i, 3);
+        }
+
+        // Add the decimal part (keep as it is)
+        if (dot_pos != formatted_num.size()) {
+            result.append(formatted_num, dot_pos);
+        }
+
+        return result;
     }
 
     template <bool is_const>
@@ -3322,9 +3325,14 @@ struct FormatRoundDoubleImpl {
             // round to `decimal_places` decimal places
             double value = MathFunctions::my_double_round(data_column->get_element(i),
                                                           decimal_places, false, false);
-            StringRef str = FormatRound::do_format_round(
-                    context, fmt::format("{:.{}f}", value, decimal_places), decimal_places);
-            result_column->insert_data(str.data, str.size);
+            std::string formatted_value = fmt::format("{:.{}f}", value, decimal_places);
+            if (std::isfinite(value)) {
+                result_column->insert_value(add_thousands_separator(formatted_value));
+            } else {
+                // if value is not finite, we just insert the original formatted value
+                // e.g. "inf", "-inf", "nan"
+                result_column->insert_value(formatted_value);
+            }
         }
         return Status::OK();
     }
@@ -3429,12 +3437,12 @@ struct FormatRoundDecimalImpl {
                             "The second argument is {}, it can not be less than 0.",
                             decimal_places);
                 }
-                const Decimal32& frac_part = decimal32_column->get_fractional_part(i);
-                const Decimal32& whole_part = decimal32_column->get_whole_part(i);
+                const Int32& frac_part = decimal32_column->get_fractional_part(i);
+                const Int32& whole_part = decimal32_column->get_intergral_part(i);
                 StringRef str =
                         FormatRound::do_format_round<Int64, FormatRound::MAX_FORMAT_LEN_DEC32()>(
-                                context, scale, static_cast<Int64>(whole_part.value),
-                                static_cast<Int64>(frac_part.value), decimal_places);
+                                context, scale, static_cast<Int64>(whole_part),
+                                static_cast<Int64>(frac_part), decimal_places);
 
                 result_column->insert_data(str.data, str.size);
             }
@@ -3447,12 +3455,12 @@ struct FormatRoundDecimalImpl {
                             "The second argument is {}, it can not be less than 0.",
                             decimal_places);
                 }
-                const Decimal64& frac_part = decimal64_column->get_fractional_part(i);
-                const Decimal64& whole_part = decimal64_column->get_whole_part(i);
+                const Int64& frac_part = decimal64_column->get_fractional_part(i);
+                const Int64& whole_part = decimal64_column->get_intergral_part(i);
 
                 StringRef str =
                         FormatRound::do_format_round<Int64, FormatRound::MAX_FORMAT_LEN_DEC64()>(
-                                context, scale, whole_part.value, frac_part.value, decimal_places);
+                                context, scale, whole_part, frac_part, decimal_places);
 
                 result_column->insert_data(str.data, str.size);
             }
@@ -3465,13 +3473,13 @@ struct FormatRoundDecimalImpl {
                             "The second argument is {}, it can not be less than 0.",
                             decimal_places);
                 }
-                const Decimal128V3& frac_part = decimal128_column->get_fractional_part(i);
-                const Decimal128V3& whole_part = decimal128_column->get_whole_part(i);
+                const Int128& frac_part = decimal128_column->get_fractional_part(i);
+                const Int128& whole_part = decimal128_column->get_intergral_part(i);
 
                 StringRef str =
                         FormatRound::do_format_round<Int128,
                                                      FormatRound::MAX_FORMAT_LEN_DEC128V3()>(
-                                context, scale, whole_part.value, frac_part.value, decimal_places);
+                                context, scale, whole_part, frac_part, decimal_places);
 
                 result_column->insert_data(str.data, str.size);
             }
@@ -4925,5 +4933,5 @@ private:
         return Status::OK();
     }
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

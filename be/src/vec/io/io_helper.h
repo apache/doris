@@ -40,7 +40,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 inline std::string int128_to_string(int128_t value) {
     return fmt::format(FMT_COMPILE("{}"), value);
 }
@@ -101,8 +101,7 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     StringParser::ParseResult result;
     x = StringParser::string_to_float<T>(in.position(), in.count(), &result);
 
-    // to support nan and inf
-    if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(x) || std::isinf(x))) {
+    if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
         return false;
     }
 
@@ -111,10 +110,10 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     return true;
 }
 
-template <typename T>
+template <typename T, bool enable_strict_mode = false>
 bool read_int_text_impl(T& x, ReadBuffer& buf) {
     StringParser::ParseResult result;
-    x = StringParser::string_to_int<T>(buf.position(), buf.count(), &result);
+    x = StringParser::string_to_int<T, enable_strict_mode>(buf.position(), buf.count(), &result);
 
     if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
         return false;
@@ -197,7 +196,7 @@ template <typename T>
 bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<UInt32, T>);
     auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), config::allow_zero_date);
+    auto ans = dv.from_date_str(buf.position(), (int)buf.count(), config::allow_zero_date);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -222,7 +221,7 @@ template <typename T>
 bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), scale, config::allow_zero_date);
+    auto ans = dv.from_date_str(buf.position(), (int)buf.count(), scale, config::allow_zero_date);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -251,7 +250,7 @@ StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 p
     if constexpr (!std::is_same_v<Decimal128V2, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<P>((const char*)buf.position(), buf.count(),
+        x.value = StringParser::string_to_decimal<P>((const char*)buf.position(), (int)buf.count(),
                                                      precision, scale, &result);
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
@@ -259,7 +258,7 @@ StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 p
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(buf.position(), buf.count(),
+        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(buf.position(), (int)buf.count(),
                                                                   DecimalV2Value::PRECISION,
                                                                   DecimalV2Value::SCALE, &result);
 
@@ -272,10 +271,6 @@ StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 p
 
 template <typename T>
 bool try_read_bool_text(T& x, ReadBuffer& buf) {
-    if (read_int_text_impl<T>(x, buf)) {
-        return x == 0 || x == 1;
-    }
-
     StringParser::ParseResult result;
     x = StringParser::string_to_bool(buf.position(), buf.count(), &result);
     if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
@@ -287,15 +282,15 @@ bool try_read_bool_text(T& x, ReadBuffer& buf) {
     return true;
 }
 
-template <typename T>
+template <typename T, bool enable_strict_mode = false>
 bool try_read_int_text(T& x, ReadBuffer& buf) {
-    return read_int_text_impl<T>(x, buf);
+    return read_int_text_impl<T, enable_strict_mode>(x, buf);
 }
 
 template <typename T>
 const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
-    const int len = end - pos;
-    int i = 0;
+    const int64_t len = end - pos;
+    int64_t i = 0;
     while (i < len) {
         if (pos[i] >= '0' && pos[i] <= '9') {
             i++;
@@ -351,4 +346,13 @@ bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& loca
                                UInt32 scale) {
     return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
+
+bool inline try_read_bool_text(UInt8& x, const StringRef& buf) {
+    StringParser::ParseResult result;
+    x = StringParser::string_to_bool(buf.data, buf.size, &result);
+    return result == StringParser::PARSE_SUCCESS;
+}
+
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

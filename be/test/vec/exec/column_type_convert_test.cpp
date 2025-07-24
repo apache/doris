@@ -893,8 +893,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         // Note: Exact string representation may vary by platform
         EXPECT_TRUE(string_col.get_data_at(0).to_string().find("3.14159") == 0);
         EXPECT_TRUE(string_col.get_data_at(1).to_string().find("-2.71828") == 0);
-        EXPECT_TRUE(string_col.get_data_at(2).to_string().find("inf") != std::string::npos);
-        EXPECT_TRUE(string_col.get_data_at(3).to_string().find("nan") != std::string::npos);
+        EXPECT_TRUE(string_col.get_data_at(2).to_string().find("Infinity") != std::string::npos);
+        EXPECT_TRUE(string_col.get_data_at(3).to_string().find("NaN") != std::string::npos);
     }
 
     // Test string to numeric conversions with invalid input

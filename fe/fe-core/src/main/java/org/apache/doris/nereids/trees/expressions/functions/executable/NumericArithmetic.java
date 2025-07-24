@@ -591,10 +591,10 @@ public class NumericArithmetic {
     }
 
     /**
-     * cosec
+     * csc
      */
-    @ExecFunction(name = "cosec")
-    public static Expression cosec(DoubleLiteral first) {
+    @ExecFunction(name = "csc")
+    public static Expression csc(DoubleLiteral first) {
         if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }

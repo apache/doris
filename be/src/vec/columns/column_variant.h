@@ -96,6 +96,8 @@ public:
     constexpr static PrimitiveType MOST_COMMON_TYPE_ID = PrimitiveType::TYPE_JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
+    // Array(Nullable(Jsonb))
+    const static DataTypePtr NESTED_TYPE_AS_ARRAY_OF_JSONB;
 
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
@@ -478,7 +480,6 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "replace_column_data" + get_name());
     }
-    size_t serialize_size_at(size_t row) const override { return 0; }
 
 private:
     // May throw execption

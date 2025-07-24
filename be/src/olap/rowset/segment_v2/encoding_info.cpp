@@ -153,7 +153,7 @@ struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
 
 template <FieldType type, typename CppType>
 struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
-                          typename std::enable_if<std::is_integral<CppType>::value>::type> {
+                          typename std::enable_if<IsIntegral<CppType>::value>::type> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return FrameOfReferencePageBuilder<type>::create(builder, opts);
     }

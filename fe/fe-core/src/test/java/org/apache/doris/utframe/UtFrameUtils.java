@@ -17,7 +17,6 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
@@ -33,7 +32,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -95,10 +93,10 @@ public class UtFrameUtils {
         System.out.println("begin to parse stmt: " + originStmt);
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {
-            statementBase = SqlParserUtils.getFirstStmt(parser);
+            List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
+            statementBase = stmts.get(0);
         } catch (AnalysisException e) {
             String errorMessage = parser.getErrorMsg(originStmt);
             System.err.println("parse failed: " + errorMessage);
@@ -108,7 +106,7 @@ public class UtFrameUtils {
                 throw new AnalysisException(errorMessage, e);
             }
         }
-        statementBase.analyze(analyzer);
+        statementBase.analyze();
         statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
         return statementBase;
     }

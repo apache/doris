@@ -41,7 +41,7 @@ public class AbstractBackupTableRefClause implements ParseNode {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         // normalize
         // table name => table ref
         Map<String, TableRef> tblPartsMap;

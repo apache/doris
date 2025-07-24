@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
@@ -320,14 +319,14 @@ public class Coordinator implements CoordInterface {
     private boolean isAllExternalScan = true;
 
     // Used for query/insert
-    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+    public Coordinator(ConnectContext context, Planner planner,
             StatsErrorEstimator statsErrorEstimator) {
-        this(context, analyzer, planner);
+        this(context, planner);
         this.statsErrorEstimator = statsErrorEstimator;
     }
 
     // Used for query/insert/test
-    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
+    public Coordinator(ConnectContext context, Planner planner) {
         this.context = context;
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
@@ -1190,9 +1189,11 @@ public class Coordinator implements CoordInterface {
         }
 
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
-            if (resultBatch.isEos()) {
-                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
-            }
+            // In BE: vmysql_result_writer.cpp:GetResultBatchCtx::on_close()
+            //      statistics->set_returned_rows(returned_rows);
+            // In a multi-mysql_result_writer scenario, since each mysql_result_writer will set this rows, in order
+            // to avoid missing rows when dry_run_query = true, they should all be added up.
+            numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
         }

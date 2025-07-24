@@ -33,6 +33,10 @@ singleStatement
     : SEMICOLON* statement? SEMICOLON* EOF
     ;
 
+expressionWithEof
+    : expression EOF
+    ;
+
 statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
@@ -69,12 +73,6 @@ statementBase
     | supportedStatsStatement           #supportedStatsStatementAlias
     | supportedTransactionStatement     #supportedTransactionStatementAlias
     | supportedGrantRevokeStatement     #supportedGrantRevokeStatementAlias
-    | unsupportedStatement              #unsupported
-    ;
-
-unsupportedStatement
-    : unsupportedStatsStatement
-    | unsupportedLoadStatement
     ;
 
 materializedViewStatement
@@ -124,9 +122,13 @@ constraintStatement
     | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
     ;
 
+optSpecBranch
+    : ATSIGN BRANCH LEFT_PAREN name=identifier RIGHT_PAREN
+    ;
+
 supportedDmlStatement
     : explain? cte? INSERT (INTO | OVERWRITE TABLE)
-        (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
+        (tableName=multipartIdentifier (optSpecBranch)? | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -437,6 +439,7 @@ supportedShowStatement
 
 supportedLoadStatement
     : SYNC                                                                          #sync
+    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad    
     | createRoutineLoad                                                             #createRoutineLoadAlias
     | LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
@@ -492,10 +495,6 @@ createRoutineLoad
               (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
               LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
               commentSpec?
-    ;
-
-unsupportedLoadStatement
-    : SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     ;
 
 loadProperty
@@ -781,6 +780,7 @@ supportedStatsStatement
         columnList=identifierList                                               #showColumnHistogramStats
     | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
+    | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     | ANALYZE DATABASE name=multipartIdentifier
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
@@ -800,10 +800,6 @@ supportedStatsStatement
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
-    ;
-
-unsupportedStatsStatement
-    : SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
 analyzeProperties

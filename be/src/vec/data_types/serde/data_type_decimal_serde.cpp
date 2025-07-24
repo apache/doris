@@ -23,15 +23,124 @@
 #include <arrow/util/decimal.h>
 
 #include "arrow/type.h"
+#include "common/consts.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 // #include "common/compile_check_begin.h"
+
+struct PrecisionScaleArg {
+    UInt32 precision;
+    UInt32 scale;
+};
+
+template <typename DataType, typename Additions = void*>
+StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x, ReadBuffer& rb,
+                                                 Additions additions
+                                                 [[maybe_unused]] = Additions()) {
+    if constexpr (IsDataTypeDecimalV2<DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, precision, scale);
+    }
+
+    if constexpr (std::is_same_v<DataTypeDecimal32, DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, precision, scale);
+    }
+
+    if constexpr (std::is_same_v<DataTypeDecimal64, DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
+    }
+
+    if constexpr (IsDataTypeDecimal128V3<DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, precision, scale);
+    }
+
+    if constexpr (IsDataTypeDecimal256<DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL256>(x, rb, precision, scale);
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                                  const FormatOptions& options) const {
+    const auto row = str.size();
+    column.resize(row);
+
+    const ColumnString::Chars* chars = &str.get_chars();
+    const IColumn::Offsets* offsets = &str.get_offsets();
+
+    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    auto& vec_to = column_to.get_data();
+    auto& null_map = column.get_null_map_data();
+    size_t current_offset = 0;
+    PrecisionScaleArg scale_arg {.precision = static_cast<UInt32>(precision),
+                                 .scale = static_cast<UInt32>(scale)};
+    for (size_t i = 0; i < row; ++i) {
+        size_t next_offset = (*offsets)[i];
+        size_t string_size = next_offset - current_offset;
+
+        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+
+        StringParser::ParseResult res =
+                try_parse_decimal_impl<DataTypeDecimal<T>>(vec_to[i], read_buffer, scale_arg);
+        bool parsed = (res == StringParser::PARSE_SUCCESS);
+        null_map[i] = !parsed;
+        current_offset = next_offset;
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
+        const ColumnString& str, IColumn& column, const FormatOptions& options,
+        const NullMap::value_type* null_map) const {
+    const auto row = str.size();
+    column.resize(row);
+
+    const ColumnString::Chars* chars = &str.get_chars();
+    const IColumn::Offsets* offsets = &str.get_offsets();
+
+    auto& column_to = assert_cast<ColumnType&>(column);
+    auto& vec_to = column_to.get_data();
+    size_t current_offset = 0;
+    PrecisionScaleArg scale_arg {.precision = static_cast<UInt32>(precision),
+                                 .scale = static_cast<UInt32>(scale)};
+    for (size_t i = 0; i < row; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
+        size_t next_offset = (*offsets)[i];
+        size_t string_size = next_offset - current_offset;
+
+        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+
+        StringParser::ParseResult res =
+                try_parse_decimal_impl<DataTypeDecimal<T>>(vec_to[i], read_buffer, scale_arg);
+        if (res != StringParser::PARSE_SUCCESS) {
+            return Status::InvalidArgument(
+                    "parse number fail, string: '{}'",
+                    std::string((char*)&(*chars)[current_offset], string_size));
+        }
+        current_offset = next_offset;
+    }
+    return Status::OK();
+}
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,

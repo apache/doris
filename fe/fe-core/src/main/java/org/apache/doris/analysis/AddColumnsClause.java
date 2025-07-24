@@ -66,7 +66,7 @@ public class AddColumnsClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (columnDefs == null || columnDefs.isEmpty()) {
             throw new AnalysisException("Columns is empty in add columns clause.");
         }

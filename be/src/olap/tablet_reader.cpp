@@ -57,6 +57,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
@@ -344,7 +345,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
     } else if (read_params.return_columns.empty()) {
-        for (size_t i = 0; i < _tablet_schema->num_columns(); ++i) {
+        for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
             _return_columns.push_back(i);
             if (_tablet_schema->column(i).is_key()) {
                 _key_cids.push_back(i);
@@ -706,4 +707,5 @@ Status TabletReader::init_reader_params_and_create_block(
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

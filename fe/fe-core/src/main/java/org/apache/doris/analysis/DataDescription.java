@@ -29,7 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -37,6 +37,10 @@ import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
@@ -52,7 +56,6 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -904,30 +907,22 @@ public class DataDescription {
         if (columnDef == null || columnDef.isEmpty()) {
             return;
         }
-        String columnsSQL = "COLUMNS (" + columnDef + ")";
-        SqlParser parser = new SqlParser(new org.apache.doris.analysis.SqlScanner(new StringReader(columnsSQL)));
-        ImportColumnsStmt columnsStmt;
+
+        List<Expression> expressions;
         try {
-            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
-        } catch (Error e) {
-            LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
-            throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
-        } catch (AnalysisException e) {
-            LOG.warn("analyze columns' statement failed, sql={}, error={}",
-                    columnsSQL, parser.getErrorMsg(columnsSQL), e);
-            String errorMessage = parser.getErrorMsg(columnsSQL);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        } catch (Exception e) {
-            LOG.warn("failed to parse columns header, sql={}", columnsSQL, e);
-            throw new AnalysisException("parse columns header failed", e);
+            expressions = NereidsLoadUtils.parseExpressionSeq(columnDef);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage());
         }
 
-        if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
-            parsedColumnExprList = columnsStmt.getColumns();
+        for (Expression expr : expressions) {
+            if (expr instanceof BinaryOperator) {
+                // we should translate Expression to Expr
+                Expr legacyExpr = PlanUtils.translateToLegacyExpr(expr.child(1), null, ConnectContext.get());
+                parsedColumnExprList.add(new ImportColumnDesc(expr.child(0).getExpressionName(), legacyExpr));
+            } else {
+                parsedColumnExprList.add(new ImportColumnDesc(expr.getExpressionName()));
+            }
         }
     }
 
@@ -1045,20 +1040,6 @@ public class DataDescription {
         }
     }
 
-    public String analyzeFullDbName(String labelDbName, Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(labelDbName)) {
-            String dbName = Strings.isNullOrEmpty(getDbName()) ? analyzer.getDefaultDb() : getDbName();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            this.dbName = dbName;
-            return this.dbName;
-        } else {
-            this.dbName = labelDbName;
-            return labelDbName;
-        }
-    }
-
     public void analyze(String fullDbName) throws AnalysisException {
         if (isAnalyzed) {
             return;
@@ -1085,7 +1066,7 @@ public class DataDescription {
         analyzeFilePaths();
 
         if (partitionNames != null) {
-            partitionNames.analyze(null);
+            partitionNames.analyze();
         }
 
         analyzeColumns();

@@ -17,7 +17,6 @@
 
 package org.apache.doris.resource;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -29,7 +28,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.RandomIdentifierGenerator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -75,8 +73,6 @@ public class ComputeGroupTest {
     @Mocked
     public Env env;
     @Mocked
-    private Analyzer analyzer;
-    @Mocked
     AccessControllerManager accessManager;
 
     @BeforeClass
@@ -99,10 +95,6 @@ public class ComputeGroupTest {
                 env.getAuth();
                 minTimes = 0;
                 result = auth;
-
-                analyzer.getDefaultCatalog();
-                minTimes = 0;
-                result = InternalCatalog.INTERNAL_CATALOG_NAME;
 
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 minTimes = 0;
