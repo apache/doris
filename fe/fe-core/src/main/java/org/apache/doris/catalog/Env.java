@@ -26,27 +26,19 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AlterDatabasePropertyStmt;
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
-import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
-import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
@@ -58,7 +50,6 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SlotRef;
@@ -134,6 +125,7 @@ import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
+import org.apache.doris.encryption.KeyManager;
 import org.apache.doris.event.EventProcessor;
 import org.apache.doris.event.ReplacePartitionEvent;
 import org.apache.doris.ha.BDBHA;
@@ -187,21 +179,27 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
+import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -589,6 +587,8 @@ public class Env {
 
     private DictionaryManager dictionaryManager;
 
+    private KeyManager keyManager;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -841,6 +841,7 @@ public class Env {
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
         this.dictionaryManager = new DictionaryManager();
+        this.keyManager = new KeyManager();
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -2510,6 +2511,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadKeyManager(DataInputStream in, long checksum) throws IOException {
+        this.keyManager = KeyManager.read(in);
+        LOG.info("finished replay KeyManager from image");
+        return checksum;
+    }
+
     public long saveInsertOverwrite(CountingDataOutputStream out, long checksum) throws IOException {
         this.insertOverwriteManager.write(out);
         LOG.info("finished save iot to image");
@@ -2802,6 +2809,12 @@ public class Env {
 
     public long saveAnalysisMgr(CountingDataOutputStream dos, long checksum) throws IOException {
         analysisManager.write(dos);
+        return checksum;
+    }
+
+    public long saveKeyManager(CountingDataOutputStream out, long checksum) throws IOException {
+        this.keyManager.write(out);
+        LOG.info("finished save KeyManager to image");
         return checksum;
     }
 
@@ -3428,16 +3441,8 @@ public class Env {
         getInternalCatalog().replayRecoverDatabase(info);
     }
 
-    public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
-        getInternalCatalog().alterDatabaseQuota(stmt.getDbName(), stmt.getQuotaType(), stmt.getQuota());
-    }
-
     public void replayAlterDatabaseQuota(String dbName, long quota, QuotaType quotaType) throws MetaNotFoundException {
         getInternalCatalog().replayAlterDatabaseQuota(dbName, quota, quotaType);
-    }
-
-    public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
-        getInternalCatalog().alterDatabaseProperty(stmt);
     }
 
     public void alterDatabaseProperty(String dbName, Map<String, String> properties) throws DdlException {
@@ -3447,10 +3452,6 @@ public class Env {
     public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
             throws MetaNotFoundException {
         getInternalCatalog().replayAlterDatabaseProperty(dbName, properties);
-    }
-
-    public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
-        getInternalCatalog().renameDatabase(stmt.getDbName(), stmt.getNewDbName());
     }
 
     public void replayRenameDatabase(String dbName, String newDbName) {
@@ -3788,6 +3789,12 @@ public class Env {
         if (olapTable.storagePageSize() != PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE).append("\" = \"");
             sb.append(olapTable.storagePageSize()).append("\"");
+        }
+
+        // storage dict page size
+        if (olapTable.storageDictPageSize() != PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.storageDictPageSize()).append("\"");
         }
 
         // skip inverted index on load
@@ -4936,10 +4943,10 @@ public class Env {
     }
 
     /**
-     * used for handling AlterViewStmt (the ALTER VIEW command).
+     * used for handling AlterViewComand
      */
-    public void alterView(AlterViewStmt stmt) throws UserException {
-        this.alter.processAlterView(stmt, ConnectContext.get());
+    public void alterView(AlterViewCommand command) throws UserException {
+        this.alter.processAlterView(command, ConnectContext.get());
     }
 
     public void createMaterializedView(CreateMaterializedViewStmt stmt)
@@ -4952,8 +4959,8 @@ public class Env {
         this.alter.processCreateMaterializedView(command);
     }
 
-    public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        this.alter.processDropMaterializedView(stmt);
+    public void dropMaterializedView(DropMaterializedViewCommand command) throws DdlException, MetaNotFoundException {
+        this.alter.processDropMaterializedView(command);
     }
 
     /*
@@ -4976,17 +4983,6 @@ public class Env {
      */
     public void cancelBuildIndex(CancelBuildIndexCommand command) throws DdlException {
         this.getSchemaChangeHandler().cancelIndexJob(command);
-    }
-
-    /*
-     * used for handling backup opt
-     */
-    public void backup(BackupStmt stmt) throws DdlException {
-        getBackupHandler().process(stmt);
-    }
-
-    public void restore(RestoreStmt stmt) throws DdlException {
-        getBackupHandler().process(stmt);
     }
 
     public void cancelBackup(CancelBackupCommand command) throws DdlException {
@@ -5467,7 +5463,9 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
-            Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
+            AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+            manager.removeTableStats(table.getId());
+            manager.dropStats(table, null);
         }
     }
 
@@ -5495,6 +5493,7 @@ public class Env {
 
         Database db = getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(tableId);
         table.writeLock();
         try {
             renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, true);
@@ -5868,9 +5867,10 @@ public class Env {
         System.gc();
     }
 
-    public void createView(CreateViewStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTable();
+    public void createView(CreateViewCommand command) throws DdlException {
+        CreateViewInfo createViewInfo = command.getCreateViewInfo();
+        String dbName = createViewInfo.getViewName().getDb();
+        String tableName = createViewInfo.getViewName().getTbl();
 
         // check if db exists
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
@@ -5878,10 +5878,10 @@ public class Env {
         // check if table exists in db
         boolean replace = false;
         if (db.getTable(tableName).isPresent()) {
-            if (stmt.isSetIfNotExists()) {
+            if (createViewInfo.isIfNotExists()) {
                 LOG.info("create view[{}] which already exists", tableName);
                 return;
-            } else if (stmt.isSetOrReplace()) {
+            } else if (createViewInfo.isOrReplace()) {
                 replace = true;
                 LOG.info("view[{}] already exists, need to replace it", tableName);
             } else {
@@ -5890,27 +5890,27 @@ public class Env {
         }
 
         if (replace) {
-            String comment = stmt.getComment();
+            String comment = createViewInfo.getComment();
             comment = comment == null || comment.isEmpty() ? null : comment;
-            AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(),
-                    stmt.getViewDefStmt(), comment);
-            alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
-            alterViewStmt.setFinalColumns(stmt.getColumns());
+            AlterViewInfo alterViewInfo = new AlterViewInfo(createViewInfo.getViewName(), comment);
+            alterViewInfo.setInlineViewDef(createViewInfo.getInlineViewDef());
+            alterViewInfo.setFinalColumns(createViewInfo.getColumns());
+            AlterViewCommand alterViewCommand = new AlterViewCommand(alterViewInfo);
             try {
-                alterView(alterViewStmt);
+                alterView(alterViewCommand);
             } catch (UserException e) {
                 throw new DdlException("failed to replace view[" + tableName + "], reason=" + e.getMessage());
             }
             LOG.info("successfully replace view[{}]", tableName);
         } else {
-            List<Column> columns = stmt.getColumns();
+            List<Column> columns = createViewInfo.getColumns();
 
             long tableId = Env.getCurrentEnv().getNextId();
             View newView = new View(tableId, tableName, columns);
-            newView.setComment(stmt.getComment());
-            newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
+            newView.setComment(createViewInfo.getComment());
+            newView.setInlineViewDefWithSqlMode(createViewInfo.getInlineViewDef(),
                     ConnectContext.get().getSessionVariable().getSqlMode());
-            if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
+            if (!((Database) db).createTableWithLock(newView, false, createViewInfo.isIfNotExists()).first) {
                 throw new DdlException("Failed to create view[" + tableName + "].");
             }
             LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
@@ -6081,6 +6081,12 @@ public class Env {
             // In previous versions(before 2.1.8), there is no catalog info in TruncateTableInfo,
             // So if the catalog info is empty, we assume it's internal table.
             getInternalCatalog().replayTruncateTable(info);
+            if (info.isEntireTable()) {
+                Env.getCurrentEnv().getAnalysisManager().removeTableStats(info.getTblId());
+            } else {
+                Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(info.getUpdateRecords(),
+                        info.getDbId(), info.getTblId(), 0);
+            }
         } else {
             ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
             if (ctl != null) {
@@ -6156,35 +6162,6 @@ public class Env {
         }
     }
 
-    public void setConfig(AdminSetConfigStmt stmt) throws Exception {
-        Map<String, String> configs = stmt.getConfigs();
-        Preconditions.checkState(configs.size() == 1);
-
-        for (Map.Entry<String, String> entry : configs.entrySet()) {
-            try {
-                setMutableConfigWithCallback(entry.getKey(), entry.getValue());
-            } catch (ConfigException e) {
-                throw new DdlException(e.getMessage());
-            }
-        }
-
-        if (stmt.isApplyToAll()) {
-            for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
-                if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
-                    continue;
-                }
-
-                TNetworkAddress feAddr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
-                FEOpExecutor executor = new FEOpExecutor(feAddr, stmt.getLocalSetStmt(), ConnectContext.get(), false);
-                executor.execute();
-                if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
-                    throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
-                            fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
-                }
-            }
-        }
-    }
-
     public void setConfig(AdminSetFrontendConfigCommand command) throws Exception {
         Map<String, String> configs = command.getConfigs();
         Preconditions.checkState(configs.size() == 1);
@@ -6212,6 +6189,18 @@ public class Env {
                         fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
                 }
             }
+        }
+    }
+
+    public void setPartitionVersion(AdminSetPartitionVersionCommand command) throws Exception {
+        String database = command.getDatabase();
+        String table = command.getTable();
+        long partitionId = command.getPartitionId();
+        long visibleVersion = command.getVisibleVersion();
+        int setSuccess = setPartitionVersionInternal(database, table, partitionId, visibleVersion, false);
+        if (setSuccess == -1) {
+            throw new DdlException("Failed to set partition visible version to " + visibleVersion + ". " + "Partition "
+                    + partitionId + " not exists. Database " + database + ", Table " + table + ".");
         }
     }
 

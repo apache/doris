@@ -34,7 +34,6 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.Subquery;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
@@ -91,6 +90,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
@@ -109,6 +109,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -122,6 +124,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -277,9 +280,6 @@ public class IcebergUtils {
         } else if (expr instanceof InPredicate) {
             // InPredicate, only support a in (1,2,3)
             InPredicate inExpr = (InPredicate) expr;
-            if (inExpr.contains(Subquery.class)) {
-                return null;
-            }
             SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0));
             if (slotRef == null) {
                 return null;
@@ -608,6 +608,75 @@ public class IcebergUtils {
                 .getIcebergMetadataCache().getIcebergTable(dorisTable);
     }
 
+    public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
+        DorisTypeToIcebergType visitor = type.isStructType() ? new DorisTypeToIcebergType((StructType) type)
+                : new DorisTypeToIcebergType();
+        return DorisTypeToIcebergType.visit(type, visitor);
+    }
+
+    public static Literal<?> parseIcebergLiteral(String value, org.apache.iceberg.types.Type type) {
+        if (value == null) {
+            return null;
+        }
+        switch (type.typeId()) {
+            case BOOLEAN:
+                try {
+                    return Literal.of(Boolean.parseBoolean(value));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid Boolean string: " + value, e);
+                }
+            case INTEGER:
+            case DATE:
+                try {
+                    return Literal.of(Integer.parseInt(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Int string: " + value, e);
+                }
+            case LONG:
+            case TIME:
+            case TIMESTAMP:
+            case TIMESTAMP_NANO:
+                try {
+                    return Literal.of(Long.parseLong(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Long string: " + value, e);
+                }
+            case FLOAT:
+                try {
+                    return Literal.of(Float.parseFloat(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Float string: " + value, e);
+                }
+            case DOUBLE:
+                try {
+                    return Literal.of(Double.parseDouble(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Double string: " + value, e);
+                }
+            case STRING:
+                return Literal.of(value);
+            case UUID:
+                try {
+                    return Literal.of(UUID.fromString(value));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid UUID string: " + value, e);
+                }
+            case FIXED:
+            case BINARY:
+            case GEOMETRY:
+            case GEOGRAPHY:
+                return Literal.of(ByteBuffer.wrap(value.getBytes()));
+            case DECIMAL:
+                try {
+                    return Literal.of(new BigDecimal(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Decimal string: " + value, e);
+                }
+            default:
+                throw new IllegalArgumentException("Cannot parse unknown type: " + type);
+        }
+    }
+
     private static void updateIcebergColumnUniqueId(Column column, Types.NestedField icebergField) {
         column.setUniqueId(icebergField.fieldId());
         List<NestedField> icebergFields = Lists.newArrayList();
@@ -780,7 +849,6 @@ public class IcebergUtils {
         }
         String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
-
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
     }

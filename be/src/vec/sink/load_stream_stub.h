@@ -155,7 +155,7 @@ public:
 
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
-    Status close_wait(RuntimeState* state, int64_t timeout_ms = 0);
+    Status close_finish_check(RuntimeState* state, bool* is_closed);
 
     // cancel the stream, abort close_wait, mark _is_closed and _is_cancelled
     void cancel(Status reason);
@@ -216,13 +216,19 @@ public:
         _failed_tablets[tablet_id] = reason;
     }
 
-private:
-    Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
-    Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
-    Status _send_with_retry(butil::IOBuf& buf);
-    void _handle_failure(butil::IOBuf& buf, Status st);
+    void add_bytes_written(size_t bytes) {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        _bytes_written += bytes;
+    }
 
-    Status _check_cancel() {
+    int64_t bytes_written() {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        return _bytes_written;
+    }
+
+    Status check_cancel() {
+        DBUG_EXECUTE_IF("LoadStreamStub._check_cancel.cancelled",
+                        { return Status::InternalError("stream cancelled"); });
         if (!_is_cancelled.load()) {
             return Status::OK();
         }
@@ -230,6 +236,12 @@ private:
         return Status::Cancelled("load_id={}, reason: {}", print_id(_load_id),
                                  _cancel_st.to_string_no_stack());
     }
+
+private:
+    Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
+    Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
+    Status _send_with_retry(butil::IOBuf& buf);
+    void _handle_failure(butil::IOBuf& buf, Status st);
 
 protected:
     std::atomic<bool> _is_init;
@@ -247,9 +259,7 @@ protected:
     Status _cancel_st;
 
     bthread::Mutex _open_mutex;
-    bthread::Mutex _close_mutex;
     bthread::Mutex _cancel_mutex;
-    bthread::ConditionVariable _close_cv;
 
     std::mutex _buffer_mutex;
     std::mutex _send_mutex;
@@ -266,6 +276,9 @@ protected:
     std::unordered_map<int64_t, Status> _failed_tablets;
 
     bool _is_incremental = false;
+
+    bthread::Mutex _write_mutex;
+    size_t _bytes_written = 0;
 };
 
 // a collection of LoadStreams connect to the same node
@@ -310,8 +323,6 @@ public:
 
     Status close_load(const std::vector<PTabletID>& tablets_to_commit);
 
-    Status close_wait(RuntimeState* state, int64_t timeout_ms = 0);
-
     std::unordered_set<int64_t> success_tablets() {
         std::unordered_set<int64_t> s;
         for (auto& stream : _streams) {
@@ -329,6 +340,8 @@ public:
         }
         return m;
     }
+
+    std::vector<std::shared_ptr<LoadStreamStub>> streams() { return _streams; }
 
 private:
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;

@@ -93,7 +93,7 @@ public:
         return Status::OK();
     }
 
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
@@ -161,6 +161,7 @@ public:
         StringRef bufferRef;
         bufferRef.data = ptr;
         bufferRef.size = total_size;
+        buffer_list.emplace_back(bufferRef);
         // Second pass: copy data to allocated memory
         size_t offset = 0;
         for (size_t row_id = start; row_id < end; row_id++) {

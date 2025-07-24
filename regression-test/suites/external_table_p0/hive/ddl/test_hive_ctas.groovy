@@ -133,6 +133,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ use test_ctas """
                 String db = "test_ctas"
                 // 1. external to external un-partitioned table
+                sql """ DROP TABLE IF EXISTS hive_ctas1 """
                 sql """ CREATE TABLE hive_ctas1 ENGINE=hive AS SELECT col1 FROM unpart_ctas_src; 
                 """
 
@@ -146,6 +147,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ DROP TABLE hive_ctas1 """
 
                 // 2. external to external un-partitioned table with columns
+                sql """ DROP TABLE IF EXISTS hive_ctas2 """
                 sql """ CREATE TABLE hive_ctas2 (col1) ENGINE=hive AS SELECT col1 FROM unpart_ctas_src; 
                 """
 
@@ -158,6 +160,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ DROP TABLE hive_ctas2 """
 
                 // 3. external to external partitioned table
+                sql """ DROP TABLE IF EXISTS hive_ctas3 """
                 sql """ CREATE TABLE hive_ctas3 ENGINE=hive AS SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>0;
                 """
 
@@ -169,6 +172,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 order_qt_hive_docker_ctas_03 """ SELECT * FROM ${db}.hive_ctas3 """
                 sql """ DROP TABLE hive_ctas3 """
 
+                sql """ DROP TABLE IF EXISTS hive_ctas4 """
                 sql """ CREATE TABLE hive_ctas4 AS SELECT * FROM part_ctas_src WHERE col1>0;
                 """
 
@@ -181,6 +185,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ DROP TABLE hive_ctas4 """
 
                 // 4. external to external partitioned table with partitions and cols
+                sql """ DROP TABLE IF EXISTS hive_ctas5 """
                 sql """ CREATE TABLE hive_ctas5 ENGINE=hive PARTITION BY LIST (pt1, pt2) ()
                 AS SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>0;
                 """
@@ -193,6 +198,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 order_qt_hive_docker_ctas_05 """ SELECT * FROM ${db}.hive_ctas5 """
                 sql """ DROP TABLE hive_ctas5 """
 
+                sql """ DROP TABLE IF EXISTS hive_ctas6 """
                 sql """ CREATE TABLE hive_ctas6 PARTITION BY LIST (pt1, pt2) ()
                 AS SELECT * FROM part_ctas_src WHERE col1>0;
                 """
@@ -205,6 +211,9 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 order_qt_hive_docker_ctas_06 """ SELECT * FROM ${db}.hive_ctas6 """
                 sql """ DROP TABLE hive_ctas6 """
 
+            } catch (Exception e) {
+                logger.error("Error during CTAS test: " + e.getMessage())
+                throw e
             } finally {
                 destroySrcDDLForCTAS(catalog_name)
             }
@@ -317,6 +326,9 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 order_qt_hive_docker_ctas_ex04 """ SELECT * FROM ${db}.ctas_o2 """
                 sql """ DROP TABLE ctas_o2 """
                 sql """ DROP DATABASE IF EXISTS test_ctas_ex """
+            } catch (Exception e) {
+                logger.error("Error during CTAS extend test: " + e.getMessage())
+                throw e
             } finally {
                 destroySrcDDLForCTAS(catalog_name)
             }
@@ -421,7 +433,9 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """drop table if exists ${catalog_name}.test_no_err.qualified_table1"""
                 sql """drop table if exists ${catalog_name}.test_no_err.qualified_table2"""
                 sql """ DROP DATABASE IF EXISTS test_no_err """
-
+            } catch (Exception e) {
+                logger.error("Error during CTAS exception test: " + e.getMessage())
+                throw e
             } finally {
                 destroySrcDDLForCTAS(catalog_name)
             }
@@ -545,31 +559,27 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
             sql """ drop database if exists `test_ctas_all_type` """;
         }
 
-        try {
-            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_ctas"
-            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+        String catalog_name = "test_${hivePrefix}_ctas"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-            sql """drop catalog if exists ${catalog_name}"""
-            sql """create catalog if not exists ${catalog_name} properties (
-                'type'='hms',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
-                'use_meta_cache' = 'true'
-            );"""
-            sql """switch ${catalog_name}"""
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """create catalog if not exists ${catalog_name} properties (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+            'use_meta_cache' = 'true'
+        );"""
+        sql """switch ${catalog_name}"""
 
-            sql """set enable_fallback_to_original_planner=false;"""
-            for (String file_format in file_formats) {
-                logger.info("Process file format" + file_format)
-                test_ctas_tbl(file_format, catalog_name)
-                test_ctas_extend(file_format, catalog_name)
-                test_ctas_exception(file_format, catalog_name)
-                test_ctas_all_types(file_format, catalog_name)
-            }
-            // sql """drop catalog if exists ${catalog_name}"""
-        } finally {
+        sql """set enable_fallback_to_original_planner=false;"""
+        for (String file_format in file_formats) {
+            logger.info("Process file format" + file_format)
+            test_ctas_tbl(file_format, catalog_name)
+            test_ctas_extend(file_format, catalog_name)
+            test_ctas_exception(file_format, catalog_name)
+            test_ctas_all_types(file_format, catalog_name)
         }
     }
 }

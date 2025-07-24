@@ -28,23 +28,23 @@ suite('test_cast', "arrow_flight_sql") {
         result([[20200101, 20200101l, ((float) 20200101), ((double) 20200101)]])
     }
     test {
-        sql "select cast(${datetime} as int), cast(${datetime} as bigint), cast(${datetime} as float), cast(${datetime} as double)"
-        result([[869930357, 20200101123445l, ((float) 20200101123445l), ((double) 20200101123445l)]])
+        sql "select cast(${datetime} as bigint), cast(${datetime} as float), cast(${datetime} as double)"
+        result([[20200101123445l, ((float) 20200101123445l), ((double) 20200101123445l)]])
     }
 
     test {
         sql " select cast('9999e-1' as DECIMALV3(2, 1)) "
-        result([[9.9]])
+        result([[null]])
     }
 
     test {
         sql " select cast('100000' as DECIMALV3(2, 1)) "
-        result([[9.9]])
+        result([[null]])
     }
 
     test {
         sql " select cast('-9999e-1' as DECIMALV3(2, 1)) "
-        result([[-9.9]])
+        result([[null]])
     }
 
     // round

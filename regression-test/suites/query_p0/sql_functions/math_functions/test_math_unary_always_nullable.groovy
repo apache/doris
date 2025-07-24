@@ -110,4 +110,13 @@ suite("test_math_unary_alway_nullable") {
         select rowid, dsqrt(val), dsqrt(val) is null from test_math_unary_alway_nullable order by rowid;
     """
 
+    sql """
+        insert into test_math_unary_alway_nullable values
+        (9, 1.2), (10, 2.2), (11, 3.4), (12, 5.6)
+    """
+
+    qt_dlog_tbl_1 """
+        select rowid, log(val), ln(val), log(3), ln(3) from test_math_unary_alway_nullable order by rowid;
+    """
+
 }

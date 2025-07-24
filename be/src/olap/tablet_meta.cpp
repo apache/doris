@@ -345,6 +345,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.storage_page_size) {
         schema->set_storage_page_size(tablet_schema.storage_page_size);
     }
+    if (tablet_schema.__isset.storage_dict_page_size) {
+        schema->set_storage_dict_page_size(tablet_schema.storage_dict_page_size);
+    }
     if (tablet_schema.__isset.skip_write_index_on_load) {
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
@@ -401,6 +404,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     column->set_name(tcolumn.column_name);
     column->set_has_bitmap_index(tcolumn.has_bitmap_index);
     column->set_is_auto_increment(tcolumn.is_auto_increment);
+    if (tcolumn.__isset.is_on_update_current_timestamp) {
+        column->set_is_on_update_current_timestamp(tcolumn.is_on_update_current_timestamp);
+    }
     string data_type;
     EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
     column->set_type(data_type);
@@ -1102,24 +1108,40 @@ DeleteBitmapAggCache* DeleteBitmapAggCache::create_instance(size_t capacity) {
 DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {}
 
 DeleteBitmap::DeleteBitmap(const DeleteBitmap& o) {
-    delete_bitmap = o.delete_bitmap; // just copy data
+    std::shared_lock l1(o.lock);
+    delete_bitmap = o.delete_bitmap;
     _tablet_id = o._tablet_id;
 }
 
 DeleteBitmap& DeleteBitmap::operator=(const DeleteBitmap& o) {
-    delete_bitmap = o.delete_bitmap; // just copy data
-    _tablet_id = o._tablet_id;
+    if (this == &o) return *this;
+    if (this < &o) {
+        std::unique_lock l1(lock);
+        std::shared_lock l2(o.lock);
+        delete_bitmap = o.delete_bitmap;
+        _tablet_id = o._tablet_id;
+    } else {
+        std::shared_lock l2(o.lock);
+        std::unique_lock l1(lock);
+        delete_bitmap = o.delete_bitmap;
+        _tablet_id = o._tablet_id;
+    }
     return *this;
 }
 
-DeleteBitmap::DeleteBitmap(DeleteBitmap&& o) {
+DeleteBitmap::DeleteBitmap(DeleteBitmap&& o) noexcept {
+    std::scoped_lock l(o.lock, o._rowset_cache_version_lock);
     delete_bitmap = std::move(o.delete_bitmap);
-    _tablet_id = o._tablet_id;
+    _tablet_id = std::move(o._tablet_id);
+    o._rowset_cache_version.clear();
 }
 
-DeleteBitmap& DeleteBitmap::operator=(DeleteBitmap&& o) {
+DeleteBitmap& DeleteBitmap::operator=(DeleteBitmap&& o) noexcept {
+    if (this == &o) return *this;
+    std::scoped_lock l(lock, o.lock, o._rowset_cache_version_lock);
     delete_bitmap = std::move(o.delete_bitmap);
-    _tablet_id = o._tablet_id;
+    _tablet_id = std::move(o._tablet_id);
+    o._rowset_cache_version.clear();
     return *this;
 }
 
@@ -1438,7 +1460,9 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
                            << ", segment=" << std::get<1>(bmk);
                 start_version += 1;
             }
-            DeleteBitmapAggCache::instance()->release(handle2);
+            if (handle2 != nullptr) {
+                DeleteBitmapAggCache::instance()->release(handle2);
+            }
         }
         {
             std::shared_lock l(lock);

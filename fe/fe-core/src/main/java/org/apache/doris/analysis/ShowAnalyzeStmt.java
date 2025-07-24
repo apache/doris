@@ -98,27 +98,22 @@ public class ShowAnalyzeStmt extends ShowStmt implements NotFallbackInParser {
     }
 
     public String getStateValue() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The stateValue must be obtained after the parsing is complete");
         return stateValue;
     }
 
     public Expr getWhereClause() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The whereClause must be obtained after the parsing is complete");
-
         return whereClause;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
-        super.analyze(analyzer);
+        super.analyze();
         if (dbTableName != null) {
-            dbTableName.analyze(analyzer);
+            dbTableName.analyze();
             String dbName = dbTableName.getDb();
             String tblName = dbTableName.getTbl();
             String ctlName = dbTableName.getCtl();

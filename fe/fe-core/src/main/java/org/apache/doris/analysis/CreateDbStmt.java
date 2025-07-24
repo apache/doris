@@ -19,14 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
@@ -69,19 +66,14 @@ public class CreateDbStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         if (StringUtils.isEmpty(ctlName)) {
             ctlName = Env.getCurrentEnv().getCurrentCatalog().getName();
         }
         FeNameFormat.checkCatalogName(ctlName);
         FeNameFormat.checkDbName(dbName);
         InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(), ctlName, dbName, PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
-        }
     }
 
     @Override

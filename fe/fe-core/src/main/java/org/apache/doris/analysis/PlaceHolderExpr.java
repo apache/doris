@@ -40,21 +40,7 @@ public class PlaceHolderExpr extends LiteralExpr {
         type = Type.UNSUPPORTED;
     }
 
-    public void setTypeCode(int mysqlTypeCode) {
-        this.mysqlTypeCode = mysqlTypeCode;
-    }
-
     protected PlaceHolderExpr(LiteralExpr literal) {
-        this.lExpr = literal;
-        this.type = literal.getType();
-    }
-
-    protected PlaceHolderExpr(PlaceHolderExpr other) {
-        this.lExpr = other.lExpr;
-        this.type = other.type;
-    }
-
-    public void setLiteral(LiteralExpr literal) {
         this.lExpr = literal;
         this.type = literal.getType();
     }
@@ -71,11 +57,6 @@ public class PlaceHolderExpr extends LiteralExpr {
         if (!isAnalyzed) {
             super.analysisDone();
         }
-    }
-
-    public LiteralExpr createLiteralFromType() throws AnalysisException {
-        Preconditions.checkState(mysqlTypeCode > 0);
-        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode, isUnsigned());
     }
 
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
@@ -200,7 +181,4 @@ public class PlaceHolderExpr extends LiteralExpr {
         return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        lExpr.setupParamFromBinary(data, isUnsigned);
-    }
 }

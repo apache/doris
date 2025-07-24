@@ -254,43 +254,11 @@ public class AuditLogHelper {
             // parse time
             auditEventBuilder.setParseTimeMs(summaryProfile.getParseSqlTimeMs());
             // plan time
-            String planTimesMs = "{"
-                    + "\"plan\"" + ":" + summaryProfile.getPlanTimeMs() + ","
-                    + "\"garbage_collect\"" + ":" + summaryProfile.getNereidsGarbageCollectionTimeMs() + ","
-                    + "\"lock_tables\"" + ":" + summaryProfile.getNereidsLockTableTimeMs() + ","
-                    + "\"analyze\"" + ":" + summaryProfile.getNereidsAnalysisTimeMs() + ","
-                    + "\"rewrite\"" + ":" + summaryProfile.getNereidsRewriteTimeMs() + ","
-                    + "\"fold_const_by_be\"" + ":" + summaryProfile.getNereidsBeFoldConstTimeMs() + ","
-                    + "\"collect_partitions\"" + ":" + summaryProfile.getNereidsCollectTablePartitionTimeMs() + ","
-                    + "\"optimize\"" + ":" + summaryProfile.getNereidsOptimizeTimeMs() + ","
-                    + "\"translate\"" + ":" + summaryProfile.getNereidsTranslateTimeMs() + ","
-                    + "\"init_scan_node\"" + ":" + summaryProfile.getInitScanNodeTimeMs() + ","
-                    + "\"finalize_scan_node\"" + ":" + summaryProfile.getFinalizeScanNodeTimeMs() + ","
-                    + "\"create_scan_range\"" + ":" + summaryProfile.getCreateScanRangeTimeMs() + ","
-                    + "\"distribute\"" + ":" + summaryProfile.getNereidsDistributeTimeMs()
-                    + "}";
-            auditEventBuilder.setPlanTimesMs(planTimesMs);
-            // get meta time
-            String metaTimeMs = "{"
-                    + "\"get_partition_version_time_ms\"" + ":" + summaryProfile.getGetPartitionVersionTime() + ","
-                    + "\"get_partition_version_count_has_data\""
-                    + ":" + summaryProfile.getGetPartitionVersionByHasDataCount() + ","
-                    + "\"get_partition_version_count\"" + ":" + summaryProfile.getGetPartitionVersionCount() + ","
-                    + "\"get_table_version_time_ms\"" + ":" + summaryProfile.getGetTableVersionTime() + ","
-                    + "\"get_table_version_count\"" + ":" + summaryProfile.getGetTableVersionCount()
-                    + "}";
-            auditEventBuilder.setGetMetaTimeMs(metaTimeMs);
+            auditEventBuilder.setPlanTimesMs(summaryProfile.getPlanTime());
+            // meta time
+            auditEventBuilder.setGetMetaTimeMs(summaryProfile.getMetaTime());
             // schedule time
-            String scheduleTimeMs = "{"
-                    + "\"schedule_time_ms\"" + ":" + summaryProfile.getScheduleTimeMs() + ","
-                    + "\"fragment_assign_time_ms\"" + ":" + summaryProfile.getFragmentAssignTimsMs() + ","
-                    + "\"fragment_serialize_time_ms\"" + ":" + summaryProfile.getFragmentSerializeTimeMs() + ","
-                    + "\"fragment_rpc_phase_1_time_ms\"" + ":" + summaryProfile.getFragmentRPCPhase1TimeMs() + ","
-                    + "\"fragment_rpc_phase_2_time_ms\"" + ":" + summaryProfile.getFragmentRPCPhase2TimeMs() + ","
-                    + "\"fragment_compressed_size_byte\"" + ":" + summaryProfile.getFragmentCompressedSizeByte() + ","
-                    + "\"fragment_rpc_count\"" + ":" + summaryProfile.getFragmentRPCCount()
-                    + "}";
-            auditEventBuilder.setScheduleTimeMs(scheduleTimeMs);
+            auditEventBuilder.setScheduleTimeMs(summaryProfile.getScheduleTime());
             // changed variables
             if (ctx.sessionVariable != null) {
                 List<List<String>> changedVars = VariableMgr.dumpChangedVars(ctx.sessionVariable);

@@ -20,19 +20,19 @@ package org.apache.doris.utframe;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.EmptyStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
@@ -85,8 +85,12 @@ public class DorisAssert {
     }
 
     public DorisAssert withTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(ctx, stmtExecutor);
+        }
         return this;
     }
 
@@ -102,8 +106,12 @@ public class DorisAssert {
     }
 
     public DorisAssert withView(String sql) throws Exception {
-        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Env.getCurrentEnv().createView(createViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        if (parsed instanceof CreateViewCommand) {
+            ((CreateViewCommand) parsed).run(ctx, stmtExecutor);
+        }
         return this;
     }
 
@@ -216,7 +224,10 @@ public class DorisAssert {
         public Planner internalExecuteOneAndGetPlan() throws Exception {
             SqlScanner input = new SqlScanner(new StringReader(sql), ctx.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
-            List<StatementBase> stmts =  SqlParserUtils.getMultiStmts(parser);
+            List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
+            while (stmts.size() > 1 && stmts.get(stmts.size() - 1) instanceof EmptyStmt) {
+                stmts.remove(stmts.size() - 1);
+            }
             StmtExecutor stmtExecutor = new StmtExecutor(connectContext, stmts.get(0));
             stmtExecutor.execute();
 

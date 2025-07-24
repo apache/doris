@@ -51,13 +51,13 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
 using doris::segment_v2::IndexFileWriter;
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 class InvertedIndexArrayTest : public testing::Test {
     using ExpectedDocMap = std::map<std::string, std::vector<int>>;
@@ -1112,5 +1112,4 @@ TEST_F(InvertedIndexArrayTest, ArrayInt) {
     test_array_numeric("int_test", 0, field);
     delete field;
 }
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

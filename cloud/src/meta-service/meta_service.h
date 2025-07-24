@@ -57,6 +57,11 @@ static void* run_bthread_work(void* arg) {
     return nullptr;
 }
 
+[[maybe_unused]] inline static bool is_job_delete_bitmap_lock_id(int64_t lock_id) {
+    return lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID ||
+           lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID;
+}
+
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,
@@ -389,6 +394,12 @@ private:
                                              std::string& instance_id, MetaServiceCode& code,
                                              std::string& msg, std::stringstream& ss,
                                              KVStats& stats);
+
+    void update_table_version(Transaction* txn, std::string_view instance_id, int64_t db_id,
+                              int64_t table_id);
+
+    bool is_version_read_enabled(std::string_view instance_id) const;
+    bool is_version_write_enabled(std::string_view instance_id) const;
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;

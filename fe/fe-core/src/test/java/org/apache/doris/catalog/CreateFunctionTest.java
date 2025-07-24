@@ -18,13 +18,16 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateFunctionStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.UnionNode;
@@ -76,7 +79,7 @@ public class CreateFunctionTest {
         createDatabase(ctx, "create database db1;");
 
         createTable("create table db1.tbl1(k1 int, k2 bigint, k3 varchar(10), k4 char(5)) duplicate key(k1) "
-                + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');");
+                + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');", ctx);
 
         dorisAssert = new DorisAssert(ctx);
         dorisAssert.useDatabase("db1");
@@ -87,9 +90,7 @@ public class CreateFunctionTest {
         // create alias function
         String createFuncStr
                 = "create alias function db1.id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";
-        CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr,
-                ctx);
-        Env.getCurrentEnv().createFunction(createFunctionStmt);
+        createFunction(createFuncStr, ctx);
 
         List<Function> functions = db.getFunctions();
         Assert.assertEquals(1, functions.size());
@@ -124,7 +125,7 @@ public class CreateFunctionTest {
         createDatabase(ctx, "create database db2;");
 
         createTable("create table db2.tbl1(k1 int, k2 bigint, k3 varchar(10), k4 char(5)) duplicate key(k1) "
-                + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');");
+                + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');", ctx);
 
         dorisAssert = new DorisAssert(ctx);
         dorisAssert.useDatabase("db2");
@@ -136,10 +137,7 @@ public class CreateFunctionTest {
 
         String createFuncStr
                 = "create global alias function id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";
-        CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr,
-                ctx);
-        Env.getCurrentEnv().createFunction(createFunctionStmt);
-
+        createFunction(createFuncStr, ctx);
         List<Function> functions = Env.getCurrentEnv().getGlobalFunctionMgr().getFunctions();
         Assert.assertEquals(1, functions.size());
 
@@ -172,16 +170,30 @@ public class CreateFunctionTest {
         }
     }
 
-    private void createTable(String createTblStmtStr) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr,
-                connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+    private void createTable(String sql, ConnectContext connectContext) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        connectContext.setStatementContext(new StatementContext());
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private void createDatabase(ConnectContext ctx, String createDbStmtStr) throws Exception {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Env.getCurrentEnv().createDb(createDbStmt);
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
+    }
+
+    private void createFunction(String sql, ConnectContext connectContext) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        connectContext.setStatementContext(new StatementContext());
+        if (parsed instanceof CreateFunctionCommand) {
+            ((CreateFunctionCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private boolean containsIgnoreCase(String str, String sub) {
