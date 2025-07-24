@@ -52,7 +52,7 @@ protected:
         column_variant = VariantUtil::construct_advanced_varint_column();
         std::cout << column_variant->get_name() << std::endl;
         root_dir = std::string(getenv("DORIS_HOME"));
-	// which is /root/doris/be/ut_build_ASAN/test//
+        // which is /root/doris/be/ut_build_ASAN/test//
         std::cout << "root_dir: " << root_dir << std::endl;
         test_data_dir = root_dir + "../../../be/test/data/vec/columns";
         test_result_dir = root_dir + "../../../be/test/expected_result/vec/columns";
