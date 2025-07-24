@@ -33,6 +33,7 @@ suite('constant_propagation') {
         SET detail_shape_nodes='PhysicalProject,PhysicalHashAggregate,PhysicalQuickSort';
         SET ignore_shape_nodes='PhysicalDistribute';
         SET runtime_filter_type=2;
+        set disable_join_reorder=true;
         """
 
     sql 'drop table if exists t1'
@@ -245,7 +246,7 @@ suite('constant_propagation') {
 
     explain_and_result 'subquery_8', '''
       select t.k, t.b, t3.a
-      from (select a * 10 as k, b from t1 union all select x as k, y as b from t2) t join t3 on t.k = t3.a * 5 where t3.a = 2
+      from (select a * 10 as k, b from t1 union all select x as k, y as b from t2) t join t3 on t.k = t3.a * 5 where t3.a = 2 order by k, b, a
     '''
 
     explain_and_result 'subquery_9', '''
