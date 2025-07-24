@@ -22,6 +22,8 @@
 #include <functional>
 #include <limits>
 
+#include "common/cast_set.h"
+
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
 
