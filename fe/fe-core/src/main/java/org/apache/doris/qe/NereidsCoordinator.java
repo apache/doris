@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
@@ -87,9 +86,9 @@ public class NereidsCoordinator extends Coordinator {
     private final boolean needEnqueue;
 
     // sql execution
-    public NereidsCoordinator(ConnectContext context, Analyzer analyzer,
+    public NereidsCoordinator(ConnectContext context,
             NereidsPlanner planner, StatsErrorEstimator statsErrorEstimator) {
-        super(context, analyzer, planner, statsErrorEstimator);
+        super(context, planner, statsErrorEstimator);
 
         this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
         this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext));

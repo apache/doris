@@ -3832,7 +3832,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
-                    rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType, null);
+                    rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
 
         // analyse sequence map column

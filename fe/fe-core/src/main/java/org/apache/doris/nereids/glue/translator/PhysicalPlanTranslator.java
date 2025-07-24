@@ -589,7 +589,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // TODO: should not call legacy planner analyze in Nereids
         try {
-            outFile.analyze(null, outputExprs, labels);
+            outFile.analyze(outputExprs, labels);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }

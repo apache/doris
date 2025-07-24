@@ -18,7 +18,6 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropIndexClause;
@@ -78,7 +77,6 @@ public class IndexChangeJobTest {
     private static Env masterEnv;
     private static Env slaveEnv;
 
-    private static Analyzer analyzer;
     private static ConnectContext ctx;
 
     @Rule
@@ -98,7 +96,6 @@ public class IndexChangeJobTest {
         masterTransMgr.setEditLog(masterEnv.getEditLog());
         slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
-        //analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         // Initialize ConnectContext
         ctx = new ConnectContext();
         new MockUp<ConnectContext>() {
@@ -128,7 +125,7 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -155,14 +152,14 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
         BuildIndexClause buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
-        buildIndexClause.analyze(analyzer);
+        buildIndexClause.analyze();
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -187,14 +184,14 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
         DropIndexClause dropIndexClause = new DropIndexClause(indexName, false, tableName, false);
-        dropIndexClause.analyze(analyzer);
+        dropIndexClause.analyze();
         alterClauses.add(dropIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -221,14 +218,14 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
         BuildIndexClause buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
-        buildIndexClause.analyze(analyzer);
+        buildIndexClause.analyze();
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -279,14 +276,14 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
         DropIndexClause dropIndexClause = new DropIndexClause(indexName, false, tableName, false);
-        dropIndexClause.analyze(analyzer);
+        dropIndexClause.analyze();
         alterClauses.add(dropIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -336,14 +333,14 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
         BuildIndexClause buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
-        buildIndexClause.analyze(analyzer);
+        buildIndexClause.analyze();
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -383,7 +380,7 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         olapTable.setState(OlapTableState.SCHEMA_CHANGE);
         expectedEx.expect(DdlException.class);
@@ -396,7 +393,7 @@ public class IndexChangeJobTest {
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
         BuildIndexClause buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
-        buildIndexClause.analyze(analyzer);
+        buildIndexClause.analyze();
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -463,7 +460,7 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         olapTable.setState(OlapTableState.SCHEMA_CHANGE);
         expectedEx.expect(DdlException.class);
@@ -476,7 +473,7 @@ public class IndexChangeJobTest {
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
         DropIndexClause dropIndexClause = new DropIndexClause(indexName, false, tableName, false);
-        dropIndexClause.analyze(analyzer);
+        dropIndexClause.analyze();
         alterClauses.add(dropIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -543,14 +540,14 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
         BuildIndexClause buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
-        buildIndexClause.analyze(analyzer);
+        buildIndexClause.analyze();
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -608,14 +605,14 @@ public class IndexChangeJobTest {
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
         BuildIndexClause buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
-        buildIndexClause.analyze(analyzer);
+        buildIndexClause.analyze();
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -673,7 +670,7 @@ public class IndexChangeJobTest {
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
@@ -707,7 +704,7 @@ public class IndexChangeJobTest {
                 Maps.newHashMap(), "ngram bf index2");
 
         createIndexClause = new CreateIndexClause(tableName, indexDef2, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         ArrayList<AlterClause> alterClauses2 = new ArrayList<>();
         alterClauses2.add(createIndexClause);
         schemaChangeHandler.process(alterClauses2, db, table);
@@ -761,7 +758,7 @@ public class IndexChangeJobTest {
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);

@@ -19,7 +19,6 @@ package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.AlterJobV2.JobState;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -80,8 +79,7 @@ public class DemoTest extends TestWithFeService {
 
         // 5. process a schema change job
         String alterStmtStr = "alter table db1.tbl1 add column k2 int default '1'";
-        AlterTableStmt alterTableStmt = (AlterTableStmt) parseAndAnalyzeStmt(alterStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        alterTableSync(alterStmtStr);
 
         // 6. check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
