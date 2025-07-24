@@ -117,19 +117,19 @@ public class PartitionInfo {
     }
 
 
-    public void readLock() {
+    private void readLock() {
         rwLock.readLock().lock();
     }
 
-    public void readUnlock() {
+    private void readUnlock() {
         rwLock.readLock().unlock();
     }
 
-    public void writeLock() {
+    private void writeLock() {
         rwLock.writeLock().lock();
     }
 
-    public void writeUnlock() {
+    private void writeUnlock() {
         rwLock.writeLock().unlock();
     }
 
@@ -354,7 +354,7 @@ public class PartitionInfo {
     }
 
     public void setDataProperty(long partitionId, DataProperty newDataProperty) {
-        writeUnlock();
+        writeLock();
         try {
             idToDataProperty.put(partitionId, newDataProperty);
         } finally {
