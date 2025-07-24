@@ -1838,6 +1838,31 @@ class FilterEstimationTest {
         Statistics outputStats = new FilterEstimation().estimate(expr, inputStats);
         ColumnStatistic iaStats2 = outputStats.findColumnStatistics(slotA);
         ColumnStatistic ibStats2 = outputStats.findColumnStatistics(slotB);
+        Assertions.assertNull(iaStats2.getHotValues());
+        Assertions.assertNull(ibStats2.getHotValues());
+    }
+
+    @Test
+    public void testColEqualColOverlapSkew() {
+        double rowCount = 1000;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia = ib");
+        Expression expr = pair.first;
+        SlotReference slotA = pair.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 100, rowCount, "0", "100", 0,
+                new String[] {"10", "20"});
+        SlotReference slotB = pair.second.get(1);
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 100, rowCount, "0", "100", 0,
+                new String[] {"20", "90"});
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        Statistics inputStats = statsBuilder
+                .putColumnStatistics(slotA, iaStats)
+                .putColumnStatistics(slotB, ibStats)
+                .setRowCount(rowCount)
+                .build();
+        Statistics outputStats = new FilterEstimation().estimate(expr, inputStats);
+        ColumnStatistic iaStats2 = outputStats.findColumnStatistics(slotA);
+        ColumnStatistic ibStats2 = outputStats.findColumnStatistics(slotB);
         Assertions.assertEquals(1, iaStats2.getHotValues().size());
+        Assertions.assertEquals(iaStats2.getHotValues(), ibStats2.getHotValues());
     }
 }

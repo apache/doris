@@ -278,7 +278,42 @@ public class StatsCalculatorTest {
         ColumnStatistic icStatsOut = outputStats.findColumnStatistics(ic);
         Assertions.assertEquals(5, icStatsOut.getHotValues().size());
 
-        System.out.println(outputStats);
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(1, iaStatsOut.getHotValues().size());
+
+        ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
+        Assertions.assertEquals(1, ibStatsOut.getHotValues().size());
+    }
+
+    @Test
+    public void testHashJoinPkFkSkew() {
+        double leftRowCount = 100;
+        double rightRowCount = 10;
+        Pair<Expression, ArrayList<SlotReference>>  pair = StatsTestUtil.instance.createExpr("ia = ib");
+        Expression joinCondition = pair.first;
+        SlotReference ia = pair.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                leftRowCount, "1", "10", 0, new String[]{"1", "2"});
+
+        SlotReference ib = pair.second.get(1);
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
+                rightRowCount, "1", "10", 0, new String[]{"2", "3", "4"});
+
+        LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(joinCondition),
+                new DummyPlan(), new DummyPlan(),
+                JoinReorderContext.EMPTY);
+
+        StatsCalculator calculator = new StatsCalculator(null);
+
+        Statistics leftStats = new Statistics(leftRowCount, ImmutableMap.of(ia, iaStats));
+        Statistics rightStats = new Statistics(rightRowCount, ImmutableMap.of(ib, ibStats));
+        Statistics outputStats = calculator.computeJoin(join, leftStats, rightStats);
+
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(1, iaStatsOut.getHotValues().size());
+
+        ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
+        Assertions.assertEquals(1, ibStatsOut.getHotValues().size());
 
     }
 }
