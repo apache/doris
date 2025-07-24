@@ -78,7 +78,10 @@ suite("check_hash_bucket_table") {
         sql "use ${db};"
         def tables = sql("show full tables").stream().filter{ it[1] == "BASE TABLE" }.collect{ it[0] }.toList()
         ++dbNum
-        tables.each { checkTable(db, it) }
+        def asyncMVs = sql_return_maparray("""select * from mv_infos("database"="${db}");""").collect{ it.Name }.toSet()
+        tables.each {
+            if (!asyncMVs.contains(it)) { checkTable(db, it) }
+        }
     }
 
     def allDbs = sql "show databases"
