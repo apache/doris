@@ -17,8 +17,6 @@
 
 package org.apache.doris.encryption;
 
-import org.apache.doris.common.encryption.KeyManagerInterface;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

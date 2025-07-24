@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.encryption.EncryptionKey;
-import org.apache.doris.common.encryption.RootKeyInfo;
+import org.apache.doris.encryption.EncryptionKey;
+import org.apache.doris.encryption.RootKeyInfo;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;

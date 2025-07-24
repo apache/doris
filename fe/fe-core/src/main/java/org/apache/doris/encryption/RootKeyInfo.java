@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.encryption;
+package org.apache.doris.encryption;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -23,7 +23,6 @@ public class RootKeyInfo {
     public enum RootKeyType {
         LOCAL, AWS_KMS;
     }
-
 
     @SerializedName(value = "type")
     public RootKeyType type;

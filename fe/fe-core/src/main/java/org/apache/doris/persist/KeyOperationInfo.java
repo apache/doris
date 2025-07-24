@@ -17,10 +17,10 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.common.encryption.EncryptionKey;
-import org.apache.doris.common.encryption.RootKeyInfo;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.encryption.EncryptionKey;
+import org.apache.doris.encryption.RootKeyInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;

@@ -15,15 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.encryption;
+package org.apache.doris.encryption;
 
-public interface RootKeyProvider {
+import java.util.List;
 
-    public void init(RootKeyInfo info);
+public interface KeyManagerInterface {
+    public void setRootKey(RootKeyInfo info) throws RuntimeException;
 
-    public void describeKey();
+    public void init();
 
-    public byte[] decrypt(byte[] ciphertext);
+    public void replaySetRootKey(RootKeyInfo rootKeyInfo, EncryptionKey masterKey);
 
-    public DataKeyMaterial generateSymmetricDataKey();
+    public List<EncryptionKey> getAllMasterKeys();
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.encryption;
+package org.apache.doris.encryption;
 
 import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TEncryptionKey;
