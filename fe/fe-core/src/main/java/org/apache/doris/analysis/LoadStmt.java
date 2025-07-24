@@ -27,7 +27,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
-import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -626,12 +625,6 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
                         }
                     }
                 }
-            }
-            //should add connectivity test
-            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties())
-                    .connectivityTest(filePaths);
-            if (!connectivityTest) {
-                throw new UserException("Failed to access object storage, message=connectivity test failed");
             }
         }
     }
