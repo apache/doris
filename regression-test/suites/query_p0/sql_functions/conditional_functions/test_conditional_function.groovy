@@ -183,10 +183,9 @@ suite("test_conditional_function") {
 
     qt_test "SELECT k1, width_bucket(k2, 1, 9999999999, 4),width_bucket(k3, 1, 9999999999, 4) AS w FROM t1 ORDER BY k1;"
 
-    test {
-        sql "SELECT k1, width_bucket(k4, 1, 9999999999, 4),width_bucket(k44, 1, 9999999999, 4) AS w FROM t1 ORDER BY k1;"
-        exception ""
-    }
+    qt_test "SELECT k1, width_bucket(k4, 1, 9999999999, 4),width_bucket(k44, 1, 9999999999, 4) AS w FROM t1 ORDER BY k1;"
+
+    qt_test "SELECT k1, width_bucket(k44, 1, 9999999999, 4),width_bucket(k44, 1, 9999999999, 4) AS w FROM t1 ORDER BY k1;"
 
     qt_test "select array_join(array_agg(k44), '_', 'null') from t1 where k1=1;"
 
