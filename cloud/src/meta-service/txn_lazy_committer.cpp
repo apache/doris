@@ -17,6 +17,8 @@
 
 #include "txn_lazy_committer.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <chrono>
 
 #include "common/defer.h"
@@ -263,8 +265,9 @@ void convert_tmp_rowsets(
 
         if (is_versioned_write) {
             // If this is a versioned write, we need to put the rowset with versionstamp
+            RowsetMetaCloudPB copied_rowset_meta(tmp_rowset_pb);
             if (!versioned::document_put(txn.get(), rowset_key, versionstamp,
-                                         std::move(tmp_rowset_pb))) {
+                                         std::move(copied_rowset_meta))) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize rowset_meta, txn_id=" << txn_id
                    << " key=" << hex(rowset_key);

@@ -1245,7 +1245,7 @@ void MetaServiceImpl::commit_txn_immediately(
         commit_txn_log.set_txn_id(txn_id);
 
         // <tablet_id, version> -> rowset meta
-        std::vector<std::pair<std::tuple<int64_t, int64_t>, RowsetMetaCloudPB>> rowsets;
+        std::vector<std::pair<std::tuple<int64_t, int64_t>, const RowsetMetaCloudPB&>> rowsets;
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
         rowsets.reserve(tmp_rowsets_meta.size());
         for (auto& [_, i] : tmp_rowsets_meta) {
@@ -1282,7 +1282,7 @@ void MetaServiceImpl::commit_txn_immediately(
             commit_txn_log.mutable_tablet_to_partition_map()->insert({tablet_id, partition_id});
             commit_txn_log.mutable_partition_version_map()->insert({partition_id, new_version});
 
-            rowsets.emplace_back(std::make_tuple(tablet_id, i.end_version()), std::move(i));
+            rowsets.emplace_back(std::make_tuple(tablet_id, i.end_version()), i);
         } // for tmp_rowsets_meta
 
         process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
@@ -1312,8 +1312,9 @@ void MetaServiceImpl::commit_txn_immediately(
             if (is_versioned_write) {
                 std::string versioned_rowset_key =
                         versioned::meta_rowset_load_key({instance_id, tablet_id, version});
+                RowsetMetaCloudPB copied_rowset_meta(i.second);
                 if (!versioned::document_put(txn.get(), versioned_rowset_key,
-                                             std::move(i.second))) {
+                                             std::move(copied_rowset_meta))) {
                     code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                     ss << "failed to put versioned rowset meta, txn_id=" << txn_id
                        << " key=" << hex(versioned_rowset_key);
