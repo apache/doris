@@ -1469,7 +1469,9 @@ void MetaServiceImpl::commit_txn_immediately(
                 msg = ss.str();
                 return;
             }
-            LOG(INFO) << "xxx commit_txn put log_key key=" << hex(log_key) << " txn_id=" << txn_id;
+            LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
+                      << " txn_id=" << txn_id
+                      << " operation_log_size=" << operation_log_value.size();
             versioned_put(txn.get(), log_key, operation_log_value);
         } else {
             std::string recycle_val;
