@@ -413,6 +413,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                             "The partition info is empty, table may be dropped, txnid=" + transactionId);
                 }
                 backendToPartitionInfos = getCalcDeleteBitmapInfo(lockContext, null);
+                LOG.info("table_id={}, txn_id={}, backendToPartitionInfos: {}", tableList.stream()
+                        .map(Table::getId).collect(Collectors.toList()), transactionId, backendToPartitionInfos);
             }
             commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
                     mowTableList, backendToPartitionInfos);
