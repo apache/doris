@@ -384,11 +384,11 @@ public class PartitionInfo {
     }
 
     public void setStoragePolicy(long partitionId, String storagePolicy) {
-        readLock();
+        writeLock();
         try {
             idToStoragePolicy.put(partitionId, storagePolicy);
         } finally {
-            readUnlock();
+            writeUnlock();
         }
     }
 
