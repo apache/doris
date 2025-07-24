@@ -352,7 +352,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         rewritten = executor.rewrite(previousDay, context);
         Assertions.assertEquals(new DateV2Literal("2020-01-27"), rewritten);
 
-        previousDay = new previousDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 1, 31, 1, 1, 1)),
+        previousDay = new PreviousDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 1, 31, 1, 1, 1)),
                         StringLiteral.of("SAT"));
         rewritten = executor.rewrite(previousDay, context);
         Assertions.assertEquals(new DateV2Literal("2020-01-25"), rewritten);

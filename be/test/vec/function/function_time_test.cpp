@@ -2006,52 +2006,53 @@ TEST(VTimestampFunctionsTest, previous_day_test) {
     InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
     {
         DataSet data_set = {
-                {{std::string("2020-01-01"), std::string("MO")}, std::string("2020-01-06")},
-                {{std::string("2020-01-01"), std::string("MON")}, std::string("2020-01-06")},
-                {{std::string("2020-01-01"), std::string("MONDAY")}, std::string("2020-01-06")},
-                {{std::string("2020-01-01"), std::string("TU")}, std::string("2020-01-07")},
-                {{std::string("2020-01-01"), std::string("TUE")}, std::string("2020-01-07")},
-                {{std::string("2020-01-01"), std::string("TUESDAY")}, std::string("2020-01-07")},
-                {{std::string("2020-01-01"), std::string("WE")}, std::string("2020-01-08")},
-                {{std::string("2020-01-01"), std::string("WED")}, std::string("2020-01-08")},
-                {{std::string("2020-01-01"), std::string("WEDNESDAY")}, std::string("2020-01-08")},
-                {{std::string("2020-01-01"), std::string("TH")}, std::string("2020-01-02")},
-                {{std::string("2020-01-01"), std::string("THU")}, std::string("2020-01-02")},
-                {{std::string("2020-01-01"), std::string("THURSDAY")}, std::string("2020-01-02")},
-                {{std::string("2020-01-01"), std::string("FR")}, std::string("2020-01-03")},
-                {{std::string("2020-01-01"), std::string("FRI")}, std::string("2020-01-03")},
-                {{std::string("2020-01-01"), std::string("FRIDAY")}, std::string("2020-01-03")},
-                {{std::string("2020-01-01"), std::string("SA")}, std::string("2020-01-04")},
-                {{std::string("2020-01-01"), std::string("SAT")}, std::string("2020-01-04")},
-                {{std::string("2020-01-01"), std::string("SATURDAY")}, std::string("2020-01-04")},
-                {{std::string("2020-01-01"), std::string("SU")}, std::string("2020-01-05")},
-                {{std::string("2020-01-01"), std::string("SUN")}, std::string("2020-01-05")},
-                {{std::string("2020-01-01"), std::string("SUNDAY")}, std::string("2020-01-05")},
+                {{std::string("2020-01-01"), std::string("MO")}, std::string("2019-12-30")},
+                {{std::string("2020-01-01"), std::string("MON")}, std::string("2019-12-30")},
+                {{std::string("2020-01-01"), std::string("MONDAY")}, std::string("2019-12-30")},
+                {{std::string("2020-01-01"), std::string("TU")}, std::string("2019-12-31")},
+                {{std::string("2020-01-01"), std::string("TUE")}, std::string("2019-12-31")},
+                {{std::string("2020-01-01"), std::string("TUESDAY")}, std::string("2019-12-31")},
+                {{std::string("2020-01-01"), std::string("WE")}, std::string("2019-12-25")},
+                {{std::string("2020-01-01"), std::string("WED")}, std::string("2019-12-25")},
+                {{std::string("2020-01-01"), std::string("WEDNESDAY")}, std::string("2019-12-25")},
+                {{std::string("2020-01-01"), std::string("TH")}, std::string("2019-12-26")},
+                {{std::string("2020-01-01"), std::string("THU")}, std::string("2019-12-26")},
+                {{std::string("2020-01-01"), std::string("THURSDAY")}, std::string("2019-12-26")},
+                {{std::string("2020-01-01"), std::string("FR")}, std::string("2019-12-27")},
+                {{std::string("2020-01-01"), std::string("FRI")}, std::string("2019-12-27")},
+                {{std::string("2020-01-01"), std::string("FRIDAY")}, std::string("2019-12-27")},
+                {{std::string("2020-01-01"), std::string("SA")}, std::string("2019-12-28")},
+                {{std::string("2020-01-01"), std::string("SAT")}, std::string("2019-12-28")},
+                {{std::string("2020-01-01"), std::string("SATURDAY")}, std::string("2019-12-28")},
+                {{std::string("2020-01-01"), std::string("SU")}, std::string("2019-12-29")},
+                {{std::string("2020-01-01"), std::string("SUN")}, std::string("2019-12-29")},
+                {{std::string("2020-01-01"), std::string("SUNDAY")}, std::string("2019-12-29")},
                 {{Null(), std::string("MON")}, Null()}};
         static_cast<void>(check_function_all_arg_comb<DataTypeDateV2, true>(func_name, input_types,
                                                                             data_set));
     }
+
     {
         DataSet data_set = {
                 // date over month
-                {{std::string("2020-01-28"), std::string("MON")}, std::string("2020-02-03")},
-                {{std::string("2020-01-31"), std::string("SAT")}, std::string("2020-02-01")},
+                {{std::string("2020-01-28"), std::string("MON")}, std::string("2020-01-27")},
+                {{std::string("2020-01-31"), std::string("SAT")}, std::string("2020-01-25")},
 
                 // date over year
-                {{std::string("2020-12-28"), std::string("FRI")}, std::string("2021-01-01")},
-                {{std::string("2020-12-31"), std::string("THU")}, std::string("2021-01-07")},
+                {{std::string("2020-12-28"), std::string("FRI")}, std::string("2020-12-25")},
+                {{std::string("2020-12-31"), std::string("THU")}, std::string("2020-12-24")},
 
-                // leap year(29 Feb)
-                {{std::string("2020-02-27"), std::string("SAT")}, std::string("2020-02-29")},
-                {{std::string("2020-02-29"), std::string("MON")}, std::string("2020-03-02")},
+                // leap year (29 Feb)
+                {{std::string("2020-02-27"), std::string("SAT")}, std::string("2020-02-22")},
+                {{std::string("2020-02-29"), std::string("MON")}, std::string("2020-02-24")},
 
-                // non leap year(28 Feb)
-                {{std::string("2019-02-26"), std::string("THU")}, std::string("2019-02-28")},
-                {{std::string("2019-02-28"), std::string("SUN")}, std::string("2019-03-03")},
+                // non-leap year (28 Feb)
+                {{std::string("2019-02-26"), std::string("THU")}, std::string("2019-02-21")},
+                {{std::string("2019-02-28"), std::string("SUN")}, std::string("2019-02-24")},
 
                 // date over month
-                {{std::string("2020-04-29"), std::string("FRI")}, std::string("2020-05-01")},
-                {{std::string("2020-05-31"), std::string("MON")}, std::string("2020-06-01")}};
+                {{std::string("2020-04-29"), std::string("FRI")}, std::string("2020-04-24")},
+                {{std::string("2020-05-31"), std::string("MON")}, std::string("2020-05-25")}};
         static_cast<void>(check_function_all_arg_comb<DataTypeDateV2, true>(func_name, input_types,
                                                                             data_set));
     }
