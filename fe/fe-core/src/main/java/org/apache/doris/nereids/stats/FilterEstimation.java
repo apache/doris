@@ -56,6 +56,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.jetbrains.annotations.NotNull;
 
@@ -987,6 +988,21 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 * (keepNull ? 1 : leftNotNullSel * rightNotNullSel);
 
         Statistics updatedStatistics = context.statistics.withSel(notNullSel, numNull);
+        // update hot values
+        if (leftStats.getHotValues() != null && rightStats.getHotValues() != null) {
+            Map<Literal, Float> newHotValues = Maps.newHashMap();
+            for (Literal literal : leftStats.getHotValues().keySet()) {
+                if (rightStats.getHotValues().containsKey(literal)) {
+                    newHotValues.put(literal, Math.min(leftStats.getHotValues().get(literal),
+                            rightStats.getHotValues().get(literal)));
+                }
+            }
+            if (newHotValues.isEmpty()) {
+                intersectBuilder.setHotValues(null);
+            } else {
+                intersectBuilder.setHotValues(newHotValues);
+            }
+        }
         ColumnStatistic newLeftStatistics = intersectBuilder
                 .setAvgSizeByte(leftStats.avgSizeByte).build();
         ColumnStatistic newRightStatistics = intersectBuilder
