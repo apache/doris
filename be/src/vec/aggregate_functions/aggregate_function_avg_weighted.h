@@ -52,8 +52,13 @@ struct AggregateFunctionAvgWeightedData {
 #pragma clang fp reassociate(on)
 #endif
         if constexpr (is_decimal(T)) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Decimal type is not supported in avg_weighted");
+            if constexpr (T == TYPE_DECIMALV2) {
+                DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
+                data_sum = data_sum + (double(value) * weight_val);
+            } else {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Decimal type is not supported in avg_weighted");
+            }
         } else {
             data_sum = data_sum + (double(data_val) * weight_val);
         }
