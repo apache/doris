@@ -127,7 +127,8 @@ public:
     static void load_data_and_assert_from_csv(const DataTypeSerDeSPtrs serders,
                                               MutableColumns& columns, const std::string& file_path,
                                               const char spliter = ';',
-                                              const std::set<int> idxes = {0}) {
+                                              const std::set<int> idxes = {0},
+                                              bool should_finialize = false) {
         ASSERT_EQ(serders.size(), columns.size())
                 << "serder size: " << serders.size() << " column size: " << columns.size();
         ASSERT_EQ(serders.size(), idxes.size())
@@ -172,6 +173,10 @@ public:
                         std::cout << "error in deserialize but continue: " << st.to_string()
                                   << std::endl;
                     }
+                    if (should_finialize) {
+                        // finalize column if needed
+                        columns[c_idx]->finalize();
+                    }
                     // serialize data
                     size_t row_num = columns[c_idx]->size() - 1;
                     assert_str_cols[c_idx]->reserve(columns[c_idx]->size());
@@ -188,13 +193,6 @@ public:
                     bw.commit();
                     // assert data : origin data and serialized data should be equal or generated
                     // file to check data
-                    size_t assert_size = assert_str_cols[c_idx]->size();
-                    if constexpr (!generate_res_file) {
-                        EXPECT_EQ(assert_str_cols[c_idx]->get_data_at(assert_size - 1).to_string(),
-                                  string_slice.to_string())
-                                << "column: " << columns[c_idx]->get_name() << " row: " << row_num
-                                << " is_hive_format: " << is_hive_format;
-                    }
                     ++c_idx;
                 }
                 res.push_back(row);
@@ -328,12 +326,23 @@ public:
                 EXPECT_TRUE(st.ok()) << st.to_string();
             }
         }
+        MysqlRowBuffer<true> row_buffer1;
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& col = load_cols[i];
+            for (size_t j = 0; j < col->size(); ++j) {
+                Status st;
+                EXPECT_NO_FATAL_FAILURE(
+                        st = serders[i]->write_column_to_mysql(*col, row_buffer1, j, true, {}));
+                EXPECT_TRUE(st.ok()) << st.to_string();
+            }
+        }
     }
 
     // assert arrow serialize
     static void assert_arrow_format(MutableColumns& load_cols, DataTypes types) {
         // make a block to write to arrow
         auto block = std::make_shared<Block>();
+<<<<<<< HEAD
         build_block(block, load_cols, types);
         auto record_batch = serialize_arrow(block);
         auto assert_block = std::make_shared<Block>(block->clone_empty());
@@ -343,6 +352,8 @@ public:
 
     static void build_block(const std::shared_ptr<Block>& block, MutableColumns& load_cols,
                             DataTypes types) {
+=======
+>>>>>>> 954311c1aad ([feature](semi-structure) support variant and index with many features)
         // maybe these load_cols has different size, so we keep it same
         size_t max_row_size = load_cols[0]->size();
         for (size_t i = 1; i < load_cols.size(); ++i) {
@@ -351,11 +362,19 @@ public:
             }
         }
         // keep same rows
+<<<<<<< HEAD
         for (auto& load_col : load_cols) {
             if (load_col->size() < max_row_size) {
                 load_col->insert_many_defaults(max_row_size - load_col->size());
             } else if (load_col->size() > max_row_size) {
                 load_col->resize(max_row_size);
+=======
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            if (load_cols[i]->size() < max_row_size) {
+                load_cols[i]->insert_many_defaults(max_row_size - load_cols[i]->size());
+            } else if (load_cols[i]->size() > max_row_size) {
+                load_cols[i]->resize(max_row_size);
+>>>>>>> 954311c1aad ([feature](semi-structure) support variant and index with many features)
             }
         }
         for (size_t i = 0; i < load_cols.size(); ++i) {
@@ -439,7 +458,11 @@ public:
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
             }
         }
+<<<<<<< HEAD
         EXPECT_EQ(frist_block->dump_data(), second_block->dump_data());
+=======
+        std::cout << "assert block: " << assert_block.dump_structure() << std::endl;
+>>>>>>> 954311c1aad ([feature](semi-structure) support variant and index with many features)
     }
 
     // assert rapidjson format

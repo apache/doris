@@ -51,6 +51,7 @@ namespace doris::vectorized {
 class Arena;
 /** A column of map values.
   */
+
 class ColumnMap final : public COWHelper<IColumn, ColumnMap> {
 public:
     /** Create immutable column using immutable arguments. This arguments may be shared with other columns.

@@ -174,9 +174,10 @@ public:
             return Status::OK();
         }
         auto data_type_with_name = data_type_with_names[0];
-        if (iter->get_reader()->is_fulltext_index()) {
+        if (iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iter->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "Inverted index evaluate skipped, FULLTEXT reader can not support "
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
                     "array_overlap");
         }
         // in arrays_overlap param is array Field and const Field
@@ -213,6 +214,7 @@ public:
 
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         for (auto nested_query_val : query_val) {
@@ -225,7 +227,6 @@ public:
                     nested_param_type, &nested_query_val, query_param));
             param.query_value = query_param->get_value();
             param.roaring = std::make_shared<roaring::Roaring>();
-            ;
             RETURN_IF_ERROR(iter->read_from_index(&param));
             *roaring |= *param.roaring;
         }

@@ -99,6 +99,12 @@ public:
                                "Unimplemented get_field for BitMap");
     }
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field_with_data_type for BitMap");
+    }
+
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);
 
     static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);

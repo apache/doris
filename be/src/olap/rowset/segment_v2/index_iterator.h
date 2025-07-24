@@ -43,10 +43,10 @@ public:
     virtual ~IndexIterator() = default;
 
     virtual IndexType type() = 0;
-    virtual IndexReaderPtr get_reader() = 0;
+    virtual IndexReaderPtr get_reader(InvertedIndexReaderType type) = 0;
     virtual Status read_from_index(const IndexParam& param) = 0;
     virtual Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) = 0;
-    virtual bool has_null() = 0;
+    virtual Result<bool> has_null() = 0;
 
 protected:
     io::IOContext _io_ctx;

@@ -45,7 +45,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.VariantType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
@@ -766,7 +765,7 @@ public class StatisticsUtil {
         return type instanceof ArrayType
                 || type instanceof StructType
                 || type instanceof MapType
-                || type instanceof VariantType
+                || type.isVariantType()
                 || type instanceof AggStateType;
     }
 

@@ -217,6 +217,15 @@ public:
         return Field::create_field<T>(DecimalField<FieldType>(val, scale));
     }
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        const auto& decimal_column =
+                assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column);
+        Field field;
+        decimal_column.get(row_num, field);
+        return FieldWithDataType(std::move(field), precision, scale);
+    }
+
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
     bool equals(const IDataType& rhs) const override;
@@ -243,8 +252,6 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(precision, scale, nesting_level);
     };
-
-    /// Decimal specific
 
     [[nodiscard]] UInt32 get_precision() const override { return precision; }
     [[nodiscard]] UInt32 get_scale() const override { return scale; }

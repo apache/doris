@@ -31,6 +31,7 @@
 #include "runtime/define_primitive_type.h"
 #include "serde/data_type_string_serde.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -98,6 +99,7 @@ public:
             scalar_type->set_len(_len);
         }
     }
+
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
         IDataType::to_thrift(thrift_type, node);

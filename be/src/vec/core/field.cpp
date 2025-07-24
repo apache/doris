@@ -643,4 +643,35 @@ DECLARE_FUNCTION(create_concrete)
 DECLARE_FUNCTION(assign_concrete)
 
 #undef DECLARE_FUNCTION
+
+FieldWithDataType::FieldWithDataType(Field&& f, int p, int s, PrimitiveType base_scalar_type_id,
+                                     uint8_t n)
+        : field(std::make_unique<Field>(std::move(f))),
+          base_scalar_type_id(base_scalar_type_id),
+          num_dimensions(n),
+          precision(p),
+          scale(s) {}
+
+FieldWithDataType::FieldWithDataType(const Field& f) : field(std::make_unique<Field>(f)) {}
+
+FieldWithDataType::FieldWithDataType(Field&& f) : field(std::make_unique<Field>(std::move(f))) {}
+
+FieldWithDataType::FieldWithDataType(const FieldWithDataType& other)
+        : field(other.field ? std::make_unique<Field>(*other.field) : nullptr),
+          base_scalar_type_id(other.base_scalar_type_id),
+          num_dimensions(other.num_dimensions),
+          precision(other.precision),
+          scale(other.scale) {}
+
+FieldWithDataType& FieldWithDataType::operator=(const FieldWithDataType& other) {
+    if (this != &other) {
+        field = other.field ? std::make_unique<Field>(*other.field) : nullptr;
+        base_scalar_type_id = other.base_scalar_type_id;
+        num_dimensions = other.num_dimensions;
+        precision = other.precision;
+        scale = other.scale;
+    }
+    return *this;
+}
+
 } // namespace doris::vectorized
