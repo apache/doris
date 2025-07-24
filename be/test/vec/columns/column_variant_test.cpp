@@ -1864,224 +1864,220 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
     }
 
     // Test nested Array with Int64 in different ranges
-    { // Test nested Array with Int64 <= Int8::max()
-        {
-            Array inner_array;
-            inner_array.push_back(Int64(std::numeric_limits<Int8>::max()));
-            inner_array.push_back(Int64(std::numeric_limits<Int8>::max()));
+    {// Test nested Array with Int64 <= Int8::max()
+     {Array inner_array;
+    inner_array.push_back(Int64(std::numeric_limits<Int8>::max()));
+    inner_array.push_back(Int64(std::numeric_limits<Int8>::max()));
 
-            Array outer_array;
-            outer_array.push_back(inner_array);
-            outer_array.push_back(inner_array);
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
 
-            Field field(outer_array);
-            FieldInfo info;
-            schema_util::get_field_info(field, &info);
-            EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
-            EXPECT_FALSE(info.have_nulls);
-            EXPECT_FALSE(info.need_convert);
-            EXPECT_EQ(info.num_dimensions, 2);
-        }
+    Field field(outer_array);
+    FieldInfo info;
+    schema_util::get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
 
-        // Test nested Array with Int64 <= Int16::max()
-        {
-            Array inner_array;
-            inner_array.push_back(Int64(std::numeric_limits<Int16>::max()));
-            inner_array.push_back(Int64(std::numeric_limits<Int16>::max()));
+// Test nested Array with Int64 <= Int16::max()
+{
+    Array inner_array;
+    inner_array.push_back(Int64(std::numeric_limits<Int16>::max()));
+    inner_array.push_back(Int64(std::numeric_limits<Int16>::max()));
 
-            Array outer_array;
-            outer_array.push_back(inner_array);
-            outer_array.push_back(inner_array);
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
 
-            Field field(outer_array);
-            FieldInfo info;
-            schema_util::get_field_info(field, &info);
-            EXPECT_EQ(info.scalar_type_id, TypeIndex::Int16);
-            EXPECT_FALSE(info.have_nulls);
-            EXPECT_FALSE(info.need_convert);
-            EXPECT_EQ(info.num_dimensions, 2);
-        }
+    Field field(outer_array);
+    FieldInfo info;
+    schema_util::get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int16);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
 
-        // Test nested Array with Int64 <= Int32::max()
-        {
-            Array inner_array;
-            inner_array.push_back(Int64(std::numeric_limits<Int32>::max()));
-            inner_array.push_back(Int64(std::numeric_limits<Int32>::max()));
+// Test nested Array with Int64 <= Int32::max()
+{
+    Array inner_array;
+    inner_array.push_back(Int64(std::numeric_limits<Int32>::max()));
+    inner_array.push_back(Int64(std::numeric_limits<Int32>::max()));
 
-            Array outer_array;
-            outer_array.push_back(inner_array);
-            outer_array.push_back(inner_array);
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
 
-            Field field(outer_array);
-            FieldInfo info;
-            schema_util::get_field_info(field, &info);
-            EXPECT_EQ(info.scalar_type_id, TypeIndex::Int32);
-            EXPECT_FALSE(info.have_nulls);
-            EXPECT_FALSE(info.need_convert);
-            EXPECT_EQ(info.num_dimensions, 2);
-        }
+    Field field(outer_array);
+    FieldInfo info;
+    schema_util::get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int32);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
 
-        // Test nested Array with Int64 > Int32::max()
-        {
-            Array inner_array;
-            inner_array.push_back(Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
-            inner_array.push_back(Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
+// Test nested Array with Int64 > Int32::max()
+{
+    Array inner_array;
+    inner_array.push_back(Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
+    inner_array.push_back(Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
 
-            Array outer_array;
-            outer_array.push_back(inner_array);
-            outer_array.push_back(inner_array);
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
 
-            Field field(outer_array);
-            FieldInfo info;
-            schema_util::get_field_info(field, &info);
-            EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
-            EXPECT_FALSE(info.have_nulls);
-            EXPECT_FALSE(info.need_convert);
-            EXPECT_EQ(info.num_dimensions, 2);
-        }
-    } // namespace doris::vectorized
+    Field field(outer_array);
+    FieldInfo info;
+    schema_util::get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+} // namespace doris::vectorized
 
-    // Test nested Array with UInt64 in different ranges
-    { // Test nested Array with UInt64 <= UInt8::max()
-        {
-            Array inner_array;
-            inner_array.push_back(UInt64(std::numeric_limits<UInt8>::max()));
-            inner_array.push_back(UInt64(std::numeric_limits<UInt8>::max()));
+// Test nested Array with UInt64 in different ranges
+{// Test nested Array with UInt64 <= UInt8::max()
+ {Array inner_array;
+inner_array.push_back(UInt64(std::numeric_limits<UInt8>::max()));
+inner_array.push_back(UInt64(std::numeric_limits<UInt8>::max()));
 
-            Array outer_array;
-            outer_array.push_back(inner_array);
-            outer_array.push_back(inner_array);
+Array outer_array;
+outer_array.push_back(inner_array);
+outer_array.push_back(inner_array);
 
-            Field field(outer_array);
-            FieldInfo info;
-            schema_util::get_field_info(field, &info);
-            EXPECT_EQ(info.scalar_type_id, TypeIndex::Int16);
-            EXPECT_FALSE(info.have_nulls);
-            EXPECT_FALSE(info.need_convert);
-            EXPECT_EQ(info.num_dimensions, 2);
-        }
+Field field(outer_array);
+FieldInfo info;
+schema_util::get_field_info(field, &info);
+EXPECT_EQ(info.scalar_type_id, TypeIndex::Int16);
+EXPECT_FALSE(info.have_nulls);
+EXPECT_FALSE(info.need_convert);
+EXPECT_EQ(info.num_dimensions, 2);
+}
 
-        // Test nested Array with UInt64 <= UInt16::max()
-        {
-            Array inner_array;
-            inner_array.push_back(UInt64(std::numeric_limits<UInt16>::max()));
-            inner_array.push_back(UInt64(std::numeric_limits<UInt16>::max()));
+// Test nested Array with UInt64 <= UInt16::max()
+{
+    Array inner_array;
+    inner_array.push_back(UInt64(std::numeric_limits<UInt16>::max()));
+    inner_array.push_back(UInt64(std::numeric_limits<UInt16>::max()));
 
-            Array outer_array;
-            outer_array.push_back(inner_array);
-            outer_array.push_back(inner_array);
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
 
-            Field field(outer_array);
-            FieldInfo info;
-            schema_util::get_field_info(field, &info);
-            EXPECT_EQ(info.scalar_type_id, TypeIndex::Int32);
-            EXPECT_FALSE(info.have_nulls);
-            EXPECT_FALSE(info.need_convert);
-            EXPECT_EQ(info.num_dimensions, 2);
-        }
+    Field field(outer_array);
+    FieldInfo info;
+    schema_util::get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int32);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
 
-        // Test nested Array with UInt64 <= UInt32::max()
-        {
-            Array inner_array;
-            inner_array.push_back(UInt64(std::numeric_limits<UInt32>::max()));
-            inner_array.push_back(UInt64(std::numeric_limits<UInt32>::max()));
+// Test nested Array with UInt64 <= UInt32::max()
+{
+    Array inner_array;
+    inner_array.push_back(UInt64(std::numeric_limits<UInt32>::max()));
+    inner_array.push_back(UInt64(std::numeric_limits<UInt32>::max()));
 
-            Array outer_array;
-            outer_array.push_back(inner_array);
-            outer_array.push_back(inner_array);
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
 
-            Field field(outer_array);
-            FieldInfo info;
-            schema_util::get_field_info(field, &info);
-            EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
-            EXPECT_FALSE(info.have_nulls);
-            EXPECT_FALSE(info.need_convert);
-            EXPECT_EQ(info.num_dimensions, 2);
-        }
+    Field field(outer_array);
+    FieldInfo info;
+    schema_util::get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
 
-        // Test nested Array with UInt64 > UInt32::max()
-        {
-            Array inner_array;
-            inner_array.push_back(
-                    UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1));
-            inner_array.push_back(
-                    UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1));
+// Test nested Array with UInt64 > UInt32::max()
+{
+    Array inner_array;
+    inner_array.push_back(UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1));
+    inner_array.push_back(UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1));
 
-            Array outer_array;
-            outer_array.push_back(inner_array);
-            outer_array.push_back(inner_array);
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
 
-            Field field(outer_array);
-            FieldInfo info;
-            schema_util::get_field_info(field, &info);
-            EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
-            EXPECT_FALSE(info.have_nulls);
-            EXPECT_FALSE(info.need_convert);
-            EXPECT_EQ(info.num_dimensions, 2);
-        }
-    }
+    Field field(outer_array);
+    FieldInfo info;
+    schema_util::get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+}
 
-    // Test nested Array with mixed Int64 and UInt64
-    {
-        Array inner_array1;
-        inner_array1.push_back(Int64(std::numeric_limits<Int32>::max()));
-        inner_array1.push_back(Int64(std::numeric_limits<Int32>::max()));
+// Test nested Array with mixed Int64 and UInt64
+{
+    Array inner_array1;
+    inner_array1.push_back(Int64(std::numeric_limits<Int32>::max()));
+    inner_array1.push_back(Int64(std::numeric_limits<Int32>::max()));
 
-        Array inner_array2;
-        inner_array2.push_back(UInt64(std::numeric_limits<UInt32>::max()));
-        inner_array2.push_back(UInt64(std::numeric_limits<UInt32>::max()));
+    Array inner_array2;
+    inner_array2.push_back(UInt64(std::numeric_limits<UInt32>::max()));
+    inner_array2.push_back(UInt64(std::numeric_limits<UInt32>::max()));
 
-        Array outer_array;
-        outer_array.push_back(inner_array1);
-        outer_array.push_back(inner_array2);
+    Array outer_array;
+    outer_array.push_back(inner_array1);
+    outer_array.push_back(inner_array2);
 
-        Field field(outer_array);
-        FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
-        EXPECT_FALSE(info.have_nulls);
-        EXPECT_TRUE(info.need_convert);
-        EXPECT_EQ(info.num_dimensions, 2);
-    }
+    Field field(outer_array);
+    FieldInfo info;
+    schema_util::get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_TRUE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
 
-    // Test nested Array with nulls
-    {
-        Array inner_array1;
-        inner_array1.push_back(Int64(1));
-        inner_array1.push_back(Int64(2));
+// Test nested Array with nulls
+{
+    Array inner_array1;
+    inner_array1.push_back(Int64(1));
+    inner_array1.push_back(Int64(2));
 
-        Array inner_array2;
-        inner_array2.push_back(Int64(3));
-        inner_array2.push_back(Null());
+    Array inner_array2;
+    inner_array2.push_back(Int64(3));
+    inner_array2.push_back(Null());
 
-        Array outer_array;
-        outer_array.push_back(inner_array1);
-        outer_array.push_back(inner_array2);
+    Array outer_array;
+    outer_array.push_back(inner_array1);
+    outer_array.push_back(inner_array2);
 
-        Field field(outer_array);
-        FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
-        EXPECT_TRUE(info.have_nulls);
-        EXPECT_FALSE(info.need_convert);
-        EXPECT_EQ(info.num_dimensions, 2);
-    }
+    Field field(outer_array);
+    FieldInfo info;
+    schema_util::get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+    EXPECT_TRUE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
 
-    // Test Array with JsonbField
-    {
-        Slice slice("\"amory is cute\"");
-        JsonBinaryValue value;
-        Status st = value.from_json_string(slice.data, slice.size);
-        EXPECT_TRUE(st.ok()) << st.to_string();
-        JsonbField field(value.value(), value.size());
+// Test Array with JsonbField
+{
+    Slice slice("\"amory is cute\"");
+    JsonBinaryValue value;
+    Status st = value.from_json_string(slice.data, slice.size);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    JsonbField field(value.value(), value.size());
 
-        Array array;
-        array.push_back(field);
-        array.push_back(field);
-        FieldInfo info;
-        schema_util::get_field_info(array, &info);
-        EXPECT_EQ(info.scalar_type_id, TypeIndex::JSONB);
-    }
+    Array array;
+    array.push_back(field);
+    array.push_back(field);
+    FieldInfo info;
+    schema_util::get_field_info(array, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::JSONB);
+}
 }
 
 TEST_F(ColumnObjectTest, field_visitor) {
