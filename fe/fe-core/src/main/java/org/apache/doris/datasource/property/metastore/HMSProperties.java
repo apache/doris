@@ -128,7 +128,7 @@ public class HMSProperties extends AbstractHMSProperties {
             return;
         }
         origProps.forEach((key, value) -> {
-            if (key.startsWith("hive.")) {
+            if (key.startsWith("hive.") || key.startsWith("hadoop.")) {
                 userOverriddenHiveConfig.put(key, value);
             }
         });
