@@ -129,6 +129,75 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     }
 }
 
+PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
+    switch (type) {
+    case FieldType::OLAP_FIELD_TYPE_UNKNOWN:
+        return PrimitiveType::INVALID_TYPE;
+    case FieldType::OLAP_FIELD_TYPE_NONE:
+        return PrimitiveType::TYPE_NULL;
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
+        return PrimitiveType::TYPE_BOOLEAN;
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
+        return PrimitiveType::TYPE_TINYINT;
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+        return PrimitiveType::TYPE_SMALLINT;
+    case FieldType::OLAP_FIELD_TYPE_INT:
+        return PrimitiveType::TYPE_INT;
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
+        return PrimitiveType::TYPE_BIGINT;
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
+        return PrimitiveType::TYPE_LARGEINT;
+    case FieldType::OLAP_FIELD_TYPE_FLOAT:
+        return PrimitiveType::TYPE_FLOAT;
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
+        return PrimitiveType::TYPE_DOUBLE;
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+        return PrimitiveType::TYPE_VARCHAR;
+    case FieldType::OLAP_FIELD_TYPE_DATE:
+        return PrimitiveType::TYPE_DATE;
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
+        return PrimitiveType::TYPE_DATETIME;
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+        return PrimitiveType::TYPE_CHAR;
+    case FieldType::OLAP_FIELD_TYPE_STRUCT:
+        return PrimitiveType::TYPE_STRUCT;
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
+        return PrimitiveType::TYPE_ARRAY;
+    case FieldType::OLAP_FIELD_TYPE_MAP:
+        return PrimitiveType::TYPE_MAP;
+    case FieldType::OLAP_FIELD_TYPE_HLL:
+        return PrimitiveType::TYPE_HLL;
+    case FieldType::OLAP_FIELD_TYPE_BITMAP:
+        return PrimitiveType::TYPE_BITMAP;
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+        return PrimitiveType::TYPE_STRING;
+    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
+        return PrimitiveType::TYPE_QUANTILE_STATE;
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
+        return PrimitiveType::TYPE_DATEV2;
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+        return PrimitiveType::TYPE_DATETIMEV2;
+    case FieldType::OLAP_FIELD_TYPE_TIMEV2:
+        return PrimitiveType::TYPE_TIMEV2;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+        return PrimitiveType::TYPE_DECIMAL32;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+        return PrimitiveType::TYPE_DECIMAL64;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
+        return PrimitiveType::TYPE_DECIMAL128I;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        return PrimitiveType::TYPE_DECIMAL256;
+    case FieldType::OLAP_FIELD_TYPE_JSONB:
+        return PrimitiveType::TYPE_JSONB;
+    case FieldType::OLAP_FIELD_TYPE_VARIANT:
+        return PrimitiveType::TYPE_VARIANT;
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
+        return PrimitiveType::TYPE_AGG_STATE;
+    default:
+        return PrimitiveType::INVALID_TYPE;
+    }
+}
+
 FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     std::string upper_type_str = type_str;
     std::transform(type_str.begin(), type_str.end(), upper_type_str.begin(),

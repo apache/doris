@@ -292,9 +292,10 @@ ColumnPredicate* create_list_predicate(const TabletColumn& column, int index,
 inline ColumnPredicate* parse_to_predicate(const TabletColumn& column, uint32_t index,
                                            const TCondition& condition, vectorized::Arena& arena,
                                            bool opposite = false) {
+    PrimitiveType type = TabletColumn::get_primitive_type_by_field_type(column.type());
     if (to_lower(condition.condition_op) == "is") {
-        return new NullPredicate(index, to_lower(condition.condition_values[0]) == "null",
-                                 opposite);
+        return new NullPredicate(index, to_lower(condition.condition_values[0]) == "null", opposite,
+                                 type);
     }
 
     if ((condition.condition_op == "*=" || condition.condition_op == "!*=") &&
