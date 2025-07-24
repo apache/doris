@@ -396,7 +396,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             int previousPartitionBucketsNum = ret.second;
             if (olapTable.isAutoBucket()) {
                 int afterCheckAndFixBucketNum = checkAndFixAutoBucketCalcNumIsValid(bucketsNum,
-                        previousPartitionBucketsNum);
+                        previousPartitionBucketsNum, olapTable.getName(), partitionName);
                 if (afterCheckAndFixBucketNum > 0) {
                     bucketsNum = afterCheckAndFixBucketNum;
                 }
@@ -417,14 +417,17 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return addPartitionClauses;
     }
 
-    private int checkAndFixAutoBucketCalcNumIsValid(int currentPartitionNumBuckets, int previousPartitionNumBuckets) {
+    private int checkAndFixAutoBucketCalcNumIsValid(int currentPartitionNumBuckets, int previousPartitionNumBuckets,
+                                                    String tableName, String partitionName) {
         // previousPartitionBucketsNum == 0, some abnormal case, ignore it
         if (currentPartitionNumBuckets != 0) {
             // currentPartitionNumBuckets can be too big
             if (currentPartitionNumBuckets
                     > previousPartitionNumBuckets * (1 + Config.autobucket_out_of_bounds_percent_threshold)) {
-                LOG.warn("auto bucket calc num may be err, bigger than previous too much, plz check. "
+                LOG.warn("tabletName {}, partitionName {} auto bucket calc num may be err, "
+                        + "bigger than previous too much, plz check. "
                         + "calc bucket num {}, previous partition bucket num {}, percent {}",
+                        tableName, partitionName,
                         currentPartitionNumBuckets, previousPartitionNumBuckets,
                         Config.autobucket_out_of_bounds_percent_threshold);
                 return currentPartitionNumBuckets;
@@ -433,8 +436,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // If it is too small, the program will intervene. use previousPartitionNumBuckets
             if (currentPartitionNumBuckets
                     < previousPartitionNumBuckets * (1 - Config.autobucket_out_of_bounds_percent_threshold)) {
-                LOG.warn("auto bucket calc num may be err, smaller than previous too much, plz check. "
+                LOG.warn("tabletName {}, partitionName {} auto bucket calc num may be err, "
+                        + "smaller than previous too much, plz check. "
                         + "calc bucket num {}, previous partition bucket num {}, percent {}",
+                        tableName, partitionName,
                         currentPartitionNumBuckets, previousPartitionNumBuckets,
                         Config.autobucket_out_of_bounds_percent_threshold);
                 return previousPartitionNumBuckets;
