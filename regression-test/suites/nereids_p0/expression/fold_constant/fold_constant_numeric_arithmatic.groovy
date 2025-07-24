@@ -587,6 +587,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT gcd(32767, 32767), gcd(-32768, 16384)") // smallint_test
     testFoldConst("SELECT gcd(2147483647, 2), gcd(-1000000000, 500000000)") // int_test
     testFoldConst("SELECT gcd(9223372036854775807, 2), gcd(-9223372036854775808, 2)") //bigint_test
+    testFoldConst("SELECT gcd(-170141183460469231731687303715884105728, 85070591730234615865843651857942052864)") //largeint_test
+    testFoldConst("SELECT gcd(-170141183460469231731687303715884105727, -170141183460469231731687303715884105727)") //largeint_test
     testFoldConst("SELECT gcd(NULL, 4)") // NULL handling
 
 //Lcm function cases
@@ -599,6 +601,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT lcm(32767, 32767), lcm(-32768, 16384)") // smallint_test
     testFoldConst("SELECT lcm(2147483647, 2), lcm(-1000000000, 500000000), lcm(-2147483648, 1073741824)") // int_test
     testFoldConst("SELECT lcm(9223372036854775807, 200000000), lcm(-9223372036854775808, 20000000), lcm(-170141183460469231731687303715884105728, 85070591730234615865843651857942052864)") //bigint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105728, 2)") //largeint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105727, -170141183460469231731687303715884105727)") //largeint_test
     testFoldConst("SELECT lcm(NULL, 4)") // NULL handling
 
     // ensure divide for decimal v3 could return correct type when divider is 0

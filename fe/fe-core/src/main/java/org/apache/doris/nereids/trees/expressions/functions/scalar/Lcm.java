@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -45,13 +47,27 @@ public class Lcm extends ScalarFunction
             FunctionSignature.ret(IntegerType.INSTANCE).args(SmallIntType.INSTANCE, SmallIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(LargeIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE));
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE, LargeIntType.INSTANCE));
 
     /**
      * constructor with 2 arguments.
      */
     public Lcm(Expression arg0, Expression arg1) {
         super("lcm", arg0, arg1);
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        signature = super.computeSignature(signature);
+        DataType argType0 = getArgumentType(0);
+        // It is not possible to promote a bigint to a largeint, so a special judgment
+        // is required.
+        if (argType0.isBigIntType()) {
+            argType0 = LargeIntType.INSTANCE;
+        } else {
+            argType0 = argType0.promotion();
+        }
+        return signature.withArgumentTypes(false, Arrays.asList(argType0, argType0));
     }
 
     /**
