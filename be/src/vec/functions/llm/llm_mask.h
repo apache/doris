@@ -24,6 +24,13 @@ class FunctionLLMMask : public LLMFunction<FunctionLLMMask> {
 public:
     static constexpr auto name = "llm_mask";
 
+    static constexpr auto system_prompt =
+            "You are a data privacy assistant. You will identify and mask sensitive information in "
+            "the user's input according to the provided labels."
+            "The user will provide `Labels` and `Text`. For each label, you must hide all related "
+            "information in the Text and replace it with \"[MSKED]\". Only return the text after "
+            "masking.";
+
     static constexpr size_t number_of_arguments = 3;
 
     static FunctionPtr create() { return std::make_shared<FunctionLLMMask>(); }

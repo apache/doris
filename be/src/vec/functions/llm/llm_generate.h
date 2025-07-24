@@ -25,6 +25,11 @@ class FunctionLLMGenerate : public LLMFunction<FunctionLLMGenerate> {
 public:
     static constexpr auto name = "llm_generate";
 
+    static constexpr auto system_prompt =
+            "You are a creative text generator. You will generate a concise and highly relevant "
+            "response based on the user's input; aim for maximum brevity—cut every non-essential "
+            "word.";
+
     static constexpr size_t number_of_arguments = 2;
 
     static FunctionPtr create() { return std::make_shared<FunctionLLMGenerate>(); }

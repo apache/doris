@@ -64,12 +64,7 @@ Status FunctionLLMClassify::build_prompt(const Block& block, const ColumnNumbers
     }
     labels_str += "]";
 
-    prompt =
-            "Classify the text below into one of the following JSON encoded labels: " + labels_str +
-            "\n"
-            "Output only the label without any quotation marks or additional text.\n"
-            "Text: " +
-            text_str;
+    prompt = "Labels: " + labels_str + "\nText: " + text_str;
 
     return Status::OK();
 }
@@ -111,16 +106,7 @@ Status FunctionLLMExtract::build_prompt(const Block& block, const ColumnNumbers&
     }
     labels_str += "]";
 
-    prompt = "Extract a value for each of the JSON encoded labels from the text below.\n"
-             "For each label, only extract a single value.\n"
-             "Labels: " +
-             labels_str +
-             "\n"
-             "Output the extracted values as a JSON object.\n"
-             "Answer type like `label_1=info1, label2=info2, ...`"
-             "Output only the answer.\n"
-             "Text: " +
-             text_str;
+    prompt = "Labels: " + labels_str + "\nText: " + text_str;
 
     return Status::OK();
 }
@@ -129,12 +115,7 @@ Status FunctionLLMFixGrammar::build_prompt(const Block& block, const ColumnNumbe
                                            size_t row_num, std::string& prompt) const {
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
     StringRef text_ref = text_column.column->get_data_at(row_num);
-    std::string text = std::string(text_ref.data, text_ref.size);
-
-    prompt = "Fix the grammar in the text below.\n"
-             "Output only the corrected text.\n"
-             "Text: " +
-             text;
+    prompt = std::string(text_ref.data, text_ref.size);
 
     return Status::OK();
 }
@@ -143,12 +124,7 @@ Status FunctionLLMGenerate::build_prompt(const Block& block, const ColumnNumbers
                                          size_t row_num, std::string& prompt) const {
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
     StringRef text_ref = text_column.column->get_data_at(row_num);
-    std::string text = std::string(text_ref.data, text_ref.size);
-
-    prompt = "Generate a response based on the following input.\n"
-             "Output only the generated text.\n"
-             "Text: " +
-             text;
+    prompt = std::string(text_ref.data, text_ref.size);
 
     return Status::OK();
 }
@@ -190,15 +166,7 @@ Status FunctionLLMMask::build_prompt(const Block& block, const ColumnNumbers& ar
     }
     labels_str += "]";
 
-    prompt = "Identify and mask sensitive information in the text below.\n"
-             "For each of these categories, replace the entire value with \"[MASKED]\":\n"
-             "Labels: " +
-             labels_str +
-             "\n"
-             "Do not include any explanations or introductions in your response.\n"
-             "Return only the masked text.\n\n"
-             "Text: " +
-             text_str;
+    prompt = "Labels: " + labels_str + "\nText: " + text_str;
 
     return Status::OK();
 }
@@ -207,13 +175,7 @@ Status FunctionLLMSentiment::build_prompt(const Block& block, const ColumnNumber
                                           size_t row_num, std::string& prompt) const {
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
     StringRef text_ref = text_column.column->get_data_at(row_num);
-    std::string text = std::string(text_ref.data, text_ref.size);
-
-    prompt = "Classify the text below into one of the following labels: "
-             "[positive, negative, neutral, mixed]\n"
-             "Output only the label.\n"
-             "Text: " +
-             text;
+    prompt = std::string(text_ref.data, text_ref.size);
 
     return Status::OK();
 }
@@ -222,12 +184,7 @@ Status FunctionLLMSummarize::build_prompt(const Block& block, const ColumnNumber
                                           size_t row_num, std::string& prompt) const {
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
     StringRef text_ref = text_column.column->get_data_at(row_num);
-    std::string text = std::string(text_ref.data, text_ref.size);
-
-    prompt = "Summarize the following text in a concise way.\n"
-             "Return only the summary.\n"
-             "information:" +
-             text;
+    prompt = std::string(text_ref.data, text_ref.size);
 
     return Status::OK();
 }
@@ -244,8 +201,7 @@ Status FunctionLLMTranslate::build_prompt(const Block& block, const ColumnNumber
     StringRef lang = lang_column.column.get()->get_data_at(row_num);
     std::string target_lang = std::string(lang.data, lang.size);
 
-    prompt = "Translate the following text to " + target_lang +
-             ". Output only the translated text.\n" + "Text: " + text_str;
+    prompt = "Translate the following text to " + target_lang + ".\nText: " + text_str;
 
     return Status::OK();
 }

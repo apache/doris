@@ -125,7 +125,8 @@ public:
         std::vector<std::string> results;
 
         std::string request_body;
-        RETURN_IF_ERROR(_adapter->build_request_payload(inputs, request_body));
+        RETURN_IF_ERROR(_adapter->build_request_payload(
+                inputs, assert_cast<const Derived&>(*this).system_prompt, request_body));
 
         std::string response;
         RETURN_IF_ERROR(send_request_to_llm(request_body, response));

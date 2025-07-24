@@ -43,6 +43,7 @@ public:
 
     // Build request payload based on input text strings
     virtual Status build_request_payload(const std::vector<std::string>& inputs,
+                                         const char* const system_prompt,
                                          std::string& request_body) const = 0;
 
     // Parse response from LLM service and extract generated text results
@@ -68,6 +69,7 @@ public:
     }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
+                                 const char* const system_prompt,
                                  std::string& request_body) const override {
         rapidjson::Document doc;
         doc.SetObject();
@@ -87,6 +89,12 @@ public:
         }
 
         rapidjson::Value messages(rapidjson::kArrayType);
+        if (system_prompt && *system_prompt) {
+            rapidjson::Value sys_msg(rapidjson::kObjectType);
+            sys_msg.AddMember("role", "system", allocator);
+            sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
+            messages.PushBack(sys_msg, allocator);
+        }
         for (const auto& input : inputs) {
             rapidjson::Value message(rapidjson::kObjectType);
             message.AddMember("role", "user", allocator);
@@ -167,6 +175,7 @@ public:
     }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
+                                 const char* const system_prompt,
                                  std::string& request_body) const override {
         rapidjson::Document doc;
         doc.SetObject();
@@ -183,6 +192,12 @@ public:
         }
 
         rapidjson::Value messages(rapidjson::kArrayType);
+        if (system_prompt && *system_prompt) {
+            rapidjson::Value sys_msg(rapidjson::kObjectType);
+            sys_msg.AddMember("role", "system", allocator);
+            sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
+            messages.PushBack(sys_msg, allocator);
+        }
         for (const auto& input : inputs) {
             rapidjson::Value message(rapidjson::kObjectType);
             message.AddMember("role", "user", allocator);
@@ -269,10 +284,25 @@ public:
     }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
+                                 const char* const system_prompt,
                                  std::string& request_body) const override {
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
+
+        if (system_prompt && *system_prompt) {
+            rapidjson::Value system_instruction(rapidjson::kArrayType);
+            rapidjson::Value content(rapidjson::kObjectType);
+            rapidjson::Value parts(rapidjson::kArrayType);
+
+            rapidjson::Value part(rapidjson::kObjectType);
+            part.AddMember("text", rapidjson::Value(system_prompt, allocator), allocator);
+
+            parts.PushBack(part, allocator);
+            content.AddMember("parts", parts, allocator);
+            system_instruction.PushBack(content, allocator);
+            doc.AddMember("system_instruction", system_instruction, allocator);
+        }
 
         rapidjson::Value contents(rapidjson::kArrayType);
         for (const auto& input : inputs) {
@@ -352,6 +382,7 @@ public:
     }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
+                                 const char* const system_prompt,
                                  std::string& request_body) const override {
         rapidjson::Document doc;
         doc.SetObject();
@@ -368,6 +399,9 @@ public:
         } else {
             // Keep the default value, Anthropic requires this parameter
             doc.AddMember("max_tokens", 2048, allocator);
+        }
+        if (system_prompt && *system_prompt) {
+            doc.AddMember("system", rapidjson::Value(system_prompt, allocator), allocator);
         }
 
         rapidjson::Value messages(rapidjson::kArrayType);

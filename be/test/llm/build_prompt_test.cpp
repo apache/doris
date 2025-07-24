@@ -54,10 +54,7 @@ TEST(BuildPromptTest, LLMSummarizeTest) {
     Status status = function.build_prompt(block, arguments, 0, prompt);
 
     ASSERT_TRUE(status.ok());
-    ASSERT_EQ(prompt,
-              "Summarize the following text in a concise way.\n"
-              "Return only the summary.\n"
-              "information:This is a test document that needs to be summarized.");
+    ASSERT_EQ(prompt, "This is a test document that needs to be summarized.");
 }
 
 TEST(BuildPromptTest, LLMSentimentTest) {
@@ -78,11 +75,7 @@ TEST(BuildPromptTest, LLMSentimentTest) {
     Status status = function.build_prompt(block, arguments, 0, prompt);
 
     ASSERT_TRUE(status.ok());
-    ASSERT_EQ(prompt,
-              "Classify the text below into one of the following labels: "
-              "[positive, negative, neutral, mixed]\n"
-              "Output only the label.\n"
-              "Text: I really enjoyed the doris community!");
+    ASSERT_EQ(prompt, "I really enjoyed the doris community!");
 }
 
 TEST(BuildPromptTest, LLMMaskTest) {
@@ -122,11 +115,7 @@ TEST(BuildPromptTest, LLMMaskTest) {
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt,
-              "Identify and mask sensitive information in the text below.\n"
-              "For each of these categories, replace the entire value with \"[MASKED]\":\n"
               "Labels: [\"email\", \"phone\"]\n"
-              "Do not include any explanations or introductions in your response.\n"
-              "Return only the masked text.\n\n"
               "Text: My email is rarity@example.com and my phone is 123-456-7890");
 }
 
@@ -148,10 +137,7 @@ TEST(BuildPromptTest, LLMGenerateTest) {
     Status status = function.build_prompt(block, arguments, 0, prompt);
 
     ASSERT_TRUE(status.ok());
-    ASSERT_EQ(prompt,
-              "Generate a response based on the following input.\n"
-              "Output only the generated text.\n"
-              "Text: Write a poem about spring");
+    ASSERT_EQ(prompt, "Write a poem about spring");
 }
 
 TEST(BuildPromptTest, LLMFixGrammarTest) {
@@ -172,10 +158,7 @@ TEST(BuildPromptTest, LLMFixGrammarTest) {
     Status status = function.build_prompt(block, arguments, 0, prompt);
 
     ASSERT_TRUE(status.ok());
-    ASSERT_EQ(prompt,
-              "Fix the grammar in the text below.\n"
-              "Output only the corrected text.\n"
-              "Text: She don't like apples");
+    ASSERT_EQ(prompt, "She don't like apples");
 }
 
 TEST(BuildPromptTest, LLMExtractTest) {
@@ -214,12 +197,7 @@ TEST(BuildPromptTest, LLMExtractTest) {
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt,
-              "Extract a value for each of the JSON encoded labels from the text below.\n"
-              "For each label, only extract a single value.\n"
               "Labels: [\"name\", \"birthdate\"]\n"
-              "Output the extracted values as a JSON object.\n"
-              "Answer type like `label_1=info1, label2=info2, ...`"
-              "Output only the answer.\n"
               "Text: John Smith was born on January 15, 1980");
 }
 
@@ -259,9 +237,7 @@ TEST(BuildPromptTest, LLMClassifyTest) {
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt,
-              "Classify the text below into one of the following JSON encoded labels: "
-              "[\"positive\", \"negative\", \"neutral\"]\n"
-              "Output only the label without any quotation marks or additional text.\n"
+              "Labels: [\"positive\", \"negative\", \"neutral\"]\n"
               "Text: This product exceeded my expectations");
 }
 
@@ -287,8 +263,7 @@ TEST(BuildPromptTest, LLMTranslateTest) {
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt,
-              "Translate the following text to Spanish. "
-              "Output only the translated text.\n"
+              "Translate the following text to Spanish.\n"
               "Text: Hello world");
 }
 
