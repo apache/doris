@@ -21,6 +21,7 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
@@ -40,34 +41,42 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
 
-
+    private static final String[] ENDPOINT_NAMES = {
+            "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
+            "aws.glue.endpoint"
+    };
     @Setter
     @Getter
-    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
+    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
+            "aws.glue.endpoint"},
             required = false,
             description = "The endpoint of S3.")
     protected String endpoint = "";
 
     @Setter
     @Getter
-    @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION"},
+    @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
+            "aws.glue.region"},
             required = false,
             description = "The region of S3.")
     protected String region = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
+    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "glue.access_key",
+            "aws.glue.access-key", "client.credentials-provider.glue.access_key"},
             required = false,
             description = "The access key of S3.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "glue.secret_key",
+            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
             required = false,
             description = "The secret key of S3.")
     protected String secretKey = "";
@@ -126,27 +135,39 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * - s3express-usw2-az1.us-west-2.amazonaws.com => region = us-west-2 (S3 Directory Bucket Zonal)
      * <p>
      * Group(1), Group(2), or Group(3) in the pattern captures the region part if available.
+     * <p>
+     * For Glue https://docs.aws.amazon.com/general/latest/gr/glue.html
      */
-    private static final Pattern ENDPOINT_PATTERN = Pattern.compile(
-            "^(?:https?://)?(?:"
-                    + "s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)|" // Standard S3 endpoints
-                    + "s3express-control\\.([a-z0-9-]+)|"                  // Directory bucket regional
-                    + "s3express-[a-z0-9-]+\\.([a-z0-9-]+)"                // Directory bucket zonal
-                    + ")\\.amazonaws\\.com(?:/.*)?$",
-            Pattern.CASE_INSENSITIVE
-    );
+    private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(
+            Pattern.compile(
+                    "^(?:https?://)?(?:"
+                            + "s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)|" // Standard S3 endpoints
+                            + "s3express-control\\.([a-z0-9-]+)|"                  // Directory bucket regional
+                            + "s3express-[a-z0-9-]+\\.([a-z0-9-]+)"                // Directory bucket zonal
+                            + ")\\.amazonaws\\.com(?:/.*)?$",
+                    Pattern.CASE_INSENSITIVE),
+            Pattern.compile(
+                    "^(?:https?://)?glue(?:-fips)?\\.([a-z0-9-]+)\\.(amazonaws\\.com(?:\\.cn)?|api\\.aws)$",
+                    Pattern.CASE_INSENSITIVE));
 
     public S3Properties(Map<String, String> origProps) {
         super(Type.S3, origProps);
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        convertGlueToS3EndpointIfNeeded();
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
             return;
         }
         if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
+            return;
+        }
+        // When using vended credentials with a REST catalog, AK/SK are not provided directly.
+        // The credentials will be fetched from the REST service later.
+        // So we skip the credential check in this case.
+        if (Boolean.parseBoolean(origProps.getOrDefault("iceberg.rest.vended-credentials-enabled", "false"))) {
             return;
         }
         throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
@@ -160,7 +181,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * @return
      */
     protected static boolean guessIsMe(Map<String, String> origProps) {
-        String endpoint = Stream.of("s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT")
+        String endpoint = Stream.of(ENDPOINT_NAMES)
                 .map(origProps::get)
                 .filter(Objects::nonNull)
                 .findFirst()
@@ -182,7 +203,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     }
 
     @Override
-    protected Pattern endpointPattern() {
+    protected Set<Pattern> endpointPatterns() {
         return ENDPOINT_PATTERN;
     }
 
@@ -214,15 +235,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         options.set("s3.secret-key", s3SecretKey);
     }*/
 
-    public void toIcebergS3FileIOProperties(Map<String, String> catalogProps) {
-        // See S3FileIOProperties.java
-        catalogProps.put("s3.endpoint", endpoint);
-        catalogProps.put("s3.access-key-id", accessKey);
-        catalogProps.put("s3.secret-access-key", secretKey);
-        catalogProps.put("client.region", region);
-        catalogProps.put("s3.path-style-access", usePathStyle);
-    }
-
     @Override
     public Map<String, String> getBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration(s3ConnectionMaximum,
@@ -234,6 +246,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
         }
         return backendProperties;
+    }
+
+    private void convertGlueToS3EndpointIfNeeded() {
+        if (this.endpoint.contains("glue")) {
+            this.endpoint = "s3." + this.region + ".amazonaws.com";
+        }
     }
 
     @Override
@@ -262,5 +280,4 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 ProfileCredentialsProvider.create(),
                 InstanceProfileCredentialsProvider.create());
     }
-
 }

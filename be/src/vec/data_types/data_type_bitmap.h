@@ -64,6 +64,7 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     bool have_subtypes() const override { return false; }
     bool should_align_right_in_pretty_formats() const override { return false; }
@@ -102,8 +103,9 @@ public:
 
     static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);
 
+    using SerDeType = DataTypeBitMapSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeBitMapSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 };
 

@@ -54,7 +54,7 @@ Status NullPredicate::evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
 }
 
 Status NullPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                               InvertedIndexIterator* iterator, uint32_t num_rows,
+                               IndexIterator* iterator, uint32_t num_rows,
                                roaring::Roaring* bitmap) const {
     if (iterator->has_null()) {
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;

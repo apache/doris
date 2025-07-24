@@ -216,13 +216,27 @@ public:
         _failed_tablets[tablet_id] = reason;
     }
 
-private:
-    Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
-    Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
-    Status _send_with_retry(butil::IOBuf& buf);
-    void _handle_failure(butil::IOBuf& buf, Status st);
+    void add_bytes_written(size_t bytes) {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        _bytes_written += bytes;
+    }
 
-    Status _check_cancel() {
+    int64_t bytes_written() {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        return _bytes_written;
+    }
+
+    void add_write_tablets(int64_t tablet_id) {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        _write_tablets.insert(tablet_id);
+    }
+
+    std::set<int64_t> write_tablets() {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        return _write_tablets;
+    }
+
+    Status check_cancel() {
         DBUG_EXECUTE_IF("LoadStreamStub._check_cancel.cancelled",
                         { return Status::InternalError("stream cancelled"); });
         if (!_is_cancelled.load()) {
@@ -232,6 +246,12 @@ private:
         return Status::Cancelled("load_id={}, reason: {}", print_id(_load_id),
                                  _cancel_st.to_string_no_stack());
     }
+
+private:
+    Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
+    Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
+    Status _send_with_retry(butil::IOBuf& buf);
+    void _handle_failure(butil::IOBuf& buf, Status st);
 
 protected:
     std::atomic<bool> _is_init;
@@ -266,6 +286,10 @@ protected:
     std::unordered_map<int64_t, Status> _failed_tablets;
 
     bool _is_incremental = false;
+
+    bthread::Mutex _write_mutex;
+    std::set<int64_t> _write_tablets;
+    size_t _bytes_written = 0;
 };
 
 // a collection of LoadStreams connect to the same node

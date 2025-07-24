@@ -556,7 +556,7 @@ TEST_F(DorisFSDirectoryTest, FSIndexOutputV2FlushBufferError) {
     Status s = _fs->create_file(file_path, &writer);
     EXPECT_TRUE(s.ok());
 
-    auto* output = _directory->createOutputV2(writer.get());
+    auto output = _directory->createOutputV2(writer.get());
 
     // Write small chunks to fill the buffer and trigger flush
     // BufferedIndexOutput buffer size is 1024 bytes
@@ -573,7 +573,6 @@ TEST_F(DorisFSDirectoryTest, FSIndexOutputV2FlushBufferError) {
     } catch (...) {
         // Ignore close errors in cleanup
     }
-    delete output;
 }
 
 // Test 38: FSIndexOutputV2 flushBuffer with null writer
@@ -776,6 +775,70 @@ TEST_F(DorisFSDirectoryTest, FSIndexOutputFlushBufferWithNullBuffer) {
         // Ignore close errors
     }
     delete output;
+}
+
+TEST_F(DorisFSDirectoryTest, FSIndexInputReadInternalTimer) {
+    std::string file_name = "test_timer_file";
+    std::filesystem::path test_file = _tmp_dir / file_name;
+    std::ofstream ofs(test_file);
+    std::string content = "some test content for timer";
+    ofs << content;
+    ofs.close();
+
+    lucene::store::IndexInput* input1 = nullptr;
+    CLuceneError error;
+    bool result =
+            DorisFSDirectory::FSIndexInput::open(_fs, test_file.string().c_str(), input1, error);
+    EXPECT_TRUE(result);
+    ASSERT_NE(input1, nullptr);
+
+    auto* fs_input1 = dynamic_cast<DorisFSDirectory::FSIndexInput*>(input1);
+    ASSERT_NE(fs_input1, nullptr);
+
+    io::FileCacheStatistics stats;
+    fs_input1->_io_ctx.file_cache_stats = &stats;
+
+    auto* input2 = fs_input1->clone();
+    auto* fs_input2 = dynamic_cast<DorisFSDirectory::FSIndexInput*>(input2);
+    ASSERT_NE(fs_input2, nullptr);
+
+    fs_input2->_io_ctx.file_cache_stats = &stats;
+
+    uint8_t buffer1[10];
+    input1->readBytes(buffer1, 10);
+    EXPECT_GT(stats.inverted_index_io_timer, 0);
+    int64_t old_time = stats.inverted_index_io_timer;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    input2->seek(0);
+    uint8_t buffer2[10];
+    input2->readBytes(buffer2, 10);
+    EXPECT_GT(stats.inverted_index_io_timer, old_time);
+
+    _CLDELETE(input2);
+    _CLDELETE(input1);
+}
+
+TEST_F(DorisFSDirectoryTest, PrivGetFN) {
+    {
+        std::string file_name = "my_file.txt";
+        std::string result = _directory->priv_getFN(file_name);
+        std::string expected_path = (_tmp_dir / file_name).string();
+        EXPECT_EQ(result, expected_path);
+    }
+    {
+        std::string file_name = "";
+        std::string result = _directory->priv_getFN(file_name);
+        std::string expected_path = (_tmp_dir / file_name).string();
+        EXPECT_EQ(result, expected_path);
+    }
+    {
+        std::string file_name = "subdir/another_file.log";
+        std::string result = _directory->priv_getFN(file_name);
+        std::string expected_path = (_tmp_dir / file_name).string();
+        EXPECT_EQ(result, expected_path);
+    }
 }
 
 } // namespace doris::segment_v2

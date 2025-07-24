@@ -72,6 +72,24 @@ public:
         }
     }
 
+    JsonbWriterT<OS_TYPE>& operator=(JsonbWriterT<OS_TYPE>&& other) {
+        if (this != &other) {
+            if (alloc_) {
+                delete os_;
+            }
+            os_ = other.os_;
+            other.os_ = nullptr;
+            alloc_ = other.alloc_;
+            other.alloc_ = false;
+            hasHdr_ = other.hasHdr_;
+            kvState_ = other.kvState_;
+            str_pos_ = other.str_pos_;
+            first_ = other.first_;
+            stack_ = std::move(other.stack_);
+        }
+        return *this;
+    }
+
     void reset() {
         os_->clear();
         os_->seekp(0);
@@ -104,6 +122,10 @@ public:
     }
 
     bool writeValue(const JsonbValue* value) {
+        if (!value) {
+            return writeNull();
+        }
+
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
             if (!writeFirstHeader()) {
                 return false;

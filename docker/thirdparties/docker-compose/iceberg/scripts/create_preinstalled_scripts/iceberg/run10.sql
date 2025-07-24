@@ -1,4 +1,4 @@
-
+create database if not exists demo.test_db;
 use demo.test_db;
 
 CREATE TABLE sc_drop_add_orc (

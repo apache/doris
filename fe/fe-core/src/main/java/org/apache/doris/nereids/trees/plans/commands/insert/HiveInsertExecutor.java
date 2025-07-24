@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -64,9 +64,7 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
     protected void doBeforeCommit() throws UserException {
         HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
         loadedRows = transaction.getUpdateCnt();
-        String dbName = ((HMSExternalTable) table).getDbName();
-        String tbName = table.getName();
-        transaction.finishInsertTable(new SimpleTableInfo(dbName, tbName));
+        transaction.finishInsertTable(((ExternalTable) table).getOrBuildNameMapping());
     }
 
     @Override

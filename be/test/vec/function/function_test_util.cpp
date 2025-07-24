@@ -295,6 +295,7 @@ bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr, c
                           bool datetime_is_string_format) {
     bool result = true;
     date_cast::TypeToValueTypeV<DataType> date_value;
+    //TODO: remove string format. only accept value input.
     if (datetime_is_string_format) {
         // accept cell of type string
         auto datetime_str = any_cast<std::string>(cell);
@@ -492,7 +493,8 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             TimeValue::TimeType time_value = 0;
             if (datetime_is_string_format) {
                 auto value = any_cast<std::string>(cell);
-                RETURN_IF_FALSE((TimeValue::try_as_time(value.c_str(), value.size(), time_value)));
+                auto serde = DataTypeTimeV2SerDe(type_ptr->get_scale());
+                RETURN_IF_FALSE(serde._from_string(value, time_value));
             } else {
                 time_value = any_cast<TimeValue::TimeType>(cell);
             }

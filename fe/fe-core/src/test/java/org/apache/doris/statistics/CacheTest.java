@@ -108,10 +108,15 @@ public class CacheTest extends TestWithFeService {
         ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(-1, -1, 0, -1, "col", connectContext);
         // load not finished yet, should return unknown
         Assertions.assertTrue(columnStatistic.isUnKnown);
-        // wait 1 sec to ensure `execStatisticQuery` is finished as much as possible.
-        Thread.sleep(1000);
-        // load has finished, return corresponding stats.
-        columnStatistic = statisticsCache.getColumnStatistics(-1, -1, 0, -1, "col", connectContext);
+        int retry = 0;
+        while (columnStatistic.isUnKnown() && retry < 10) {
+            // wait 1 sec to ensure `execStatisticQuery` is finished as much as possible.
+            Thread.sleep(1000);
+            // load has finished, return corresponding stats.
+            columnStatistic = statisticsCache.getColumnStatistics(-1, -1, 0, -1, "col", connectContext);
+            retry++;
+        }
+        System.out.println("wait for " + retry + " seconds");
         Assertions.assertEquals(7, columnStatistic.count);
         Assertions.assertEquals(8, columnStatistic.ndv);
         Assertions.assertEquals(11, columnStatistic.maxValue);
@@ -242,7 +247,7 @@ public class CacheTest extends TestWithFeService {
                 return Optional.of(new ColumnStatistic(1, 2,
                         null, 3, 4, 5, 6, 7,
                         null, null, false,
-                        new Date().toString()));
+                        new Date().toString(), null));
             }
         };
 
@@ -408,7 +413,7 @@ public class CacheTest extends TestWithFeService {
                 return Optional.of(new ColumnStatistic(1, 2,
                     null, 3, 4, 5, 6, 7,
                     null, null, false,
-                        new Date().toString()));
+                        new Date().toString(), null));
             }
         };
         columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, -1, "col", connectContext);

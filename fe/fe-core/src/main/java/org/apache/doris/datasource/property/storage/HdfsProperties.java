@@ -74,6 +74,10 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             description = "The xml files of Hadoop configuration.")
     protected String hadoopConfigResources = "";
 
+    private String dfsNameServices;
+
+    private static final String DFS_NAME_SERVICES_KEY = "dfs.nameservices";
+
     private Map<String, String> backendConfigProperties;
 
     private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
@@ -89,7 +93,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private static final List<String> HDFS_PROPERTIES_KEYS = Arrays.asList("hdfs.authentication.type",
             "hadoop.security.authentication", "hadoop.username", "fs.defaultFS",
-            "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", "dfs.nameservices",
+            "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", DFS_NAME_SERVICES_KEY,
             "hdfs.config.resources");
 
     public HdfsProperties(Map<String, String> origProps) {
@@ -103,14 +107,11 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (HdfsPropertiesUtils.validateUriIsHdfsUri(props, supportSchema)) {
             return true;
         }
-        if (HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)) {
-            return true;
-        }
-        return false;
+        return HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey);
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
@@ -165,6 +166,10 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (StringUtils.isNotBlank(hadoopUsername)) {
             conf.set("hadoop.username", hadoopUsername);
         }
+        this.dfsNameServices = conf.get(DFS_NAME_SERVICES_KEY, "");
+        if (StringUtils.isBlank(fsDefaultFS)) {
+            this.fsDefaultFS = conf.get(HDFS_DEFAULT_FS_NAME, "");
+        }
         this.configuration = conf;
     }
 
@@ -181,6 +186,10 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         return this.configuration;
     }
 
+    public boolean isKerberos() {
+        return "kerberos".equalsIgnoreCase(hdfsAuthenticationType);
+    }
+
     //fixme be should send use input params
     @Override
     public Map<String, String> getBackendConfigProperties() {
@@ -189,12 +198,13 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     @Override
     public String validateAndNormalizeUri(String url) throws UserException {
-        return HdfsPropertiesUtils.convertUrlToFilePath(url, supportSchema);
+        return HdfsPropertiesUtils.convertUrlToFilePath(url, this.dfsNameServices, this.fsDefaultFS, supportSchema);
+
     }
 
     @Override
     public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
-        return HdfsPropertiesUtils.validateAndGetUri(loadProps, supportSchema);
+        return HdfsPropertiesUtils.validateAndGetUri(loadProps, this.dfsNameServices, this.fsDefaultFS, supportSchema);
     }
 
     @Override

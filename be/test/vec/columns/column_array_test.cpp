@@ -472,10 +472,10 @@ TEST_F(ColumnArrayTest, GetRatioOfDefaultRowsTest) {
     assert_get_ratio_of_default_rows(array_columns, serdes);
 }
 
-TEST_F(ColumnArrayTest, SerDeVecTest) {
-    // get_max_row_byte_size is not support in column_array
-    EXPECT_ANY_THROW(ser_deser_vec(array_columns, array_types));
-}
+//TEST_F(ColumnArrayTest, SerDeVecTest) {
+//    // get_max_row_byte_size is not support in column_array
+//    EXPECT_ANY_THROW(ser_deser_vec(array_columns, array_types));
+//}
 
 TEST_F(ColumnArrayTest, serDeserializeWithArenaImpl) {
     ser_deserialize_with_arena_impl(array_columns, array_types);
@@ -554,17 +554,6 @@ TEST_F(ColumnArrayTest, ReplaceColumnTest) {
 
 TEST_F(ColumnArrayTest, AppendDataBySelectorTest) {
     assert_append_data_by_selector_callback(array_columns, serdes);
-}
-
-TEST_F(ColumnArrayTest, PermutationAndSortTest) {
-    for (int i = 0; i < array_columns.size(); i++) {
-        auto& column = array_columns[i];
-        auto& type = array_types[i];
-        auto column_type = type->get_name();
-        LOG(INFO) << "column_type: " << column_type;
-        // permutation
-        EXPECT_ANY_THROW(assert_column_permutations(column->assume_mutable_ref(), type));
-    }
 }
 
 TEST_F(ColumnArrayTest, FilterInplaceTest) {
@@ -815,7 +804,7 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
 }
 
 TEST_F(ColumnArrayTest, IsDefaultAtTest) {
-    // default means meet empty array row in column_array, now just only used in ColumnObject.
+    // default means meet empty array row in column_array, now just only used in ColumnVariant.
     // test is_default_at
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(

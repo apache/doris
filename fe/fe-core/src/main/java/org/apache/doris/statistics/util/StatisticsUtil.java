@@ -37,6 +37,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
@@ -63,8 +64,10 @@ import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -87,6 +90,7 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
@@ -111,6 +115,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -232,7 +237,6 @@ public class StatisticsUtil {
         sessionVariable.enableSqlCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setStartTime();
         if (Config.isCloudMode()) {
@@ -502,6 +506,9 @@ public class StatisticsUtil {
     }
 
     public static boolean statsTblAvailable() {
+        if (!InternalSchemaInitializer.isStatsTableSchemaValid()) {
+            return false;
+        }
         String dbName = FeConstants.INTERNAL_DB_NAME;
         List<OlapTable> statsTbls = new ArrayList<>();
         try {
@@ -1262,5 +1269,45 @@ public class StatisticsUtil {
 
     public static boolean canCollect() {
         return enableAutoAnalyze() && inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
+    }
+
+    /**
+     * Get the map of column literal value and its row count percentage in the table.
+     * The stringValues is like:
+     * value1 :percent1 ;value2 :percent2 ;value3 :percent3
+     * @return Map of LiteralExpr -> percentage.
+     */
+    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type) {
+        if (stringValues == null) {
+            return null;
+        }
+        try {
+            LinkedHashMap<Literal, Float> ret = Maps.newLinkedHashMap();
+            for (String oneRow : stringValues.split(" ;")) {
+                String[] oneRowSplit = oneRow.split(" :");
+                float value = Float.parseFloat(oneRowSplit[1]);
+                if (value > SessionVariable.getHotValueThreshold()) {
+                    org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
+                            new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
+                                    oneRowSplit[0].replaceAll("\\\\:", ":")
+                                            .replaceAll("\\\\;", ";"));
+                    DataType dataType = DataType.legacyTypeToNereidsType().get(type.getPrimitiveType());
+                    if (dataType != null) {
+                        try {
+                            Literal hotValue = (Literal) stringLiteral.checkedCastTo(dataType);
+                            ret.put(hotValue, value);
+                        } catch (Exception e) {
+                            LOG.info("Failed to parse hot value [{}]. {}", oneRowSplit[0], e.getMessage());
+                        }
+                    }
+                }
+            }
+            if (!ret.isEmpty()) {
+                return ret;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to parse hot values [{}]. {}", stringValues, e.getMessage());
+        }
+        return null;
     }
 }

@@ -21,10 +21,9 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <string>
 
 #include "common/status.h"
@@ -32,18 +31,13 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
-#include "vec/data_types/serde/data_type_date64_serde.h"
+#include "vec/data_types/serde/data_type_date_or_datetime_serde.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class BufferWritable;
 class ReadBuffer;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 class DataTypeDate final : public DataTypeNumberBase<PrimitiveType::TYPE_DATE> {
 public:
@@ -87,8 +81,9 @@ public:
 
     MutableColumnPtr create_column() const override;
 
+    using SerDeType = DataTypeDateSerDe<TYPE_DATE>;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDate64SerDe<TYPE_DATE>>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 };
 #include "common/compile_check_end.h"

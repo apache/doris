@@ -18,7 +18,6 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
-import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -375,9 +374,8 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             throw new DdlException("Alter workload group should contain at least one property");
         }
 
-        String cgName = cg.getName();
         WorkloadGroup newWorkloadGroup;
-        WorkloadGroupKey wgKey = WorkloadGroupKey.get(cgName, workloadGroupName);
+        WorkloadGroupKey wgKey = WorkloadGroupKey.get(cg.getId(), workloadGroupName);
         writeLock();
         try {
             // get 0 idx here because there can only be one wg in cg with specify wg name.
@@ -386,7 +384,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                 throw new RuntimeException(
                         "Unexpected error: find " + ret.size() + " workload group " + workloadGroupName
                                 + " in compute group "
-                                + cgName);
+                                + cg.getName());
             }
             WorkloadGroup currentWorkloadGroup = ret.get(0);
             newWorkloadGroup = WorkloadGroup.copyAndUpdate(currentWorkloadGroup, properties);
@@ -397,11 +395,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         } finally {
             writeUnlock();
         }
-        LOG.info("Alter workload group {} for compute group {} success: {}", newWorkloadGroup, cgName);
-    }
-
-    public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
-        throw new DdlException("Unsupported drop statement.");
+        LOG.info("Alter workload group {} for compute group {} success: {}", newWorkloadGroup, cg.getName());
     }
 
     public void dropWorkloadGroup(String computeGroup, String workloadGroupName, boolean ifExists)

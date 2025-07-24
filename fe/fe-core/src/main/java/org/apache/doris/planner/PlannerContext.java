@@ -20,74 +20,13 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.InsertStmt;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.thrift.TQueryOptions;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 /**
  * Contains the analysis result of a query as well as planning-specific
  * parameters and state such as plan-node and plan-fragment id generators.
  */
 public class PlannerContext {
-    private static final Logger LOG = LogManager.getLogger(PlannerContext.class);
 
     // Estimate of the overhead imposed by storing data in a hash tbl;
     // used for determining whether a broadcast join is feasible.
     public static final double HASH_TBL_SPACE_OVERHEAD = 1.1;
-
-    private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
-    private final IdGenerator<PlanFragmentId> fragmentIdGenerator =
-            PlanFragmentId.createGenerator();
-
-    // TODO(zc) private final TQueryCtx queryCtx_;
-    // TODO(zc) private final AnalysisContext.AnalysisResult analysisResult_;
-    private final Analyzer analyzer;
-    private final TQueryOptions queryOptions;
-    private final QueryStmt queryStmt;
-    private final StatementBase statement;
-
-    public PlannerContext(Analyzer analyzer, QueryStmt queryStmt, TQueryOptions queryOptions, StatementBase statement) {
-        this.analyzer = analyzer;
-        this.queryStmt = queryStmt;
-        this.queryOptions = queryOptions;
-        this.statement = statement;
-    }
-
-    public QueryStmt getQueryStmt() {
-        return queryStmt;
-    }
-
-    public StatementBase getStatement() {
-        return statement;
-    }
-
-    public TQueryOptions getQueryOptions() {
-        return queryOptions;
-    } // getRootAnalyzer().getQueryOptions(); }
-
-    public Analyzer getRootAnalyzer() {
-        return analyzer;
-    } // analysisResult_.getAnalyzer(); }
-
-    public boolean isSingleNodeExec() {
-        return getQueryOptions().num_nodes == 1;
-    }
-
-    public PlanNodeId getNextNodeId() {
-        return nodeIdGenerator.getNextId();
-    }
-
-    public PlanFragmentId getNextFragmentId() {
-        return fragmentIdGenerator.getNextId();
-    }
-
-    public boolean isInsert() {
-        return statement instanceof InsertStmt;
-    }
 }

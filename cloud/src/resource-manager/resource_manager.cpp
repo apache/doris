@@ -19,6 +19,7 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <mutex>
 #include <regex>
 #include <sstream>
 
@@ -26,9 +27,9 @@
 #include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
 
@@ -111,9 +112,10 @@ int ResourceManager::init() {
         key0.push_back('\x00'); // Update to next smallest key for iteration
     } while (it->more());
 
+    std::unique_lock l(mtx_);
     for (auto& [inst_id, inst] : instances) {
         for (auto& c : inst.clusters()) {
-            add_cluster_to_index(inst_id, c);
+            add_cluster_to_index_no_lock(inst_id, c);
         }
     }
 
@@ -444,7 +446,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
         return std::make_pair(cast_as<ErrCategory::COMMIT>(err), msg);
     }
 
-    add_cluster_to_index(instance_id, cluster.cluster);
+    refresh_instance(instance_id, instance);
 
     return std::make_pair(MetaServiceCode::OK, "");
 }
@@ -524,7 +526,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
             if (i.type() == ClusterPB::SQL) {
                 for (auto& fe_node : i.nodes()) {
                     // check drop fe cluster
-                    if (!is_sql_node_exceeded_safe_drop_time(fe_node)) {
+                    if (config::enable_check_fe_drop_in_safe_time &&
+                        !is_sql_node_exceeded_safe_drop_time(fe_node)) {
                         ss << "drop fe cluster not in safe time, try later, cluster="
                            << i.DebugString();
                         msg = ss.str();
@@ -575,7 +578,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
         return std::make_pair(cast_as<ErrCategory::COMMIT>(err), msg);
     }
 
-    remove_cluster_from_index(instance_id, to_del);
+    refresh_instance(instance_id, new_instance);
 
     return std::make_pair(MetaServiceCode::OK, "");
 }
@@ -710,16 +713,9 @@ std::string ResourceManager::update_cluster(
     LOG(INFO) << "update cluster instance_id=" << instance_id
               << " instance json=" << proto_to_json(instance);
 
-    update_cluster_to_index(instance_id, original, now);
+    refresh_instance(instance_id, instance);
 
     return msg;
-}
-
-void ResourceManager::update_cluster_to_index(const std::string& instance_id,
-                                              const ClusterPB& original, const ClusterPB& now) {
-    std::lock_guard l(mtx_);
-    remove_cluster_from_index_no_lock(instance_id, original);
-    add_cluster_to_index_no_lock(instance_id, now);
 }
 
 void ResourceManager::add_cluster_to_index_no_lock(const std::string& instance_id,
@@ -743,39 +739,6 @@ void ResourceManager::add_cluster_to_index_no_lock(const std::string& instance_i
                      << " node_info=" << proto_to_json(i);
         node_info_.insert({i.cloud_unique_id(), std::move(n)});
     }
-}
-
-void ResourceManager::add_cluster_to_index(const std::string& instance_id, const ClusterPB& c) {
-    std::lock_guard l(mtx_);
-    add_cluster_to_index_no_lock(instance_id, c);
-}
-
-void ResourceManager::remove_cluster_from_index_no_lock(const std::string& instance_id,
-                                                        const ClusterPB& c) {
-    std::string cluster_name = c.cluster_name();
-    std::string cluster_id = c.cluster_id();
-    int cnt = 0;
-    for (auto it = node_info_.begin(); it != node_info_.end();) {
-        auto& [_, n] = *it;
-        if (n.instance_id != instance_id || n.cluster_id != cluster_id ||
-            n.cluster_name != cluster_name) {
-            ++it;
-            continue;
-        }
-        ++cnt;
-        LOG(INFO) << "remove node from index, instance_id=" << instance_id
-                  << " role=" << static_cast<int>(n.role) << " cluster_name=" << n.cluster_name
-                  << " cluster_id=" << n.cluster_id << " node_info=" << proto_to_json(n.node_info);
-        it = node_info_.erase(it);
-    }
-    LOG(INFO) << cnt << " nodes removed from index, cluster_id=" << cluster_id
-              << " cluster_name=" << cluster_name << " instance_id=" << instance_id;
-}
-
-void ResourceManager::remove_cluster_from_index(const std::string& instance_id,
-                                                const ClusterPB& c) {
-    std::lock_guard l(mtx_);
-    remove_cluster_from_index_no_lock(instance_id, c);
 }
 
 std::pair<TxnErrorCode, std::string> ResourceManager::get_instance(std::shared_ptr<Transaction> txn,
@@ -1158,7 +1121,8 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         }
 
         // check drop fe node
-        if (ClusterPB::SQL == c.type() && !is_sql_node_exceeded_safe_drop_time(copy_node)) {
+        if (ClusterPB::SQL == c.type() && config::enable_check_fe_drop_in_safe_time &&
+            !is_sql_node_exceeded_safe_drop_time(copy_node)) {
             s << "drop fe node not in safe time, try later, node=" << copy_node.DebugString();
             err = s.str();
             LOG(WARNING) << err;
@@ -1209,9 +1173,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         return msg;
     }
 
-    for (auto& it : change_from_to_clusters) {
-        update_cluster_to_index(instance_id, it.first, it.second);
-    }
+    refresh_instance(instance_id, instance);
 
     return "";
 }
@@ -1243,9 +1205,15 @@ std::pair<MetaServiceCode, std::string> ResourceManager::refresh_instance(
         msg = m0;
         return ret0;
     }
-    std::vector<ClusterInfo> clusters;
-    clusters.reserve(instance.clusters_size());
 
+    refresh_instance(instance_id, instance);
+    LOG(INFO) << "finish refreshing instance, instance_id=" << instance_id << " seq=" << seq;
+
+    return ret0;
+}
+
+void ResourceManager::refresh_instance(const std::string& instance_id,
+                                       const InstanceInfoPB& instance) {
     std::lock_guard l(mtx_);
     for (auto i = node_info_.begin(); i != node_info_.end();) {
         if (i->second.instance_id != instance_id) {
@@ -1257,8 +1225,37 @@ std::pair<MetaServiceCode, std::string> ResourceManager::refresh_instance(
     for (int i = 0; i < instance.clusters_size(); ++i) {
         add_cluster_to_index_no_lock(instance_id, instance.clusters(i));
     }
-    LOG(INFO) << "finish refreshing instance, instance_id=" << instance_id << " seq=" << seq;
-    return ret0;
+
+    if (instance.has_multi_version_status()) {
+        instance_multi_version_status_[instance_id] = instance.multi_version_status();
+    } else {
+        instance_multi_version_status_.erase(instance_id);
+    }
+}
+
+bool ResourceManager::is_version_read_enabled(std::string_view instance_id) const {
+    MultiVersionStatus status = get_instance_multi_version_status(instance_id);
+    return status == MultiVersionStatus::MULTI_VERSION_READ_WRITE ||
+           status == MultiVersionStatus::MULTI_VERSION_ENABLED;
+}
+
+bool ResourceManager::is_version_write_enabled(std::string_view instance_id) const {
+    MultiVersionStatus status = get_instance_multi_version_status(instance_id);
+    return status == MultiVersionStatus::MULTI_VERSION_WRITE_ONLY ||
+           status == MultiVersionStatus::MULTI_VERSION_READ_WRITE ||
+           status == MultiVersionStatus::MULTI_VERSION_ENABLED;
+}
+
+MultiVersionStatus ResourceManager::get_instance_multi_version_status(
+        std::string_view instance_id) const {
+    std::shared_lock lock(mtx_);
+    auto it = instance_multi_version_status_.find(std::string(instance_id));
+    if (it != instance_multi_version_status_.end()) {
+        return it->second;
+    }
+
+    // Default to disabled if not found or not set
+    return MultiVersionStatus::MULTI_VERSION_DISABLED;
 }
 
 } // namespace doris::cloud

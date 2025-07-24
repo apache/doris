@@ -42,6 +42,15 @@ class IColumn;
 } // namespace vectorized
 } // namespace doris
 
+// FIXME: This file contains widespread UB due to unsafe type-punning casts.
+//        These must be properly refactored to eliminate reliance on reinterpret-style behavior.
+//
+// Temporarily suppress GCC 15+ warnings on user-defined type casts to allow build to proceed.
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-user-defined"
+#endif
+
 namespace doris::vectorized {
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
@@ -253,3 +262,7 @@ DataTypePtr create_datetimev2(UInt64 scale_value) {
 }
 
 } // namespace doris::vectorized
+
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic pop
+#endif

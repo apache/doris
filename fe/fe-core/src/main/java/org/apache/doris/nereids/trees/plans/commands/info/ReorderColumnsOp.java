@@ -23,7 +23,7 @@ import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -62,7 +62,9 @@ public class ReorderColumnsOp extends AlterTableOp {
             throw new AnalysisException("No column in reorder columns clause.");
         }
 
-        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+        TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrDdlException(tableName.getCtl())
+                .getDbOrDdlException(tableName.getDb())
                 .getTableOrDdlException(tableName.getTbl());
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
