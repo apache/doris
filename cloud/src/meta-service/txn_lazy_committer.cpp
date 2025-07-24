@@ -19,6 +19,7 @@
 
 #include <chrono>
 
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/stats.h"
 #include "common/util.h"
@@ -421,6 +422,14 @@ TxnLazyCommitTask::TxnLazyCommitTask(const std::string& instance_id, int64_t txn
 }
 
 void TxnLazyCommitTask::commit() {
+    DORIS_CLOUD_DEFER {
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            this->finished_ = true;
+        }
+        this->cond_.notify_all();
+    };
+
     int64_t db_id;
     get_txn_db_id(txn_kv_.get(), instance_id_, txn_id_, code_, msg_, &db_id);
     if (code_ != MetaServiceCode::OK) {
@@ -495,7 +504,7 @@ void TxnLazyCommitTask::commit() {
                            << " partition_id=" << partition_id << " err=" << msg;
                         msg_ = ss.str();
                         LOG(WARNING) << msg_;
-                        return;
+                        break;
                     }
                     if (!is_partition_version_valid) {
                         // The partition version is not valid, it might been committed, skip this partition.
@@ -643,11 +652,6 @@ void TxnLazyCommitTask::commit() {
         } while (false);
     } while (code_ == MetaServiceCode::KV_TXN_CONFLICT &&
              retry_times++ < config::txn_store_retry_times);
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        this->finished_ = true;
-    }
-    this->cond_.notify_all();
 }
 
 std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::wait() {
