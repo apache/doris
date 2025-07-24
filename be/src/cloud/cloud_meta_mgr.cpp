@@ -777,7 +777,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         VLOG_DEBUG << "warmup rowset, split into 2 sets, new_rowsets: "
                                    << new_rowsets.size()
                                    << ", overlapping_rowsets: " << overlapping_rowsets.size();
-                        // add all rowsets directly, warmup async
+                        // add all new rowsets directly, warmup async
                         tablet->add_rowsets(std::move(new_rowsets), version_overlap, wlock, true);
                         for (auto rs : overlapping_rowsets) {
                             if (rs->version().second == 1) {
