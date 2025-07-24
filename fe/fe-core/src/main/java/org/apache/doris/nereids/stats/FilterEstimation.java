@@ -39,6 +39,8 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.executable.StringArithmetic;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -926,10 +928,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         colBuilder.setNumNulls(outputRowCount)
                 .setMaxValue(Double.POSITIVE_INFINITY)
                 .setMinValue(Double.NEGATIVE_INFINITY)
-                .setNdv(0);
+                .setNdv(0)
+                .setHotValues(null);
         StatisticsBuilder builder = new StatisticsBuilder(context.statistics);
         builder.setRowCount(outputRowCount);
-        builder.putColumnStatistics(isNull, colBuilder.build());
+        builder.putColumnStatistics(isNull.child(), colBuilder.build());
         context.addKeyIfSlot(isNull.child());
         return builder.build();
     }
@@ -955,18 +958,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             }
             return false;
         }
-    }
-
-    private boolean rangeCovers(StatisticRange range, Literal point, ComparisonPredicate cp) {
-        if (range.contains(point)) {
-            if (cp instanceof LessThan) {
-                return !range.isRightEndpoint(point);
-            } else if (cp instanceof GreaterThan) {
-                return !range.isLeftEndpoint(point);
-            }
-            return true;
-        }
-        return false;
     }
 
     private Statistics estimateColumnEqualToColumn(Expression leftExpr, ColumnStatistic leftStats,
@@ -1110,6 +1101,22 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     like.left().toSql(), like.toSql());
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
             colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY).setNumNulls(0);
+
+            if (origin.getHotValues() != null) {
+                Map<Literal, Float> matchedHotValues = new HashMap<>();
+                if (like.right() instanceof StringLikeLiteral) {
+                    for (Map.Entry<Literal, Float> entry : origin.getHotValues().entrySet()) {
+                        if (entry.getKey() instanceof StringLikeLiteral) {
+                            Expression result = StringArithmetic.like((StringLikeLiteral) entry.getKey(),
+                                    (StringLikeLiteral) (like.right()));
+                            if (result == BooleanLiteral.TRUE) {
+                                matchedHotValues.put(entry.getKey(), entry.getValue());
+                            }
+                        }
+                    }
+                }
+                colBuilder.setHotValues(matchedHotValues);
+            }
             statsBuilder.putColumnStatistics(like.left(), colBuilder.build());
             context.addKeyIfSlot(like.left());
         }
