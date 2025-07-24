@@ -260,6 +260,12 @@ exit_flag=0
     if [[ "${target_branch}" == "branch-2.0" ]]; then
         cold_run_time_threshold=${cold_run_time_threshold_branch20:-110} # 单位 秒
         hot_run_time_threshold=${hot_run_time_threshold_branch20:-34}    # 单位 秒
+    elif [[ "${target_branch}" == "branch-3.1" ]]; then
+        cold_run_time_threshold=${cold_run_time_threshold_branch31:-120} # 单位 秒
+        hot_run_time_threshold=${hot_run_time_threshold_branch31:-34}    # 单位 秒
+    elif [[ "${target_branch}" == "branch-3.0" ]]; then
+        cold_run_time_threshold=${cold_run_time_threshold_branch30:-120} # 单位 秒
+        hot_run_time_threshold=${hot_run_time_threshold_branch30:-34}    # 单位 秒
     fi
     echo "INFO: cold_run_time_threshold is ${cold_run_time_threshold}, hot_run_time_threshold is ${hot_run_time_threshold}"
     # result.csv 来自 run-clickbench-queries.sh 的产出

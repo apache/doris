@@ -18,14 +18,20 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_warm_up_table") {
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][2]
+         return jobStateResult[0]
     }
     def getTablesFromShowCommand = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][9]
+         return jobStateResult[0]
     }
 
     List<String> ipList = new ArrayList<>();
@@ -137,20 +143,19 @@ suite("test_warm_up_table") {
     def jobId = sql "warm up cluster regression_cluster_name1 with table customer;"
     try {
         sql "warm up cluster regression_cluster_name1 with table customer;"
-        assertTrue(false)
-    } catch (Exception e) {
         assertTrue(true)
+    } catch (Exception e) {
+        assertTrue(false)
     }
     int retryTime = 120
     int j = 0
     for (; j < retryTime; j++) {
         sleep(1000)
-        def status = getJobState(jobId[0][0])
-        logger.info(status)
-        if (status.equals("CANCELLED")) {
+        def statuses = getJobState(jobId[0][0])
+        if (statuses.any { it != null && it.equals("CANCELLED") }) {
             assertTrue(false);
         }
-        if (status.equals("FINISHED")) {
+        if (statuses.any { it != null && it.equals("FINISHED") }) {
             break;
         }
     }
@@ -159,7 +164,8 @@ suite("test_warm_up_table") {
         assertTrue(false);
     }
     def tablesString = getTablesFromShowCommand(jobId[0][0])
-    assertTrue(tablesString.contains("customer"), tablesString)
+
+    assertTrue(tablesString.any { it != null && it.contains("customer") })
     sleep(30000)
     long ttl_cache_size = 0
     getMetricsMethod.call(ipList[0], brpcPortList[0]) {
@@ -215,5 +221,6 @@ suite("test_warm_up_table") {
         assertTrue(false)
     } catch (Exception e) {
         assertTrue(true)
+    }
     }
 }

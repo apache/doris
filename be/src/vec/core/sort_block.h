@@ -32,25 +32,26 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /// Sort one block by `description`. If limit != 0, then the partial sort of the first `limit` rows is produced.
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
                 UInt64 limit = 0);
@@ -66,7 +67,7 @@ struct EqualRangeIterator {
     int range_begin;
     int range_end;
 
-    EqualRangeIterator(const EqualFlags& flags) : EqualRangeIterator(flags, 0, flags.size()) {}
+    EqualRangeIterator(const EqualFlags& flags) : EqualRangeIterator(flags, 0, (int)flags.size()) {}
 
     EqualRangeIterator(const EqualFlags& flags, int begin, int end) : _flags(flags), _end(end) {
         range_begin = begin;
@@ -84,14 +85,14 @@ struct EqualRangeIterator {
         // should continue to sort this row according to current column. Using the first non-zero
         // value and first zero value after first non-zero value as two bounds, we can get an equal range here
         if (!(_cur_range_begin == 0) || !(_flags[_cur_range_begin] == 1)) {
-            _cur_range_begin = simd::find_one(_flags, _cur_range_begin + 1);
+            _cur_range_begin = (int)simd::find_one(_flags, _cur_range_begin + 1);
             if (_cur_range_begin >= _end) {
                 return false;
             }
             _cur_range_begin--;
         }
 
-        _cur_range_end = simd::find_zero(_flags, _cur_range_begin + 1);
+        _cur_range_end = (int)simd::find_zero(_flags, _cur_range_begin + 1);
         DCHECK(_cur_range_end <= _end);
 
         if (_cur_range_begin >= _cur_range_end) {
@@ -145,7 +146,7 @@ using PermutationForColumn = std::vector<PermutationWithInlineValue<T>>;
 
 class ColumnSorter {
 public:
-    explicit ColumnSorter(const ColumnWithSortDescription& column, const int limit)
+    explicit ColumnSorter(const ColumnWithSortDescription& column, const size_t limit)
             : _column_with_sort_desc(column),
               _limit(limit),
               _nulls_direction(column.second.nulls_direction),
@@ -158,7 +159,7 @@ public:
 
     void sort_column(const IColumn& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
-        int new_limit = _limit;
+        size_t new_limit = _limit;
         auto comparator = [&](const size_t a, const size_t b) {
             return column.compare_at(a, b, *_column_with_sort_desc.first, _nulls_direction);
         };
@@ -168,7 +169,7 @@ public:
             auto end = perms.begin() + last_iter;
 
             if (UNLIKELY(_limit > 0 && first_iter < _limit && _limit <= last_iter)) {
-                int n = _limit - first_iter;
+                size_t n = _limit - first_iter;
                 std::partial_sort(begin, begin + n, end, less);
 
                 auto nth = perms[_limit - 1];
@@ -235,6 +236,19 @@ public:
         }
     }
 
+    void sort_column(const ColumnArray& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        _sort_by_default(column, flags, perms, range, last_column);
+    }
+    void sort_column(const ColumnMap& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        _sort_by_default(column, flags, perms, range, last_column);
+    }
+    void sort_column(const ColumnStruct& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        _sort_by_default(column, flags, perms, range, last_column);
+    }
+
     void sort_column(const ColumnString64& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
         if (!_should_inline_value(perms)) {
@@ -250,7 +264,7 @@ public:
             column.get_nested_column().sort_column(this, flags, perms, range, last_column);
         } else {
             const auto& null_map = column.get_null_map_data();
-            int limit = _limit;
+            size_t limit = _limit;
             std::vector<std::pair<size_t, size_t>> is_null_ranges;
             EqualRangeIterator iterator(flags, range.first, range.second);
             while (iterator.next()) {
@@ -262,7 +276,7 @@ public:
                 }
                 bool null_first = _nulls_direction * _direction < 0;
                 if (LIKELY(range_end - range_begin > 1)) {
-                    int range_split = 0;
+                    size_t range_split = 0;
                     if (null_first) {
                         range_split = std::partition(perms.begin() + range_begin,
                                                      perms.begin() + range_end,
@@ -318,7 +332,7 @@ private:
 
     template <PrimitiveType T>
     void _shrink_to_fit(PermutationForColumn<T>& permutation_for_column,
-                        IColumn::Permutation& perms, EqualFlags& flags, int limit) const {
+                        IColumn::Permutation& perms, EqualFlags& flags, size_t limit) const {
         if (limit < perms.size() && limit != 0) {
             permutation_for_column.resize(limit);
             perms.resize(limit);
@@ -326,7 +340,7 @@ private:
         }
     }
 
-    void _shrink_to_fit(IColumn::Permutation& perms, EqualFlags& flags, int limit) const {
+    void _shrink_to_fit(IColumn::Permutation& perms, EqualFlags& flags, size_t limit) const {
         if (_limit < perms.size() && limit != 0) {
             perms.resize(limit);
             flags.resize(limit);
@@ -351,17 +365,20 @@ private:
             } else {
                 static_assert(always_false_v<ColumnType>);
             }
-            permutation_for_column[i].row_id = row_id;
+            permutation_for_column[i].row_id = (uint32_t)row_id;
         }
     }
 
     template <typename ColumnType>
     void _sort_by_default(const ColumnType& column, EqualFlags& flags, IColumn::Permutation& perms,
                           EqualRange& range, bool last_column) const {
-        int new_limit = _limit;
+        size_t new_limit = _limit;
         auto comparator = [&](const size_t a, const size_t b) {
             if constexpr (!std::is_same_v<ColumnType, ColumnString> &&
-                          !std::is_same_v<ColumnType, ColumnString64>) {
+                          !std::is_same_v<ColumnType, ColumnString64> &&
+                          !std::is_same_v<ColumnType, ColumnArray> &&
+                          !std::is_same_v<ColumnType, ColumnMap> &&
+                          !std::is_same_v<ColumnType, ColumnStruct>) {
                 auto value_a = column.get_data()[a];
                 auto value_b = column.get_data()[b];
                 return value_a > value_b ? 1 : (value_a < value_b ? -1 : 0);
@@ -374,16 +391,16 @@ private:
             return comparator(a, b) * _direction < 0;
         };
         auto do_sort = [&](size_t first_iter, size_t last_iter) {
-            auto begin = perms.begin() + first_iter;
-            auto end = perms.begin() + last_iter;
+            auto* begin = perms.begin() + first_iter;
+            auto* end = perms.begin() + last_iter;
 
             if (UNLIKELY(_limit > 0 && first_iter < _limit && _limit <= last_iter)) {
-                int n = _limit - first_iter;
+                size_t n = _limit - first_iter;
                 std::partial_sort(begin, begin + n, end, sort_comparator);
 
                 auto nth = perms[_limit - 1];
                 size_t equal_count = 0;
-                for (auto iter = begin + n; iter < end; iter++) {
+                for (auto* iter = begin + n; iter < end; iter++) {
                     if (comparator(*iter, nth) == 0) {
                         std::iter_swap(iter, begin + n + equal_count);
                         equal_count++;
@@ -420,7 +437,7 @@ private:
     void _sort_by_inlined_permutation(const ColumnType& column, EqualFlags& flags,
                                       IColumn::Permutation& perms, EqualRange& range,
                                       bool last_column) const {
-        int new_limit = _limit;
+        size_t new_limit = _limit;
         // create inlined permutation
         PermutationForColumn<InlineType> permutation_for_column(perms.size());
         _create_permutation(column, permutation_for_column.data(), perms);
@@ -445,7 +462,7 @@ private:
             auto end = permutation_for_column.begin() + last_iter;
 
             if (UNLIKELY(_limit > 0 && first_iter < _limit && _limit <= last_iter)) {
-                int n = _limit - first_iter;
+                size_t n = _limit - first_iter;
                 std::partial_sort(begin, begin + n, end, sort_comparator);
 
                 auto nth = permutation_for_column[_limit - 1];
@@ -495,9 +512,9 @@ private:
     }
 
     const ColumnWithSortDescription& _column_with_sort_desc;
-    mutable int _limit;
+    mutable size_t _limit;
     const int _nulls_direction;
     const int _direction;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

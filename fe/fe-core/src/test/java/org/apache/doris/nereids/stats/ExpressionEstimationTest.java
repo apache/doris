@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -393,6 +394,27 @@ class ExpressionEstimationTest {
         ColumnStatistic est = ExpressionEstimation.estimate(ifClause, stats);
         Assertions.assertEquals(est.ndv, 100);
         Assertions.assertEquals(est.avgSizeByte, 16);
+    }
+
+    @Test
+    public void testNonNullable() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(20200101000000.0)
+                .setMaxExpr(new StringLiteral("2021abcdefg"))
+                .setNumNulls(10)
+                .setMaxValue(20210101000000.0);
+        slotToColumnStat.put(a, builder.build());
+        Statistics stats = new Statistics(1000, slotToColumnStat);
+
+        ColumnStatistic est = ExpressionEstimation.estimate(a, stats);
+        Assertions.assertEquals(10, est.numNulls);
+
+        est = ExpressionEstimation.estimate(new NonNullable(a), stats);
+        Assertions.assertEquals(0, est.numNulls);
     }
 
     @Test

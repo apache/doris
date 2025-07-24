@@ -50,6 +50,7 @@ suite("test_ip_crud") {
     qt_sql5 "select * from test_unique_ip_crud order by id"
 
     // test ip datatype in aggregate table
+    sql "DROP TABLE IF EXISTS test_agg_ip_crud;"
     sql """
         CREATE TABLE test_agg_ip_crud (
           `id` int,

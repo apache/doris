@@ -70,7 +70,12 @@ run() {
 
     # start minio docker to run case test_rountine_load
     sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
-    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c minio; then echo; else echo "ERROR: start minio docker failed"; fi
+    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c minio ||
+        bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c minio; then
+        echo "INFO: start minio docker success"
+    else
+        echo "ERROR: start minio docker twice failed" && return 1
+    fi
 
     # used to set up HDFS docker
     docker_compose_hdfs_yaml='
@@ -148,15 +153,19 @@ if print_running_pipeline_tasks; then :; fi
 # shellcheck source=/dev/null
 source "$(cd "${teamcity_build_checkoutDir}" && bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 
-echo "#### 5. check if need backup doris logs"
+check_if_need_gcore "${exit_flag}"
+if stop_doris_grace; then
+    echo "INFO: stop doris grace success."
+else
+    echo "ERROR: stop grace failed." && exit_flag=2
+fi
+if core_file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
+    reporting_build_problem "coredump"
+    print_doris_fe_log
+    print_doris_be_log
+fi
+echo "#### check if need backup doris logs ####"
 if [[ ${exit_flag} != "0" ]] || ${need_collect_log}; then
-    check_if_need_gcore "${exit_flag}"
-    if core_file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
-        reporting_build_problem "coredump"
-        print_doris_fe_log
-        print_doris_be_log
-    fi
-    export -f stop_doris_grace && timeout -v 10m bash -cx stop_doris_grace
     if log_file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         if log_info="$(upload_doris_log_to_oss "${log_file_name}")"; then
             reporting_messages_error "${log_info##*logs.tar.gz to }"

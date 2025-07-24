@@ -292,6 +292,8 @@ public:
             RuntimeState* state, WriterStats* writer_stats,
             std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map);
 
+    Status check_status();
+
     void cancel(const std::string& cancel_msg);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
@@ -325,6 +327,8 @@ public:
     size_t get_pending_bytes() { return _pending_batches_bytes; }
 
     bool is_incremental() const { return _is_incremental; }
+
+    int64_t write_bytes() const { return _write_bytes.load(); }
 
 protected:
     // make a real open request for relative BE's load channel.
@@ -428,6 +432,8 @@ protected:
     int64_t _wg_id = -1;
 
     bool _is_incremental;
+
+    std::atomic<int64_t> _write_bytes {0};
 };
 
 // an IndexChannel is related to specific table and its rollup and mv
@@ -505,7 +511,8 @@ public:
 
     Status close_wait(RuntimeState* state, WriterStats* writer_stats,
                       std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
-                      std::unordered_set<int64_t> unfinished_node_channel_ids);
+                      std::unordered_set<int64_t> unfinished_node_channel_ids,
+                      bool need_wait_after_quorum_success);
 
     Status check_each_node_channel_close(
             std::unordered_set<int64_t>* unfinished_node_channel_ids,
@@ -544,12 +551,23 @@ public:
     // check whether the rows num filtered by different replicas is consistent
     Status check_tablet_filtered_rows_consistency();
 
+    void set_start_time(const int64_t& start_time) { _start_time = start_time; }
+
     vectorized::VExprContextSPtr get_where_clause() { return _where_clause; }
 
 private:
     friend class VNodeChannel;
     friend class VTabletWriter;
     friend class VRowDistribution;
+
+    int _max_failed_replicas(int64_t tablet_id);
+
+    int _load_required_replicas_num(int64_t tablet_id);
+
+    bool _quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
+                         const std::unordered_set<int64_t>& need_finish_tablets);
+
+    int64_t _calc_max_wait_time_ms(const std::unordered_set<int64_t>& unfinished_node_channel_ids);
 
     VTabletWriter* _parent = nullptr;
     int64_t _index_id;
@@ -584,6 +602,8 @@ private:
     // rows num filtered by DeltaWriter per tablet, tablet_id -> <node_Id, filtered_rows_num>
     // used to verify whether the rows num filtered by different replicas is consistent
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_filtered_rows;
+
+    int64_t _start_time = 0;
 };
 } // namespace vectorized
 } // namespace doris
@@ -635,6 +655,8 @@ private:
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 
     void _do_try_close(RuntimeState* state, const Status& exec_status);
+
+    void _build_tablet_replica_info(const int64_t tablet_id, VOlapTablePartition* partition);
 
     TDataSink _t_sink;
 
@@ -737,5 +759,8 @@ private:
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
+
+    // tablet_id -> <total replicas num, load required replicas num>
+    std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
 };
 } // namespace doris::vectorized

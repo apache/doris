@@ -43,6 +43,9 @@ public:
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
 private:
+    void _split_field_single_char(const Slice& line, std::vector<Slice>* splitted_values);
+    void _split_field_multi_char(const Slice& line, std::vector<Slice>* splitted_values);
+
     std::string _value_sep;
     char _escape_char;
 };

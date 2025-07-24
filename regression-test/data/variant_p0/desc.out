@@ -3,14 +3,21 @@
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
 v.a	smallint	Yes	false	\N	NONE
+v.b	json	Yes	false	\N	NONE
+v.c.c	smallint	Yes	false	\N	NONE
+v.c.e	double	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_2 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
 v.a	smallint	Yes	false	\N	NONE
+v.b	json	Yes	false	\N	NONE
+v.c.c	smallint	Yes	false	\N	NONE
+v.c.e	double	Yes	false	\N	NONE
 v.ddd.aaa	tinyint	Yes	false	\N	NONE
-v.ddd.mxmxm	json	Yes	false	\N	NONE
+v.ddd.mxmxm	array<json>	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_3 --
@@ -26,14 +33,21 @@ v.xxxx	text	Yes	false	\N	NONE
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
 v.a	smallint	Yes	false	\N	NONE
+v.b	json	Yes	false	\N	NONE
+v.c.c	smallint	Yes	false	\N	NONE
+v.c.e	double	Yes	false	\N	NONE
 v.ddd.aaa	tinyint	Yes	false	\N	NONE
-v.ddd.mxmxm	json	Yes	false	\N	NONE
+v.ddd.mxmxm	array<json>	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_6_2 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
 v.a	smallint	Yes	false	\N	NONE
+v.b	json	Yes	false	\N	NONE
+v.c.c	smallint	Yes	false	\N	NONE
+v.c.e	double	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_6_3 --
@@ -52,7 +66,8 @@ v.b	json	Yes	false	\N	NONE
 v.c.c	smallint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 v.ddd.aaa	tinyint	Yes	false	\N	NONE
-v.ddd.mxmxm	json	Yes	false	\N	NONE
+v.ddd.mxmxm	array<json>	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_7 --

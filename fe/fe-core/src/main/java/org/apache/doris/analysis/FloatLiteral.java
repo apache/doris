@@ -168,10 +168,10 @@ public class FloatLiteral extends NumericLiteralExpr {
             String timeStr = getStringValue();
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
-            if (Double.isInfinite(getValue())) {
+            if (Double.isInfinite(getValue()) || Double.isNaN(getValue())) {
                 return Double.toString(getValue());
             }
-            return BigDecimal.valueOf(getValue()).toPlainString();
+            return BigDecimal.valueOf(getValue()).stripTrailingZeros().toPlainString();
         }
     }
 
@@ -270,15 +270,4 @@ public class FloatLiteral extends NumericLiteralExpr {
         return "'" + timeStr + String.format("%02d:%02d:%02d", hour, minute, second) + "'";
     }
 
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        if (type.getPrimitiveType() == PrimitiveType.FLOAT) {
-            value = data.getFloat();
-            return;
-        }
-        if (type.getPrimitiveType() == PrimitiveType.DOUBLE) {
-            value = data.getDouble();
-            return;
-        }
-    }
 }

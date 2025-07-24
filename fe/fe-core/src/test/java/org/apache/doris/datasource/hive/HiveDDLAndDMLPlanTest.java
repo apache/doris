@@ -306,7 +306,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createUnPartTable, true);
-        dropTable("unpart_tbl", true);
+        dropTableWithSql("drop table unpart_tbl");
 
         String createPartTable = "CREATE TABLE IF NOT EXISTS `part_tbl`(\n"
                 + "  `col1` BOOLEAN COMMENT 'col1',\n"
@@ -325,7 +325,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         createTable(createPartTable, true);
         // check IF NOT EXISTS
         createTable(createPartTable, true);
-        dropTable("part_tbl", true);
+        dropTableWithSql("drop table part_tbl");
 
         String createBucketedTableErr = "CREATE TABLE `err_buck_tbl`(\n"
                 + "  `col1` BOOLEAN COMMENT 'col1',\n"
@@ -354,7 +354,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createBucketedTableOk1, true);
-        dropTable("buck_tbl", true);
+        dropTableWithSql("drop table buck_tbl");
 
         String createBucketedTableOk2 = "CREATE TABLE `part_buck_tbl`(\n"
                 + "  `col1` BOOLEAN COMMENT 'col1',\n"
@@ -370,7 +370,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createBucketedTableOk2, true);
-        dropTable("part_buck_tbl", true);
+        dropTableWithSql("drop table part_buck_tbl");
     }
 
     @Test
@@ -635,7 +635,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         LogicalPlan plan = createTablesAndReturnPlans(true, createArrayTypeTable).get(0);
         List<Column> columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
         Assertions.assertEquals(5, columns.size());
-        dropTable("complex_type_array", true);
+        dropTableWithSql("drop table complex_type_array");
 
         String createMapTypeTable = "CREATE TABLE complex_type_map(\n"
                 + "  `col1` MAP<int,string> COMMENT 'col1',\n"
@@ -654,7 +654,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         plan = createTablesAndReturnPlans(true, createMapTypeTable).get(0);
         columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
         Assertions.assertEquals(4, columns.size());
-        dropTable("complex_type_map", true);
+        dropTableWithSql("drop table complex_type_map");
 
         String createStructTypeTable = "CREATE TABLE complex_type_struct(\n"
                 + "  `col1` STRUCT<rates:ARRAY<double>,name:string> COMMENT 'col1',\n"
@@ -673,7 +673,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         plan = createTablesAndReturnPlans(true, createStructTypeTable).get(0);
         columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
         Assertions.assertEquals(4, columns.size());
-        dropTable("complex_type_struct", true);
+        dropTableWithSql("drop table complex_type_struct");
+
 
         String compoundTypeTable1 = "CREATE TABLE complex_type_compound1(\n"
                 + "  `col1` ARRAY<MAP<string,double>> COMMENT 'col1',\n"
@@ -689,7 +690,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         plan = createTablesAndReturnPlans(true, compoundTypeTable1).get(0);
         columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
         Assertions.assertEquals(2, columns.size());
-        dropTable("complex_type_compound1", true);
+        dropTableWithSql("drop table complex_type_compound1");
 
         String compoundTypeTable2 = "CREATE TABLE complex_type_compound2(\n"
                 + "  `col1` MAP<string,ARRAY<double>> COMMENT 'col1',\n"
@@ -709,7 +710,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         plan = createTablesAndReturnPlans(true, compoundTypeTable2).get(0);
         columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
         Assertions.assertEquals(4, columns.size());
-        dropTable("complex_type_compound2", true);
+        dropTableWithSql("drop table complex_type_compound2");
+
     }
 
     private void resetCheckedColumns(List<FieldSchema> checkArrayCols) {

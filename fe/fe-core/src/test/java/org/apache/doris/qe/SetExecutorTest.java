@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.SetNamesVar;
@@ -41,7 +40,6 @@ import org.junit.Test;
 import java.util.List;
 
 public class SetExecutorTest {
-    private Analyzer analyzer;
     private ConnectContext ctx;
 
     @Mocked
@@ -51,10 +49,8 @@ public class SetExecutorTest {
 
     @Before
     public void setUp() throws DdlException {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         ctx = new ConnectContext();
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
-        ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
         UserIdentity currentUser = new UserIdentity("root", "192.168.1.1");
         currentUser.setIsAnalyzed();
@@ -90,7 +86,7 @@ public class SetExecutorTest {
         vars.add(new SetVar("query_timeout", new IntLiteral(10L)));
 
         SetStmt stmt = new SetStmt(vars);
-        stmt.analyze(analyzer);
+        stmt.analyze();
         SetExecutor executor = new SetExecutor(ctx, stmt);
 
         executor.execute();

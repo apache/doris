@@ -37,6 +37,7 @@
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -51,6 +52,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class BlockCompressionCodec;
 class WrapperField;
@@ -74,10 +76,11 @@ class BitmapIndexIterator;
 class BitmapIndexReader;
 class InvertedIndexIterator;
 class InvertedIndexReader;
-class InvertedIndexFileReader;
+class IndexFileReader;
 class PageDecoder;
 class RowRanges;
 class ZoneMapIndexReader;
+class IndexIterator;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -142,10 +145,9 @@ public:
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_inverted_index_iterator(std::shared_ptr<InvertedIndexFileReader> index_file_reader,
-                                       const TabletIndex* index_meta,
-                                       const StorageReadOptions& read_options,
-                                       std::unique_ptr<InvertedIndexIterator>* iterator);
+    Status new_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
+                              const TabletIndex* index_meta, const StorageReadOptions& read_options,
+                              std::unique_ptr<IndexIterator>* iterator);
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
@@ -211,12 +213,12 @@ private:
                  io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
-    // Read column inverted indexes into memory
+    // Read column indexes into memory
     // May be called multiple times, subsequent calls will no op.
-    Status _ensure_inverted_index_loaded(std::shared_ptr<InvertedIndexFileReader> index_file_reader,
-                                         const TabletIndex* index_meta) {
+    Status _ensure_index_loaded(std::shared_ptr<IndexFileReader> index_file_reader,
+                                const TabletIndex* index_meta) {
         // load inverted index only if not loaded or index_id is changed
-        RETURN_IF_ERROR(_load_inverted_index_index(index_file_reader, index_meta));
+        RETURN_IF_ERROR(_load_index(index_file_reader, index_meta));
         return Status::OK();
     }
 
@@ -225,9 +227,8 @@ private:
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
                                              const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
-    [[nodiscard]] Status _load_inverted_index_index(
-            std::shared_ptr<InvertedIndexFileReader> index_file_reader,
-            const TabletIndex* index_meta);
+    [[nodiscard]] Status _load_index(std::shared_ptr<IndexFileReader> index_file_reader,
+                                     const TabletIndex* index_meta);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
 
@@ -281,8 +282,9 @@ private:
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
-    std::shared_ptr<InvertedIndexReader> _inverted_index;
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
+
+    IndexReaderPtr _index_reader;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 
@@ -550,7 +552,7 @@ public:
             : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_rowid = ord_idx;
+        _current_rowid = cast_set<uint32_t>(ord_idx);
         return Status::OK();
     }
 
@@ -561,7 +563,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
         for (size_t i = 0; i < *n; ++i) {
-            rowid_t row_id = _current_rowid + i;
+            rowid_t row_id = cast_set<uint32_t>(_current_rowid + i);
             GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
             dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
         }
@@ -595,7 +597,7 @@ public:
             : _version(version), _backend_id(backend_id), _file_id(file_id) {}
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_rowid = ord_idx;
+        _current_rowid = cast_set<uint32_t>(ord_idx);
         return Status::OK();
     }
 
@@ -752,4 +754,5 @@ private:
 };
 
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -37,6 +37,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "http/http_client.h"
@@ -60,6 +61,7 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 struct LocalFileStat {
     uint64_t size;
@@ -191,7 +193,8 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
         RETURN_IF_ERROR(fs.upload(local_path, full_remote_path));
         break;
     default:
-        throw Exception(Status::FatalError("unknown fs type: {}", static_cast<int>(fs.type())));
+        throw doris::Exception(
+                Status::FatalError("unknown fs type: {}", static_cast<int>(fs.type())));
     }
     return Status::OK();
 }
@@ -627,7 +630,8 @@ Status SnapshotHttpDownloader::_download_files() {
     total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
     double copy_rate = 0.0;
     if (total_time_ms > 0) {
-        copy_rate = total_file_size / ((double)total_time_ms) / 1000;
+        copy_rate =
+                static_cast<double>(total_file_size) / static_cast<double>(total_time_ms) / 1000.0;
     }
     LOG(INFO) << fmt::format(
             "succeed to copy remote tablet {} to local tablet {}, total downloading {} files, "
@@ -800,7 +804,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
     // we report to frontend for every 10 files, and we will cancel the job if
     // the job has already been cancelled in frontend.
     int report_counter = 0;
-    int total_num = src_to_dest_path.size();
+    int total_num = doris::cast_set<int>(src_to_dest_path.size());
     int finished_num = 0;
     for (const auto& iter : src_to_dest_path) {
         const std::string& src_path = iter.first;
@@ -899,7 +903,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
     // 2. for each src path, download it to local storage
     int report_counter = 0;
-    int total_num = src_to_dest_path.size();
+    int total_num = doris::cast_set<int>(src_to_dest_path.size());
     int finished_num = 0;
     for (const auto& iter : src_to_dest_path) {
         const std::string& remote_path = iter.first;
@@ -945,13 +949,13 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
         }
         DataDir* data_dir = tablet->data_dir();
 
-        for (auto& iter : remote_files) {
+        for (auto& remote_iter : remote_files) {
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
                                           TTaskType::type::DOWNLOAD));
 
             bool need_download = false;
-            const std::string& remote_file = iter.first;
-            const FileStat& file_stat = iter.second;
+            const std::string& remote_file = remote_iter.first;
+            const FileStat& file_stat = remote_iter.second;
             auto find = std::find(local_files.begin(), local_files.end(), remote_file);
             if (find == local_files.end()) {
                 // remote file does not exist in local, download it
@@ -1097,7 +1101,7 @@ Status SnapshotLoader::remote_http_download(
 #ifndef BE_TEST
         int report_counter = 0;
         int finished_num = 0;
-        int total_num = remote_tablet_snapshots.size();
+        int total_num = doris::cast_set<int>(remote_tablet_snapshots.size());
         downloader.set_report_progress_callback(
                 [this, &report_counter, &finished_num, &total_num]() {
                     return _report_every(10, &report_counter, finished_num, total_num,
@@ -1212,10 +1216,11 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         !cumu_compact_lock.owns_lock() || !cold_compact_lock.owns_lock() ||
         !build_idx_lock.owns_lock() || !meta_store_lock.owns_lock()) {
         // This error should be retryable
-        auto status = Status::ObtainLockFailed("failed to get tablet locks, tablet: {}", tablet_id);
-        LOG(WARNING) << status << ", snapshot path: " << snapshot_path
+        auto obtain_lock_status =
+                Status::ObtainLockFailed("failed to get tablet locks, tablet: {}", tablet_id);
+        LOG(WARNING) << obtain_lock_status << ", snapshot path: " << snapshot_path
                      << ", tablet path: " << tablet_path;
-        return status;
+        return obtain_lock_status;
     }
 
     std::vector<std::string> snapshot_files;
@@ -1446,5 +1451,6 @@ Status SnapshotLoader::_list_with_checksum(const std::string& dir,
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // end namespace doris

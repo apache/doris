@@ -83,3 +83,22 @@
 30
 31
 
+-- !order --
+1	key1	"value1"
+1	key2	"value2"
+
+-- !order --
+1	key1	"value1"
+1	key2	"value2"
+2	\N	\N
+3	\N	\N
+
+-- !order --
+1	key1	"value1"
+1	key2	"value2"
+
+-- !order --
+1	key1	"value1"
+1	key2	"value2"
+2	\N	\N
+

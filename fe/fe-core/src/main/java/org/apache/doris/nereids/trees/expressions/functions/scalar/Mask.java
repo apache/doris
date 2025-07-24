@@ -58,6 +58,13 @@ public class Mask extends ScalarFunction implements ExplicitlyCastableSignature,
     }
 
     @Override
+    public void checkLegalityAfterRewrite() {
+        if (arity() > 4) {
+            throw new IllegalArgumentException("mask function only supports 1 to 4 arguments, but got: " + arity());
+        }
+    }
+
+    @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -49,11 +48,11 @@ import java.util.Objects;
  * BackupCommand
  */
 public class BackupCommand extends Command implements ForwardWithSync {
+    public static final String PROP_CONTENT = "content";
     private static final Logger LOG = LogManager.getLogger(BackupCommand.class);
     private static final String PROP_TIMEOUT = "timeout";
     private static final long MIN_TIMEOUT_MS = 600 * 1000L;
     private static final String PROP_TYPE = "type";
-    private static final String PROP_CONTENT = "content";
 
     /**
      * BackupType
@@ -244,8 +243,8 @@ public class BackupCommand extends Command implements ForwardWithSync {
         return type;
     }
 
-    public BackupStmt.BackupContent translateToLagecyContent() {
-        return BackupStmt.BackupContent.valueOf(content.name());
+    public BackupContent getContent() {
+        return content;
     }
 
     public String getLabel() {

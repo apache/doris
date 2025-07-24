@@ -41,8 +41,8 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -134,7 +134,7 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
+    virtual Status execute_runtime_filter(VExprContext* context, Block* block,
                                           int* result_column_id, ColumnNumbers& args) {
         return execute(context, block, result_column_id);
     };

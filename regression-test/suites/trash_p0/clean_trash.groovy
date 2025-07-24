@@ -40,7 +40,7 @@ suite("test_clean_trash", "docker") {
 
         def checkFunc = { boolean trashZero ->
             def succ = false
-            dockerAwaitUntil(300) {
+            awaitUntil(300) {
                 def bes = sql_return_maparray """show backends"""
                 succ = bes.every {
                     if (trashZero) {

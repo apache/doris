@@ -108,10 +108,7 @@ public class LimitElement {
         return sb.toString();
     }
 
-    public void analyze(Analyzer analyzer) {
-        if (limit == 0) {
-            analyzer.setHasEmptyResultSet();
-        }
+    public void analyze() {
     }
 
     public void reset() {

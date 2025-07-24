@@ -60,8 +60,7 @@ DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
                     BeConsts::MAX_DECIMALV2_SCALE);
             DCHECK_EQ(res->get_scale(), BeConsts::MAX_DECIMALV2_SCALE);
             return res;
-        } else if (is_string_type(t->get_primitive_type()) ||
-                   t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
+        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
                    t->get_primitive_type() == PrimitiveType::TYPE_LAMBDA_FUNCTION) {
             return DataTypeFactory::instance().create_data_type(TYPE_STRING, t->is_nullable());
         } else {
@@ -254,7 +253,7 @@ char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exe
             auto encode_size =
                     streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                        upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
-            *reinterpret_cast<size_t*>(buf) = encode_size;
+            unaligned_store<size_t>(buf, encode_size);
             buf += sizeof(size_t);
             return buf + encode_size;
         }
@@ -275,7 +274,7 @@ char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exe
         auto encode_size =
                 streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                    upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
-        *reinterpret_cast<size_t*>(buf) = encode_size;
+        unaligned_store<size_t>(buf, encode_size);
         buf += sizeof(size_t);
         return buf + encode_size;
     }
@@ -296,7 +295,7 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
             memcpy(container.data(), buf, mem_size);
             buf = buf + mem_size;
         } else {
-            size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+            auto encode_size = unaligned_load<size_t>(buf);
             buf += sizeof(size_t);
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                                upper_int32(mem_size));
@@ -315,7 +314,7 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
             return buf + mem_size;
         }
 
-        size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+        auto encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                            upper_int32(mem_size));
@@ -338,6 +337,11 @@ Field DataTypeDecimal<T>::get_default() const {
 template <PrimitiveType T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     return ColumnType::create(0, scale);
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimal<T>::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnType>(column);
 }
 
 template <PrimitiveType T>

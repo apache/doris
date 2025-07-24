@@ -31,24 +31,23 @@
 #include <string>
 #include <vector>
 
-#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
-#include "olap/tablet_schema_helper.h"
 #include "runtime/runtime_state.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
-using doris::segment_v2::InvertedIndexFileWriter;
+using doris::segment_v2::IndexFileWriter;
 
 namespace doris::segment_v2 {
 
@@ -73,7 +72,7 @@ public:
         } else if (format == InvertedIndexStorageFormatPB::V2) {
             file_str = InvertedIndexDescriptor::get_index_file_path_v2(index_prefix);
         }
-        std::unique_ptr<InvertedIndexFileReader> reader = std::make_unique<InvertedIndexFileReader>(
+        std::unique_ptr<IndexFileReader> reader = std::make_unique<IndexFileReader>(
                 io::global_local_filesystem(), index_prefix, format);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
@@ -116,7 +115,7 @@ public:
         std::cout << "==================================" << std::endl;
         lucene::store::Directory* dir = compound_reader.get();
 
-        IndexReader* r = IndexReader::open(dir);
+        lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
         printf("Max Docs: %d\n", r->maxDoc());
         printf("Num Docs: %d\n", r->numDocs());
@@ -160,8 +159,8 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
         // Create a BkdIndexReader to verify the index
-        auto reader = std::make_shared<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_prefix, InvertedIndexStorageFormatPB::V2);
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), index_prefix,
+                                                        InvertedIndexStorageFormatPB::V2);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
         auto result = reader->open(index_meta);
@@ -322,7 +321,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -350,7 +349,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -384,7 +383,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -418,7 +417,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -458,7 +457,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -484,7 +483,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->close();
         EXPECT_TRUE(status.ok()) << status;
 
         // For BKD index, we need to verify using BkdIndexReader instead of check_terms_stats
@@ -519,7 +518,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -560,7 +559,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Restore original config value
@@ -581,7 +580,7 @@ public:
         runtime_state.set_query_options(query_options);
 
         // Create a reader to verify the index
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         status = reader->init();
         EXPECT_EQ(status, Status::OK());
@@ -693,11 +692,11 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     sts = fs->create_file(index_path_disabled, &file_writer_disabled, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer_enabled = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer_enabled = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix_enabled, "test_rowset_compare", 1,
             InvertedIndexStorageFormatPB::V2, std::move(file_writer_enabled));
 
-    auto index_file_writer_disabled = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer_disabled = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix_disabled, "test_rowset_compare", 2,
             InvertedIndexStorageFormatPB::V2, std::move(file_writer_disabled));
 
@@ -745,12 +744,12 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Finish and close both writers
     status = column_writer_enabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_enabled->write();
+    status = index_file_writer_enabled->close();
     EXPECT_TRUE(status.ok()) << status;
 
     status = column_writer_disabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_disabled->write();
+    status = index_file_writer_disabled->close();
     EXPECT_TRUE(status.ok()) << status;
 
     // Restore original config value
@@ -765,18 +764,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     io::IOContext io_ctx;
 
     // Create readers for both indexes
-    auto reader_enabled = std::make_shared<InvertedIndexFileReader>(
-            io::global_local_filesystem(), index_path_prefix_enabled,
-            InvertedIndexStorageFormatPB::V2);
+    auto reader_enabled = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix_enabled,
+                                                            InvertedIndexStorageFormatPB::V2);
     status = reader_enabled->init();
     EXPECT_EQ(status, Status::OK());
     auto result_enabled = reader_enabled->open(&idx_meta);
     EXPECT_TRUE(result_enabled.has_value())
             << "Failed to open compound reader" << result_enabled.error();
 
-    auto reader_disabled = std::make_shared<InvertedIndexFileReader>(
-            io::global_local_filesystem(), index_path_prefix_disabled,
-            InvertedIndexStorageFormatPB::V2);
+    auto reader_disabled = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                             index_path_prefix_disabled,
+                                                             InvertedIndexStorageFormatPB::V2);
     status = reader_disabled->init();
     EXPECT_EQ(status, Status::OK());
     auto result_disabled = reader_disabled->open(&idx_meta);
@@ -851,7 +850,7 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     ASSERT_TRUE(sts.ok()) << sts;
 
     // Create index file writer with error conditions
-    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix, "test_error_handling", 0, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer));
 
@@ -883,7 +882,7 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->write();
+    status = index_file_writer->close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -930,7 +929,7 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     Status sts = fs->create_file(index_path, &file_writer, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix, "test_array_nulls", 0, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer));
 
@@ -1007,7 +1006,7 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->write();
+    status = index_file_writer->close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1058,7 +1057,7 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     Status sts = fs->create_file(index_path, &file_writer, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix, "test_numeric_array_error", 0, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer));
 
@@ -1141,7 +1140,7 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->write();
+    status = index_file_writer->close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1170,7 +1169,7 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
     Status sts = fs->create_file(index_path, &file_writer, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix, "test_copy_error", 0, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer));
 
@@ -1195,7 +1194,7 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->write();
+    status = index_file_writer->close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1224,7 +1223,7 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     Status sts = fs->create_file(index_path, &file_writer, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix, "test_collection", 0, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer));
 
@@ -1252,7 +1251,8 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     CollectionValue collection1;
     collection1.set_data(reinterpret_cast<uint8_t*>(slices.data()));
     collection1.set_length(3);
-    collection1.set_null_signs(nullptr);
+    bool null_signs[] = {false, false, false};
+    collection1.set_null_signs(null_signs);
     collections.push_back(collection1);
 
     // Test add_array_values with CollectionValue
@@ -1263,7 +1263,7 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->write();
+    status = index_file_writer->close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1296,7 +1296,7 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     Status sts = fs->create_file(index_path, &file_writer, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix, "test_bkd_error", 0, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer));
 
@@ -1327,7 +1327,7 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->write();
+    status = index_file_writer->close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1356,7 +1356,7 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     Status sts = fs->create_file(index_path, &file_writer, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix, "test_file_error", 0, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer));
 

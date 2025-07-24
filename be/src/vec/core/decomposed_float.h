@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "common/compile_check_begin.h"
 #include "extended_types.h"
 
 /// Allows to check the internals of IEEE-754 floating point number.
@@ -113,16 +114,14 @@ struct DecomposedFloat {
         }
 
         /// The case of the most negative integer
-        if constexpr (std::is_signed_v<Int>) {
+        if constexpr (IsSignedV<Int>) {
             if (rhs == std::numeric_limits<Int>::lowest()) {
                 assert(isNegative());
 
-                if (normalizedExponent() <
-                    static_cast<int16_t>(8 * sizeof(Int) - std::is_signed_v<Int>)) {
+                if (normalizedExponent() < static_cast<int16_t>(8 * sizeof(Int) - IsSignedV<Int>)) {
                     return 1;
                 }
-                if (normalizedExponent() >
-                    static_cast<int16_t>(8 * sizeof(Int) - std::is_signed_v<Int>)) {
+                if (normalizedExponent() > static_cast<int16_t>(8 * sizeof(Int) - IsSignedV<Int>)) {
                     return -1;
                 }
 
@@ -134,13 +133,13 @@ struct DecomposedFloat {
         }
 
         /// Too large number: abs(float) > abs(rhs). Also the case with infinities and NaN.
-        if (normalizedExponent() >= static_cast<int16_t>(8 * sizeof(Int) - std::is_signed_v<Int>)) {
+        if (normalizedExponent() >= static_cast<int16_t>(8 * sizeof(Int) - IsSignedV<Int>)) {
             return isNegative() ? -1 : 1;
         }
 
         using UInt = std::conditional_t<(sizeof(Int) > sizeof(typename Traits::UInt)),
                                         std::make_unsigned_t<Int>, typename Traits::UInt>;
-        UInt uint_rhs = rhs < 0 ? -rhs : rhs;
+        UInt uint_rhs = rhs < 0 ? static_cast<UInt>(-rhs) : rhs;
 
         /// Smaller octave: abs(rhs) < abs(float)
         /// FYI, TIL: octave is also called "binade", https://en.wikipedia.org/wiki/Binade
@@ -149,8 +148,7 @@ struct DecomposedFloat {
         }
 
         /// Larger octave: abs(rhs) > abs(float)
-        if (normalizedExponent() + 1 <
-                    static_cast<int16_t>(8 * sizeof(Int) - std::is_signed_v<Int>) &&
+        if (normalizedExponent() + 1 < static_cast<int16_t>(8 * sizeof(Int) - IsSignedV<Int>) &&
             uint_rhs >= (static_cast<UInt>(1) << (normalizedExponent() + 1))) {
             return isNegative() ? 1 : -1;
         }
@@ -218,3 +216,5 @@ struct DecomposedFloat {
 
 using DecomposedFloat64 = DecomposedFloat<double>;
 using DecomposedFloat32 = DecomposedFloat<float>;
+
+#include "common/compile_check_end.h"

@@ -185,6 +185,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return catalog;
     }
 
+    public CatalogIf getCatalogOrDdlException(String name) throws DdlException {
+        return getCatalogOrException(name,
+                catalog -> new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
+                        ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
     public CatalogIf getCatalogOrAnalysisException(String name) throws AnalysisException {
         return getCatalogOrException(name,
                 catalog -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
@@ -290,6 +296,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 ConnectContext.get().removeLastDBOfCatalog(catalogName);
             }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
+            LOG.info("finished to drop catalog {}:{}", catalog.getName(), catalog.getId());
         } finally {
             writeUnlock();
         }
@@ -514,6 +521,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
             }
             addCatalog(catalog);
+            LOG.info("finished to create catalog {}:{}, is replay: {}", catalog.getName(), catalog.getId(), isReplay);
         } finally {
             writeUnlock();
         }

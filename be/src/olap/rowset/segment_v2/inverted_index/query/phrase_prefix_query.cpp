@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 PhrasePrefixQuery::PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                                      const TQueryOptions& query_options,
@@ -76,4 +77,5 @@ void PhrasePrefixQuery::search(roaring::Roaring& roaring) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

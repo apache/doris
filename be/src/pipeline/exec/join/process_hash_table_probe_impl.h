@@ -28,6 +28,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::pipeline {
@@ -160,7 +161,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::Mut
 template <int JoinOpType>
 template <typename HashTableType>
 typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_side(
-        HashTableType& hash_table_ctx, size_t probe_rows, const uint8_t* null_map) {
+        HashTableType& hash_table_ctx, uint32_t probe_rows, const uint8_t* null_map) {
     // may over batch size 1 for some outer join case
     _probe_indexs.resize(_batch_size + 1);
     _build_indexs.resize(_batch_size + 1);

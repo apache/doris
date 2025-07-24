@@ -18,10 +18,12 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 import java.util.Set;
@@ -40,11 +42,13 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"minio.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "s3.access_key"},
+            required = false,
             description = "The access key of Minio.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"minio.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+            required = false,
             description = "The secret key of Minio.")
     protected String secretKey = "";
 
@@ -60,6 +64,22 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
         super(Type.MINIO, origProps);
     }
 
+    @Override
+    public void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        // Check if credentials are provided properly - either both or neither
+        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
+            return;
+        }
+        // Allow anonymous access if both access_key and secret_key are empty
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return;
+        }
+        // If only one is provided, it's an error
+        throw new StoragePropertiesException(
+                        "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+    }
+
     public static boolean guessIsMe(Map<String, String> origProps) {
         //ugly, but we need to check if the user has set any of the identifiers
         if (AzureProperties.guessIsMe(origProps) || COSProperties.guessIsMe(origProps)
@@ -72,7 +92,7 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
 
 
     @Override
-    protected Pattern endpointPattern() {
-        return Pattern.compile("^(?:https?://)?[a-zA-Z0-9.-]+(?::\\d+)?$");
+    protected Set<Pattern> endpointPatterns() {
+        return ImmutableSet.of(Pattern.compile("^(?:https?://)?[a-zA-Z0-9.-]+(?::\\d+)?$"));
     }
 }

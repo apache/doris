@@ -25,7 +25,7 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/common/hash_table/hash.h" // IWYU pragma: keep
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -70,6 +70,10 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                 return creator_without_type::create<
                         AggregateFunctionUniq<TYPE_STRING, Data<TYPE_STRING>>>(argument_types,
                                                                                result_is_nullable);
+            case TYPE_ARRAY:
+                return creator_without_type::create<
+                        AggregateFunctionUniq<TYPE_ARRAY, Data<TYPE_ARRAY>>>(argument_types,
+                                                                             result_is_nullable);
             default:
                 break;
             }

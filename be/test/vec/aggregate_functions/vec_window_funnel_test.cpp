@@ -64,6 +64,8 @@ public:
     }
 
     void TearDown() {}
+
+    Arena arena;
 };
 
 TEST_F(VWindowFunnelTest, testEmpty) {
@@ -77,13 +79,13 @@ TEST_F(VWindowFunnelTest, testEmpty) {
     buf_writer.commit();
     LOG(INFO) << "buf size : " << buf.size();
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place, buf_reader, nullptr);
+    agg_function->deserialize(place, buf_reader, arena);
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
     agg_function->create(place2);
 
-    agg_function->merge(place, place2, nullptr);
+    agg_function->merge(place, place2, arena);
     ColumnInt32 column_result;
     agg_function->insert_result_into(place, column_result);
     EXPECT_EQ(column_result.get_data()[0], 0);
@@ -145,7 +147,7 @@ TEST_F(VWindowFunnelTest, testSerialize) {
                                 column_event1.get(), column_event2.get(), column_event3.get(),
                                 column_event4.get()};
     for (int i = 0; i < NUM_CONDS; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     ColumnInt32 column_result;
@@ -163,7 +165,7 @@ TEST_F(VWindowFunnelTest, testSerialize) {
     agg_function->create(place2);
 
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place2, buf_reader, nullptr);
+    agg_function->deserialize(place2, buf_reader, arena);
 
     ColumnInt32 column_result2;
     agg_function->insert_result_into(place2, column_result2);
@@ -221,7 +223,7 @@ TEST_F(VWindowFunnelTest, testMax4SortedNoMerge) {
                                     column_event2.get(),    column_event3.get(),
                                     column_event4.get()};
         for (int i = 0; i < NUM_CONDS; i++) {
-            agg_function->add(place, column, i, nullptr);
+            agg_function->add(place, column, i, arena);
         }
 
         ColumnInt32 column_result;
@@ -282,14 +284,14 @@ TEST_F(VWindowFunnelTest, testMax4SortedMerge) {
                                     column_event2.get(),    column_event3.get(),
                                     column_event4.get()};
         for (int i = 0; i < NUM_CONDS; i++) {
-            agg_function->add(place, column, i, nullptr);
+            agg_function->add(place, column, i, arena);
         }
 
         std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
         AggregateDataPtr place2 = memory2.get();
         agg_function->create(place2);
 
-        agg_function->merge(place2, place, nullptr);
+        agg_function->merge(place2, place, arena);
         ColumnInt32 column_result;
         agg_function->insert_result_into(place2, column_result);
         EXPECT_EQ(column_result.get_data()[0],
@@ -349,7 +351,7 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedNoMerge) {
                                     column_event2.get(),    column_event3.get(),
                                     column_event4.get()};
         for (int i = 0; i < NUM_CONDS; i++) {
-            agg_function->add(place, column, i, nullptr);
+            agg_function->add(place, column, i, arena);
         }
 
         LOG(INFO) << "win " << win;
@@ -411,14 +413,14 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedMerge) {
                                     column_event2.get(),    column_event3.get(),
                                     column_event4.get()};
         for (int i = 0; i < NUM_CONDS; i++) {
-            agg_function->add(place, column, i, nullptr);
+            agg_function->add(place, column, i, arena);
         }
 
         std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
         AggregateDataPtr place2 = memory2.get();
         agg_function->create(place2);
 
-        agg_function->merge(place2, place, NULL);
+        agg_function->merge(place2, place, arena);
         ColumnInt32 column_result;
         agg_function->insert_result_into(place2, column_result);
         EXPECT_EQ(column_result.get_data()[0],

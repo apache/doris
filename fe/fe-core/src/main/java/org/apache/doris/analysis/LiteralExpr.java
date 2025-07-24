@@ -37,7 +37,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -203,11 +202,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             default:
                 throw new AnalysisException("Invalid data type for creating infinity: " + type);
         }
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // Literals require no analysis.
     }
 
     /*
@@ -403,11 +397,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
     }
 
-    @Override
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple) {
-        return true;
-    }
-
     /** whether is ZERO value **/
     public boolean isZero() {
         boolean isZero = false;
@@ -453,11 +442,4 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
     }
 
-    // Parse from binary data, the format follows mysql binary protocal
-    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
-    // Return next offset
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        Preconditions.checkState(false,
-                "should implement this in derived class. " + this.type.toSql());
-    }
 }

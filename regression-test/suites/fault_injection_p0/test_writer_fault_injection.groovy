@@ -94,6 +94,8 @@ suite("test_writer_fault_injection", "nonConcurrent") {
         load_with_injection("IndexChannel.close_wait.timeout")
         // Test VTabletWriter close with _close_status not ok
         load_with_injection("VTabletWriter.close.close_status_not_ok")
+        // Test IndexChannel check_each_node_channel_close with close_status not ok
+        load_with_injection("IndexChannel.check_each_node_channel_close.close_status_not_ok")
     } finally {
         sql """ set enable_memtable_on_sink_node=true """
     }

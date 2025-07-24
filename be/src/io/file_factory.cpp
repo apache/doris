@@ -24,6 +24,7 @@
 #include <mutex>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
@@ -51,6 +52,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
@@ -87,7 +89,8 @@ int32_t get_broker_index(const std::vector<TNetworkAddress>& brokers, const std:
     }
 
     // secondly select broker by hash of file path
-    auto key = HashUtil::hash(path.data(), path.size(), 0);
+    auto key = HashUtil::hash(path.data(), cast_set<uint32_t>(path.size()), 0);
+
     return key % brokers.size();
 }
 
@@ -274,5 +277,6 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

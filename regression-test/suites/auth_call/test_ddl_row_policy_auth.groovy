@@ -24,6 +24,11 @@ suite("test_ddl_row_policy_auth","p0,auth_call") {
     String tableName = 'test_ddl_row_policy_auth_tb'
     String rowPolicyName = 'test_ddl_row_policy_auth_rp'
 
+    try_sql("DROP USER ${user}")
+    try_sql """drop database if exists ${dbName}"""
+    try_sql """DROP ROW POLICY ${rowPolicyName} on ${dbName}.${tableName}"""
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -32,10 +37,6 @@ suite("test_ddl_row_policy_auth","p0,auth_call") {
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
-    try_sql("DROP USER ${user}")
-    try_sql """drop database if exists ${dbName}"""
-    try_sql """DROP ROW POLICY ${rowPolicyName} on ${dbName}.${tableName}"""
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
     sql """create table ${dbName}.${tableName} (

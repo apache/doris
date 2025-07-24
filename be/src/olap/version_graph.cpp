@@ -31,6 +31,8 @@
 #include "common/logging.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 using namespace ErrorCode;
 
 void TimestampedVersionTracker::_construct_versioned_tracker(
@@ -86,7 +88,7 @@ void TimestampedVersionTracker::_init_stale_version_path_map(
         int64_t a_diff = a->version().second - a->version().first;
         int64_t b_diff = b->version().second - b->version().first;
 
-        int diff = a_diff - b_diff;
+        int64_t diff = a_diff - b_diff;
         if (diff < 0) {
             return true;
         } else if (diff > 0) {
@@ -231,7 +233,9 @@ void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Docum
         // Add `path_id` to item.
         auto path_id_str = std::to_string(path_id);
         rapidjson::Value path_id_value;
-        path_id_value.SetString(path_id_str.c_str(), path_id_str.length(), path_arr.GetAllocator());
+        path_id_value.SetString(path_id_str.c_str(),
+                                static_cast<rapidjson::SizeType>(path_id_str.length()),
+                                path_arr.GetAllocator());
         item.AddMember("path id", path_id_value, path_arr.GetAllocator());
 
         // Add max create time to item.
@@ -241,7 +245,8 @@ void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Docum
         auto create_time_str = cctz::format("%Y-%m-%d %H:%M:%S %z", tp, time_zone);
 
         rapidjson::Value create_time_value;
-        create_time_value.SetString(create_time_str.c_str(), create_time_str.length(),
+        create_time_value.SetString(create_time_str.c_str(),
+                                    static_cast<rapidjson::SizeType>(create_time_str.length()),
                                     path_arr.GetAllocator());
         item.AddMember("last create time", create_time_value, path_arr.GetAllocator());
 
@@ -261,7 +266,9 @@ void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Docum
         }
         std::string path_list = path_list_stream.str();
         rapidjson::Value path_list_value;
-        path_list_value.SetString(path_list.c_str(), path_list.length(), path_arr.GetAllocator());
+        path_list_value.SetString(path_list.c_str(),
+                                  static_cast<rapidjson::SizeType>(path_list.length()),
+                                  path_arr.GetAllocator());
         item.AddMember("path list", path_list_value, path_arr.GetAllocator());
 
         // Add item to `path_arr`.
@@ -637,7 +644,8 @@ double VersionGraph::get_orphan_vertex_ratio() {
             ++orphan_vertex_num;
         }
     }
-    return orphan_vertex_num / (double)vertex_num;
+    return static_cast<double>(orphan_vertex_num) / static_cast<double>(vertex_num);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

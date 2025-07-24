@@ -17,6 +17,7 @@
 
 #include "agent/task_worker_pool.h"
 
+#include <brpc/controller.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/DataSinks_types.h>
@@ -85,6 +86,7 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/jni-util.h"
@@ -98,6 +100,7 @@
 #include "util/trace.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -178,7 +181,7 @@ Status get_tablet_info(StorageEngine& engine, const TTabletId tablet_id,
 }
 
 void random_sleep(int second) {
-    Random rnd(UnixMillis());
+    Random rnd(static_cast<uint32_t>(UnixMillis()));
     sleep(rnd.Uniform(second) + 1);
 }
 
@@ -607,6 +610,52 @@ Status PriorTaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
         }
         return Status::OK();
     });
+}
+
+Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskRequest& task) {
+    const TTaskType::type task_type = task.task_type;
+    int64_t signature = task.signature;
+    std::string type_str;
+    EnumToString(TTaskType, task_type, type_str);
+    auto req = std::make_unique<TAgentTaskRequest>(task);
+
+    DCHECK(req->__isset.priority && req->priority == TPriority::HIGH);
+    do {
+        std::lock_guard lock(s_task_signatures_mtx);
+        auto& set = s_task_signatures[task_type];
+        if (!set.contains(signature)) {
+            // If it doesn't exist, put it directly into the priority queue
+            add_task_count(*req, 1);
+            set.insert(signature);
+            std::lock_guard temp_lock(_mtx);
+            _high_prior_queue.push_back(std::move(req));
+            _high_prior_condv.notify_one();
+            _normal_condv.notify_one();
+            break;
+        } else {
+            std::lock_guard temp_lock(_mtx);
+            for (auto it = _normal_queue.begin(); it != _normal_queue.end();) {
+                // If it exists in the normal queue, cancel the task in the normal queue
+                if ((*it)->signature == signature) {
+                    _normal_queue.erase(it);                     // cancel the original task
+                    _high_prior_queue.push_back(std::move(req)); // add the new task to the queue
+                    _high_prior_condv.notify_one();
+                    _normal_condv.notify_one();
+                    break;
+                } else {
+                    ++it; // doesn't meet the condition, continue to the next one
+                }
+            }
+            // If it exists in the high priority queue, no operation is needed
+            LOG_INFO("task has already existed in high prior queue.").tag("signature", signature);
+        }
+    } while (false);
+
+    // Set the receiving time of task so that we can determine whether it is timed out later
+    (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
+
+    LOG_INFO("successfully submit task").tag("type", type_str).tag("signature", signature);
+    return Status::OK();
 }
 
 void PriorTaskWorkerPool::normal_loop() {
@@ -1565,7 +1614,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     MonotonicStopWatch watch;
     watch.start();
     SCOPED_CLEANUP({
-        auto elapsed_time = static_cast<int64_t>(watch.elapsed_time());
+        auto elapsed_time = static_cast<double>(watch.elapsed_time());
         if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
             std::stringstream ss;
@@ -1691,21 +1740,20 @@ void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& r
             count++;
         }
 
-        CloudTablet::recycle_cached_data(std::move(clean_rowsets));
+        CloudTablet::recycle_cached_data(clean_rowsets);
         break;
     }
 
     if (!found) {
         LOG(WARNING) << "tablet not found when dropping tablet_id=" << drop_tablet_req.tablet_id
-                     << ", cost " << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
+                     << ", cost " << static_cast<double>(watch.elapsed_time()) / 1e9 << "(s)";
         return;
     }
 
     engine.tablet_mgr().erase_tablet(drop_tablet_req.tablet_id);
     LOG(INFO) << "drop cloud tablet_id=" << drop_tablet_req.tablet_id
               << " and clean file cache first 10 rowsets {" << rowset_ids_stream.str() << "}, cost "
-              << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
-    return;
+              << static_cast<double>(watch.elapsed_time()) / 1e9 << "(s)";
 }
 
 void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
@@ -1916,7 +1964,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 }
             }
         }
-        uint32_t cost_second = time(nullptr) - req.recv_time;
+        int64_t cost_second = time(nullptr) - req.recv_time;
         g_publish_version_latency << cost_second;
         LOG_INFO("successfully publish version")
                 .tag("signature", req.signature)
@@ -2206,4 +2254,5 @@ void report_index_policy_callback(const ClusterInfo* cluster_info) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

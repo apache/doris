@@ -113,13 +113,13 @@ public class ReplacePartitionClause extends AlterTableClause {
 
     @SuppressWarnings("checkstyle:LineLength")
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (partitionNames == null || tempPartitionNames == null) {
             throw new AnalysisException("No partition specified");
         }
 
-        partitionNames.analyze(analyzer);
-        tempPartitionNames.analyze(analyzer);
+        partitionNames.analyze();
+        tempPartitionNames.analyze();
 
         if (partitionNames.isTemp() || !tempPartitionNames.isTemp()) {
             throw new AnalysisException("Only support replace partitions with temp partitions");

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -32,7 +31,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -41,8 +39,6 @@ import java.util.Optional;
 
 public class ShowFunctionsCommandTest extends TestWithFeService {
     private Auth auth;
-    @Mocked
-    private Analyzer analyzer;
 
     @Override
     protected void runBeforeAll() throws Exception {

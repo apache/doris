@@ -15,9 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "cloud/schema_cloud_dictionary_cache.cpp"
 #include "cloud/schema_cloud_dictionary_cache.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 
@@ -173,6 +175,58 @@ TEST(SchemaCloudDictionaryCacheTest, ReplaceDictKeysToSchema_RefreshFailure) {
     cache.simulate_refresh_success = false;
     Status st = cache.replace_dict_keys_to_schema(index_id, &rs_meta);
     EXPECT_FALSE(st.ok());
+}
+
+// Test case 5: replace_schema_to_dict_keys with tablet_schema.enable_variant_flatten_nested = true
+TEST(SchemaCloudDictionaryCacheTest, ProcessDictionary_VariantPathConflict_Throws) {
+    SchemaCloudDictionarySPtr dict = std::make_shared<SchemaCloudDictionary>();
+    // construct two variant columns with same unique_id but different path_info
+    auto& col_dict = *dict->mutable_column_dict();
+    ColumnPB* col1 = &(col_dict)[101];
+    col1->set_unique_id(101);
+    vectorized::PathInDataBuilder builder1;
+    builder1.append("v", false).append("nested", true).append("a", false);
+    vectorized::PathInData path_in_data1 = builder1.build();
+    segment_v2::ColumnPathInfo path_info1;
+    path_in_data1.to_protobuf(&path_info1, 0);
+    col1->mutable_column_path_info()->CopyFrom(path_info1);
+    {
+        RowsetMetaCloudPB rs_meta;
+        rs_meta.set_has_variant_type_in_schema(true);
+        auto* schema = rs_meta.mutable_tablet_schema();
+        schema->set_enable_variant_flatten_nested(true);
+        // add two columns with same key but different is_nested value
+        auto* col_schema1 = schema->add_column();
+        col_schema1->set_unique_id(101);
+        // create pathIndata with same key but different is_nested value
+        vectorized::PathInDataBuilder builder3;
+        builder3.append("v", false).append("nested", false).append("a", false);
+        vectorized::PathInData path_in_data3 = builder3.build();
+        segment_v2::ColumnPathInfo path_info3;
+        path_in_data3.to_protobuf(&path_info3, 0);
+        col_schema1->mutable_column_path_info()->CopyFrom(path_info3);
+        auto st = check_path_amibigus(*dict, &rs_meta);
+        EXPECT_FALSE(st.ok());
+        EXPECT_EQ(st.code(), TStatusCode::DATA_QUALITY_ERROR);
+    }
+
+    {
+        RowsetMetaCloudPB rs_meta;
+        rs_meta.set_has_variant_type_in_schema(true);
+        auto* schema = rs_meta.mutable_tablet_schema();
+        // add two columns with same key but same is_nested value
+        auto* col_schema3 = schema->add_column();
+        col_schema3->set_unique_id(101);
+        vectorized::PathInDataBuilder builder5;
+        builder5.append("v", false).append("nested", true).append("a", false);
+        vectorized::PathInData path_in_data5 = builder5.build();
+        segment_v2::ColumnPathInfo path_info5;
+        path_in_data5.to_protobuf(&path_info5, 0);
+        col_schema3->mutable_column_path_info()->CopyFrom(path_info5);
+        // assert no exception
+        auto st = check_path_amibigus(*dict, &rs_meta);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+    }
 }
 
 } // namespace doris

@@ -22,11 +22,13 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -48,10 +51,14 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -793,6 +800,133 @@ public class NereidsParserTest extends ParserTestBase {
             stmtExecutor.checkSqlBlocked(logicalPlan.getClass());
         } catch (Exception ex) {
             Assertions.fail(ex);
+        }
+    }
+
+    @Test
+    public void testExpressionWithOrder() {
+        NereidsParser nereidsParser = new NereidsParser();
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b ASC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b ASC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b ASC",
+                nereidsParser, LogicalSort.class);
+
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b",
+                nereidsParser, LogicalAggregate.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b WITH ROLLUP",
+                nereidsParser, LogicalRepeat.class);
+    }
+
+    @Test
+    public void testNoBackSlashEscapes() {
+        testNoBackSlashEscapes("''", "", "");
+        testNoBackSlashEscapes("\"\"", "", "");
+
+        testNoBackSlashEscapes("''''", "'", "'");
+        testNoBackSlashEscapes("\"\"\"\"", "\"", "\"");
+
+        testNoBackSlashEscapes("\"\\\\n\"", "\\\\n", "\\n");
+        testNoBackSlashEscapes("\"\\t\"", "\\t", "\t");
+
+        testNoBackSlashEscapes("'\\'''", "\\'", null);
+        testNoBackSlashEscapes("'\\''", null, "'");
+        testNoBackSlashEscapes("'\\\\''", null, null);
+
+        testNoBackSlashEscapes("'\\\"\"'", "\\\"\"", "\"\"");
+        testNoBackSlashEscapes("'\\\"'", "\\\"", "\"");
+        testNoBackSlashEscapes("'\\\\\"'", "\\\\\"", "\\\"");
+
+        testNoBackSlashEscapes("\"\\''\"", "\\''", "''");
+        testNoBackSlashEscapes("\"\\'\"", "\\'", "'");
+        testNoBackSlashEscapes("\"\\\\'\"", "\\\\'", "\\'");
+
+        testNoBackSlashEscapes("\"\\\"\"\"", "\\\"", null);
+        testNoBackSlashEscapes("\"\\\"\"", null, "\"");
+        testNoBackSlashEscapes("\"\\\\\"\"", null, null);
+    }
+
+    private void testNoBackSlashEscapes(String sql, String onResult, String offResult) {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // test on
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(true);
+            if (onResult == null) {
+                Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseExpression(sql),
+                        "should failed when NO_BACKSLASH_ESCAPES = 1: " + sql);
+            } else {
+                Assertions.assertEquals(onResult,
+                        ((StringLikeLiteral) nereidsParser.parseExpression(sql)).getStringValue());
+            }
+        }
+
+        // test off
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+            if (offResult == null) {
+                Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseExpression(sql),
+                        "should failed when NO_BACKSLASH_ESCAPES = 0: " + sql);
+            } else {
+                Assertions.assertEquals(offResult,
+                        ((StringLikeLiteral) nereidsParser.parseExpression(sql)).getStringValue());
+            }
+        }
+    }
+
+    @Test
+    public void testComment() {
+        NereidsParser parser = new NereidsParser();
+
+        List<String> validComments = Lists.newArrayList(
+                "SELECT 1 as a /* this is comment */, 1",
+                "SELECT 1 as a /* this is comment /* */ */, 1",
+                "SELECT 1 as a /* this is comment /* */, 1",
+                "SELECT 1 as a /* this is comment -- */, 1",
+                "SELECT 1 as a -- this is comment\n, 1",
+                "SELECT 1 as a, 1 -- this is comment\\n, 1"
+        );
+
+        for (String sql : validComments) {
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertEquals(2, ((UnboundOneRowRelation) logicalPlan.child(0)).getProjects().size(), sql);
+        }
+
+        List<String> invalidComments = Lists.newArrayList(
+                "SELECT 1 as a /* this is comment */*/, 1",
+                "SELECT 1 as a /* this is comment, 1"
+        );
+
+        for (String sql : invalidComments) {
+            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql), sql);
         }
     }
 }

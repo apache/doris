@@ -166,10 +166,11 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalDeferMaterializeTopN[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalDeferMaterializeTopN[" + id.asInt() + "]",
                 "logicalTopN", logicalTopN,
                 "deferMaterializeSlotIds", deferMaterializeSlotIds,
-                "columnIdSlot", columnIdSlot
+                "columnIdSlot", columnIdSlot,
+                "stats", statistics
         );
     }
 

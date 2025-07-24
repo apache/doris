@@ -61,7 +61,7 @@ Status PartitionedAggLocalState::open(RuntimeState* state) {
 }
 
 #define UPDATE_COUNTER_FROM_INNER(name) \
-    update_profile_from_inner_profile<spilled>(name, _runtime_profile.get(), child_profile)
+    update_profile_from_inner_profile<spilled>(name, custom_profile(), child_profile)
 
 template <bool spilled>
 void PartitionedAggLocalState::update_profile(RuntimeProfile* child_profile) {
@@ -168,7 +168,7 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
     if (!local_state._shared_state->is_spilled) {
         auto* source_local_state =
                 local_state._runtime_state->get_local_state(_agg_source_operator->operator_id());
-        local_state.update_profile<false>(source_local_state->profile());
+        local_state.update_profile<false>(source_local_state->custom_profile());
     }
 
     RETURN_IF_ERROR(status);
@@ -176,7 +176,7 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
         if (local_state._shared_state->is_spilled) {
             auto* source_local_state = local_state._runtime_state->get_local_state(
                     _agg_source_operator->operator_id());
-            local_state.update_profile<true>(source_local_state->profile());
+            local_state.update_profile<true>(source_local_state->custom_profile());
 
             if (!local_state._shared_state->spill_partitions.empty()) {
                 local_state._current_partition_eos = false;
@@ -246,7 +246,7 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
             while (!_shared_state->spill_partitions[0]->spill_streams_.empty() &&
                    !state->is_cancelled() && !has_agg_data) {
                 auto& stream = _shared_state->spill_partitions[0]->spill_streams_[0];
-                stream->set_read_counters(profile());
+                stream->set_read_counters(operator_profile());
                 vectorized::Block block;
                 bool eos = false;
                 while (!eos && !state->is_cancelled()) {
@@ -325,7 +325,7 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
             print_id(query_id), _parent->node_id(), state->task_id(),
             _shared_state->spill_partitions.size(), (void*)(_spill_dependency.get()));
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile.get(),
+            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, operator_profile(),
                                                    _shared_state->shared_from_this(),
                                                    exception_catch_func));
 }

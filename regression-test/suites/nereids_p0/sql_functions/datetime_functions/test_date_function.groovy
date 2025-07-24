@@ -389,6 +389,13 @@ suite("test_date_function") {
     qt_sql_ustamp9 """ SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59'); """
     testFoldConst("SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59.999');")
     testFoldConst("SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59');")
+    // these two functions may return different value if we call it in different time. so dont use testFoldConst here
+    sql "set debug_skip_fold_constant=true;"
+    sql "SELECT UNIX_TIMESTAMP(current_timestamp()) AS unix_timestamp;"
+    sql "SELECT UNIX_TIMESTAMP(localtimestamp()) AS unix_timestamp;"
+    sql "set debug_skip_fold_constant=false;"
+    sql "SELECT UNIX_TIMESTAMP(current_timestamp()) AS unix_timestamp;"
+    sql "SELECT UNIX_TIMESTAMP(localtimestamp()) AS unix_timestamp;"
 
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """
@@ -679,6 +686,16 @@ suite("test_date_function") {
                 to_monday(birth2), to_monday(birth3)
                 from ${tableName};
     """
+
+    // Test dow and doy
+    qt_sql """
+        select extract(dow from birth), extract(dow from birth1), extract(dow from birth2), extract(dow from birth3),
+               extract(dayofweek from birth), extract(dayofweek from birth1), extract(dayofweek from birth2), extract(dayofweek from birth3),
+               extract(doy from birth), extract(doy from birth1), extract(doy from birth2), extract(doy from birth3),
+               extract(dayofyear from birth), extract(dayofyear from birth1), extract(dayofyear from birth2), extract(dayofyear from birth3)
+               from ${tableName};
+    """
+
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     test {

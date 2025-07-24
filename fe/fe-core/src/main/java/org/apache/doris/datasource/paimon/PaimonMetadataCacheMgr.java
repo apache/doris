@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.datasource.ExternalTable;
+
 import java.util.concurrent.ExecutorService;
 
 public class PaimonMetadataCacheMgr {
@@ -39,8 +41,8 @@ public class PaimonMetadataCacheMgr {
         paimonMetadataCache.invalidateCatalogCache(catalogId);
     }
 
-    public void invalidateTableCache(long catalogId, String dbName, String tblName) {
-        paimonMetadataCache.invalidateTableCache(catalogId, dbName, tblName);
+    public void invalidateTableCache(ExternalTable dorisTable) {
+        paimonMetadataCache.invalidateTableCache(dorisTable);
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {

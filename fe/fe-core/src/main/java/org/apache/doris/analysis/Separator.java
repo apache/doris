@@ -63,18 +63,54 @@ public class Separator implements ParseNode {
         return (byte) HEX_STRING.indexOf(c);
     }
 
+    @Override
     public void analyze() throws AnalysisException {
-        analyze(null);
+        this.separator = convertSeparator(oriSeparator);
     }
 
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        this.separator = convertSeparator(oriSeparator);
+    public void analyze(boolean isLine) throws AnalysisException {
+        if (isLine) {
+            this.separator = convertLineDelimiter(oriSeparator);
+        } else {
+            this.separator = convertSeparator(oriSeparator);
+        }
     }
 
     public static String convertSeparator(String originStr) throws AnalysisException {
         if (Strings.isNullOrEmpty(originStr)) {
             throw new AnalysisException("Column separator is null or empty");
+        }
+
+        if (originStr.toUpperCase().startsWith("\\X")) {
+            // convert \x01\x02\x0a to 01020a
+            String hexStr = originStr.replaceAll("(?i)\\\\X", "");
+            // check hex str
+            if (hexStr.isEmpty()) {
+                throw new AnalysisException("Hex str is empty");
+            }
+            for (char hexChar : hexStr.toUpperCase().toCharArray()) {
+                if (HEX_STRING.indexOf(hexChar) == -1) {
+                    throw new AnalysisException("Hex str format error");
+                }
+            }
+            if (hexStr.length() % 2 != 0) {
+                throw new AnalysisException("Hex str length error");
+            }
+
+            // transform to separator
+            StringWriter writer = new StringWriter();
+            for (byte b : hexStrToBytes(hexStr)) {
+                writer.append((char) b);
+            }
+            return writer.toString();
+        } else {
+            return unescape(originStr);
+        }
+    }
+
+    public static String convertLineDelimiter(String originStr) throws AnalysisException {
+        if (Strings.isNullOrEmpty(originStr)) {
+            throw new AnalysisException("Line delimiter is null or empty");
         }
 
         if (originStr.toUpperCase().startsWith("\\X")) {

@@ -70,8 +70,8 @@ struct ProcessHashTableProbe {
                                       size_t column_to_keep);
 
     template <typename HashTableType>
-    typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
-                                                   const uint8_t* null_map);
+    typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx,
+                                                   uint32_t probe_rows, const uint8_t* null_map);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table

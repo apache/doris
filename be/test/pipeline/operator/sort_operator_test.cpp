@@ -207,19 +207,10 @@ TEST_F(SortOperatorTest, test_dep) {
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_FALSE(eos);
-        EXPECT_EQ(block.rows(), 3);
+        EXPECT_EQ(block.rows(), 6);
         std::cout << block.dump_data() << std::endl;
         EXPECT_TRUE(ColumnHelper::block_equal(
-                block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3})));
-
-        block.clear();
-        st = source->get_block(state.get(), &block, &eos);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_FALSE(eos);
-        EXPECT_EQ(block.rows(), 3);
-        std::cout << block.dump_data() << std::endl;
-        EXPECT_TRUE(ColumnHelper::block_equal(
-                block, ColumnHelper::create_block<DataTypeInt64>({4, 5, 6})));
+                block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6})));
 
         block.clear();
         st = source->get_block(state.get(), &block, &eos);

@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -56,7 +55,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -100,9 +98,6 @@ public class PlanTranslatorContext {
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
-
-    private final IdentityHashMap<PlanFragment, PhysicalHashAggregate> firstAggInFragment
-            = new IdentityHashMap<>();
 
     private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
     private TupleDescriptor bufferedTupleForWindow = null;
@@ -270,14 +265,6 @@ public class PlanTranslatorContext {
 
     public List<ScanNode> getScanNodes() {
         return scanNodes;
-    }
-
-    public PhysicalHashAggregate getFirstAggregateInFragment(PlanFragment planFragment) {
-        return firstAggInFragment.get(planFragment);
-    }
-
-    public void setFirstAggregateInFragment(PlanFragment planFragment, PhysicalHashAggregate aggregate) {
-        firstAggInFragment.put(planFragment, aggregate);
     }
 
     public Map<ExprId, SlotRef> getBufferedSlotRefForWindow() {

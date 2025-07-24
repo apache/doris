@@ -175,6 +175,17 @@ void __explicit_bzero_chk(void * buf, size_t len, size_t unused)
     explicit_bzero(buf, len);
 }
 
+#ifndef __ARM_NEON
+int snprintf(char* __restrict __s, size_t __maxlen, const char* __restrict __format, ...);
+
+int strfromf128(char* restrict string, size_t size, const char* restrict format, __float128 value) {
+    // https://man.archlinux.org/man/strfromf.3.en
+    // The strfromd(), strfromf(), and strfroml() functions are equivalent to snprintf(str, n, format, fp);
+    // https://mirrors.git.embecosm.com/mirrors/glibc/-/blob/82b5340ebdb8f00589d548e6e2dc8c998f07d0c5/stdlib/strfroml.c
+    // weak_alias (strfroml, strfromf128)
+    return snprintf(string, size, format, value);
+}
+#endif
 
 #if defined (__cplusplus)
 }

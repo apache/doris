@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -53,7 +51,6 @@ public class ResourceMgrTest {
     private String s3ReqTimeoutMs;
     private String s3ConnTimeoutMs;
     private Map<String, String> s3Properties;
-    private Analyzer analyzer;
 
     @Before
     public void setUp() {
@@ -76,7 +73,6 @@ public class ResourceMgrTest {
         s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
         s3Properties.put("AWS_BUCKET", "test-bucket");
         s3Properties.put("s3_validity_check", "false");
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test

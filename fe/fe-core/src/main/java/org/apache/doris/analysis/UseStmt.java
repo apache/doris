@@ -17,13 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -75,16 +72,10 @@ public class UseStmt extends StatementBase implements NotFallbackInParser {
         return toSql();
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
+    public void analyze() throws AnalysisException, UserException {
+        super.analyze();
         if (Strings.isNullOrEmpty(database)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        }
-        String currentCatalogName = catalogName == null ? ConnectContext.get().getDefaultCatalog() : catalogName;
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(), currentCatalogName, database, PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
-                    database);
         }
     }
 

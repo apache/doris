@@ -20,9 +20,9 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "common/cast_set.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
@@ -425,7 +425,7 @@ public:
             ValueCopyType value = 0;
             memcpy(reinterpret_cast<char*>(&value), buf + offset, sizeof(value));
             offset += fixed_type_length;
-            value = BitUtil::big_endian_to_host(value);
+            value = to_endian<std::endian::big>(value);
             value = value >> ((sizeof(value) - fixed_type_length) * 8);
             auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
             v = (DecimalType)value;
@@ -460,7 +460,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
             ValueCopyType value = 0;
             if (len > 0) {
                 memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
-                value = BitUtil::big_endian_to_host(value);
+                value = to_endian<std::endian::big>(value);
                 value = value >> ((sizeof(value) - len) * 8);
             }
             auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);

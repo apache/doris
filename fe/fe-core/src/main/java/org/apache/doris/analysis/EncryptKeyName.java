@@ -66,14 +66,7 @@ public class EncryptKeyName {
         this.keyName = keyName.toLowerCase();
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        FeNameFormat.checkCommonName("EncryptKey", keyName);
-        if (db == null) {
-            db = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(db)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        }
+    public void analyze() throws AnalysisException {
     }
 
     public void analyze(ConnectContext ctx) throws AnalysisException {

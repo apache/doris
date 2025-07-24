@@ -60,11 +60,14 @@ public class S3PropertiesTest {
         origProps = new HashMap<>();
         origProps.put("s3.endpoint", "https://s3.example.com");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Property cos.access_key is required.");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps),
+                "Property cos.access_key is required.");
         origProps.put("s3.access_key", "myS3AccessKey");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Property cos.secret_key is required.");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps),
+                "Property cos.secret_key is required.");
         origProps.put("s3.secret_key", "myS3SecretKey");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Invalid endpoint format: https://s3.example.com");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps),
+                "Invalid endpoint format: https://s3.example.com");
         origProps.put("s3.endpoint", "s3.us-west-1.amazonaws.com");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
     }
@@ -95,6 +98,19 @@ public class S3PropertiesTest {
         origProps.put("s3.endpoint", "s3-fips.us-east-2.amazonaws.com");
         s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+
+        origProps.put("glue.endpoint", "glue.us-wast-2.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+        origProps.remove("s3.endpoint");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-wast-2", s3Properties.getRegion());
+        origProps.put("glue.endpoint", "glue-fips.us-west-2.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", s3Properties.getRegion());
+        origProps.put("glue.endpoint", "glue.us-gov-west-1.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-gov-west-1", s3Properties.getRegion());
     }
 
     @Test
@@ -166,13 +182,12 @@ public class S3PropertiesTest {
         Assertions.assertEquals("myCOSSecretKey", s3Properties.getSecretKey());
         Assertions.assertEquals("s3.us-west-2.amazonaws.com", s3Properties.getEndpoint());
 
-
     }
 
     @Test
     public void testGetRegionWithDefault() throws UserException {
         Map<String, String> origProps = new HashMap<>();
-        origProps.put("uri", "https://example-bucket.s3.us-west-2.amazonaws.com/path/to/file.txt\n");
+        origProps.put("uri", "https://example-bucket.s3.us-west-2.amazonaws.com/path/to/file.txt");
         origProps.put("s3.access_key", "myCOSAccessKey");
         origProps.put("s3.secret_key", "myCOSSecretKey");
         origProps.put("s3.region", "us-west-2");
@@ -186,8 +201,9 @@ public class S3PropertiesTest {
         s3EndpointProps.put("oss.secret_key", "myCOSSecretKey");
         s3EndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
-        //not support
-        Assertions.assertThrowsExactly(StoragePropertiesException.class, () -> StorageProperties.createPrimary(s3EndpointProps), "Property cos.endpoint is required.");
+        // not support
+        Assertions.assertThrowsExactly(StoragePropertiesException.class,
+                () -> StorageProperties.createPrimary(s3EndpointProps), "Property cos.endpoint is required.");
     }
 
     @Test
@@ -204,7 +220,8 @@ public class S3PropertiesTest {
     }
 
     @Test
-    public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder, @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
+    public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder,
+            @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
 
         new Expectations() {
             {
@@ -301,5 +318,69 @@ public class S3PropertiesTest {
         String invalidEndpoint3 = "http://s3.us-west-2.amazonaws.com.cn";
         origProps.put("s3.endpoint", invalidEndpoint3);
         Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps));
+    }
+
+    @Test
+    public void testGetBackendConfigPropertiesWithRuntimeCredentials() throws UserException {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("s3.access_key", "base-access-key");
+        origProps.put("s3.secret_key", "base-secret-key");
+        origProps.put("s3.region", "us-west-2");
+
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+
+        // Test with runtime credentials (vended credentials)
+        Map<String, String> runtimeCredentials = new HashMap<>();
+        runtimeCredentials.put("AWS_ACCESS_KEY", "vended-access-key");
+        runtimeCredentials.put("AWS_SECRET_KEY", "vended-secret-key");
+        runtimeCredentials.put("AWS_TOKEN", "vended-session-token");
+
+        Map<String, String> result = s3Properties.getBackendConfigProperties(runtimeCredentials);
+
+        // Runtime credentials should override base properties
+        Assertions.assertEquals("vended-access-key", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("vended-secret-key", result.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("vended-session-token", result.get("AWS_TOKEN"));
+
+        // Base properties not overridden should still be present
+        Assertions.assertEquals("us-west-2", result.get("AWS_REGION"));
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", result.get("AWS_ENDPOINT"));
+    }
+
+    @Test
+    public void testGetBackendConfigPropertiesWithNullRuntimeCredentials() throws UserException {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("s3.access_key", "base-access-key");
+        origProps.put("s3.secret_key", "base-secret-key");
+        origProps.put("s3.region", "us-west-2");
+
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+
+        Map<String, String> result = s3Properties.getBackendConfigProperties(null);
+        Map<String, String> baseResult = s3Properties.getBackendConfigProperties();
+
+        // Should be identical to base properties when runtime credentials are null
+        Assertions.assertEquals(baseResult.size(), result.size());
+        Assertions.assertEquals("base-access-key", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("base-secret-key", result.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("us-west-2", result.get("AWS_REGION"));
+    }
+
+    @Test
+    public void testGetBackendConfigPropertiesWithEmptyRuntimeCredentials() throws UserException {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("s3.access_key", "base-access-key");
+        origProps.put("s3.secret_key", "base-secret-key");
+
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+
+        Map<String, String> emptyCredentials = new HashMap<>();
+        Map<String, String> result = s3Properties.getBackendConfigProperties(emptyCredentials);
+        Map<String, String> baseResult = s3Properties.getBackendConfigProperties();
+
+        // Should be identical to base properties when runtime credentials are empty
+        Assertions.assertEquals(baseResult.size(), result.size());
+        Assertions.assertEquals("base-access-key", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("base-secret-key", result.get("AWS_SECRET_KEY"));
     }
 }

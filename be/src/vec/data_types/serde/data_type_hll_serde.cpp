@@ -107,13 +107,13 @@ Status DataTypeHLLSerDe::read_column_from_pb(IColumn& column, const PValues& arg
 }
 
 void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                               Arena* mem_pool, int32_t col_id,
+                                               Arena& arena, int32_t col_id,
                                                int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const auto& data_column = assert_cast<const ColumnHLL&>(column);
     auto& hll_value = const_cast<HyperLogLog&>(data_column.get_element(row_num));
     auto size = hll_value.max_serialized_size();
-    auto* ptr = reinterpret_cast<char*>(mem_pool->alloc(size));
+    auto* ptr = reinterpret_cast<char*>(arena.alloc(size));
     size_t actual_size = hll_value.serialize((uint8_t*)ptr);
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
@@ -189,23 +189,43 @@ Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const 
                                              std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnHLL&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
-
-    INIT_MEMORY_FOR_ORC_WRITER()
-
+    // First pass: calculate total memory needed and collect serialized values
+    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             auto hll_value = const_cast<HyperLogLog&>(col_data.get_element(row_id));
             size_t len = hll_value.max_serialized_size();
-
-            REALLOC_MEMORY_FOR_ORC_WRITER()
-
+            total_size += len;
+        }
+    }
+    // Allocate continues memory based on calculated size
+    char* ptr = (char*)malloc(total_size);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory {} error when write variant column data to orc file.", total_size);
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = total_size;
+    buffer_list.emplace_back(bufferRef);
+    // Second pass: copy data to allocated memory
+    size_t offset = 0;
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            auto hll_value = const_cast<HyperLogLog&>(col_data.get_element(row_id));
+            size_t len = hll_value.max_serialized_size();
+            if (offset + len > total_size) {
+                return Status::InternalError(
+                        "Buffer overflow when writing column data to ORC file. offset {} with len "
+                        "{} exceed total_size {} ",
+                        offset, len, total_size);
+            }
             hll_value.serialize((uint8_t*)(bufferRef.data) + offset);
             cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
             cur_batch->length[row_id] = len;
             offset += len;
         }
     }
-
     cur_batch->numElements = end - start;
     return Status::OK();
 }

@@ -23,6 +23,7 @@
 #include "io/cache/block_file_cache_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
         : PInternalService(exec_env), _engine(engine) {}
@@ -71,6 +72,7 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         LOG_WARNING("try to access tablet file cache meta, but file cache not enabled");
         return;
     }
+    LOG(INFO) << "warm up get meta from this be, tablets num=" << request->tablet_ids().size();
     for (const auto& tablet_id : request->tablet_ids()) {
         auto res = _engine.tablet_mgr().get_tablet(tablet_id);
         if (!res.has_value()) {
@@ -82,7 +84,7 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         auto rowsets = tablet->get_snapshot_rowset();
         std::for_each(rowsets.cbegin(), rowsets.cend(), [&](const RowsetSharedPtr& rowset) {
             std::string rowset_id = rowset->rowset_id().to_string();
-            for (int64_t segment_id = 0; segment_id < rowset->num_segments(); segment_id++) {
+            for (int32_t segment_id = 0; segment_id < rowset->num_segments(); segment_id++) {
                 std::string file_name = fmt::format("{}_{}.dat", rowset_id, segment_id);
                 auto cache_key = io::BlockFileCache::hash(file_name);
                 auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
@@ -103,6 +105,9 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
             }
         });
     }
+    VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
+               << ", response=" << response->DebugString();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

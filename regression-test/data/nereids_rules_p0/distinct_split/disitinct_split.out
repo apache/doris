@@ -380,7 +380,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalOlapScan[test_distinct_multi]
 --PhysicalResultSink
-----hashJoin[INNER_JOIN] hashCondition=((.d <=> .d)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((d <=> .d)) otherCondition=()
 ------hashAgg[DISTINCT_LOCAL]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
@@ -415,9 +415,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalOlapScan[test_distinct_multi]
 --PhysicalResultSink
-----hashJoin[INNER_JOIN] hashCondition=((.d <=> .d)) otherCondition=()
-------hashJoin[INNER_JOIN] hashCondition=((.d <=> .d)) otherCondition=()
---------hashJoin[INNER_JOIN] hashCondition=((.d <=> .d)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((d <=> .d)) otherCondition=()
+------hashJoin[INNER_JOIN] hashCondition=((d <=> .d)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((d <=> .d)) otherCondition=()
 ----------hashAgg[DISTINCT_LOCAL]
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
@@ -463,7 +463,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN] hashCondition=((.c <=> .c)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((c <=> .c)) otherCondition=()
 ----------hashAgg[DISTINCT_LOCAL]
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]

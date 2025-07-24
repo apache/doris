@@ -16,6 +16,7 @@
 // under the License.
 
 suite('compaction_width_array_column', "p2") {
+    sql """set global broker_load_batch_size = 4062;"""
     String backend_id;
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]

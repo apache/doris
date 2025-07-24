@@ -46,9 +46,8 @@ AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& nam
                 argument_types, result_is_nullable);
     } else {
         AggregateFunctionPtr res(
-                creator_with_type_base<true, true, false, 1>::create<AggFunctionOrthBitmapFunc,
-                                                                     Impl>(argument_types,
-                                                                           result_is_nullable));
+                creator_with_integer_type_with_index<1>::create<AggFunctionOrthBitmapFunc, Impl>(
+                        argument_types, result_is_nullable));
         if (res) {
             return res;
         } else if (is_string_type(argument_types[1]->get_primitive_type())) {

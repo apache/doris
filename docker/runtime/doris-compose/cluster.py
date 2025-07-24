@@ -547,7 +547,7 @@ class FE(Node):
         if self.cluster.is_cloud:
             envs["CLOUD_UNIQUE_ID"] = self.cloud_unique_id()
             if self.meta["is_cloud_follower"]:
-                envs["is_fe_follower"] = 1
+                envs["IS_FE_FOLLOWER"] = 1
         envs["MY_QUERY_PORT"] = self.meta["ports"]["query_port"]
         envs["MY_EDITLOG_PORT"] = self.meta["ports"]["edit_log_port"]
         return envs
@@ -588,6 +588,9 @@ class BE(Node):
 
     def get_add_init_config(self):
         cfg = super().get_add_init_config()
+        cfg += [
+            'enable_java_support = false',
+        ]
         if self.cluster.be_config:
             cfg += self.cluster.be_config
         if self.cluster.is_cloud:

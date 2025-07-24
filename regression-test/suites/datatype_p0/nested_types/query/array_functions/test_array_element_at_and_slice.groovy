@@ -82,7 +82,7 @@ suite("test_array_element_at_and_slice", "p0") {
     // doris can not parse -0x8000000000000000 to 9223372036854775808 && 0xFFFFFFFFFFFFFFFF to 18446744073709551615
 //    order_qt_sql " SELECT array(number)[-0x8000000000000000] FROM numbers;"
 //    order_qt_sql " SELECT array(number)[0xFFFFFFFFFFFFFFFF] FROM numbers;"
-     order_qt_sql " SELECT array(number)[18446744073709551615] FROM numbers;"
+     order_qt_sql_out_of_range " SELECT array(number)[18446744073709551615] FROM numbers;"
 
 
     // predict not support action

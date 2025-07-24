@@ -78,7 +78,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }
@@ -376,8 +376,9 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
             throw new AnalysisException("You can not modify property 'enable_unique_key_skip_bitmap_column'.");
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)) {
-            throw new AnalysisException("You can not modify storage_page_size");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE)) {
+            throw new AnalysisException("You can not modify storage_page_size|storage_dict_page_size");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

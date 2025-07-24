@@ -61,7 +61,7 @@ public class ShowTransactionCommandTest {
                 minTimes = 0;
                 result = true;
 
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                accessControllerManager.checkDbPriv(connectContext, anyString, anyString, PrivPredicate.LOAD);
                 minTimes = 0;
                 result = true;
             }

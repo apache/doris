@@ -42,8 +42,9 @@ public:
         // Directory path format specified in SpillStreamManager::register_spill_stream:
         // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id/0
         file_path_ = dir + "/0";
-
-        _memory_used_counter = profile->get_counter("MemoryUsage");
+        RuntimeProfile* common_profile = profile->get_child("CommonCounters");
+        DCHECK(common_profile != nullptr);
+        _memory_used_counter = common_profile->get_counter("MemoryUsage");
     }
 
     Status open();
@@ -58,14 +59,15 @@ public:
 
     const std::string& get_file_path() const { return file_path_; }
 
-    void set_counters(RuntimeProfile* profile) {
-        _write_file_timer = profile->get_counter("SpillWriteFileTime");
-        _serialize_timer = profile->get_counter("SpillWriteSerializeBlockTime");
-        _write_block_counter = profile->get_counter("SpillWriteBlockCount");
-        _write_block_bytes_counter = profile->get_counter("SpillWriteBlockBytes");
-        _write_file_total_size = profile->get_counter("SpillWriteFileBytes");
-        _write_file_current_size = profile->get_counter("SpillWriteFileCurrentBytes");
-        _write_rows_counter = profile->get_counter("SpillWriteRows");
+    void set_counters(RuntimeProfile* operator_profile) {
+        RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+        _write_file_timer = custom_profile->get_counter("SpillWriteFileTime");
+        _serialize_timer = custom_profile->get_counter("SpillWriteSerializeBlockTime");
+        _write_block_counter = custom_profile->get_counter("SpillWriteBlockCount");
+        _write_block_bytes_counter = custom_profile->get_counter("SpillWriteBlockBytes");
+        _write_file_total_size = custom_profile->get_counter("SpillWriteFileBytes");
+        _write_file_current_size = custom_profile->get_counter("SpillWriteFileCurrentBytes");
+        _write_rows_counter = custom_profile->get_counter("SpillWriteRows");
     }
 
 private:

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -120,6 +121,22 @@ public class OBSPropertyTest {
         cosNoEndpointProps.put("uri", "s3://examplebucket-1250000000/myhuaweicloud.com/test/file.txt");
         //not support
         Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(cosNoEndpointProps), "Property cos.endpoint is required.");
+    }
+
+    @Test
+    public void testmissingAccessKey() {
+        origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        origProps.put("obs.secret_key", "myCOSSecretKey");
+        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
+                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+    }
+
+    @Test
+    public void testMissingSecretKey() {
+        origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        origProps.put("obs.access_key", "myCOSAccessKey");
+        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
+                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     private static String obsAccessKey = "";

@@ -321,7 +321,7 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      &_arena, _stored_has_null_tag[idx]);
+                                      _arena, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {

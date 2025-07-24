@@ -82,6 +82,7 @@ public:
     bool supports_sparse_serialization() const { return true; }
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
@@ -118,12 +119,13 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     bool get_have_explicit_names() const { return have_explicit_names; }
+    using SerDeType = DataTypeStructSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         DataTypeSerDeSPtrs ptrs;
         for (auto iter = elems.begin(); iter < elems.end(); ++iter) {
             ptrs.push_back((*iter)->get_serde(nesting_level + 1));
         }
-        return std::make_shared<DataTypeStructSerDe>(ptrs, names, nesting_level);
+        return std::make_shared<SerDeType>(ptrs, names, nesting_level);
     };
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         node->set_type(TTypeNodeType::STRUCT);

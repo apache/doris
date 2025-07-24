@@ -19,6 +19,16 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_docker,external_docker_kerberos") {
+    /* 
+     * In this test case, we compare the intervals between two time zones. 
+     *      List<List<Object>> routines_res_1 = sql """ select CREATED,LAST_ALTERED from information_schema.routines where ROUTINE_NAME="TEST_INFORMATION_SCHEMA_TIMEZONE1" """
+     *      List<List<Object>> routines_res_2 = sql """ select CREATED,LAST_ALTERED from information_schema.routines where ROUTINE_NAME="TEST_INFORMATION_SCHEMA_TIMEZONE2"; """
+     *      assertEquals(true, isEightHoursDiff(tables_res_2[0][0], tables_res_1[0][0]))
+     * If the two SQL queries are executed across the hour mark, it will cause the test case to fail.
+     * eg. routines_res_1 executed at 00:59:50, and routines_res_2 executed at 01:00:05, assert will fail.
+     * The execution time of this test case is within 2 minutes, and the interval between the two queries is about 20 seconds. 
+     */
+    waitUntilSafeExecutionTime("NOT_CROSS_HOUR_BOUNDARY", 45)
 
     def table_name = "test_information_schema_timezone"
     sql """ DROP TABLE IF EXISTS ${table_name} """

@@ -53,6 +53,19 @@ extern bvar::LatencyRecorder s3_get_bucket_version_latency;
 extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
+class S3Environment {
+public:
+    S3Environment(const S3Environment&) = delete;
+    S3Environment& operator=(const S3Environment&) = delete;
+
+    static S3Environment& getInstance();
+
+    ~S3Environment();
+
+private:
+    S3Environment();
+    Aws::SDKOptions aws_options_;
+};
 struct AccessorRateLimiter {
 public:
     ~AccessorRateLimiter() = default;

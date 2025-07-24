@@ -91,6 +91,12 @@ private:
     RuntimeState* _state;
     int64_t _limit;
     bool _is_dup_mow_key;
+    // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
+    // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
+    // for example, if a table is select userid,count(*) from base table.
+    // And the user send a query like select userid,count(*) from base table group by userid.
+    // then the storage layer do not need do aggregation, it could just return the partial agg data, because the compute layer will do aggregation.
+    // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
     std::vector<OlapScanRange*> _key_ranges;

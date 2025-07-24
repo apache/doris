@@ -288,7 +288,7 @@ public class Partition extends MetaObject {
     public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
-            dataSize += mIndex.getDataSize(singleReplica);
+            dataSize += mIndex.getDataSize(singleReplica, false);
         }
         return dataSize;
     }
@@ -409,7 +409,7 @@ public class Partition extends MetaObject {
 
     public long getAvgRowLength() {
         long rowCount = getBaseIndex().getRowCount();
-        long dataSize = getBaseIndex().getDataSize(false);
+        long dataSize = getBaseIndex().getDataSize(false, false);
         if (rowCount > 0) {
             return dataSize / rowCount;
         } else {
@@ -418,6 +418,14 @@ public class Partition extends MetaObject {
     }
 
     public long getDataLength() {
-        return getBaseIndex().getDataSize(false);
+        return getBaseIndex().getDataSize(false, false);
+    }
+
+    public long getDataSizeExcludeEmptyReplica(boolean singleReplica) {
+        long dataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+            dataSize += mIndex.getDataSize(singleReplica, true);
+        }
+        return dataSize + getRemoteDataSize();
     }
 }

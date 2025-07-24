@@ -259,10 +259,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         switch (sourceType) {
             case BACKEND_STREAMING:
                 checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
-                        Config.min_load_timeout_second);
+                        Config.min_load_timeout_second, sourceType);
                 break;
             default:
-                checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second, Config.min_load_timeout_second);
+                checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second,
+                        Config.min_load_timeout_second, sourceType);
         }
 
         BeginTxnResponse beginTxnResponse = null;
@@ -405,7 +406,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 if (!checkTransactionStateBeforeCommit(dbId, transactionId)) {
                     return;
                 }
-                DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext();
+                DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext(transactionId);
                 getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext);
                 if (lockContext.getBackendToPartitionTablets().isEmpty()) {
                     throw new UserException(
@@ -849,6 +850,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             lockContext.getPartitions().putIfAbsent(partitionId, partition);
         }
+        if (!tableList.isEmpty() && !tabletCommitInfos.isEmpty() && lockContext.getTableToTabletList().isEmpty()) {
+            String tableListDebugStr = tableList.stream().map(table -> String.valueOf(table.getId()))
+                    .collect(Collectors.joining(", "));
+            String tabletMetaDebugStr = tabletMetaList.stream().map(TabletMeta::toString)
+                    .collect(Collectors.joining("\n"));
+            LOG.warn(
+                    "getPartitionInfo for lock_id: {} failed, LockContext.TableToTabletList is empty,"
+                            + " this should never happen. tableList: {}, tabletIds: {}, tabletMetaList: {}",
+                    lockContext.getLockId(), tableListDebugStr, tabletIds.toString(), tabletMetaDebugStr);
+        }
     }
 
     private Map<Long, Long> getPartitionVersions(Map<Long, Partition> partitionMap) {
@@ -949,13 +960,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int totalRetryTime = 0;
         String retryMsg = "";
         boolean res = false;
+        long startTime = System.currentTimeMillis();
         try {
             getPartitionInfo(mowTableList, tabletCommitInfos, lockContext);
             for (Map.Entry<Long, Set<Long>> entry : lockContext.getTableToPartitions().entrySet()) {
                 GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
-                builder.setTableId(entry.getKey()).setLockId(transactionId).setInitiator(-1)
+                long tableId = entry.getKey();
+                builder.setTableId(tableId).setLockId(transactionId).setInitiator(-1)
                         .setExpiration(Config.delete_bitmap_lock_expiration_seconds).setRequireCompactionStats(true);
-                List<Long> tabletList = lockContext.getTableToTabletList().get(entry.getKey());
+                List<Long> tabletList = lockContext.getTableToTabletList().get(tableId);
                 for (Long tabletId : tabletList) {
                     TabletMeta tabletMeta = lockContext.getTabletToTabletMeta().get(tabletId);
                     TabletIndexPB.Builder tabletIndexBuilder = TabletIndexPB.newBuilder();
@@ -966,11 +979,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     tabletIndexBuilder.setTabletId(tabletId);
                     builder.addTabletIndexes(tabletIndexBuilder);
                 }
-                final GetDeleteBitmapUpdateLockRequest request = builder.build();
                 GetDeleteBitmapUpdateLockResponse response = null;
 
                 int retryTime = 0;
                 while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
+                    long waitTime = System.currentTimeMillis() - startTime;
+                    boolean enableUrgentLock = Config.enable_mow_load_force_take_ms_lock;
+                    long remainedTime = Config.mow_load_force_take_ms_lock_threshold_ms - waitTime;
+                    boolean urgent = enableUrgentLock && remainedTime < 0;
+                    if (urgent) {
+                        LOG.info("try to get delete bitmap lock with urgent flag, tableId={}, txnId={}",
+                                tableId, transactionId);
+                    }
+                    builder.setUrgent(urgent);
+                    GetDeleteBitmapUpdateLockRequest request = builder.build();
                     try {
                         response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                         if (LOG.isDebugEnabled()) {
@@ -1010,15 +1032,27 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                 "check delete bitmap lock release fail,response is " + response
                                         + ", tableList=(" + StringUtils.join(mowTableList, ",") + ")");
                     }
-                    // sleep random millis [20, 300] ms, avoid txn conflict
-                    int randomMillis = 20 + (int) (Math.random() * (300 - 20));
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("randomMillis:{}", randomMillis);
-                    }
-                    try {
-                        Thread.sleep(randomMillis);
-                    } catch (InterruptedException e) {
-                        LOG.info("InterruptedException: ", e);
+
+                    // don't sleep if it's urgent
+                    if (!urgent) {
+                        long base = Config.mow_get_ms_lock_retry_backoff_base;
+                        long interval = Config.mow_get_ms_lock_retry_backoff_interval;
+                        if (Config.enable_mow_load_force_take_ms_lock
+                                && interval > Config.mow_load_force_take_ms_lock_threshold_ms) {
+                            interval = Config.mow_load_force_take_ms_lock_threshold_ms;
+                        }
+                        long randomMillis = base + (long) (Math.random() * interval);
+                        if (enableUrgentLock && randomMillis > remainedTime) {
+                            randomMillis = remainedTime;
+                        }
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("randomMillis:{}", randomMillis);
+                        }
+                        try {
+                            Thread.sleep(randomMillis);
+                        } catch (InterruptedException e) {
+                            LOG.info("InterruptedException: ", e);
+                        }
                     }
                 }
                 Preconditions.checkNotNull(response);
@@ -1323,7 +1357,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 if (!checkTransactionStateBeforeCommit(db.getId(), transactionId)) {
                     return true;
                 }
-                DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext();
+                DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext(transactionId);
                 getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext);
                 if (lockContext.getBackendToPartitionTablets().isEmpty()) {
                     throw new UserException(

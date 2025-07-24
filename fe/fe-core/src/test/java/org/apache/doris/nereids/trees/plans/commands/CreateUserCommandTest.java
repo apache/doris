@@ -35,7 +35,6 @@ public class CreateUserCommandTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         ConnectContext ctx = new ConnectContext();
-        ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
         UserIdentity currentUserIdentity = new UserIdentity("root", "192.168.1.1");
         currentUserIdentity.setIsAnalyzed();

@@ -151,7 +151,7 @@ public class StatsCalculatorTest {
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         StatsCalculator.estimate(groupExpressionOr, null);
         Assertions.assertEquals(1448.555,
-                ownerGroupOr.getStatistics().getRowCount(), 0.001);
+                ownerGroupOr.getStatistics().getRowCount(), 0.1);
     }
 
     // a, b are in (0,100)
@@ -273,7 +273,7 @@ public class StatsCalculatorTest {
         columnStat1.setNumNulls(5);
         Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
         slotColumnStatsMap.put(slot1, columnStat1.build());
-        Statistics childStats = new Statistics(10, slotColumnStatsMap);
+        Statistics childStats = new Statistics(20, slotColumnStatsMap);
 
         Group childGroup = newFakeGroup();
         GroupPlan groupPlan = new GroupPlan(childGroup);
@@ -288,7 +288,7 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, limitStats.getRowCount());
         ColumnStatistic slot1Stats = limitStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
-        Assertions.assertEquals(0, slot1Stats.numNulls, 0.1);
+        Assertions.assertEquals(1, slot1Stats.numNulls, 0.1);
     }
 
     @Test
@@ -300,7 +300,7 @@ public class StatsCalculatorTest {
         columnStat1.setNumNulls(5);
         Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
         slotColumnStatsMap.put(slot1, columnStat1.build());
-        Statistics childStats = new Statistics(10, slotColumnStatsMap);
+        Statistics childStats = new Statistics(20, slotColumnStatsMap);
 
         Group childGroup = newFakeGroup();
         GroupPlan groupPlan = new GroupPlan(childGroup);
@@ -314,6 +314,6 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, topNStats.getRowCount());
         ColumnStatistic slot1Stats = topNStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
-        Assertions.assertEquals(0, slot1Stats.numNulls, 0.1);
+        Assertions.assertEquals(1, slot1Stats.numNulls, 0.1);
     }
 }

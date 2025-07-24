@@ -74,11 +74,23 @@ public class MapLiteral extends Literal {
             // we should pass dataType to constructor because arguments maybe empty
             return new MapLiteral(
                     keys.stream()
-                            .map(k -> k.uncheckedCastTo(((MapType) targetType).getKeyType()))
+                            .map(k -> {
+                                try {
+                                    return k.uncheckedCastTo(((MapType) targetType).getKeyType());
+                                } catch (Exception ignored) {
+                                    return k.deprecatingUncheckedCastTo(((MapType) targetType).getKeyType());
+                                }
+                            })
                             .map(Literal.class::cast)
                             .collect(ImmutableList.toImmutableList()),
                     values.stream()
-                            .map(v -> v.uncheckedCastTo(((MapType) targetType).getValueType()))
+                            .map(v -> {
+                                try {
+                                    return v.uncheckedCastTo(((MapType) targetType).getValueType());
+                                } catch (Exception ignored) {
+                                    return v.deprecatingUncheckedCastTo(((MapType) targetType).getValueType());
+                                }
+                            })
                             .map(Literal.class::cast)
                             .collect(ImmutableList.toImmutableList()),
                     targetType

@@ -143,4 +143,20 @@ public class COSPropertiesTest {
         //not support this case
         Assertions.assertThrowsExactly(StoragePropertiesException.class, () -> StorageProperties.createPrimary(cosNoEndpointProps), "Property cos.endpoint is required.");
     }
+
+    @Test
+    public void testMissingAccessKey() {
+        origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        origProps.put("cos.secret_key", "myCOSSecretKey");
+        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
+                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+    }
+
+    @Test
+    public void testMissingSecretKey() {
+        origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        origProps.put("cos.access_key", "myCOSAccessKey");
+        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
+                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+    }
 }

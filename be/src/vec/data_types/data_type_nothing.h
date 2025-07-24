@@ -55,6 +55,7 @@ public:
     }
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     bool equals(const IDataType& rhs) const override;
 
@@ -82,8 +83,9 @@ public:
     }
 
     bool have_subtypes() const override { return false; }
+    using SerDeType = DataTypeNothingSerde;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeNothingSerde>();
+        return std::make_shared<SerDeType>();
     };
 };
 

@@ -143,7 +143,11 @@ private:
             PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
 
             if (node.path.has_nested_part()) {
-                CHECK_EQ(node.data.type->get_primitive_type(), PrimitiveType::TYPE_ARRAY);
+                if (node.data.type->get_primitive_type() != PrimitiveType::TYPE_ARRAY) {
+                    return Status::InternalError(
+                            "Meet none array column when flatten nested array, path {}, type {}",
+                            node.path.get_path(), node.data.type->get_name());
+                }
                 PathInData parent_path = node.path.get_nested_prefix_path().copy_pop_nfront(
                         _path.get_parts().size());
                 nested_subcolumns[parent_path].emplace_back(relative_path, column->get_ptr(),
@@ -167,7 +171,7 @@ private:
         // Iterate nested subcolumns and flatten them, the entry contains the nested subcolumns of the same nested parent
         // first we pick the first subcolumn as base array and using it's offset info. Then we flatten all nested subcolumns
         // into a new object column and wrap it with array column using the first element offsets.The wrapped array column
-        // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
+        // will type the type of ColumnVariant::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnVariant)>>.
         for (auto& entry : nested_subcolumns) {
             MutableColumnPtr nested_object = ColumnVariant::create(true, false);
             const auto* base_array = check_and_get_column<ColumnArray>(

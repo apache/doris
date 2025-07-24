@@ -36,11 +36,11 @@
 #include "common/stats.h"
 #include "common/string_util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 using namespace std::chrono;
 
@@ -2445,6 +2445,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         KVStats stats;
         notify_refresh_instance(txn_kv, instance_id, &stats);
         if (config::use_detailed_metrics && !instance_id.empty()) {
+            g_bvar_rpc_kv_alter_cluster_get_bytes.put({instance_id}, stats.get_bytes);
             g_bvar_rpc_kv_alter_cluster_get_counter.put({instance_id}, stats.get_counter);
         }
     });
@@ -3881,6 +3882,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
         }
         DORIS_CLOUD_DEFER {
             if (config::use_detailed_metrics && txn != nullptr) {
+                g_bvar_rpc_kv_get_cluster_status_get_bytes.put({instance_id}, txn->get_bytes());
                 g_bvar_rpc_kv_get_cluster_status_get_counter.put({instance_id},
                                                                  txn->num_get_keys());
             }
@@ -3940,13 +3942,16 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
     std::string key = system_meta_service_registry_key();
     std::string val;
     err = txn->get(key, &val);
+    if (stats) {
+        stats->get_counter++;
+    }
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to get server registry"
                      << " err=" << err;
         return;
     }
-    if (config::use_detailed_metrics && stats) {
-        stats->get_counter++;
+    if (stats) {
+        stats->get_bytes += val.size() + key.size();
     }
     std::string self_endpoint =
             config::hostname.empty() ? get_local_ip(config::priority_networks) : config::hostname;

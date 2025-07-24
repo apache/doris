@@ -22,7 +22,9 @@
 
 #include <unistd.h>
 
+#include <cassert>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <queue>
 
@@ -30,13 +32,13 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Fixed capacity FIFO queue, where both blocking_get and blocking_put operations block
 // if the queue is empty or full, respectively.
 template <typename T>
 class BlockingPriorityQueue {
 public:
-    BlockingPriorityQueue(size_t max_elements)
+    BlockingPriorityQueue(uint32_t max_elements)
             : _shutdown(false),
               _max_element(max_elements),
               _upgrade_counter(0),
@@ -191,7 +193,7 @@ public:
 
     uint32_t get_size() const {
         std::lock_guard l(_lock);
-        return _queue.size();
+        return static_cast<uint32_t>(_queue.size());
     }
 
     uint32_t get_capacity() const { return _max_element; }
@@ -216,5 +218,5 @@ private:
     size_t _get_waiting;
     size_t _put_waiting;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -18,6 +18,7 @@
 #include "CN_QuantifierSegmenter.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 const std::u32string CN_QuantifierSegmenter::CHINESE_NUMBERS =
         U"一二两三四五六七八九十零壹贰叁肆伍陆柒捌玖拾百千万亿拾佰仟萬億兆卅廿";
@@ -58,15 +59,15 @@ void CN_QuantifierSegmenter::processCNumber(AnalyzeContext& context) {
         if (CharacterUtil::CHAR_CHINESE == context.getCurrentCharType() &&
             CHINESE_NUMBER_CHARS.find(currentChar) != CHINESE_NUMBER_CHARS.end()) {
             // Record the starting and ending positions of numeral words.
-            number_start_ = context.getCursor();
-            number_end_ = context.getCursor();
+            number_start_ = static_cast<int32_t>(context.getCursor());
+            number_end_ = static_cast<int32_t>(context.getCursor());
         }
     } else {
         // Processing status
         if (CharacterUtil::CHAR_CHINESE == context.getCurrentCharType() &&
             CHINESE_NUMBER_CHARS.find(context.getCurrentChar()) != CHINESE_NUMBER_CHARS.end()) {
             // Record the end position of numeral words
-            number_end_ = context.getCursor();
+            number_end_ = static_cast<int32_t>(context.getCursor());
         } else {
             // Output numeral
             outputNumLexeme(context);
@@ -161,4 +162,6 @@ void CN_QuantifierSegmenter::outputNumLexeme(AnalyzeContext& context) {
         context.addLexeme(newLexeme);
     }
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

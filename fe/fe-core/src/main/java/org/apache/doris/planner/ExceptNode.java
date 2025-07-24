@@ -17,22 +17,13 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-
-import java.util.List;
 
 public class ExceptNode extends SetOperationNode {
     public ExceptNode(PlanNodeId id, TupleId tupleId) {
         super(id, tupleId, "EXCEPT");
-    }
-
-    protected ExceptNode(PlanNodeId id, TupleId tupleId,
-                         List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "EXCEPT", setOpResultExprs, isInSubplan, StatisticalType.EXCEPT_NODE);
     }
 
     @Override

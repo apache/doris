@@ -694,8 +694,16 @@ public class VariableMgr {
             throws DdlException {
         for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
             VarContext varCtx = entry.getValue();
+            String defaultValue = varCtx.defaultValue;
+            String currentValue = getValue(sessionVariable, varCtx.getField());
+
+            // Skip if current value is already the default value
+            if (defaultValue.equals(currentValue)) {
+                continue;
+            }
+
             SetVar setVar = new SetVar(setType, entry.getKey(),
-                    new StringLiteral(varCtx.defaultValue), SetVarType.SET_SESSION_VAR);
+                    new StringLiteral(defaultValue), SetVarType.SET_SESSION_VAR);
             try {
                 checkUpdate(setVar, varCtx.getFlag());
             } catch (DdlException e) {
@@ -878,6 +886,9 @@ public class VariableMgr {
         String[] options() default {};
 
         String convertBoolToLongMethod() default "";
+        // If the variable affects the outcome, set it to true.
+        // If this value is true, it will ignore needForward and enforce forwarding.
+        boolean affectQueryResult() default false;
     }
 
     private static class VarContext {
@@ -1001,12 +1012,13 @@ public class VariableMgr {
                     String.valueOf(false));
         }
         if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_300) {
-            // update to master
+            // update from 3.0.x to 3.1.0 or higher
             long sqlMode = defaultSessionVariable.sqlMode;
             // remove mode_default flag
             if ((sqlMode & SqlModeHelper.MODE_DEFAULT) != 0) {
                 sqlMode ^= SqlModeHelper.MODE_DEFAULT;
             }
+            // add ONLY_FULL_GROUP_BY to sql_mode to let behavior not change
             sqlMode |= SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.SQL_MODE,
@@ -1016,6 +1028,10 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     GlobalVariable.ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR,
                     String.valueOf(false));
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_400) {
+            // update to master
+            // do nothing now
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,

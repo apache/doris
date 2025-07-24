@@ -36,9 +36,9 @@
 #include "common/configbase.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_server.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
 #include "recycler/recycler.h"
 
 using namespace doris::cloud;

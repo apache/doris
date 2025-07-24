@@ -22,6 +22,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // there are problems with the implementation of the old datetimev2. for compatibility reason, we will keep this code temporary.
 struct fixed_len_to_uint32 {
     template <typename T>
@@ -33,7 +34,7 @@ struct fixed_len_to_uint32 {
                 return (uint32_t)value;
             }
         }
-        return std::hash<T>()(value);
+        return uint32_t(std::hash<T>()(value));
     }
 };
 
@@ -47,7 +48,7 @@ struct fixed_len_to_uint32_v2 {
                 return (uint32_t)value;
             }
         }
-        return std::hash<T>()(value);
+        return uint32_t(std::hash<T>()(value));
     }
 };
 
@@ -73,7 +74,7 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
     uint16_t new_size = 0;
     if (is_parse_column) {
         if (nullmap == nullptr) {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 uint16_t idx = offsets[i];
                 if (!bloom_filter.test_element<fixed_len_to_uint32_method>(
                             get_element(data, idx))) {
@@ -82,7 +83,7 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
                 offsets[new_size++] = idx;
             }
         } else {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 uint16_t idx = offsets[i];
                 if (nullmap[idx]) {
                     if (!bloom_filter.contain_null()) {
@@ -99,14 +100,14 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
         }
     } else {
         if (nullmap == nullptr) {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 if (!bloom_filter.test_element<fixed_len_to_uint32_method>(get_element(data, i))) {
                     continue;
                 }
                 offsets[new_size++] = i;
             }
         } else {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 if (nullmap[i]) {
                     if (!bloom_filter.contain_null()) {
                         continue;
@@ -123,5 +124,5 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
     }
     return new_size;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris
