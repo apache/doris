@@ -188,7 +188,7 @@ public:
     virtual Status try_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
                              RuntimeState* runtime_state, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
-                             uint32_t* count) = 0;
+                             size_t* count) = 0;
 
     Status read_null_bitmap(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
                             InvertedIndexQueryCacheHandle* cache_handle,
@@ -258,7 +258,7 @@ public:
     Status try_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
                      RuntimeState* runtime_state, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
-                     uint32_t* count) override {
+                     size_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "FullTextIndexReader not support try_query");
     }
@@ -285,7 +285,7 @@ public:
     Status try_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
                      RuntimeState* runtime_state, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
-                     uint32_t* count) override {
+                     size_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "StringTypeInvertedIndexReader not support try_query");
     }
@@ -349,10 +349,10 @@ public:
     Status try_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
                      RuntimeState* runtime_state, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
-                     uint32_t* count) override;
+                     size_t* count) override;
     Status invoke_bkd_try_query(const io::IOContext* io_ctx, const void* query_value,
                                 InvertedIndexQueryType query_type,
-                                std::shared_ptr<lucene::util::bkd::bkd_reader> r, uint32_t* count);
+                                std::shared_ptr<lucene::util::bkd::bkd_reader> r, size_t* count);
     Status invoke_bkd_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
                             const void* query_value, InvertedIndexQueryType query_type,
                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
