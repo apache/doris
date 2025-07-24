@@ -40,7 +40,7 @@ public class TableRenameClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(newTableName)) {
             throw new AnalysisException("New Table name is not set");
         }

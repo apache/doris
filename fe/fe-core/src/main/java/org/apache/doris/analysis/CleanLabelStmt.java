@@ -49,8 +49,8 @@ public class CleanLabelStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         label = Strings.nullToEmpty(label);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
