@@ -105,6 +105,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
         this.isClosed = false;
+        this.executionAuthenticator = executionAuthenticator;
     }
 
     @Override
