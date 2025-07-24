@@ -36,7 +36,6 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -49,6 +48,7 @@
 #include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
+#include "util/to_string.h"
 #include "util/types.h"
 #include "vec/common/arena.h"
 #include "vec/core/extended_types.h"
@@ -1044,8 +1044,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
     }
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        int length =
-                FloatToBuffer(*reinterpret_cast<const CppType*>(src), MAX_FLOAT_STR_LENGTH, buf);
+        int length = to_buffer(*reinterpret_cast<const CppType*>(src), MAX_FLOAT_STR_LENGTH, buf);
         DCHECK(length >= 0) << "gcvt float failed, float value="
                             << *reinterpret_cast<const CppType*>(src);
         return std::string(buf);
@@ -1066,8 +1065,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
     }
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        int length =
-                DoubleToBuffer(*reinterpret_cast<const CppType*>(src), MAX_DOUBLE_STR_LENGTH, buf);
+        int length = to_buffer(*reinterpret_cast<const CppType*>(src), MAX_DOUBLE_STR_LENGTH, buf);
         DCHECK(length >= 0) << "gcvt float failed, float value="
                             << *reinterpret_cast<const CppType*>(src);
         return std::string(buf);
