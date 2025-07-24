@@ -27,7 +27,7 @@
 #include "util/mysql_global.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
-#include "vec/functions/cast/function_cast.h"
+#include "vec/functions/cast/cast_to_boolean.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -608,6 +608,24 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& 
     return Status::OK();
 }
 
+template <PrimitiveType PT, bool enable_strict_cast>
+bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x, ReadBuffer& rb,
+                    CastParameters& params) {
+    /// TODO: change the ReadBuffer arg to StringRef.
+    if constexpr (is_float_or_double(PT)) {
+        return try_read_float_text(x, rb);
+    } else if constexpr (PT == TYPE_BOOLEAN) {
+        StringRef str {rb.position(), rb.count()};
+        return CastToBool::from_string(str, x, params);
+    } else if constexpr (is_int(PT)) {
+        return try_read_int_text<typename PrimitiveTypeTraits<PT>::ColumnItemType,
+                                 enable_strict_cast>(x, rb);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "try_parse_impl not implemented for type: {}", type_to_string(PT));
+    }
+}
+
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
                                                  const FormatOptions& options) const {
@@ -622,12 +640,14 @@ Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, Column
     const ColumnString::Chars* chars = &str.get_chars();
     const IColumn::Offsets* offsets = &str.get_offsets();
 
+    CastParameters params;
+    params.is_strict = false;
     for (size_t i = 0; i < size; ++i) {
         size_t next_offset = (*offsets)[i];
         size_t string_size = next_offset - current_offset;
 
         ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-        null_map[i] = !try_parse_impl<DataTypeNumber<T>, false>(vec_to[i], read_buffer, nullptr);
+        null_map[i] = !try_parse_impl<T, false>(vec_to[i], read_buffer, params);
         current_offset = next_offset;
     }
     return Status::OK();
@@ -679,7 +699,8 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
 
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
-
+    CastParameters params;
+    params.is_strict = true;
     for (size_t i = 0; i < size; ++i) {
         if (null_map && null_map[i]) {
             continue;
@@ -688,7 +709,7 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
         size_t string_size = next_offset - current_offset;
 
         ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-        if (!try_parse_impl<DataTypeNumber<T>, true>(vec_to[i], read_buffer, nullptr)) {
+        if (!try_parse_impl<T, true>(vec_to[i], read_buffer, params)) {
             return Status::InvalidArgument(
                     "parse number fail, string: '{}'",
                     std::string((char*)&(*chars)[current_offset], string_size));

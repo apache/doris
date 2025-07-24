@@ -164,6 +164,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
             return;
         }
+        // When using vended credentials with a REST catalog, AK/SK are not provided directly.
+        // The credentials will be fetched from the REST service later.
+        // So we skip the credential check in this case.
+        if (Boolean.parseBoolean(origProps.getOrDefault("iceberg.rest.vended-credentials-enabled", "false"))) {
+            return;
+        }
         throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
                 + "s3.external_id");
     }
@@ -229,15 +235,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         options.set("s3.secret-key", s3SecretKey);
     }*/
 
-    public void toIcebergS3FileIOProperties(Map<String, String> catalogProps) {
-        // See S3FileIOProperties.java
-        catalogProps.put("s3.endpoint", endpoint);
-        catalogProps.put("s3.access-key-id", accessKey);
-        catalogProps.put("s3.secret-access-key", secretKey);
-        catalogProps.put("client.region", region);
-        catalogProps.put("s3.path-style-access", usePathStyle);
-    }
-
     @Override
     public Map<String, String> getBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration(s3ConnectionMaximum,
@@ -283,5 +280,4 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 ProfileCredentialsProvider.create(),
                 InstanceProfileCredentialsProvider.create());
     }
-
 }

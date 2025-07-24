@@ -988,6 +988,12 @@ build_grpc() {
 
     cmake -DgRPC_INSTALL=ON \
         -DgRPC_BUILD_TESTS=OFF \
+        -Dgrpc_csharp_plugin=OFF \
+        -Dgrpc_node_plugin=OFF \
+        -Dgrpc_objective_c_plugin=OFF \
+        -Dgrpc_php_plugin=OFF \
+        -Dgrpc_python_plugin=OFF \
+        -Dgrpc_ruby_plugin=OFF \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DgRPC_CARES_PROVIDER=package \
@@ -1358,7 +1364,7 @@ build_aws_sdk() {
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
         -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
-        -DCMAKE_CXX_FLAGS="-Wno-nonnull ${warning_deprecated_literal_operator} -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
+        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-literal-operator ${warning_deprecated_literal_operator} -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 
@@ -1657,7 +1663,7 @@ build_binutils() {
     cd "${BUILD_DIR}"
 
     ../configure --prefix="${TP_INSTALL_DIR}/binutils" --includedir="${TP_INCLUDE_DIR}" --libdir="${TP_LIB_DIR}" \
-        --enable-install-libiberty --without-msgpack
+        --enable-install-libiberty --without-msgpack -with-system-zlib
     make -j "${PARALLEL}"
     make install-bfd install-libiberty install-binutils
 }
@@ -1808,7 +1814,7 @@ build_base64() {
 
 # azure blob storage
 build_azure() {
-    if [[ "${BUILD_AZURE}" == "OFF" ]]; then
+    if [[ "${BUILD_AZURE}" == "OFF" || "$(uname -s)" == 'Darwin' ]]; then
         echo "Skip build azure"
     else
         check_if_source_exist "${AZURE_SOURCE}"
@@ -2019,7 +2025,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         ali_sdk
         base64
         azure
-        dragonbox
         brotli
         icu
         pugixml

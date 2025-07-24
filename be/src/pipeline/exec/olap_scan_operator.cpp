@@ -362,6 +362,12 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     bool has_cpu_limit = state()->query_options().__isset.resource_limit &&
                          state()->query_options().resource_limit.__isset.cpu_limit;
 
+    // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
+    // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
+    // for example, if a table is select userid,count(*) from base table.
+    // And the user send a query like select userid,count(*) from base table group by userid.
+    // then the storage layer do not need do aggregation, it could just return the partial agg data, because the compute layer will do aggregation.
+    // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
@@ -463,7 +469,7 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
             _cloud_tablet_dependency = Dependency::create_shared(
                     _parent->operator_id(), _parent->node_id(), "CLOUD_TABLET_DEP");
             _tablets.resize(_scan_ranges.size());
-            _tasks.reserve(_scan_ranges.size());
+            std::vector<std::function<Status()>> tasks;
             _sync_statistics.resize(_scan_ranges.size());
             for (size_t i = 0; i < _scan_ranges.size(); i++) {
                 auto* sync_stats = &_sync_statistics[i];
@@ -472,7 +478,7 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                                 _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
                                 version);
                 auto task_ctx = state->get_task_execution_context();
-                _tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
+                tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
                         return Status::OK();
@@ -497,8 +503,9 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                     return Status::OK();
                 });
             }
-            RETURN_IF_ERROR(cloud::bthread_fork_join(
-                    _tasks, config::init_scanner_sync_rowsets_parallelism, &_cloud_tablet_future));
+            RETURN_IF_ERROR(cloud::bthread_fork_join(std::move(tasks),
+                                                     config::init_scanner_sync_rowsets_parallelism,
+                                                     &_cloud_tablet_future));
         }
         _sync_tablet = true;
     }

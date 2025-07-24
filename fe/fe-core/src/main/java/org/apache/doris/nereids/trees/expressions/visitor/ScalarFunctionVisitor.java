@@ -138,7 +138,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
@@ -148,6 +147,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Csc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
@@ -266,16 +266,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractI
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractLargeint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParse;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToInvalid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnull;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullable;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToNull;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
@@ -1500,43 +1492,11 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonbParse, context);
     }
 
-    default R visitJsonbParseErrorToInvalid(JsonbParseErrorToInvalid function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
     default R visitJsonbParseErrorToNull(JsonbParseErrorToNull function, C context) {
         return visitScalarFunction(function, context);
     }
 
     default R visitJsonbParseErrorToValue(JsonbParseErrorToValue function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNotnull(JsonbParseNotnull jsonbParseNotnull, C context) {
-        return visitScalarFunction(jsonbParseNotnull, context);
-    }
-
-    default R visitJsonbParseNotnullErrorToInvalid(JsonbParseNotnullErrorToInvalid function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNotnullErrorToValue(JsonbParseNotnullErrorToValue function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNullable(JsonbParseNullable jsonbParseNullable, C context) {
-        return visitScalarFunction(jsonbParseNullable, context);
-    }
-
-    default R visitJsonbParseNullableErrorToInvalid(JsonbParseNullableErrorToInvalid function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNullableErrorToNull(JsonbParseNullableErrorToNull function, C context) {
-        return visitScalarFunction(function, context);
-    }
-
-    default R visitJsonbParseNullableErrorToValue(JsonbParseNullableErrorToValue function, C context) {
         return visitScalarFunction(function, context);
     }
 
@@ -2140,8 +2100,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(sec, context);
     }
 
-    default R visitCosec(Cosec cosec, C context) {
-        return visitScalarFunction(cosec, context);
+    default R visitCsc(Csc csc, C context) {
+        return visitScalarFunction(csc, context);
     }
 
     default R visitTime(Time time, C context) {

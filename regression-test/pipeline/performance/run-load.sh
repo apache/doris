@@ -671,6 +671,16 @@ exit_flag=0
         stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold_branch20:-15}         # 单位 MB/s
         stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold_branch20:-22} # 单位 MB/s
         insert_into_select_speed_threshold=${insert_into_select_speed_threshold_branch20:-410}  # 单位 Krows/s
+    elif [[ "${target_branch}" == "branch-3.1" ]]; then
+        stream_load_json_speed_threshold=${stream_load_json_speed_threshold_branch31:-115}      # 单位 MB/s
+        stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold_branch31:-15}         # 单位 MB/s
+        stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold_branch31:-22} # 单位 MB/s
+        insert_into_select_speed_threshold=${insert_into_select_speed_threshold_branch31:-700}  # 单位 Krows/s
+    elif [[ "${target_branch}" == "branch-3.0" ]]; then
+        stream_load_json_speed_threshold=${stream_load_json_speed_threshold_branch30:-115}      # 单位 MB/s
+        stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold_branch30:-15}         # 单位 MB/s
+        stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold_branch30:-22} # 单位 MB/s
+        insert_into_select_speed_threshold=${insert_into_select_speed_threshold_branch30:-700}  # 单位 Krows/s
     fi
     if [[ ${stream_load_json_speed} -lt ${stream_load_json_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_json_speed} is less than the threshold ${stream_load_json_speed_threshold}" && exit 1; fi
     if [[ ${stream_load_orc_speed} -lt ${stream_load_orc_speed_threshold} ]]; then echo "ERROR: stream_load_orc_speed ${stream_load_orc_speed} is less than the threshold ${stream_load_orc_speed_threshold}" && exit 1; fi

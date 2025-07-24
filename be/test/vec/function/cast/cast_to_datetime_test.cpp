@@ -91,7 +91,7 @@ TEST_F(FunctionCastTest, strict_test_from_string_to_datetime) {
             {{std::string("2012-06-30T23:59:60")}, Null()},
             {{std::string("2024-05-01T00:00+14:30")}, Null()},
             {{std::string("2024-05-01T00:00+08:25")}, Null()}};
-    check_function_for_cast<DataTypeDateTimeV2, 6>(input_types, data_set);
+    check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
 }
 
 TEST_F(FunctionCastTest, non_strict_test_from_string_to_datetime) {
@@ -116,7 +116,7 @@ TEST_F(FunctionCastTest, non_strict_test_from_string_to_datetime) {
             {{std::string("123.123")}, Null()},
             {{std::string("12121")}, Null()},
     };
-    check_function_for_cast<DataTypeDateTimeV2, 6>(input_types, data_set);
+    check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
 }
 
 TEST_F(FunctionCastTest, test_from_numeric_to_datetime) {
@@ -130,7 +130,7 @@ TEST_F(FunctionCastTest, test_from_numeric_to_datetime) {
                 {{20151231235959.99999999999}, Null()},
                 {{1000.0}, Null()},
         };
-        check_function_for_cast<DataTypeDateTimeV2, 6>(input_types, data_set);
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
     }
 
     // Test casting from Int64
@@ -141,7 +141,7 @@ TEST_F(FunctionCastTest, test_from_numeric_to_datetime) {
                 {{int64_t(1000)}, Null()},
                 {{int64_t(20150102030405)}, std::string("2015-01-02 03:04:05")},
         };
-        check_function_for_cast<DataTypeDateTimeV2, 6>(input_types, data_set);
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
     }
 }
 
@@ -155,7 +155,7 @@ TEST_F(FunctionCastTest, test_from_decimal_to_datetime) {
                 {{DECIMAL64(20151231, 999, 3)}, std::string("2015-12-31 00:00:00.999000")},
                 {{DECIMAL64(1000, 0, 3)}, Null()},
                 {{Null()}, Null()}};
-        check_function_for_cast<DataTypeDateTimeV2, 6>(input_types, data_set);
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
     }
     // Test casting from Decimal(18,6)
     {
@@ -165,7 +165,7 @@ TEST_F(FunctionCastTest, test_from_decimal_to_datetime) {
                 {{DECIMAL64(20150102, 123456, 6)}, std::string("2015-01-02 00:00:00.123456")},
                 {{DECIMAL64(20151231, 999999, 6)}, std::string("2015-12-31 00:00:00.999999")},
                 {{Null()}, Null()}};
-        check_function_for_cast<DataTypeDateTimeV2, 6>(input_types, data_set);
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
     }
 }
 
@@ -174,14 +174,14 @@ TEST_F(FunctionCastTest, test_from_date_to_datetime) {
         InputTypeSet input_types = {{PrimitiveType::TYPE_DATEV2}};
         DataSet data_set = {{{std::string("2012-02-05")}, std::string("2012-02-05 00:00:00")},
                             {{Null()}, Null()}};
-        check_function_for_cast<DataTypeDateTimeV2, 0>(input_types, data_set);
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 0);
     }
     {
         InputTypeSet input_types = {{PrimitiveType::TYPE_DATEV2}};
         DataSet data_set = {
                 {{std::string("2012-02-05")}, std::string("2012-02-05 00:00:00.000000")},
                 {{Null()}, Null()}};
-        check_function_for_cast<DataTypeDateTimeV2, 6>(input_types, data_set);
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
     }
 }
 
@@ -194,7 +194,7 @@ TEST_F(FunctionCastTest, test_from_time_to_datetime) {
                 {{std::string("23:59:59")}, std::string("2019-08-06 23:59:59.000")},
                 {{std::string("-128:00:00")}, std::string("2019-07-31 16:00:00.000")},
                 {{Null()}, Null()}};
-        check_function_for_cast<DataTypeDateTimeV2, 3>(input_types, data_set);
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 3);
     }
 
     {
@@ -204,7 +204,7 @@ TEST_F(FunctionCastTest, test_from_time_to_datetime) {
                 {{std::string("23:59:59")}, std::string("2019-08-06 23:59:59.000000")},
                 {{std::string("-128:00:00")}, std::string("2019-07-31 16:00:00.000000")},
                 {{Null()}, Null()}};
-        check_function_for_cast<DataTypeDateTimeV2, 6>(input_types, data_set);
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
     }
 }
 

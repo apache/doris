@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -47,12 +48,15 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -416,6 +420,30 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         catalog.dropTable(getTableIdentifier(remoteDbName, remoteTblName), true);
     }
 
+    public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
+        try {
+            preExecutionAuthenticator.execute(() -> {
+                catalog.renameTable(getTableIdentifier(dbName, tblName), getTableIdentifier(dbName, newTblName));
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException(
+                    "Failed to rename table: " + tblName + " to " + newTblName + ", error message is:" + e.getMessage(),
+                    e);
+        }
+    }
+
+    @Override
+    public void afterRenameTable(String dbName, String oldName, String newName) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            db.get().unregisterTable(oldName);
+            db.get().resetMetaCacheNames();
+        }
+        LOG.info("after rename table {}.{}.{} to {}, is db exists: {}",
+                dorisCatalog.getName(), dbName, oldName, newName, db.isPresent());
+    }
+
     @Override
     public void truncateTableImpl(ExternalTable dorisTable, List<String> partitions) {
         throw new UnsupportedOperationException("Truncate Iceberg table is not supported.");
@@ -570,6 +598,171 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                         + ", error message is: " + e.getMessage(), e);
             }
         }
+    }
+
+    private void addOneColumn(UpdateSchema updateSchema, Column column) throws UserException {
+        if (!column.isAllowNull()) {
+            throw new UserException("can't add a non-nullable column to an Iceberg table");
+        }
+        org.apache.iceberg.types.Type dorisType = IcebergUtils.dorisTypeToIcebergType(column.getType());
+        Literal<?> defaultValue = IcebergUtils.parseIcebergLiteral(column.getDefaultValue(), dorisType);
+        updateSchema.addColumn(column.getName(), dorisType, column.getComment(), defaultValue);
+    }
+
+    private void applyPosition(UpdateSchema updateSchema, ColumnPosition position, String columnName) {
+        if (position.isFirst()) {
+            updateSchema.moveFirst(columnName);
+        } else {
+            updateSchema.moveAfter(columnName, position.getLastCol());
+        }
+    }
+
+    private void refreshTable(ExternalTable dorisTable) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dorisTable.getRemoteDbName());
+        if (db.isPresent()) {
+            Optional<?> tbl = db.get().getTableForReplay(dorisTable.getRemoteName());
+            if (tbl.isPresent()) {
+                Env.getCurrentEnv().getRefreshManager()
+                        .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), System.currentTimeMillis());
+            }
+        }
+    }
+
+    @Override
+    public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+            throws UserException {
+        validateCommonColumnInfo(column);
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        addOneColumn(updateSchema, column);
+        if (position != null) {
+            applyPosition(updateSchema, position, column.getName());
+        }
+        try {
+            preExecutionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to add column: " + column.getName() + " to table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    @Override
+    public void addColumns(ExternalTable dorisTable, List<Column> columns) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        for (Column column : columns) {
+            validateCommonColumnInfo(column);
+            addOneColumn(updateSchema, column);
+        }
+        try {
+            preExecutionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to add columns to table: " + icebergTable.name()
+                    + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    @Override
+    public void dropColumn(ExternalTable dorisTable, String columnName) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.deleteColumn(columnName);
+        try {
+            preExecutionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to drop column: " + columnName + " from table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    @Override
+    public void renameColumn(ExternalTable dorisTable, String oldName, String newName) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.renameColumn(oldName, newName);
+        try {
+            preExecutionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to rename column: " + oldName + " to " + newName
+                    + " in table: " + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    @Override
+    public void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+            throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateForModifyColumn(column, icebergTable);
+        Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.updateColumn(column.getName(), icebergType.asPrimitiveType(), column.getComment());
+        if (column.isAllowNull()) {
+            // we can change a required column to optional, but not the other way around
+            // because we don't know whether there is existing data with null values.
+            updateSchema.makeColumnOptional(column.getName());
+        }
+        if (position != null) {
+            applyPosition(updateSchema, position, column.getName());
+        }
+        try {
+            preExecutionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to modify column: " + column.getName() + " in table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    private void validateForModifyColumn(Column column, Table icebergTable) throws UserException {
+        validateCommonColumnInfo(column);
+        // check complex type
+        if (column.getType().isComplexType()) {
+            throw new UserException("Modify column type to non-primitive type is not supported: " + column.getType());
+        }
+        // check exist
+        NestedField currentCol = icebergTable.schema().findField(column.getName());
+        if (currentCol == null) {
+            throw new UserException("Column " + column.getName() + " does not exist");
+        }
+        // check nullable
+        if (currentCol.isOptional() && !column.isAllowNull()) {
+            throw new UserException("Can not change nullable column " + column.getName() + " to not null");
+        }
+    }
+
+    private void validateCommonColumnInfo(Column column) throws UserException {
+        // check aggregation method
+        if (column.isAggregated()) {
+            throw new UserException("Can not specify aggregation method for iceberg table column");
+        }
+        // check auto inc
+        if (column.isAutoInc()) {
+            throw new UserException("Can not specify auto incremental iceberg table column");
+        }
+    }
+
+    @Override
+    public void reorderColumns(ExternalTable dorisTable, List<String> newOrder) throws UserException {
+        if (newOrder == null || newOrder.isEmpty()) {
+            throw new UserException("Reorder column failed, new order is empty.");
+        }
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.moveFirst(newOrder.get(0));
+        for (int i = 1; i < newOrder.size(); i++) {
+            updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
+        }
+        try {
+            preExecutionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to reorder columns in table: " + icebergTable.name()
+                    + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
     }
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
