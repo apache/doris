@@ -46,6 +46,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
@@ -112,6 +113,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -126,15 +128,18 @@ public class EditLog {
 
     // Helper class to hold log edit requests
     private static class EditLogItem {
+        static AtomicLong nextUid = new AtomicLong(0);
         final short op;
         final Writable writable;
         final Object lock = new Object();
         boolean finished = false;
         long logId = -1;
+        long uid = -1;
 
         EditLogItem(short op, Writable writable) {
             this.op = op;
             this.writable = writable;
+            uid = nextUid.getAndIncrement();
         }
     }
 
@@ -190,6 +195,9 @@ public class EditLog {
             // Array to record pairs of logId and num
             List<long[]> logIdNumPairs = new ArrayList<>();
             for (EditLogItem req : batch) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("try to flush editLog request: uid={}, op={}", req.uid, req.op);
+                }
                 journalBatch.addJournal(req.op, req.writable);
                 if (journalBatch.shouldFlush()) {
                     long logId = journal.write(journalBatch);
@@ -211,6 +219,9 @@ public class EditLog {
                 int num = (int) pair[1];
                 for (int i = 0; i < num && reqIndex < batch.size(); i++, reqIndex++) {
                     EditLogItem req = batch.get(reqIndex);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("notify editLog request: uid={}, op={}", req.uid, req.op);
+                    }
                     req.logId = logId + i;
                     synchronized (req.lock) {
                         req.finished = true;
@@ -491,11 +502,6 @@ public class EditLog {
                 case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
                     ConsistencyCheckInfo info = (ConsistencyCheckInfo) journal.getData();
                     env.getConsistencyChecker().replayFinishConsistencyCheck(info, env);
-                    break;
-                }
-                case OperationType.OP_CLEAR_ROLLUP_INFO: {
-                    ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
-                    env.getLoadInstance().replayClearRollupInfo(info, env);
                     break;
                 }
                 case OperationType.OP_RENAME_ROLLUP: {
@@ -1472,6 +1478,9 @@ public class EditLog {
      */
     public long logEditWithQueue(short op, Writable writable) {
         EditLogItem req = new EditLogItem(op, writable);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("logEditWithQueue: op = {}, uid = {}", op, req.uid);
+        }
         while (true) {
             try {
                 logEditQueue.put(req);
@@ -1536,6 +1545,20 @@ public class EditLog {
         }
 
         long start = System.currentTimeMillis();
+        if (DebugPointUtil.isEnable("EditLog.logEdit.randomSleep")) {
+            DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("EditLog.logEdit.randomSleep");
+            int upperLimit = debugPoint.param("upperLimit", 3000);
+            long timestamp = System.currentTimeMillis();
+            Random random = new Random(timestamp);
+            try {
+                int ms = Math.abs(random.nextInt()) % upperLimit;
+                Thread.sleep(ms);
+                LOG.info("logEdit in debug point op {} content {} sleep {} ms",
+                        OperationType.getOpName(op), writable.toString(), ms);
+            } catch (InterruptedException e) {
+                LOG.warn("sleep exception op {} content {}", OperationType.getOpName(op), writable.toString(), e);
+            }
+        }
         long logId = -1;
         if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
             logId = logEditWithQueue(op, writable);
@@ -1573,10 +1596,6 @@ public class EditLog {
      */
     public synchronized long getEditLogNum() throws IOException {
         return journal.getJournalNum();
-    }
-
-    public synchronized long getTxId() {
-        return txId;
     }
 
     public void logSaveNextId(long nextId) {
@@ -2314,10 +2333,6 @@ public class EditLog {
 
     public void logDeleteAnalysisJob(AnalyzeDeletionLog log) {
         logEdit(OperationType.OP_DELETE_ANALYSIS_JOB, log);
-    }
-
-    public void logDeleteAnalysisTask(AnalyzeDeletionLog log) {
-        logEdit(OperationType.OP_DELETE_ANALYSIS_TASK, log);
     }
 
     public long logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {

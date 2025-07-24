@@ -22,7 +22,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.privilege.UserProperty;
 
 import com.google.common.collect.Lists;
@@ -101,8 +100,6 @@ public class UserPropertyTest {
     public void testUpdate() throws UserException {
         List<Pair<String, String>> properties = Lists.newArrayList();
         properties.add(Pair.of("MAX_USER_CONNECTIONS", "100"));
-        properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
-        properties.add(Pair.of("default_load_cluster", "dpp-cluster"));
         properties.add(Pair.of("max_qUERY_instances", "3000"));
         properties.add(Pair.of("parallel_fragment_exec_instance_num", "2000"));
         properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
@@ -112,8 +109,6 @@ public class UserPropertyTest {
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
         Assert.assertEquals(100, userProperty.getMaxConn());
-        Assert.assertEquals("/user/palo2", userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
-        Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
         Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
         Assert.assertEquals(2000, userProperty.getParallelFragmentExecInstanceNum());
         Assert.assertEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
@@ -129,10 +124,6 @@ public class UserPropertyTest {
 
             if (key.equalsIgnoreCase("max_user_connections")) {
                 Assert.assertEquals("100", value);
-            } else if (key.equalsIgnoreCase("load_cluster.dpp-cluster.hadoop_palo_path")) {
-                Assert.assertEquals("/user/palo2", value);
-            } else if (key.equalsIgnoreCase("default_load_cluster")) {
-                Assert.assertEquals("dpp-cluster", value);
             } else if (key.equalsIgnoreCase("max_query_instances")) {
                 Assert.assertEquals("3000", value);
             } else if (key.equalsIgnoreCase("sql_block_rules")) {
@@ -143,24 +134,6 @@ public class UserPropertyTest {
                 Assert.assertEquals("500", value);
             }
         }
-
-        // get cluster info
-        DppConfig dppConfig = userProperty.getLoadClusterInfo("dpp-cluster").second;
-        Assert.assertEquals(8070, dppConfig.getHttpPort());
-
-        // set palo path null
-        properties.clear();
-        properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", null));
-        userProperty.update(properties);
-        Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
-
-        // remove dpp-cluster
-        properties.clear();
-        properties.add(Pair.of("load_cluster.dpp-cluster", null));
-        Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
-        userProperty.update(properties);
-        Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second);
-        Assert.assertEquals(null, userProperty.getDefaultLoadCluster());
 
         // sql block rule
         properties.clear();

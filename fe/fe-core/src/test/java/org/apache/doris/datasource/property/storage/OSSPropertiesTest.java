@@ -41,8 +41,11 @@ public class OSSPropertiesTest {
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         Map<String, String> finalOrigProps = origProps;
         Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(finalOrigProps), "Property oss.endpoint is required.");
-        origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        origProps.put("oss.endpoint", "oss-cn-shenzhen-finance-1-internal.aliyuncs.com");
         Map<String, String> finalOrigProps1 = origProps;
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(finalOrigProps1);
+        Assertions.assertEquals("oss-cn-shenzhen-finance-1-internal.aliyuncs.com", ossProperties.getEndpoint());
+        Assertions.assertEquals("cn-shenzhen-finance-1", ossProperties.getRegion());
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(finalOrigProps1));
         origProps = new HashMap<>();
         origProps.put("oss.endpoint", "https://oss.aliyuncs.com");
@@ -104,6 +107,16 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", ossProperties.getEndpoint());
         origProps.put("oss.endpoint", "oss-cn-hangzhou-internal.aliyuncs.com");
         Assertions.assertEquals("cn-hangzhou", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "s3.oss-cn-shanghai.aliyuncs.com");
+        Assertions.assertEquals("cn-shanghai", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "s3.oss-cn-hongkong-internal.aliyuncs.com");
+        Assertions.assertEquals("cn-hongkong", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "https://s3.oss-cn-hongkong-internal.aliyuncs.com");
+        Assertions.assertEquals("cn-hongkong", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "http://s3.oss-cn-hongkong.aliyuncs.com");
+        Assertions.assertEquals("cn-hongkong", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "https://dlf.cn-beijing.aliyuncs.com");
+        Assertions.assertEquals("cn-beijing", ((OSSProperties) StorageProperties.createAll(origProps).get(1)).getRegion());
     }
 
     @Test

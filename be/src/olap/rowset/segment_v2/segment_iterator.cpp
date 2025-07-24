@@ -1090,12 +1090,13 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             std::vector<const TabletIndex*> inverted_indexs;
             // If the column is an extracted column, we need to find the sub-column in the parent column reader.
             if (column.is_extracted_column()) {
-                if (_segment->_column_readers.find(column.parent_unique_id()) ==
-                    _segment->_column_readers.end()) {
+                std::shared_ptr<ColumnReader> column_reader;
+                if (!_segment->_column_reader_cache->get_column_reader(
+                            column.parent_unique_id(), &column_reader, _opts.stats) ||
+                    column_reader == nullptr) {
                     continue;
                 }
-                auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
-                inverted_indexs = assert_cast<VariantColumnReader*>(column_reader)
+                inverted_indexs = assert_cast<VariantColumnReader*>(column_reader.get())
                                           ->find_subcolumn_tablet_indexes(column.suffix_path());
             }
             // If the column is not an extracted column, we can directly get the inverted index metadata from the tablet schema.

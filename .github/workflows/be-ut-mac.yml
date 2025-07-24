@@ -85,14 +85,8 @@ jobs:
           brew install "${cellars[@]}" || true
 
           pushd thirdparty
-          branch="${{ github.base_ref }}"
-          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
-          else
-            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
-          fi
+          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation-3.0/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
+            -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
           tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
           popd
 

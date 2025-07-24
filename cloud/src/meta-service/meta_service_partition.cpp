@@ -632,6 +632,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
         stats.get_counter += txn->num_get_keys();
     };
     auto& [keys, hint, key_func] = get_check_info(request);
@@ -653,6 +654,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
             *msg = "prepare and commit rpc not match, recycle key remained";
             return;
         } else if (err == TxnErrorCode::TXN_TOO_OLD) {
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             //  separate it to several txn for rubustness
             txn.reset();

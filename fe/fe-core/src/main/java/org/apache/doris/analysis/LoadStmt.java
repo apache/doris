@@ -518,9 +518,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
         } else if (isMysqlLoad) {
             etlJobType = EtlJobType.LOCAL_FILE;
         } else {
-            // if cluster is null, use default hadoop cluster
-            // if cluster is not null, use this hadoop cluster
-            etlJobType = EtlJobType.HADOOP;
+            etlJobType = EtlJobType.UNKNOWN;
         }
 
         try {

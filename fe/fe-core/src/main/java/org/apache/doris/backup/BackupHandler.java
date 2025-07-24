@@ -215,7 +215,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         RemoteFileSystem fileSystem;
-        fileSystem = FileSystemFactory.get(stmt.getStorageType(), stmt.getBrokerName(), stmt.getProperties());
+        fileSystem = FileSystemFactory.get(stmt.getStorageProperties());
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
                 fileSystem);

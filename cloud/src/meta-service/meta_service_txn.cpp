@@ -151,6 +151,8 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
         return;
     }
     // get count before txn reset, if not we will lose these count
+    stats.get_bytes += txn->get_bytes();
+    stats.put_bytes += txn->put_bytes();
     stats.get_counter += txn->num_get_keys();
     stats.put_counter += txn->num_put_keys();
     //2. Get txn id from version stamp
@@ -783,7 +785,9 @@ void scan_tmp_rowset(
         return;
     }
     DORIS_CLOUD_DEFER {
-        if (stats && txn) stats->get_counter += txn->num_get_keys();
+        if (!stats || !txn) return;
+        stats->get_bytes += txn->get_bytes();
+        stats->get_counter += txn->num_get_keys();
     };
 
     // Get db id with txn id
@@ -958,6 +962,9 @@ void commit_txn_immediately(
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
@@ -1130,6 +1137,7 @@ void commit_txn_immediately(
         version_values.clear();
 
         if (last_pending_txn_id > 0) {
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             txn.reset();
             TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::advance_last_pending_txn_id",
@@ -1595,6 +1603,9 @@ void commit_txn_eventually(
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
@@ -1615,6 +1626,7 @@ void commit_txn_eventually(
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::need_repair_tablet_idx",
                                  &need_repair_tablet_idx);
         if (need_repair_tablet_idx) {
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             txn.reset();
             repair_tablet_index(txn_kv, code, msg, instance_id, db_id, txn_id, tmp_rowsets_meta);
@@ -1680,6 +1692,7 @@ void commit_txn_eventually(
         if (last_pending_txn_id > 0) {
             TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::advance_last_pending_txn_id",
                                      &last_pending_txn_id);
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             txn.reset();
             std::shared_ptr<TxnLazyCommitTask> task =
@@ -2015,6 +2028,9 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
         stats.get_counter += txn->num_get_keys();
         stats.put_counter += txn->num_put_keys();
         stats.del_counter += txn->num_del_keys();
@@ -2110,6 +2126,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                    << " tmp_rowsets_meta.size()=" << tmp_rowsets_meta.size();
         sub_txn_to_tmp_rowsets_meta.emplace(sub_txn_id, std::move(tmp_rowsets_meta));
     }
+    stats.get_bytes += txn->get_bytes();
     stats.get_counter += txn->num_get_keys();
     // Create a read/write txn for guarantee consistency
     txn.reset();
@@ -3176,6 +3193,8 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
         msg = ss.str();
         return;
     }
+    stats.get_bytes += txn->get_bytes();
+    stats.put_bytes += txn->put_bytes();
     stats.get_counter += txn->num_get_keys();
     stats.put_counter += txn->num_put_keys();
 
@@ -3686,6 +3705,9 @@ TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::stri
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
         stats.get_counter += txn->num_get_keys();
         stats.put_counter += txn->num_put_keys();
         stats.del_counter += txn->num_del_keys();
@@ -3847,6 +3869,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
             }
             DORIS_CLOUD_DEFER {
                 if (txn == nullptr) return;
+                stats.get_bytes += txn->get_bytes();
                 stats.get_counter += txn->num_get_keys();
             };
 

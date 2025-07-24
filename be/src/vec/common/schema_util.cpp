@@ -683,18 +683,17 @@ Status aggregate_path_to_stats(
         }
 
         for (const auto& segment : segment_cache.get_segments()) {
-            auto column_reader_or = segment->get_column_reader(column->unique_id());
-            if (!column_reader_or.has_value()) {
-                continue;
-            }
-            auto* column_reader = column_reader_or.value();
+            std::shared_ptr<ColumnReader> column_reader;
+            OlapReaderStatistics stats;
+            RETURN_IF_ERROR(
+                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
             if (!column_reader) {
                 continue;
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader);
+                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -722,20 +721,18 @@ Status aggregate_variant_extended_info(
         if (!column->is_variant_type()) {
             continue;
         }
-
         for (const auto& segment : segment_cache.get_segments()) {
-            auto column_reader_or = segment->get_column_reader(column->unique_id());
-            if (!column_reader_or.has_value()) {
-                continue;
-            }
-            auto* column_reader = column_reader_or.value();
+            std::shared_ptr<ColumnReader> column_reader;
+            OlapReaderStatistics stats;
+            RETURN_IF_ERROR(
+                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
             if (!column_reader) {
                 continue;
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader);
+                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -1411,19 +1408,23 @@ TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetShare
                 if (!column->is_variant_type()) {
                     continue;
                 }
-                auto column_reader_or = segment->get_column_reader(column->unique_id());
-                if (!column_reader_or.has_value()) {
+                std::shared_ptr<ColumnReader> column_reader;
+                OlapReaderStatistics stats;
+                Status st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed to get column reader for column: " << column->name()
+                                 << " error: " << st.to_string();
                     continue;
                 }
-                auto* column_reader = column_reader_or.value();
                 if (!column_reader) {
                     continue;
                 }
 
                 CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-                const auto* subcolumn_readers =
-                        assert_cast<VariantColumnReader*>(column_reader)->get_subcolumn_readers();
-                for (const auto& entry : *subcolumn_readers) {
+                const auto* subcolumn_meta_info =
+                        assert_cast<VariantColumnReader*>(column_reader.get())
+                                ->get_subcolumns_meta_info();
+                for (const auto& entry : *subcolumn_meta_info) {
                     if (entry->path.empty()) {
                         continue;
                     }

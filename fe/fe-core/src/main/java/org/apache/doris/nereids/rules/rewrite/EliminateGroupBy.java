@@ -72,10 +72,8 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                         }
                     }
                     List<NamedExpression> outputExpressions = agg.getOutputExpressions();
-
                     ImmutableList.Builder<NamedExpression> newOutput
                             = ImmutableList.builderWithExpectedSize(outputExpressions.size());
-
                     for (NamedExpression ne : outputExpressions) {
                         if (ne instanceof Alias && ne.child(0) instanceof AggregateFunction) {
                             AggregateFunction f = (AggregateFunction) ne.child(0);
@@ -84,8 +82,7 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                                         .castIfNotSameType(f.child(0), f.getDataType()), ne.getName()));
                             } else if (f instanceof Count) {
                                 newOutput.add((NamedExpression) ne.withChildren(
-                                        new If(new IsNull(f.child(0)), new BigIntLiteral(0),
-                                                new BigIntLiteral(1))));
+                                        ifNullElse(f.child(0), new BigIntLiteral(0), new BigIntLiteral(1))));
                             } else {
                                 throw new IllegalStateException("Unexpected aggregate function: " + f);
                             }
@@ -95,5 +92,9 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                     }
                     return PlanUtils.projectOrSelf(newOutput.build(), child);
                 }).toRule(RuleType.ELIMINATE_GROUP_BY);
+    }
+
+    private Expression ifNullElse(Expression conditionExpr, Expression ifExpr, Expression elseExpr) {
+        return conditionExpr.nullable() ? new If(new IsNull(conditionExpr), ifExpr, elseExpr) : elseExpr;
     }
 }

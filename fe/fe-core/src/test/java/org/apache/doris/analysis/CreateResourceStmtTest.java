@@ -18,10 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -64,25 +62,8 @@ public class CreateResourceStmtTest {
         };
 
         Map<String, String> properties = Maps.newHashMap();
-        properties.put("type", "spark");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, resourceName1, properties);
-        stmt.analyze(analyzer);
-        Assert.assertEquals(resourceName1, stmt.getResourceName());
-        Assert.assertEquals(Resource.ResourceType.SPARK, stmt.getResourceType());
-        Assert.assertEquals("CREATE EXTERNAL RESOURCE 'spark0' PROPERTIES(\"type\"  =  \"spark\")", stmt.toSql());
-
-        properties = Maps.newHashMap();
-        properties.put("type", "odbc_catalog");
-        stmt = new CreateResourceStmt(true, false, resourceName2, properties);
-        Config.enable_odbc_mysql_broker_table = true;
-        stmt.analyze(analyzer);
-        Assert.assertEquals(resourceName2, stmt.getResourceName());
-        Assert.assertEquals(Resource.ResourceType.ODBC_CATALOG, stmt.getResourceType());
-        Assert.assertEquals("CREATE EXTERNAL RESOURCE 'odbc' PROPERTIES(\"type\"  =  \"odbc_catalog\")", stmt.toSql());
-
-        properties = Maps.newHashMap();
         properties.put("type", "s3");
-        stmt = new CreateResourceStmt(true, false, resourceName3, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, resourceName3, properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(resourceName3, stmt.getResourceName());
         Assert.assertEquals(ResourceType.S3, stmt.getResourceType());

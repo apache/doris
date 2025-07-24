@@ -19,6 +19,7 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
@@ -59,7 +60,6 @@ public abstract class PersistentFileSystem implements FileSystem {
     }
 
     /**
-     *
      * @param in persisted data
      * @return file systerm
      */
@@ -77,6 +77,12 @@ public abstract class PersistentFileSystem implements FileSystem {
         if (properties.containsKey(STORAGE_TYPE)) {
             type = StorageBackend.StorageType.valueOf(properties.get(STORAGE_TYPE));
         }
-        return FileSystemFactory.get(type, name, properties);
+        StorageProperties storageProperties;
+        if (type.equals(StorageBackend.StorageType.BROKER)) {
+            storageProperties = BrokerProperties.of(name, properties);
+        } else {
+            storageProperties = StorageProperties.createPrimary(properties);
+        }
+        return FileSystemFactory.get(storageProperties);
     }
 }

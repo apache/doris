@@ -22,7 +22,6 @@ import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
@@ -70,6 +69,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
+import org.apache.doris.nereids.rules.rewrite.EliminateOrderByKey;
 import org.apache.doris.nereids.rules.rewrite.EliminateSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubqueryOrView;
@@ -246,8 +246,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new EliminateSemiJoin()
                         )
                 ),
-                // please note: this rule must run before NormalizeAggregate
-                topDown(new AdjustAggregateNullableForEmptySet()),
                 // The rule modification needs to be done after the subquery is unnested,
                 // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
                 // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
@@ -343,12 +341,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
-
+                topic("Eliminate Order By Key",
+                        topDown(new EliminateOrderByKey())),
                 topic("Eliminate GroupBy",
                         topDown(new EliminateGroupBy(),
-                                new MergeAggregate(),
-                                // need to adjust min/max/sum nullable attribute after merge aggregate
-                                new AdjustAggregateNullableForEmptySet())
+                                new MergeAggregate())
                 ),
 
                 topic("Eager aggregation",
@@ -414,11 +411,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new EliminateFilter(),
                                 new PushDownFilterThroughProject(),
                                 new MergeProjects(),
-                                new PruneOlapScanTablet(),
-                                // SelectMaterializedIndexWithAggregate may change the nullability of agg functions
-                                // need rerun AdjustAggregateNullableForEmptySet to make the nullability correct
-                                // TODO: remove AdjustAggregateNullableForEmptySet when remove rbo mv selection rules
-                                new AdjustAggregateNullableForEmptySet()
+                                new PruneOlapScanTablet()
                         ),
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
@@ -577,7 +570,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(afterPushDownJobs))
                         ),
                         topic("whole plan check",
-                                custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
+                                custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
                         ),
                         // NullableDependentExpressionRewrite need to be done after nullable fixed
                         topic("condition function", bottomUp(ImmutableList.of(

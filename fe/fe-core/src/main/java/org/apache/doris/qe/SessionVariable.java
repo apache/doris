@@ -861,7 +861,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
-    public long sqlMode = SqlModeHelper.MODE_DEFAULT;
+    public long sqlMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
 
     @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE, needForward = true)
     public String workloadGroup = "";
@@ -920,7 +920,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
     public boolean sqlAutoIsNull = false;
 
-    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
+    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT, needForward = true)
     private long sqlSelectLimit = Long.MAX_VALUE;
 
     // this is used to make c3p0 library happy
@@ -2594,7 +2594,7 @@ public class SessionVariable implements Serializable, Writable {
         return enableSortSpill;
     }
 
-    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, fuzzy = true, description = {
+    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, needForward = true, description = {
             "是否启用仅对新数据生效的索引添加模式，开启时新建索引只对后续写入的数据生效，关闭时对全部数据重建索引",
             "Whether to enable add index mode that only affects new data, "
                     + "when enabled new indexes only affect subsequently written data, "
@@ -4624,10 +4624,16 @@ public class SessionVariable implements Serializable, Writable {
     public static boolean getEnableDecimal256() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
-            return false;
+            return VariableMgr.getDefaultSessionVariable().enableDecimal256;
         }
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        return connectContext.getState().isNereids() && sessionVariable.isEnableDecimal256();
+        if (!sessionVariable.isEnableDecimal256()) {
+            return false;
+        }
+        if (connectContext.getState().isQuery()) {
+            return connectContext.getState().isNereids();
+        }
+        return true;
     }
 
     public boolean isEnableDecimal256() {

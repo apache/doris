@@ -132,13 +132,13 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
     return status;
 }
 
-Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency,
+Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concurrency,
                          std::future<Status>* fut) {
     // std::function will cause `copy`, we need to use heap memory to avoid copy ctor called
     auto prom = std::make_shared<std::promise<Status>>();
     *fut = prom->get_future();
-    std::function<void()>* fn =
-            new std::function<void()>([&tasks, concurrency, p = std::move(prom)]() mutable {
+    std::function<void()>* fn = new std::function<void()>(
+            [tasks = std::move(tasks), concurrency, p = std::move(prom)]() mutable {
                 p->set_value(bthread_fork_join(tasks, concurrency));
             });
 
@@ -387,6 +387,8 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
                  MetaServiceMethod<Request, Response> method) {
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
+
+    const_cast<Request&>(req).set_request_ip(BackendOptions::get_be_endpoint());
 
     int retry_times = 0;
     uint32_t duration_ms = 0;

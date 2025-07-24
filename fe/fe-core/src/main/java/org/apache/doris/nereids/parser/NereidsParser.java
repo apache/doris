@@ -36,6 +36,7 @@ import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -289,7 +290,7 @@ public class NereidsParser {
         if (isSimpleIdentifier(expression)) {
             return new UnboundSlot(expression);
         }
-        return parse(expression, DorisParser::expression);
+        return parse(expression, DorisParser::expressionWithEof);
     }
 
     private static boolean isSimpleIdentifier(String expression) {
@@ -443,6 +444,7 @@ public class NereidsParser {
 
     private static CommonTokenStream parseAllTokens(String sql) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        lexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         tokenStream.fill();
         return tokenStream;

@@ -27,6 +27,7 @@ import lombok.Getter;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -37,6 +38,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_S3_SUPPORT = "fs.s3.support";
     public static final String FS_GCS_SUPPORT = "fs.gcs.support";
     public static final String FS_MINIO_SUPPORT = "fs.minio.support";
+    public static final String FS_BROKER_SUPPORT = "fs.broker.support";
     public static final String FS_AZURE_SUPPORT = "fs.azure.support";
     public static final String FS_OSS_SUPPORT = "fs.oss.support";
     public static final String FS_OBS_SUPPORT = "fs.obs.support";
@@ -53,6 +55,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         OSS,
         OBS,
         COS,
+        OSS_HDFS,
         MINIO,
         AZURE,
         BROKER,
@@ -61,6 +64,22 @@ public abstract class StorageProperties extends ConnectionProperties {
     }
 
     public abstract Map<String, String> getBackendConfigProperties();
+
+    /**
+     * Get backend configuration properties with optional runtime properties.
+     * This method allows passing runtime properties (like vended credentials)
+     * that should be merged with the base configuration.
+     *
+     * @param runtimeProperties additional runtime properties to merge, can be null
+     * @return Map of backend properties including runtime properties
+     */
+    public Map<String, String> getBackendConfigProperties(Map<String, String> runtimeProperties) {
+        Map<String, String> properties = new HashMap<>(getBackendConfigProperties());
+        if (runtimeProperties != null && !runtimeProperties.isEmpty()) {
+            properties.putAll(runtimeProperties);
+        }
+        return properties;
+    }
 
     @Getter
     protected Type type;
@@ -134,6 +153,8 @@ public abstract class StorageProperties extends ConnectionProperties {
                             || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null,
                     props -> (isFsSupport(props, FS_MINIO_SUPPORT)
                             || MinioProperties.guessIsMe(props)) ? new MinioProperties(props) : null,
+                    props -> (isFsSupport(props, FS_BROKER_SUPPORT)
+                            || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
                             || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null
             );

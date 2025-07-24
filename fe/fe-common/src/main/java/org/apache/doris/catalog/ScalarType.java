@@ -1221,4 +1221,18 @@ public class ScalarType extends Type {
         result = 31 * result + scale;
         return result;
     }
+
+    public int getVariantMaxSubcolumnsCount() {
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantMaxSubcolumnsCount();
+        }
+        return 0;
+    }
+
+    public boolean getVariantEnableTypedPathsToSparse() {
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getEnableTypedPathsToSparse();
+        }
+        return false;
+    }
 }

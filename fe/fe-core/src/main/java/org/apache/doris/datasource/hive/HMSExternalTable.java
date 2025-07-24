@@ -47,6 +47,7 @@ import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.systable.SupportedSysTables;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
@@ -566,16 +567,22 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return remoteTable.getViewOriginalText();
     }
 
-    public String getMetastoreUri() {
-        return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
-    }
-
     public Map<String, String> getCatalogProperties() {
         return catalog.getProperties();
     }
 
+    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+        return catalog.getCatalogProperty().getStoragePropertiesMap();
+    }
+
     public Map<String, String> getHadoopProperties() {
-        return catalog.getCatalogProperty().getHadoopProperties();
+        return getStoragePropertiesMap().values().stream()
+                .flatMap(m -> m.getBackendConfigProperties().entrySet().stream())
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (v1, v2) -> v2));
+
     }
 
     public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {
@@ -652,9 +659,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             Types.Field hudiInternalfield = hudiInternalSchema.getRecord().fields().get(i);
             org.apache.avro.Schema.Field hudiAvroField =  hudiSchema.getFields().get(i);
             String columnName = hudiAvroField.name().toLowerCase(Locale.ROOT);
-            tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
+            Column column = new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
                     true, null, true, null, "", true, null,
-                    hudiInternalfield.fieldId(), null));
+                    -1, null);
+            HudiUtils.updateHudiColumnUniqueId(column, hudiInternalfield);
+            tmpSchema.add(column);
+
             colTypes.add(HudiUtils.convertAvroToHiveType(hudiAvroField.schema()));
         }
         List<Column> partitionColumns = initPartitionColumns(tmpSchema);
@@ -1070,14 +1080,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     getRemoteTable().getSd().getInputFormat(),
                     getRemoteTable().getSd().getLocation(), null, Maps.newHashMap()));
         }
-        // Get files for all partitions.
-        String bindBrokerName = catalog.bindBrokerName();
         if (LOG.isDebugEnabled()) {
             for (HivePartition partition : hivePartitions) {
                 LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
             }
         }
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions);
     }
 
     @Override

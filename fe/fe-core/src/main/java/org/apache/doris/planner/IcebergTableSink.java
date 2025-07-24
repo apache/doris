@@ -19,9 +19,11 @@ package org.apache.doris.planner;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
+import org.apache.doris.datasource.iceberg.IcebergVendedCredentialsProvider;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -43,7 +45,6 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.types.Types;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -129,13 +130,17 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setCompressionType(getTFileCompressType(IcebergUtils.getFileCompress(icebergTable)));
 
         // hadoop config
-        HashMap<String, String> props = new HashMap<>(icebergTable.properties());
-        Map<String, String> catalogProps = targetTable.getCatalog().getProperties();
-        props.putAll(catalogProps);
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
+        Map<String, String> props = IcebergVendedCredentialsProvider.getBackendLocationProperties(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                icebergTable
+        );
         tSink.setHadoopConfig(props);
 
         // location
-        LocationPath locationPath = new LocationPath(IcebergUtils.dataLocation(icebergTable), catalogProps);
+        LocationPath locationPath = LocationPath.of(IcebergUtils.dataLocation(icebergTable),
+                targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
         tSink.setOriginalOutputPath(locationPath.getPath().toString());
         TFileType fileType = locationPath.getTFileTypeForBE();
@@ -145,7 +150,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         }
 
         if (insertCtx.isPresent()) {
-            BaseExternalTableInsertCommandContext context = (BaseExternalTableInsertCommandContext) insertCtx.get();
+            IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
             tSink.setOverwrite(context.isOverwrite());
         }
         tDataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);

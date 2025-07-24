@@ -71,7 +71,8 @@ TEST_F(StoragePageCacheTest, data_page_only) {
         EXPECT_TRUE(found);
     }
 
-    // put too many page to eliminate first page
+    // Page Cache is LRU-K, K=2.
+    // Put too many page, after cache is full, no key is inserted twice and no evict occurs.
     for (int i = 0; i < 10 * kNumShards; ++i) {
         StoragePageCache::CacheKey key("bcd", 0, i);
         PageCacheHandle handle;
@@ -93,6 +94,27 @@ TEST_F(StoragePageCacheTest, data_page_only) {
         StoragePageCache::CacheKey miss_key("abc", 1, 0);
         auto found = cache.lookup(miss_key, &handle, page_type);
         EXPECT_FALSE(found);
+    }
+
+    // After cache is full, no key is inserted twice and no evict occurs.
+    {
+        PageCacheHandle handle;
+        auto found = cache.lookup(key, &handle, page_type);
+        EXPECT_TRUE(found);
+    }
+
+    // put too many page twice to eliminate first page
+    for (int i = 0; i < 10 * kNumShards; ++i) {
+        StoragePageCache::CacheKey key("bcde", 0, i);
+        PageCacheHandle handle;
+        auto* data = new DataPage(1024, true, page_type);
+        cache.insert(key, data, &handle, page_type, false);
+        auto found = cache.lookup(key, &handle, page_type); // after handle destruct, free data.
+        EXPECT_FALSE(found);
+        data = new DataPage(1024, true, page_type);
+        cache.insert(key, data, &handle, page_type, false);
+        found = cache.lookup(key, &handle, page_type);
+        EXPECT_TRUE(found);
     }
 
     // cache miss for eliminated key
@@ -253,12 +275,13 @@ TEST_F(StoragePageCacheTest, mixed_pages) {
         EXPECT_FALSE(found_index);
     }
 
-    // cache miss for eliminated key
     {
         PageCacheHandle data_handle, index_handle;
         auto found_data = cache.lookup(data_key, &data_handle, page_type_data);
         auto found_index = cache.lookup(index_key, &index_handle, page_type_index);
-        EXPECT_FALSE(found_data);
+        // after cache is full, no key is inserted twice and no evict occurs
+        EXPECT_TRUE(found_data);
+        // cache miss for eliminated key
         EXPECT_FALSE(found_index);
     }
 }

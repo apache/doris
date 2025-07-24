@@ -33,6 +33,9 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.hive.AcidInfo;
+import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -52,8 +55,12 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
+import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -66,6 +73,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -285,7 +293,7 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName);
+            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1);
         }
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
@@ -385,7 +393,7 @@ public class HiveScanNode extends FileQueryScanNode {
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
         return cache.getFilesByTransaction(partitions, validWriteIds,
-            hiveTransaction.isFullAcid(), skipCheckingAcidVersionFile, hmsTable.getId(), bindBrokerName);
+            hiveTransaction.isFullAcid(), skipCheckingAcidVersionFile, hmsTable.getId());
     }
 
     @Override
@@ -437,6 +445,36 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         }
         return type;
+    }
+
+
+    @Override
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (split instanceof  HiveSplit) {
+            HiveSplit hiveSplit = (HiveSplit) split;
+            if (hiveSplit.isACID()) {
+                hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
+                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+                tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
+                AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
+                TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
+                transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
+                List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
+                for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
+                    TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
+                    deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
+                    deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
+                    deleteDeltaDescs.add(deleteDeltaDesc);
+                }
+                transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
+                tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
+                rangeDesc.setTableFormatParams(tableFormatFileDesc);
+            } else {
+                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+                tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
+                rangeDesc.setTableFormatParams(tableFormatFileDesc);
+            }
+        }
     }
 
     @Override

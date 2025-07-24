@@ -93,7 +93,8 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
-    { TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err); }
+    TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err);
+
     std::string instance_id;
     if (!err.empty()) {
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
@@ -290,7 +291,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
-        { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
+        TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "not found";
@@ -363,6 +364,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
         for (size_t i = response->versions_size(); i < num_acquired; i += BATCH_SIZE) {
@@ -464,6 +466,8 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
         stats.get_counter += txn->num_get_keys();
         stats.put_counter += txn->num_put_keys();
     };
@@ -611,6 +615,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         instance_key(key_info, &key);
 
         err = txn0->get(key, &val);
+        stats.get_bytes += val.size() + key.size();
         stats.get_counter++;
         LOG(INFO) << "get instance_key=" << hex(key);
 
@@ -1734,6 +1739,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
         TabletIndexPB idx;
@@ -1774,6 +1780,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
 
                 if (version_pb.pending_txn_ids_size() > 0) {
                     DCHECK(version_pb.pending_txn_ids_size() == 1);
+                    stats.get_bytes += txn->get_bytes();
                     stats.get_counter += txn->num_get_keys();
                     txn.reset();
                     TEST_SYNC_POINT_CALLBACK("get_rowset::advance_last_pending_txn_id",
@@ -1817,8 +1824,9 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             code = MetaServiceCode::INVALID_ARGUMENT;
             ss << "no valid compaction_cnt or cumulative_point given. req_bc_cnt=" << req_bc_cnt
                << ", bc_cnt=" << bc_cnt << ", req_cc_cnt=" << req_cc_cnt << ", cc_cnt=" << cc_cnt
-               << ", req_cp=" << req_cp << ", cp=" << cp;
+               << ", req_cp=" << req_cp << ", cp=" << cp << " tablet_id=" << tablet_id;
             msg = ss.str();
+            LOG(WARNING) << msg;
             return;
         }
         auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
@@ -1908,6 +1916,7 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             return;
         }
         DORIS_CLOUD_DEFER {
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             // the txn is not a local variable, if not reset will count last res twice
             txn.reset(nullptr);
@@ -2289,6 +2298,9 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                 g_bvar_update_delete_bitmap_fail_counter << 1;
                 return;
             }
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
@@ -2492,6 +2504,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
         MetaDeleteBitmapInfo start_key_info {instance_id, tablet_id, rowset_ids[i],
@@ -2520,6 +2533,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &round, &err);
             int64_t retry = 0;
             while (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
+                stats.get_bytes += txn->get_bytes();
                 stats.get_counter += txn->num_get_keys();
                 txn = nullptr;
                 err = txn_kv_->create_txn(&txn);
@@ -2614,6 +2628,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
         TabletIndexPB idx(request->idx());
@@ -2702,6 +2717,9 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
         stats.get_counter += txn->num_get_keys();
         stats.put_counter += txn->num_put_keys();
         stats.del_counter += txn->num_del_keys();
@@ -2885,6 +2903,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
     VLOG_DEBUG << "get delete bitmap update lock in v2 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     auto table_id = request->table_id();
+    bool urgent = request->has_urgent() && request->urgent();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     bool first_retry = true;
     int64_t retry = 0;
@@ -2900,6 +2919,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
@@ -2952,7 +2974,30 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 msg = "failed to parse DeleteBitmapUpdateLockPB";
                 return;
             }
-            if (!is_job_delete_bitmap_lock_id(lock_info.lock_id())) {
+            if (urgent) {
+                // since currently only the FE Master initiates the lock request for import tasks,
+                // and it does so in a single-threaded manner, there is no need to check the lock id here
+                DCHECK(request->lock_id() > 0);
+                lock_info.clear_initiators();
+                std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
+                std::string key1 = mow_tablet_job_key(
+                        {instance_id, table_id, std::numeric_limits<int64_t>::max()});
+                txn->remove(key0, key1);
+                LOG(INFO) << "remove mow tablet job kv, begin=" << hex(key0) << " end=" << hex(key1)
+                          << " table_id=" << table_id;
+                std::string current_lock_msg =
+                        "original lock_id=" + std::to_string(lock_info.lock_id());
+                lock_info.set_lock_id(request->lock_id());
+                lock_info.set_expiration(expiration);
+                lock_info.add_initiators(request->initiator());
+                if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id, request->lock_id(),
+                                                       request->initiator(), lock_key, lock_info,
+                                                       current_lock_msg)) {
+                    return;
+                }
+                LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
+                          << " lock_id=" << request->lock_id();
+            } else if (!is_job_delete_bitmap_lock_id(lock_info.lock_id())) {
                 if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
                     LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
                               << lock_info.lock_id() << " table_id=" << table_id
@@ -3096,6 +3141,16 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                                  request, &err);
         if (err == TxnErrorCode::TXN_OK) {
             break;
+        } else if (err == TxnErrorCode::TXN_CONFLICT && urgent && request->lock_id() > 0 &&
+                   first_retry) {
+            g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+            // fast retry for urgent request when TXN_CONFLICT
+            LOG(INFO) << "fast retry to get_delete_bitmap_update_lock, tablet_id="
+                      << request->table_id() << " lock_id=" << request->lock_id()
+                      << ", initiator=" << request->initiator() << "urgent=" << urgent
+                      << ", err=" << err;
+            first_retry = false;
+            continue;
         } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
                    is_job_delete_bitmap_lock_id(request->lock_id()) &&
                    config::delete_bitmap_enable_retry_txn_conflict && first_retry) {
@@ -3143,11 +3198,15 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
         stats.get_counter += txn->num_get_keys();
         stats.put_counter += txn->num_put_keys();
         stats.del_counter += txn->num_del_keys();
     };
     auto table_id = request->table_id();
+    bool urgent = request->has_urgent() && request->urgent();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     DeleteBitmapUpdateLockPB lock_info;
@@ -3167,7 +3226,15 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
             msg = "failed to parse DeleteBitmapUpdateLockPB";
             return;
         }
-        if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
+        if (urgent) {
+            // since currently only the FE Master initiates the lock request for import tasks,
+            // and it does so in a single-threaded manner, there is no need to check the lock id here
+            DCHECK(request->lock_id() > 0);
+            LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
+                      << " lock_id=" << request->lock_id()
+                      << "prev_lock_id=" << lock_info.lock_id();
+            lock_info.clear_initiators();
+        } else if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
             LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
                       << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
             lock_info.clear_initiators();
@@ -3235,6 +3302,9 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
         stats.get_counter += txn->num_get_keys();
         stats.put_counter += txn->num_put_keys();
         stats.del_counter += txn->num_del_keys();
@@ -3321,6 +3391,9 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
         stats.get_counter += txn->num_get_keys();
         stats.put_counter += txn->num_put_keys();
         stats.del_counter += txn->num_del_keys();
@@ -3392,6 +3465,11 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
+        return;
+    }
+    if (request->has_urgent() && request->urgent() && request->lock_id() < 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "only load can set urgent flag currently";
         return;
     }
     RPC_RATE_LIMIT(get_delete_bitmap_update_lock)

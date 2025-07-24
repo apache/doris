@@ -23,7 +23,6 @@ import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -34,8 +33,6 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
-import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
@@ -61,19 +58,19 @@ import java.util.Set;
 import java.util.function.Function;
 
 public class HiveMetadataOps implements ExternalMetadataOps {
+    private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
+
     public static final String LOCATION_URI_KEY = "location";
     public static final String FILE_FORMAT_KEY = "file_format";
     public static final Set<String> DORIS_HIVE_KEYS = ImmutableSet.of(FILE_FORMAT_KEY, LOCATION_URI_KEY);
-    private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
     private static final int MIN_CLIENT_POOL_SIZE = 8;
     private final HMSCachedClient client;
     private final HMSExternalCatalog catalog;
     private HadoopAuthenticator hadoopAuthenticator;
 
-    public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
+    public HiveMetadataOps(HiveConf hiveConf, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
-                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
-                jdbcClientConfig));
+                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size)));
         hadoopAuthenticator = catalog.getPreExecutionAuthenticator().getHadoopAuthenticator();
         client.setHadoopAuthenticator(hadoopAuthenticator);
     }
@@ -92,20 +89,9 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
-    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
-            JdbcClientConfig jdbcClientConfig) {
-        if (hiveConf != null) {
-            ThriftHMSCachedClient client = new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
-            return client;
-        }
-        Preconditions.checkNotNull(jdbcClientConfig, "hiveConf and jdbcClientConfig are both null");
-        String dbType = JdbcClient.parseDbType(jdbcClientConfig.getJdbcUrl());
-        switch (dbType) {
-            case JdbcResource.POSTGRESQL:
-                return new PostgreSQLJdbcHMSCachedClient(jdbcClientConfig);
-            default:
-                throw new IllegalArgumentException("Unsupported DB type: " + dbType);
-        }
+    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize) {
+        Preconditions.checkNotNull(hiveConf, "HiveConf cannot be null");
+        return  new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
     }
 
     @Override
@@ -141,7 +127,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterCreateDb() {
-        catalog.onRefreshCache(true);
+        catalog.resetMetaCacheNames();
     }
 
     @Override
@@ -182,7 +168,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropDb(String dbName) {
-        catalog.onRefreshCache(true);
+        catalog.unregisterDatabase(dbName);
     }
 
     @Override
@@ -304,7 +290,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public void afterCreateTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().setUnInitialized();
+            db.get().resetMetaCacheNames();
         }
         LOG.info("after create table {}.{}.{}, is db exists: {}",
                 getCatalog().getName(), dbName, tblName, db.isPresent());
@@ -336,11 +322,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public void afterDropTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            Optional table = db.get().getTableForReplay(tblName);
-            if (table.isPresent()) {
-                Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db.get(), (ExternalTable) table.get(), 0);
-            }
-            db.get().setUnInitialized();
+            db.get().unregisterTable(tblName);
         }
         LOG.info("after drop table {}.{}.{}, is db exists: {}",
                 getCatalog().getName(), dbName, tblName, db.isPresent());
@@ -362,12 +344,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             // Invalidate cache.
             Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
             if (db.isPresent()) {
-                Optional dorisTable = db.get().getTableForReplay(tblName);
-                if (dorisTable.isPresent()) {
-                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) dorisTable.get());
+                Optional tbl = db.get().getTableForReplay(tblName);
+                if (tbl.isPresent()) {
+                    Env.getCurrentEnv().getRefreshManager()
+                            .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), 0);
                 }
-                db.get().setLastUpdateTime(System.currentTimeMillis());
-                db.get().setUnInitialized();
             }
         } catch (Exception e) {
             LOG.warn("exception when calling afterTruncateTable for db: {}, table: {}, error: {}",

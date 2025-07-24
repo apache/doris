@@ -27,6 +27,7 @@ import org.apache.doris.fs.remote.RemoteFile;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.hadoop.fs.Path;
 import org.apache.http.HttpStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,6 +35,7 @@ import org.jetbrains.annotations.Nullable;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
@@ -52,6 +54,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -72,14 +75,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class S3ObjStorage implements ObjStorage<S3Client> {
     private static final Logger LOG = LogManager.getLogger(S3ObjStorage.class);
     private S3Client client;
-
-    protected Map<String, String> properties;
 
     protected AbstractS3CompatibleProperties s3Properties;
 
@@ -88,22 +89,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private boolean forceParsingByStandardUri = false;
 
     public S3ObjStorage(AbstractS3CompatibleProperties properties) {
-        this.properties = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        setProperties(properties);
-    }
-
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    protected void setProperties(AbstractS3CompatibleProperties properties) {
         this.s3Properties = properties;
         isUsePathStyle = Boolean.parseBoolean(properties.getUsePathStyle());
         forceParsingByStandardUri = Boolean.parseBoolean(s3Properties.getForceParsingByStandardUrl());
     }
 
     @Override
-    public S3Client getClient() throws UserException {
+    public S3Client getClient() {
         if (client == null) {
             String endpointStr = s3Properties.getEndpoint();
             if (!endpointStr.contains("://")) {
@@ -114,6 +106,134 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     isUsePathStyle, s3Properties.getAwsCredentialsProvider());
         }
         return client;
+    }
+
+    /**
+     * Lists files from a given S3 path, optionally recursively, and populates the provided result list
+     * with metadata about each file.
+     *
+     * @param remotePath the full S3 path, e.g., "s3://my-bucket/path/to/dir/"
+     * @param recursive  whether to list files recursively
+     * @param result     the list to populate with file metadata
+     * @return Status.OK if successful, or an appropriate error status
+     */
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        try {
+            S3URI s3Uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            String bucket = s3Uri.getBucket();
+            // prefix should end with '/' for directories
+            String key = s3Uri.getKey();
+            String schemaAndBucket = remotePath.substring(0, remotePath.length() - key.length());
+
+            String prefix = key.endsWith("/") ? key : key + "/";
+            // obtain configured S3 client
+            S3Client s3 = getClient();
+            String continuationToken = null;
+            do {
+                ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
+                        .bucket(bucket)
+                        .prefix(prefix);
+
+                if (!recursive) {
+                    requestBuilder.delimiter("/"); // group "directories" at current level
+                }
+
+                if (continuationToken != null) {
+                    requestBuilder.continuationToken(continuationToken);
+                }
+
+                ListObjectsV2Response response = s3.listObjectsV2(requestBuilder.build());
+                // Files
+                for (S3Object s3Object : response.contents()) {
+                    if (s3Object.key().equals(prefix)) {
+                        continue;
+                    }
+                    RemoteFile remoteFile = new RemoteFile(
+                            toPath(schemaAndBucket, s3Object.key()),
+                            false,
+                            s3Object.size(),
+                            0L,
+                            s3Object.lastModified().toEpochMilli(),
+                            null
+                    );
+                    result.add(remoteFile);
+                }
+
+                // Simulated directories
+                if (!recursive) {
+                    for (CommonPrefix dir : response.commonPrefixes()) {
+                        RemoteFile remoteFile = new RemoteFile(
+                                toPath(bucket, dir.prefix()),
+                                true,
+                                0L,
+                                0L,
+                                0L,
+                                null
+                        );
+                        result.add(remoteFile);
+                    }
+                }
+
+                continuationToken = response.nextContinuationToken();
+
+            } while (continuationToken != null);
+
+        } catch (NoSuchKeyException e) {
+            return new Status(Status.ErrCode.NOT_FOUND, e.getMessage());
+        } catch (Exception e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+
+        return Status.OK;
+    }
+
+    private Path toPath(String schemaAndBucket, String key) {
+        // Ensure inputs are not null
+        if (schemaAndBucket == null) {
+            schemaAndBucket = "";
+        }
+        if (key == null) {
+            key = "";
+        }
+
+        // Remove trailing slashes from the base (e.g., "s3://bucket/")
+        String cleanedBase = schemaAndBucket.replaceAll("/+$", "");
+
+        // Remove leading slashes from the key (e.g., "/path/to/file")
+        String cleanedKey = key.replaceAll("^/+", "");
+
+        // Combine cleaned base and key to form a valid Hadoop Path
+        return new Path(cleanedBase + "/" + cleanedKey);
+    }
+
+    public Status listDirectories(String remotePath, Set<String> result) {
+        try {
+            S3URI s3Uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            String bucket = s3Uri.getBucket();
+            String prefix = s3Uri.getKey();
+            ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .prefix(prefix)
+                    .delimiter("/");
+
+            String continuationToken = null;
+            do {
+                if (continuationToken != null) {
+                    requestBuilder.continuationToken(continuationToken);
+                }
+
+                ListObjectsV2Response response = getClient().listObjectsV2(requestBuilder.build());
+
+                for (CommonPrefix dir : response.commonPrefixes()) {
+                    result.add("s3://" + bucket + "/" + dir.prefix());
+                }
+                continuationToken = response.nextContinuationToken();
+            } while (continuationToken != null);
+
+        } catch (Exception e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
     }
 
 
@@ -421,11 +541,24 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
             String listPrefix = S3Util.getLongestPrefix(globPath); // similar to Azure
             if (LOG.isDebugEnabled()) {
-                LOG.debug("globList listPrefix: {}", listPrefix);
+                LOG.debug("globList listPrefix: '{}' (from globPath: '{}')", listPrefix, globPath);
             }
+
+            // For Directory Buckets, ensure proper prefix handling using standardized approach
+            String finalPrefix = listPrefix;
+
+            if (uri.useS3DirectoryBucket()) {
+                String adjustedPrefix = S3URI.getDirectoryPrefixForGlob(listPrefix);
+                if (LOG.isDebugEnabled() && !adjustedPrefix.equals(listPrefix)) {
+                    LOG.debug("Directory bucket detected, adjusting prefix from '{}' to '{}'",
+                            listPrefix, adjustedPrefix);
+                }
+                finalPrefix = adjustedPrefix;
+            }
+
             ListObjectsV2Request request = ListObjectsV2Request.builder()
                     .bucket(bucket)
-                    .prefix(listPrefix)
+                    .prefix(finalPrefix)
                     .build();
 
             boolean isTruncated = false;
@@ -488,6 +621,18 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         elementCnt, remotePath, roundCnt, matchCnt,
                         duration / 1000 / 1000);
             }
+        }
+    }
+
+    @Override
+    public synchronized void close() throws Exception {
+        if (client != null) {
+            try {
+                client.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close S3 client: {}", e.getMessage(), e);
+            }
+            client = null;
         }
     }
 }

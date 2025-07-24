@@ -24,12 +24,13 @@
 #include <CLucene/store/IndexOutput.h>
 #include <CLucene/util/Equators.h>
 #include <CLucene/util/VoidMap.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -43,9 +44,7 @@ namespace lucene::store {
 class RAMDirectory;
 } // namespace lucene::store
 
-namespace doris {
-class TabletIndex;
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 class ReaderFileEntry : LUCENE_BASE {
 public:
@@ -60,16 +59,14 @@ public:
     ~ReaderFileEntry() override = default;
 };
 
-using EntriesType =
-        lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
-                                lucene::util::Equals::Char, lucene::util::Deletor::acArray,
-                                lucene::util::Deletor::Object<ReaderFileEntry>>;
+using EntriesType = std::unordered_map<std::string, std::unique_ptr<ReaderFileEntry>>;
+
 class CLUCENE_EXPORT DorisCompoundReader : public lucene::store::Directory {
 private:
-    lucene::store::RAMDirectory* _ram_dir = nullptr;
+    std::unique_ptr<lucene::store::RAMDirectory> _ram_dir;
     CL_NS(store)::IndexInput* _stream = nullptr;
     // The life cycle of _entries should be consistent with that of the DorisCompoundReader.
-    EntriesType* _entries = nullptr;
+    std::unique_ptr<EntriesType> _entries;
     std::mutex _this_lock;
     bool _closed = false;
     int32_t _read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE;
@@ -79,7 +76,7 @@ protected:
     bool doDeleteFile(const char* name) override;
 
 public:
-    DorisCompoundReader(CL_NS(store)::IndexInput* stream, EntriesType* entries_clone,
+    DorisCompoundReader(CL_NS(store)::IndexInput* stream, const EntriesType& entries_clone,
                         int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
                         const io::IOContext* io_ctx = nullptr);
     DorisCompoundReader(CL_NS(store)::IndexInput* stream,
@@ -109,5 +106,4 @@ private:
     void initialize(const io::IOContext* io_ctx);
 };
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

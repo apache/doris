@@ -72,9 +72,22 @@ public class VariantField {
                 pattern, dataType.toCatalogDataType(), comment, patternType);
     }
 
+    /**
+     * Convert this VariantField to SQL string representation.
+     * @return SQL string representation of this VariantField
+     */
     public String toSql() {
-        return pattern + ":" + dataType.toSql()
-                + (comment.isEmpty() ? "" : " COMMENT " + comment);
+        StringBuilder sb = new StringBuilder();
+        if (patternType == TPatternType.MATCH_NAME) {
+            sb.append(patternType.toString()).append(" ");
+        }
+
+        sb.append("'").append(pattern).append("'");
+        sb.append(":").append(dataType.toSql());
+        if (!comment.isEmpty()) {
+            sb.append(" COMMENT '").append(comment).append("'");
+        }
+        return sb.toString();
     }
 
     public VariantField conversion() {

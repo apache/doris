@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -198,6 +200,10 @@ public interface CatalogIf<T extends DatabaseIf> {
     void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
             boolean force) throws DdlException;
 
+    default void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
+        throw new UnsupportedOperationException("Not support rename table operation");
+    }
+
     void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
             String rawTruncateSql)
             throws DdlException;
@@ -233,5 +239,33 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     default void dropTag(TableIf dorisTable, DropTagInfo tagInfo) throws UserException {
         throw new UserException("Not support drop tag operation");
+    }
+
+    // schema change operations:
+    // - Adding, deleting, modify and renaming columns
+    // - Reordering top-level columns fields
+
+    default void addColumn(TableIf table, Column column, ColumnPosition columnPosition) throws UserException {
+        throw new UserException("Not support add column operation");
+    }
+
+    default void addColumns(TableIf table, List<Column> columns) throws UserException {
+        throw new UserException("Not support add columns operation");
+    }
+
+    default void dropColumn(TableIf table, String name) throws UserException {
+        throw new UserException("Not support drop column operation");
+    }
+
+    default void renameColumn(TableIf table, String oldName, String newName) throws UserException {
+        throw new UserException("Not support rename column operation");
+    }
+
+    default void modifyColumn(TableIf table, Column column, ColumnPosition columnPosition) throws UserException {
+        throw new UserException("Not support update column operation");
+    }
+
+    default void reorderColumns(TableIf table, List<String> newOrder) throws UserException {
+        throw new UserException("Not support reorder columns operation");
     }
 }

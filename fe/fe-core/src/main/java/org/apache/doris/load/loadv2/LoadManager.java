@@ -32,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
@@ -44,7 +45,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
-import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.qe.ConnectContext;
@@ -120,22 +120,15 @@ public class LoadManager implements Writable {
         LoadJob loadJob;
         writeLock();
         try {
-            if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
-                if (!Env.getCurrentEnv().getLoadInstance()
-                        .isUncommittedLabel(dbId, stmt.getLabel().getLabelName())) {
-                    throw new DdlException("label: " + stmt.getLabel().getLabelName() + " not found!");
-                }
-            } else {
-                checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-                if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
-                    throw new DdlException("LoadManager only support the broker and spark load.");
-                }
-                if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
-                    throw new DdlException(
-                            "There are more than " + Config.desired_max_waiting_jobs
-                                    + " unfinished load jobs, please retry later. "
-                                    + "You can use `SHOW LOAD` to view submitted jobs");
-                }
+            checkLabelUsed(dbId, stmt.getLabel().getLabelName());
+            if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
+                throw new DdlException("LoadManager only support the broker and spark load.");
+            }
+            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                throw new DdlException(
+                        "There are more than " + Config.desired_max_waiting_jobs
+                                + " unfinished load jobs, please retry later. "
+                                + "You can use `SHOW LOAD` to view submitted jobs");
             }
 
             loadJob = BulkLoadJob.fromLoadStmt(stmt);
@@ -152,7 +145,7 @@ public class LoadManager implements Writable {
         Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
 
         // The job must be submitted after edit log.
-        // It guarantee that load job has not been changed before edit log.
+        // It guarantees that load job has not been changed before edit log.
         loadJobScheduler.submitJob(loadJob);
         return loadJob.getId();
     }
@@ -160,21 +153,6 @@ public class LoadManager implements Writable {
     private long unprotectedGetUnfinishedJobNum() {
         return idToLoadJob.values().stream()
                 .filter(j -> (j.getState() != JobState.FINISHED && j.getState() != JobState.CANCELLED)).count();
-    }
-
-    /**
-     * MultiLoadMgr use.
-     **/
-    public void createLoadJobV1FromMultiStart(String fullDbName, String label) throws DdlException {
-        Database database = checkDb(fullDbName);
-        writeLock();
-        try {
-            checkLabelUsed(database.getId(), label);
-            Env.getCurrentEnv().getLoadInstance()
-                    .registerMiniLabel(fullDbName, label, System.currentTimeMillis());
-        } finally {
-            writeUnlock();
-        }
     }
 
     public MysqlLoadManager getMysqlLoadManager() {
@@ -445,9 +423,6 @@ public class LoadManager implements Writable {
     }
 
     private void jobRemovedTrigger(LoadJob job) {
-        if (job instanceof SparkLoadJob) {
-            ((SparkLoadJob) job).clearSparkLauncherLog();
-        }
         if (job instanceof BulkLoadJob) {
             ((BulkLoadJob) job).recycleProgress();
         }
@@ -494,10 +469,13 @@ public class LoadManager implements Writable {
      * Only for those jobs which have etl state, like SparkLoadJob.
      **/
     public void processEtlStateJobs() {
-        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.ETL))
+        idToLoadJob.values().stream()
+                .filter(job -> (job.jobType == EtlJobType.INGESTION && job.state == JobState.ETL))
                 .forEach(job -> {
                     try {
-                        ((SparkLoadJob) job).updateEtlStatus();
+                        if (job instanceof IngestionLoadJob) {
+                            ((IngestionLoadJob) job).updateEtlStatus();
+                        }
                     } catch (DataQualityException e) {
                         LOG.info("update load job etl status failed. job id: {}", job.getId(), e);
                         job.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
@@ -515,10 +493,13 @@ public class LoadManager implements Writable {
      * Only for those jobs which load by PushTask.
      **/
     public void processLoadingStateJobs() {
-        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.LOADING))
+        idToLoadJob.values().stream()
+                .filter(job -> (job.jobType == EtlJobType.INGESTION) && job.state == JobState.LOADING)
                 .forEach(job -> {
                     try {
-                        ((SparkLoadJob) job).updateLoadingStatus();
+                        if (job instanceof IngestionLoadJob) {
+                            ((IngestionLoadJob) job).updateLoadingStatus();
+                        }
                     } catch (UserException e) {
                         LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
                         job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
@@ -553,7 +534,10 @@ public class LoadManager implements Writable {
                     throw new DdlException("Label does not exist: " + label);
                 }
             } else {
-                throw new DdlException("Database does not exist");
+                // If dbId is not found in dbIdToLabelToLoadJobs,
+                // it means the database has no label records,
+                // so throw a "Label does not exist" error.
+                throw new DdlException("Label does not exist: " + label);
             }
             return result;
         } finally {
@@ -569,8 +553,8 @@ public class LoadManager implements Writable {
      * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
      * @param statesValue   used to filter jobs which's state within the statesValue set.
      * @return The result is the list of jobInfo.
-     *         JobInfo is a list which includes the comparable object: jobId, label, state etc.
-     *         The result is unordered.
+     * JobInfo is a list which includes the comparable object: jobId, label, state etc.
+     * The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue, boolean accurateMatch,
                                                       Set<String> statesValue) throws AnalysisException {
@@ -679,32 +663,6 @@ public class LoadManager implements Writable {
         }
     }
 
-    /**
-     * Get load job info.
-     **/
-    public void getLoadJobInfo(Load.JobInfo info) throws DdlException {
-        String fullDbName = info.dbName;
-        info.dbName = fullDbName;
-        Database database = checkDb(info.dbName);
-        readLock();
-        try {
-            // find the latest load job by info
-            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(database.getId());
-            if (labelToLoadJobs == null) {
-                throw new DdlException("No jobs belong to database(" + info.dbName + ")");
-            }
-            List<LoadJob> loadJobList = labelToLoadJobs.get(info.label);
-            if (loadJobList == null || loadJobList.isEmpty()) {
-                throw new DdlException("Unknown job(" + info.label + ")");
-            }
-
-            LoadJob loadJob = loadJobList.get(loadJobList.size() - 1);
-            loadJob.getJobInfo(info);
-        } finally {
-            readUnlock();
-        }
-    }
-
     public LoadJob getLoadJob(long jobId) {
         return idToLoadJob.get(jobId);
     }
@@ -745,16 +703,12 @@ public class LoadManager implements Writable {
     }
 
     /**
-     * step1: if label has been used in old load jobs which belong to load class.
-     * step2: if label has been used in v2 load jobs.
-     * step2.1: if label has been user in v2 load jobs, the create timestamp will be checked.
+     * step1: if label has been used in load jobs.
+     * step2: if label has been user in load jobs, the create_timestamp will be checked.
      *
      * @throws LabelAlreadyUsedException throw exception when label has been used by an unfinished job.
      */
     private void checkLabelUsed(long dbId, String label) throws DdlException {
-        // if label has been used in old load jobs
-        Env.getCurrentEnv().getLoadInstance().isLabelUsed(dbId, label);
-        // if label has been used in v2 of load jobs
         if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
             if (labelToLoadJobs.containsKey(label)) {
@@ -900,7 +854,7 @@ public class LoadManager implements Writable {
         long currentTimeMs = System.currentTimeMillis();
         List<LoadJob> loadJobs =
                 idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs))
-                        .filter(t -> !(t instanceof MiniLoadJob)).collect(Collectors.toList());
+                        .collect(Collectors.toList());
 
         LOG.info("write load job size: {}", loadJobs.size());
         out.writeInt(loadJobs.size());
@@ -920,12 +874,6 @@ public class LoadManager implements Writable {
         for (int i = 0; i < size; i++) {
             LoadJob loadJob = LoadJob.read(in);
             if (loadJob.isExpired(currentTimeMs)) {
-                continue;
-            }
-
-            if (loadJob.getJobType() == EtlJobType.MINI) {
-                LOG.warn("skip mini load job {} in db {} as it is no longer supported", loadJob.getId(),
-                        loadJob.getDbId());
                 continue;
             }
             idToLoadJob.put(loadJob.getId(), loadJob);
@@ -958,22 +906,15 @@ public class LoadManager implements Writable {
         writeLock();
         BrokerDesc brokerDesc = (BrokerDesc) insertStmt.getResourceDesc();
         try {
-            if (brokerDesc != null && brokerDesc.isMultiLoadBroker()) {
-                if (!Env.getCurrentEnv().getLoadInstance()
-                        .isUncommittedLabel(dbId, insertStmt.getLoadLabel().getLabelName())) {
-                    throw new DdlException("label: " + insertStmt.getLoadLabel().getLabelName() + " not found!");
-                }
-            } else {
-                checkLabelUsed(dbId, insertStmt.getLoadLabel().getLabelName());
-                if (brokerDesc == null && insertStmt.getResourceDesc() == null) {
-                    throw new DdlException("LoadManager only support the broker and spark load.");
-                }
-                if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
-                    throw new DdlException(
-                            "There are more than " + Config.desired_max_waiting_jobs
-                                    + " unfinished load jobs, please retry later. "
-                                    + "You can use `SHOW LOAD` to view submitted jobs");
-                }
+            checkLabelUsed(dbId, insertStmt.getLoadLabel().getLabelName());
+            if (brokerDesc == null && insertStmt.getResourceDesc() == null) {
+                throw new DdlException("LoadManager only support the broker and spark load.");
+            }
+            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                throw new DdlException(
+                        "There are more than " + Config.desired_max_waiting_jobs
+                                + " unfinished load jobs, please retry later. "
+                                + "You can use `SHOW LOAD` to view submitted jobs");
             }
 
             loadJob = BulkLoadJob.fromInsertStmt(insertStmt);
@@ -984,8 +925,33 @@ public class LoadManager implements Writable {
         Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
 
         // The job must be submitted after edit log.
-        // It guarantee that load job has not been changed before edit log.
+        // It guarantees that load job has not been changed before edit log.
         loadJobScheduler.submitJob(loadJob);
         return loadJob.getId();
     }
+
+    public long createIngestionLoadJob(String dbName, String label, List<String> tableNames,
+                                       Map<String, String> properties,
+                                       UserIdentity userInfo)
+            throws DdlException, LoadException {
+        Database db = checkDb(dbName);
+        long dbId = db.getId();
+        LoadJob loadJob;
+        writeLock();
+        try {
+            checkLabelUsed(dbId, label);
+            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                throw new DdlException("There are more than " + Config.desired_max_waiting_jobs
+                        + " unfinished load jobs, please retry later. You can use `SHOW LOAD` to view submitted jobs");
+            }
+            loadJob = new IngestionLoadJob(dbId, label, tableNames, userInfo);
+            loadJob.setJobProperties(properties);
+            createLoadJob(loadJob);
+        } finally {
+            writeUnlock();
+        }
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
+        return loadJob.getId();
+    }
+
 }

@@ -21,6 +21,7 @@
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
+#include <algorithm>
 #include <random>
 #include <shared_mutex>
 
@@ -1749,6 +1750,9 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
     }
     int64_t start_version = version.first;
     int64_t end_version = version.second;
+    if (start_version == end_version) {
+        return;
+    }
     DCHECK(start_version < end_version)
             << ". start_version: " << start_version << ", end_version: " << end_version;
     // get pre rowsets
@@ -2059,7 +2063,8 @@ void TabletReadSource::fill_delete_predicates() {
 
 int32_t BaseTablet::max_version_config() {
     int32_t max_version = tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
-                                  ? config::time_series_max_tablet_version_num
+                                  ? std::max(config::time_series_max_tablet_version_num,
+                                             config::max_tablet_version_num)
                                   : config::max_tablet_version_num;
     return max_version;
 }

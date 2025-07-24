@@ -86,7 +86,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     private static final Logger LOG = LogManager.getLogger(UpdateMvByPartitionCommand.class);
 
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
-        super(logicalQuery, Optional.empty(), Optional.empty());
+        super(logicalQuery, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     @Override

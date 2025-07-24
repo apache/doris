@@ -1076,7 +1076,8 @@ public class SchemaChangeHandler extends AlterHandler {
             int currentCount = newColumn.getVariantMaxSubcolumnsCount();
             if ((currentCount == 0 && (res.key() != 0 || res.value() != 0))
                                     || (currentCount > 0 && (res.key() == 0 && res.value() == 0))) {
-                throw new DdlException("Can not add variant column: variant max subcolumns count: " + currentCount);
+                throw new DdlException("The variant_max_subcolumns_count must either be 0 in all columns"
+                        + " or greater than 0 in all columns");
             }
         }
 
@@ -2824,7 +2825,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             .compareTo(TInvertedIndexFileStorageFormat.V2) >= 0) {
                     String columnName = indexDef.getColumns().get(0);
                     Column column = olapTable.getColumn(columnName);
-                    if (column != null && column.getType().isStringType()) {
+                    if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
                         boolean isExistingIndexAnalyzer = index.isAnalyzedInvertedIndex();
                         boolean isNewIndexAnalyzer = indexDef.isAnalyzedInvertedIndex();
                         if (isExistingIndexAnalyzer == isNewIndexAnalyzer) {

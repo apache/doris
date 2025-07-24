@@ -50,9 +50,9 @@ static RowsetId rowset_id {0};
 
 using Generator = std::function<void(size_t rid, int cid, RowCursorCell& cell)>;
 
-static TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = true,
-                                                 bool is_bf_column = false,
-                                                 bool has_bitmap_index = false) {
+TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = true,
+                                          bool is_bf_column = false,
+                                          bool has_bitmap_index = false) {
     TabletColumnPtr column = std::make_shared<TabletColumn>();
     column->_unique_id = id;
     column->_col_name = std::to_string(id);
@@ -67,6 +67,58 @@ static TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = 
     return column;
 }
 
+void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
+                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
+                   std::shared_ptr<Segment>* res, std::string segment_dir) {
+    std::string filename = fmt::format("{}_{}.dat", rowset_id.to_string(), segment_id);
+    std::string path = fmt::format("{}/{}", segment_dir, filename);
+    auto fs = io::global_local_filesystem();
+
+    io::FileWriterPtr file_writer;
+    Status st = fs->create_file(path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr, opts,
+                         nullptr);
+    st = writer.init();
+    EXPECT_TRUE(st.ok());
+
+    RowCursor row;
+    auto olap_st = row.init(build_schema);
+    EXPECT_EQ(Status::OK(), olap_st);
+
+    for (size_t rid = 0; rid < nrows; ++rid) {
+        for (int cid = 0; cid < build_schema->num_columns(); ++cid) {
+            RowCursorCell cell = row.cell(cid);
+            generator(rid, cid, cell);
+        }
+        EXPECT_TRUE(writer.append_row(row).ok());
+    }
+
+    uint64_t file_size, index_size;
+    st = writer.finalize(&file_size, &index_size);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(file_writer->close().ok());
+
+    EXPECT_NE("", writer.min_encoded_key().to_string());
+    EXPECT_NE("", writer.max_encoded_key().to_string());
+
+    int64_t tablet_id = 100;
+    st = segment_v2::Segment::open(fs, path, tablet_id, segment_id, rowset_id, query_schema,
+                                   io::FileReaderOptions {}, res);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(nrows, (*res)->num_rows());
+}
+
+TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
+                               KeysType keys_type = UNIQUE_KEYS) {
+    TabletSchemaSPtr res = std::make_shared<TabletSchema>();
+
+    for (auto& col : columns) {
+        res->append_column(*col);
+    }
+    res->_keys_type = keys_type;
+    return res;
+}
 class DeleteBitmapCalculatorTest : public testing::Test {
 public:
     void SetUp() override {
@@ -80,59 +132,6 @@ public:
 
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kSegmentDir).ok());
-    }
-
-    TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
-                                   KeysType keys_type = UNIQUE_KEYS) {
-        TabletSchemaSPtr res = std::make_shared<TabletSchema>();
-
-        for (auto& col : columns) {
-            res->append_column(*col);
-        }
-        res->_keys_type = keys_type;
-        return res;
-    }
-
-    void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
-                       TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
-                       std::shared_ptr<Segment>* res) {
-        std::string filename = fmt::format("{}_{}.dat", rowset_id.to_string(), segment_id);
-        std::string path = fmt::format("{}/{}", kSegmentDir, filename);
-        auto fs = io::global_local_filesystem();
-
-        io::FileWriterPtr file_writer;
-        Status st = fs->create_file(path, &file_writer);
-        EXPECT_TRUE(st.ok());
-        SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr, opts,
-                             nullptr);
-        st = writer.init();
-        EXPECT_TRUE(st.ok());
-
-        RowCursor row;
-        auto olap_st = row.init(build_schema);
-        EXPECT_EQ(Status::OK(), olap_st);
-
-        for (size_t rid = 0; rid < nrows; ++rid) {
-            for (int cid = 0; cid < build_schema->num_columns(); ++cid) {
-                RowCursorCell cell = row.cell(cid);
-                generator(rid, cid, cell);
-            }
-            EXPECT_TRUE(writer.append_row(row).ok());
-        }
-
-        uint64_t file_size, index_size;
-        st = writer.finalize(&file_size, &index_size);
-        EXPECT_TRUE(st.ok());
-        EXPECT_TRUE(file_writer->close().ok());
-
-        EXPECT_NE("", writer.min_encoded_key().to_string());
-        EXPECT_NE("", writer.max_encoded_key().to_string());
-
-        int64_t tablet_id = 100;
-        st = segment_v2::Segment::open(fs, path, tablet_id, segment_id, rowset_id, query_schema,
-                                       io::FileReaderOptions {}, res);
-        EXPECT_TRUE(st.ok());
-        EXPECT_EQ(nrows, (*res)->num_rows());
     }
 
     void run_test(size_t const num_segments, size_t const max_rows_per_segment,
@@ -213,7 +212,7 @@ public:
                 *(int*)cell.mutable_cell_ptr() = data_map[{sid, rid}][cid];
             };
             build_segment(opts, tablet_schema, sid, tablet_schema, datas[sid].size(), generator,
-                          &segment);
+                          &segment, kSegmentDir);
         }
 
         // find the location of rows to be deleted using `MergeIndexDeleteBitmapCalculator`

@@ -1108,9 +1108,6 @@ DECLARE_mInt32(segcompaction_num_threads);
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
-// enable prefetch tablets before opening
-DECLARE_mBool(enable_prefetch_tablet);
-
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
@@ -1619,6 +1616,13 @@ DECLARE_mBool(enable_fetch_rowsets_from_peer_replicas);
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
+
+DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
+
+DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
+
+// The capacity of segment partial column cache, used to cache column readers for each segment.
+DECLARE_mInt32(max_segment_partial_column_cache_size);
 
 #ifdef BE_TEST
 // test s3

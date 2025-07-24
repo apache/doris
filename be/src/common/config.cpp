@@ -1066,9 +1066,6 @@ DEFINE_mInt32(segcompaction_num_threads, "5");
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
-// enable prefetch tablets before opening
-DEFINE_mBool(enable_prefetch_tablet, "true");
-
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
@@ -1543,6 +1540,13 @@ DEFINE_mBool(enable_fetch_rowsets_from_peer_replicas, "false");
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
+
+DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
+
+DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
+
+// The capacity of segment partial column cache, used to cache column readers for each segment.
+DEFINE_mInt32(max_segment_partial_column_cache_size, "500");
 
 // clang-format off
 #ifdef BE_TEST
