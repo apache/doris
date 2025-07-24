@@ -523,6 +523,26 @@ TEST(MetaServiceOperationLogTest, CommitTxn) {
     }
 
     {
+        // verify versioned partition version key
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::partition_version_key({instance_id, partition_id});
+        std::string partition_version_val;
+        Versionstamp version;
+        ASSERT_EQ(versioned_get(txn.get(), key, &version, &partition_version_val),
+                  TxnErrorCode::TXN_OK);
+        VersionPB versioned_partition_version;
+        ASSERT_TRUE(versioned_partition_version.ParseFromString(partition_version_val));
+        ASSERT_EQ(version, commit_version);
+
+        key = partition_version_key({instance_id, db_id, table_id, partition_id});
+        ASSERT_EQ(txn->get(key, &partition_version_val), TxnErrorCode::TXN_OK);
+        VersionPB partition_version;
+        ASSERT_TRUE(partition_version.ParseFromString(partition_version_val));
+        ASSERT_EQ(versioned_partition_version.version(), partition_version.version());
+    }
+
+    {
         // verify commit txn operation log
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -715,6 +735,26 @@ TEST(MetaServiceOperationLogTest, CommitTxnEventually) {
     }
 
     {
+        // verify versioned partition version key
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::partition_version_key({instance_id, partition_id});
+        std::string partition_version_val;
+        Versionstamp version;
+        ASSERT_EQ(versioned_get(txn.get(), key, &version, &partition_version_val),
+                  TxnErrorCode::TXN_OK);
+        VersionPB versioned_partition_version;
+        ASSERT_TRUE(versioned_partition_version.ParseFromString(partition_version_val));
+        ASSERT_EQ(version, commit_versionstamp);
+
+        key = partition_version_key({instance_id, db_id, table_id, partition_id});
+        ASSERT_EQ(txn->get(key, &partition_version_val), TxnErrorCode::TXN_OK);
+        VersionPB partition_version;
+        ASSERT_TRUE(partition_version.ParseFromString(partition_version_val));
+        ASSERT_EQ(versioned_partition_version.version(), partition_version.version());
+    }
+
+    {
         // Verify versioned rowset meta are written with consistent versionstamp
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -840,7 +880,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
     }
 
     auto txn_kv = meta_service->txn_kv();
-    Versionstamp version;
+    Versionstamp commit_versionstamp;
 
     {
         // Verify txn_info has versioned_write flag set
@@ -868,7 +908,8 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
     {
         // Verify table version exists
         MetaReader meta_reader(instance_id, txn_kv.get());
-        ASSERT_EQ(meta_reader.get_table_version(table_id, &version), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(meta_reader.get_table_version(table_id, &commit_versionstamp),
+                  TxnErrorCode::TXN_OK);
     }
 
     {
@@ -881,7 +922,8 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
             std::string versioned_stats_key =
                     versioned::tablet_load_stats_key({instance_id, tablet_id});
             std::string versioned_stats_val;
-            ASSERT_EQ(versioned_get(txn.get(), versioned_stats_key, &version, &versioned_stats_val),
+            ASSERT_EQ(versioned_get(txn.get(), versioned_stats_key, &commit_versionstamp,
+                                    &versioned_stats_val),
                       TxnErrorCode::TXN_OK);
 
             TabletStatsPB versioned_stats;
@@ -910,7 +952,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
             // Try to get the versioned rowset meta using document_get
             RowsetMetaCloudPB versioned_rowset_meta;
             auto ret = versioned::document_get(txn.get(), versioned_rowset_key,
-                                               &versioned_rowset_meta, &version);
+                                               &versioned_rowset_meta, &commit_versionstamp);
             ASSERT_EQ(ret, TxnErrorCode::TXN_OK)
                     << "Failed to get versioned rowset meta for tablet " << tablet_id
                     << " with version " << actual_version;
@@ -922,12 +964,33 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
     }
 
     {
+        // verify versioned partition version key
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::partition_version_key({instance_id, partition_id});
+        std::string partition_version_val;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned_get(txn.get(), key, &versionstamp, &partition_version_val),
+                  TxnErrorCode::TXN_OK);
+        VersionPB versioned_partition_version;
+        ASSERT_TRUE(versioned_partition_version.ParseFromString(partition_version_val));
+        ASSERT_EQ(versionstamp, commit_versionstamp);
+
+        key = partition_version_key({instance_id, db_id, table_id, partition_id});
+        ASSERT_EQ(txn->get(key, &partition_version_val), TxnErrorCode::TXN_OK);
+        VersionPB partition_version;
+        ASSERT_TRUE(partition_version.ParseFromString(partition_version_val));
+        ASSERT_EQ(versioned_partition_version.version(), partition_version.version());
+    }
+
+    {
         // verify commit txn operation log for sub txn
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string log_key = versioned::log_key({instance_id});
         std::string value;
-        ASSERT_EQ(versioned_get(txn.get(), log_key, &version, &value), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versioned_get(txn.get(), log_key, &commit_versionstamp, &value),
+                  TxnErrorCode::TXN_OK);
         OperationLogPB operation_log;
         ASSERT_TRUE(operation_log.ParseFromString(value));
         ASSERT_TRUE(operation_log.has_commit_txn());

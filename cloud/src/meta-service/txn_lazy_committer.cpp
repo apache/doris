@@ -262,7 +262,14 @@ void convert_tmp_rowsets(
 
         if (is_versioned_write) {
             // If this is a versioned write, we need to put the rowset with versionstamp
-            versioned::document_put(txn.get(), rowset_key, versionstamp, std::move(tmp_rowset_pb));
+            if (!versioned::document_put(txn.get(), rowset_key, versionstamp,
+                                         std::move(tmp_rowset_pb))) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                ss << "failed to serialize rowset_meta, txn_id=" << txn_id
+                   << " key=" << hex(rowset_key);
+                msg = ss.str();
+                return;
+            }
             LOG(INFO) << "put versioned rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id;
         }
     }
@@ -313,17 +320,15 @@ void convert_tmp_rowsets(
             stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
             stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
 
-            stats_val.clear();
-            if (!stats_pb.SerializeToString(&stats_val)) {
+            // put with specified versionstamp
+            if (!versioned::document_put(txn.get(), stats_key, versionstamp, std::move(stats_pb))) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 msg = "failed to serialize versioned tablet stats";
                 LOG(WARNING) << msg;
                 return;
             }
 
-            // put with specified versionstamp
-            versioned_put(txn.get(), stats_key, versionstamp, stats_val);
-            LOG(INFO) << "xxx put versioned tablet stats key=" << hex(stats_key)
+            LOG(INFO) << "put versioned tablet stats key=" << hex(stats_key)
                       << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
         }
     }
@@ -631,6 +636,13 @@ void TxnLazyCommitTask::commit() {
                     txn->put(ver_key, ver_val);
                     LOG(INFO) << "put ver_key=" << hex(ver_key) << " txn_id=" << txn_id_
                               << " version_pb=" << version_pb.ShortDebugString();
+                    if (is_versioned_write) {
+                        // Update the partition version with the specified versionstamp.
+                        versioned_put(txn.get(), ver_key, versionstamp, ver_val);
+                        LOG(INFO) << "put versioned ver_key=" << hex(ver_key)
+                                  << " txn_id=" << txn_id_
+                                  << " version_pb=" << version_pb.ShortDebugString();
+                    }
 
                     for (auto& [tmp_rowset_key, tmp_rowset_pb] : tmp_rowset_metas) {
                         txn->remove(tmp_rowset_key);

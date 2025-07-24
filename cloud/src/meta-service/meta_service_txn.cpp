@@ -1300,7 +1300,7 @@ void MetaServiceImpl::commit_txn_immediately(
             }
             size_t rowset_size = rowset_key.size() + val.size();
             txn->put(rowset_key, val);
-            LOG(INFO) << "xxx put rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id
+            LOG(INFO) << "put rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id
                       << " rowset_size=" << rowset_size;
 
             if (is_versioned_write) {
@@ -1315,7 +1315,7 @@ void MetaServiceImpl::commit_txn_immediately(
                     LOG(WARNING) << msg;
                     return;
                 }
-                LOG(INFO) << "xxx put versioned rowset meta key=" << hex(versioned_rowset_key)
+                LOG(INFO) << "put versioned rowset meta key=" << hex(versioned_rowset_key)
                           << ", txn_id=" << txn_id;
             }
         }
@@ -1357,6 +1357,14 @@ void MetaServiceImpl::commit_txn_immediately(
             int64_t table_id = std::get<int64_t>(std::get<0>(out[4]));
             int64_t partition_id = std::get<int64_t>(std::get<0>(out[5]));
             VLOG_DEBUG << " table_id=" << table_id << " partition_id=" << partition_id;
+
+            if (is_versioned_write) {
+                std::string partition_version_key =
+                        versioned::partition_version_key({instance_id, partition_id});
+                versioned_put(txn.get(), partition_version_key, ver_val);
+                LOG(INFO) << "put versioned partition key=" << hex(partition_version_key)
+                          << ", txn_id=" << txn_id;
+            }
 
             response->add_table_ids(table_id);
             response->add_partition_ids(partition_id);
@@ -1450,15 +1458,13 @@ void MetaServiceImpl::commit_txn_immediately(
                 stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
                 stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
 
-                stats_val.clear();
-                if (!stats_pb.SerializeToString(&stats_val)) {
+                if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
                     code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                     msg = "failed to serialize versioned tablet stats";
                     LOG(WARNING) << msg;
                     return;
                 }
-                versioned_put(txn.get(), stats_key, stats_val);
-                LOG(INFO) << "xxx put versioned tablet stats key=" << hex(stats_key)
+                LOG(INFO) << "put versioned tablet stats key=" << hex(stats_key)
                           << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
             }
         }
@@ -1980,6 +1986,13 @@ void MetaServiceImpl::commit_txn_eventually(
             VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
                        << " partition_id=" << partition_id << " version=" << i.second;
 
+            if (is_versioned_write) {
+                std::string partition_version_key =
+                        versioned::partition_version_key({instance_id, partition_id});
+                versioned_put(txn.get(), partition_version_key, ver_val);
+                LOG(INFO) << "put versioned partition key=" << hex(partition_version_key)
+                          << ", txn_id=" << txn_id;
+            }
             commit_txn_log.mutable_partition_version_map()->insert({partition_id, i.second + 1});
 
             response->add_table_ids(table_id);
@@ -2460,7 +2473,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
         size_t rowset_size = rowset_key.size() + val.size();
         txn->put(rowset_key, val);
-        LOG(INFO) << "xxx put rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id
+        LOG(INFO) << "put rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id
                   << " rowset_size=" << rowset_size;
 
         if (is_versioned_write) {
@@ -2474,7 +2487,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 LOG(WARNING) << msg;
                 return;
             }
-            LOG(INFO) << "xxx put versioned rowset meta key=" << hex(versioned_rowset_key)
+            LOG(INFO) << "put versioned rowset meta key=" << hex(versioned_rowset_key)
                       << ", txn_id=" << txn_id;
         }
     }
@@ -2513,6 +2526,14 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         int64_t partition_id = std::get<int64_t>(std::get<0>(out[5]));
         VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
                    << " partition_id=" << partition_id << " version=" << i.second;
+
+        if (is_versioned_write) {
+            std::string partition_version_key =
+                    versioned::partition_version_key({instance_id, partition_id});
+            versioned_put(txn.get(), partition_version_key, ver_val);
+            LOG(INFO) << "put versioned partition key=" << hex(partition_version_key)
+                      << ", txn_id=" << txn_id;
+        }
         commit_txn_log.mutable_partition_version_map()->insert({partition_id, i.second});
 
         response->add_table_ids(table_id);
@@ -2660,15 +2681,13 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
             stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
 
-            stats_val.clear();
-            if (!stats_pb.SerializeToString(&stats_val)) {
+            if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 msg = "failed to serialize versioned tablet stats";
                 LOG(WARNING) << msg;
                 return;
             }
-            versioned_put(txn.get(), stats_key, stats_val);
-            LOG(INFO) << "xxx put versioned tablet stats key=" << hex(stats_key)
+            LOG(INFO) << "put versioned tablet stats key=" << hex(stats_key)
                       << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
         }
     }
