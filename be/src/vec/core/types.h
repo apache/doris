@@ -361,14 +361,6 @@ struct Decimal {
 
     operator T() const { return value; }
 
-    operator wide::Int256() const
-        requires(!IsInt256)
-    {
-        wide::Int256 result;
-        wide::Int256::_impl::wide_integer_from_builtin(result, value);
-        return result;
-    }
-
     const Decimal<T>& operator++() {
         value++;
         return *this;

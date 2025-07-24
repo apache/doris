@@ -240,7 +240,7 @@ public:
             }
             if (!end_is_nul && incoming_pos >= partition_start && incoming_pos < partition_end) {
                 this->data(place).add(
-                        typename PrimitiveTypeTraits<TResult>::ColumnItemType(-data[incoming_pos]));
+                        typename PrimitiveTypeTraits<TResult>::ColumnItemType(data[incoming_pos]));
             }
         } else {
             this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
