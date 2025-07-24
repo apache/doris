@@ -37,6 +37,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -91,7 +93,11 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
             }
             op.analyze(analyzer);
         }
+        checkTemporaryTable();
+    }
 
+    @VisibleForTesting
+    public void checkTemporaryTable() throws DdlException, AnalysisException {
         String ctlName = tbl.getCtl();
         String dbName = tbl.getDb();
         String tableName = tbl.getTbl();

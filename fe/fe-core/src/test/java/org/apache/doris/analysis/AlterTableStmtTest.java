@@ -25,6 +25,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -63,6 +64,46 @@ public class AlterTableStmtTest {
         };
     }
 
+    @Test
+    public void testNormal() throws UserException {
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new DropColumnClause("col1", "", null));
+        ops.add(new DropColumnClause("col2", "", null));
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
+        new Expectations() {
+            {
+                stmt.checkTemporaryTable();
+                minTimes = 0;
+            }
+        };
+        stmt.analyze(analyzer);
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` DROP COLUMN `col1`, \nDROP COLUMN `col2`",
+                stmt.toSql());
+        Assert.assertEquals("testDb", stmt.getTbl().getDb());
+        Assert.assertEquals(2, stmt.getOps().size());
+    }
+
+    @Test
+    public void testAddRollup() throws UserException {
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "testTbl", null));
+        ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "testTbl", null));
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
+        new Expectations() {
+            {
+                stmt.checkTemporaryTable();
+                minTimes = 0;
+            }
+        };
+        stmt.analyze(analyzer);
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl`"
+                        + " ADD ROLLUP `index1` (`col1`, `col2`) FROM `testTbl`, \n"
+                        + " `index2` (`col2`, `col3`) FROM `testTbl`",
+                stmt.toSql());
+        Assert.assertEquals("testDb", stmt.getTbl().getDb());
+        Assert.assertEquals(2, stmt.getOps().size());
+    }
+
     @Test(expected = AnalysisException.class)
     public void testNoTable() throws UserException {
         List<AlterClause> ops = Lists.newArrayList();
@@ -80,6 +121,105 @@ public class AlterTableStmtTest {
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
+    }
+
+    @Test
+    public void testEnableFeature() throws UserException {
+        List<AlterClause> ops = Lists.newArrayList();
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("function_column.sequence_type", "int");
+        ops.add(new EnableFeatureClause("sequence_load", properties));
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
+        new Expectations() {
+            {
+                stmt.checkTemporaryTable();
+                minTimes = 0;
+            }
+        };
+        stmt.analyze(analyzer);
+
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` ENABLE FEATURE \"sequence_load\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
+                stmt.toSql());
+        Assert.assertEquals("testDb", stmt.getTbl().getDb());
+    }
+
+    @Test
+    public void testCreateIndex() throws UserException {
+        // ALTER TABLE `db`.`table` ADD INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new CreateIndexClause(
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"),
+                new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "balabala"),
+                true));
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
+        new Expectations() {
+            {
+                stmt.checkTemporaryTable();
+                minTimes = 0;
+            }
+        };
+        stmt.analyze(analyzer);
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` ADD INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'",
+                stmt.toSql());
+    }
+
+    @Test
+    public void testCreateIndexStmt() throws UserException {
+        // CREATE INDEX `index1` ON `db`.`table` (`col1`) USING INVERTED COMMENT 'balabala'
+        CreateIndexClause createIndexClause = new CreateIndexClause(
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"),
+                new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "balabala"),
+                false);
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(createIndexClause);
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
+        new Expectations() {
+            {
+                stmt.checkTemporaryTable();
+                minTimes = 0;
+            }
+        };
+        stmt.analyze(analyzer);
+        Assert.assertEquals("CREATE INDEX `index1` ON `db`.`table` (`col1`) USING INVERTED COMMENT 'balabala'",
+                createIndexClause.toSql());
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` ADD INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'",
+                stmt.toSql());
+    }
+
+    @Test
+    public void testDropIndex() throws UserException {
+        // ALTER TABLE `db`.`table` DROP INDEX `index1`
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new DropIndexClause("index1", false,
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"), true));
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
+        new Expectations() {
+            {
+                stmt.checkTemporaryTable();
+                minTimes = 0;
+            }
+        };
+        stmt.analyze(analyzer);
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` DROP INDEX `index1`", stmt.toSql());
+    }
+
+    @Test
+    public void testDropIndexStmt() throws UserException {
+        // DROP INDEX `index1` ON `db`.`table`
+        DropIndexClause dropIndexClause = new DropIndexClause("index1", false,
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"), false);
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(dropIndexClause);
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
+        new Expectations() {
+            {
+                stmt.checkTemporaryTable();
+                minTimes = 0;
+            }
+        };
+        stmt.analyze(analyzer);
+        Assert.assertEquals("DROP INDEX `index1` ON `db`.`table`", dropIndexClause.toSql());
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` DROP INDEX `index1`", stmt.toSql());
     }
 
     @Test
