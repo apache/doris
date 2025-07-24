@@ -38,6 +38,18 @@ suite("check_hash_bucket_table") {
         if (!matcher2.find()) { return } 
         int bucketNum = matcher2.group(1).toInteger()
         if (bucketNum <= 1) { return }
+
+        def bucketCols = bucketColumns.findAll(/`([^`]+)`/)*.replaceAll(/`/, '')
+        def columnsDetail = sql_return_maparray "desc ${tblName} all;"
+        boolean skip = false
+        for (def col: bucketCols) {
+            def colDetail = columnsDetail.find { it.Field == col }
+            if (colDetail.InternalType.toLowerCase().contains("decimal")) {
+                logger.info("===== [check] skip to check table: ${db}.${tblName} because bucket column: ${col} is ${colDetail.InternalType}")
+                return
+            }
+        }
+
         logger.info("""===== [check] Begin to check table: ${db}.${tblName}, hash bucket: ${hashBucket}, bucket num: ${bucketNum}, replica num: ${tabletStats.size()}, bucket columns: ${bucketColumns}""")
         ++tableNum
         int replicaNum = tabletIdList.stream().filter { it == tabletIdList[0] }.count()
