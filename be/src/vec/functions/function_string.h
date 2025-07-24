@@ -3353,7 +3353,7 @@ struct MoneyFormatDecimalImpl {
 
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal256_column->get_whole_part(i), frac_part);
-
+                test
                 result_column->insert_data(str.data, str.size);
             }
         }*/
