@@ -68,6 +68,7 @@ function start_doris_ms() {
     if [[ ${i} -ge 5 ]]; then
         echo -e "INFO: doris meta-service started,\n$("${DORIS_HOME}"/ms/lib/doris_cloud --version)"
     fi
+    cd - || return 1
 }
 
 function start_doris_recycler() {
@@ -87,6 +88,7 @@ function start_doris_recycler() {
     if [[ ${i} -ge 5 ]]; then
         echo -e "INFO: doris recycler started,\n$("${DORIS_HOME}"/ms/lib/doris_cloud --version)"
     fi
+    cd - || return 1
 }
 
 function install_java() {
@@ -150,6 +152,7 @@ function start_doris_be() {
         JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
         export JAVA_HOME
     fi
+    cd "${DORIS_HOME}"/be || return 1
     ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"
     if [[ -z "${ASAN_SYMBOLIZER_PATH}" ]]; then ASAN_SYMBOLIZER_PATH='/var/local/ldb-toolchain/bin/llvm-symbolizer'; fi
     export ASAN_SYMBOLIZER_PATH
@@ -159,7 +162,7 @@ function start_doris_be() {
         ulimit -n 200000 &&
         ulimit -c unlimited &&
         swapoff -a &&
-        "${DORIS_HOME}"/be/bin/start_be.sh --daemon
+        ./bin/start_be.sh --daemon
 
     sleep 2
     local i=1
@@ -171,8 +174,9 @@ function start_doris_be() {
         fi
     done
     if [[ ${i} -ge 5 ]]; then
-        echo "INFO: doris be started, be version: $("${DORIS_HOME}"/be/lib/doris_be --version)"
+        echo "INFO: doris be started, be version: $("${DORIS_HOME}"/be/bin/start_be.sh --version)"
     fi
+    cd - || return 1
 }
 
 function add_doris_be_to_fe() {
@@ -219,7 +223,7 @@ function stop_doris() {
 function stop_doris_grace() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local ret=0
-    local keywords="detected memory leak|undefined-behavior"
+    local keywords="detected memory leak|undefined-behavior|AddressSanitizer: CHECK failed"
     sudo mkdir -p /tmp/be/bin && cp -rf "${DORIS_HOME}"/be/bin/be.pid /tmp/be/bin/be.pid
     if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
         echo "INFO: doris be stopped gracefully."

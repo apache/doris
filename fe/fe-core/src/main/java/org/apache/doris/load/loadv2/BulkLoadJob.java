@@ -20,8 +20,6 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -37,17 +35,18 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.nereids.load.NereidsDataDescription;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
@@ -65,7 +64,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -332,11 +330,15 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         }
         // Reset dataSourceInfo, it will be re-created in analyze
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
+        NereidsParser nereidsParser = new NereidsParser();
+        ConnectContext ctx = ConnectContext.get();
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
-            analyzeStmt(SqlParserUtils.getStmt(parser, originStmt.idx), db);
+            if (ctx == null) {
+                ctx = ConnectContextUtil.getDummyCtx(db.getName());
+            }
+            LoadCommand command = (LoadCommand) nereidsParser.parseSingle(originStmt.originStmt);
+            analyzeCommand(command, db, ctx);
         } catch (Exception e) {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("origin_stmt", originStmt)
@@ -359,6 +361,17 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             dataDescription.analyzeWithoutCheckPriv(db.getFullName());
         }
         checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
+    }
+
+    protected void analyzeCommand(LoadCommand command, Database db, ConnectContext ctx) throws Exception {
+        if (command == null || db == null || ctx == null) {
+            return;
+        }
+
+        for (NereidsDataDescription dataDescription : command.getDataDescriptions()) {
+            dataDescription.analyzeWithoutCheckPriv(db.getFullName());
+        }
+        checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
     }
 
     @Override

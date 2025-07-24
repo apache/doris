@@ -111,7 +111,7 @@ public class IcebergExternalTableBranchAndTagTest {
         RefreshManager refreshManager = Mockito.mock(RefreshManager.class);
         Mockito.when(mockEnv.getRefreshManager()).thenReturn(refreshManager);
         Mockito.doNothing().when(refreshManager)
-                .refreshTableInternal(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyLong());
+                .refreshTableInternal(Mockito.any(), Mockito.any(), Mockito.anyLong());
     }
 
     @AfterEach

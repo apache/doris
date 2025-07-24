@@ -31,7 +31,6 @@
 #include <string>
 #include <vector>
 
-#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
@@ -40,11 +39,11 @@
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
-#include "olap/tablet_schema_helper.h"
 #include "runtime/runtime_state.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
@@ -1252,7 +1251,8 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     CollectionValue collection1;
     collection1.set_data(reinterpret_cast<uint8_t*>(slices.data()));
     collection1.set_length(3);
-    collection1.set_null_signs(nullptr);
+    bool null_signs[] = {false, false, false};
+    collection1.set_null_signs(null_signs);
     collections.push_back(collection1);
 
     // Test add_array_values with CollectionValue

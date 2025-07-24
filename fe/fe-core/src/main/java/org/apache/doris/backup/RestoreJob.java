@@ -17,8 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.BackupStmt.BackupContent;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
@@ -67,6 +65,8 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -114,15 +114,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class RestoreJob extends AbstractJob implements GsonPostProcessable {
-    private static final String PROP_RESERVE_REPLICA = RestoreStmt.PROP_RESERVE_REPLICA;
-    private static final String PROP_RESERVE_COLOCATE = RestoreStmt.PROP_RESERVE_COLOCATE;
+    private static final String PROP_RESERVE_REPLICA = RestoreCommand.PROP_RESERVE_REPLICA;
+    private static final String PROP_RESERVE_COLOCATE = RestoreCommand.PROP_RESERVE_COLOCATE;
     private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE =
-            RestoreStmt.PROP_RESERVE_DYNAMIC_PARTITION_ENABLE;
+            RestoreCommand.PROP_RESERVE_DYNAMIC_PARTITION_ENABLE;
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
-    private static final String PROP_CLEAN_TABLES = RestoreStmt.PROP_CLEAN_TABLES;
-    private static final String PROP_CLEAN_PARTITIONS = RestoreStmt.PROP_CLEAN_PARTITIONS;
-    private static final String PROP_ATOMIC_RESTORE = RestoreStmt.PROP_ATOMIC_RESTORE;
-    private static final String PROP_FORCE_REPLACE = RestoreStmt.PROP_FORCE_REPLACE;
+    private static final String PROP_CLEAN_TABLES = RestoreCommand.PROP_CLEAN_TABLES;
+    private static final String PROP_CLEAN_PARTITIONS = RestoreCommand.PROP_CLEAN_PARTITIONS;
+    private static final String PROP_ATOMIC_RESTORE = RestoreCommand.PROP_ATOMIC_RESTORE;
+    private static final String PROP_FORCE_REPLACE = RestoreCommand.PROP_FORCE_REPLACE;
     private static final String ATOMIC_RESTORE_TABLE_PREFIX = "__doris_atomic_restore_prefix__";
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
@@ -1143,7 +1143,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         LOG.info("finished to prepare meta. {}", this);
 
-        if (jobInfo.content == null || jobInfo.content == BackupContent.ALL) {
+        if (jobInfo.content == null || jobInfo.content == BackupCommand.BackupContent.ALL) {
             prepareAndSendSnapshotTaskForOlapTable(db);
         }
 
@@ -1417,7 +1417,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             objectPool,
                             localTbl.rowStorePageSize(),
                             localTbl.variantEnableFlattenNested(),
-                            localTbl.storagePageSize());
+                            localTbl.storagePageSize(),
+                            localTbl.storageDictPageSize());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {

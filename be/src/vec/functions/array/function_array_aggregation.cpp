@@ -287,7 +287,7 @@ struct ArrayAggregateImpl {
                 continue;
             }
             function->reset(guard.data());
-            function->add_batch_range(start, end - 1, guard.data(), columns, &arena,
+            function->add_batch_range(start, end - 1, guard.data(), columns, arena,
                                       data->is_nullable());
             function->insert_result_into(guard.data(), res_column->assume_mutable_ref());
         }

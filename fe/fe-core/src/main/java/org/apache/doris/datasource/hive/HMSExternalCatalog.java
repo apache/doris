@@ -245,25 +245,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void unregisterDatabase(String dbName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("drop database [{}]", dbName);
-        }
-        if (useMetaCache.get()) {
-            if (isInitialized()) {
-                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
-            }
-        } else {
-            Long dbId = dbNameToId.remove(dbName);
-            if (dbId == null) {
-                LOG.warn("drop database [{}] failed", dbName);
-            }
-            idToDb.remove(dbId);
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
-    }
-
-    @Override
     public void registerDatabase(long dbId, String dbName) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create database [{}]", dbName);

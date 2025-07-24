@@ -34,6 +34,7 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> group_commit_block_by_memory_counter("group_commit_block_by_memory_counter");
 
@@ -65,7 +66,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         if (!config::group_commit_wait_replay_wal_finish) {
             _block_queue.emplace_back(block);
             _data_bytes += block->bytes();
-            int before_block_queues_bytes = _all_block_queues_bytes->load();
+            size_t before_block_queues_bytes = _all_block_queues_bytes->load();
             _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
             VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::add_block). "
                        << "Cur block rows=" << block->rows() << ", bytes=" << block->bytes()
@@ -153,7 +154,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         block->swap(*block_data.block);
         *find_block = true;
         _block_queue.pop_front();
-        int before_block_queues_bytes = _all_block_queues_bytes->load();
+        size_t before_block_queues_bytes = _all_block_queues_bytes->load();
         _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
         VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::get_block). "
                    << "Cur block rows=" << block->rows() << ", bytes=" << block->bytes()
@@ -221,7 +222,7 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
               << ", status=" << st.to_string();
     status =
             Status::Cancelled("cancel group_commit, label=" + label + ", status=" + st.to_string());
-    int before_block_queues_bytes = _all_block_queues_bytes->load();
+    size_t before_block_queues_bytes = _all_block_queues_bytes->load();
     while (!_block_queue.empty()) {
         const BlockData& block_data = _block_queue.front().block;
         _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
@@ -432,13 +433,15 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                                                    RuntimeState* state) {
     Status st;
     Status result_status;
-    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
-                    { status = Status::InternalError(""); });
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status", {
+        status = Status::InternalError("LoadBlockQueue._finish_group_commit_load.err_status");
+    });
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.load_error",
                     { status = Status::InternalError("load_error"); });
     if (status.ok()) {
-        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error",
-                        { status = Status::InternalError(""); });
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error", {
+            status = Status::InternalError("LoadBlockQueue._finish_group_commit_load.commit_error");
+        });
         // commit txn
         TLoadTxnCommitRequest request;
         // deprecated and should be removed in 3.1, use token instead
@@ -531,8 +534,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     // status: exec_plan_fragment result
     // st: commit txn rpc status
     // result_status: commit txn result
-    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_st",
-                    { st = Status::InternalError(""); });
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_st", {
+        st = Status::InternalError("LoadBlockQueue._finish_group_commit_load.err_st");
+    });
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         if (!config::group_commit_wait_replay_wal_finish) {
@@ -723,4 +727,6 @@ bool LoadBlockQueue::has_enough_wal_disk_space(size_t estimated_wal_bytes) {
         return false;
     }
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris

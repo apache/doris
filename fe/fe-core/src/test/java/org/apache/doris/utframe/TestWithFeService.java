@@ -29,6 +29,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.EmptyStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.SqlParser;
@@ -47,7 +48,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.nereids.CascadesContext;
@@ -160,6 +160,7 @@ public abstract class TestWithFeService {
         FeConstants.disableWGCheckerForUT = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
+        connectContext.getSessionVariable().feDebug = true;
         beforeCluster();
         createDorisCluster();
         Env.getCurrentEnv().getWorkloadGroupMgr().createNormalWorkloadGroupForUT();
@@ -307,7 +308,8 @@ public abstract class TestWithFeService {
         Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {
-            statementBase = SqlParserUtils.getFirstStmt(parser);
+            List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
+            statementBase = stmts.get(0);
         } catch (AnalysisException e) {
             String errorMessage = parser.getErrorMsg(originStmt);
             System.err.println("parse failed: " + errorMessage);
@@ -331,7 +333,11 @@ public abstract class TestWithFeService {
         Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         List<StatementBase> statementBases = null;
         try {
-            statementBases = SqlParserUtils.getMultiStmts(parser);
+            List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
+            while (stmts.size() > 1 && stmts.get(stmts.size() - 1) instanceof EmptyStmt) {
+                stmts.remove(stmts.size() - 1);
+            }
+            statementBases = stmts;
         } catch (AnalysisException e) {
             String errorMessage = parser.getErrorMsg(originStmt);
             System.err.println("parse failed: " + errorMessage);

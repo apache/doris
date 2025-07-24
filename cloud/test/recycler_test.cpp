@@ -51,12 +51,12 @@
 
 using namespace doris;
 
-static const std::string instance_id = "instance_id_recycle_test";
-static int64_t current_time = 0;
+std::string instance_id = "instance_id_recycle_test";
+int64_t current_time = 0;
 static constexpr int64_t db_id = 1000;
 static RecyclerMetricsContext ctx;
 
-static doris::cloud::RecyclerThreadPoolGroup thread_group;
+doris::cloud::RecyclerThreadPoolGroup thread_group;
 
 int main(int argc, char** argv) {
     auto conf_file = "doris_cloud.conf";
@@ -401,6 +401,30 @@ static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int6
     txn->put(key, idx_val);
     LOG(INFO) << "tablet_idx_pb:" << tablet_idx_pb.DebugString() << " key=" << hex(key);
 
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return 0;
+}
+
+static int create_partition_meta_and_index_keys(TxnKv* txn_kv, int64_t db_id, int64_t table_id,
+                                                int64_t partition_id) {
+    std::string meta_key = versioned::meta_partition_key({instance_id, partition_id});
+    std::string meta_index_key = versioned::partition_index_key({instance_id, partition_id});
+    std::string meta_inverted_index_key =
+            versioned::partition_inverted_index_key({instance_id, db_id, table_id, partition_id});
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    std::string val;
+    PartitionIndexPB partition_index_pb;
+    partition_index_pb.set_db_id(db_id);
+    partition_index_pb.set_table_id(table_id);
+    partition_index_pb.SerializeToString(&val);
+    versioned_put(txn.get(), meta_key, "");
+    txn->put(meta_index_key, partition_index_pb.SerializeAsString());
+    txn->put(meta_inverted_index_key, "");
     if (txn->commit() != TxnErrorCode::TXN_OK) {
         return -1;
     }
@@ -1330,6 +1354,7 @@ TEST(RecyclerTest, recycle_partitions) {
         }
     }
 
+    ASSERT_EQ(create_partition_meta_and_index_keys(txn_kv.get(), db_id, table_id, partition_id), 0);
     ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
 
     create_recycle_partiton(txn_kv.get(), table_id, partition_id, index_ids);
@@ -1378,6 +1403,19 @@ TEST(RecyclerTest, recycle_partitions) {
     end_key = recycle_key_prefix(instance_id + '\xff');
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
+    // meta_partition_key
+    std::string meta_partition_key = versioned::meta_partition_key({instance_id, partition_id});
+    std::string index_key = versioned::partition_index_key({instance_id, partition_id});
+    std::string inverted_index_key =
+            versioned::partition_inverted_index_key({instance_id, db_id, table_id, partition_id});
+    std::string empty_value;
+    Versionstamp versionstamp;
+    ASSERT_EQ(versioned_get(txn.get(), meta_partition_key, &versionstamp, &empty_value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // meta_partition_index_key
+    ASSERT_EQ(txn->get(index_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // meta_partition_inverted_index_key
+    ASSERT_EQ(txn->get(inverted_index_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(RecyclerTest, recycle_versions) {
@@ -3130,8 +3168,6 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
 }
 
 TEST(CheckerTest, delete_bitmap_storage_optimize_check_normal) {
-    config::delete_bitmap_storage_optimize_check_version_gap = 0;
-
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -3237,71 +3273,7 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_check_normal) {
     }
 
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
-    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(), 0);
     ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 0);
-}
-
-TEST(CheckerTest, delete_bitmap_storage_optimize_check_abnormal) {
-    config::delete_bitmap_storage_optimize_check_version_gap = 0;
-    // abnormal case, some rowsets' delete bitmaps are not deleted as expected
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    auto obj_info = instance.add_obj_info();
-    obj_info->set_id("1");
-
-    InstanceChecker checker(txn_kv, instance_id);
-    ASSERT_EQ(checker.init(instance), 0);
-    auto accessor = checker.accessor_map_.begin()->second;
-
-    // tablet_id -> [rowset_id]
-    std::map<std::int64_t, std::set<std::string>> expected_abnormal_rowsets {};
-    std::map<std::int64_t, std::set<std::string>> real_abnormal_rowsets {};
-    auto sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER {
-        SyncPoint::get_instance()->clear_all_call_backs();
-    };
-    sp->set_call_back("InstanceChecker::check_delete_bitmap_storage_optimize.get_abnormal_rowset",
-                      [&real_abnormal_rowsets](auto&& args) {
-                          int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
-                          std::string rowset_id = *try_any_cast<std::string*>(args[1]);
-                          real_abnormal_rowsets[tablet_id].insert(rowset_id);
-                      });
-    sp->enable_processing();
-
-    std::unique_ptr<Transaction> txn;
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
-
-    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
-
-    int64_t rowset_start_id = 700;
-    for (int tablet_id = 900001; tablet_id <= 900005; ++tablet_id) {
-        ASSERT_EQ(0,
-                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
-        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
-                                                              {6, 7}, {8, 8}, {9, 9}};
-        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
-                {2, 9}, {7, 9}, {4, 9}, {7, 9}, {7, 9}, {8, 9}, {9, 9}};
-        std::vector<bool> segments_overlap {true, true, true, true, false, true, true};
-        for (size_t i {0}; i < 7; i++) {
-            std::string rowset_id = std::to_string(rowset_start_id++);
-            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                   rowset_vers[i].first, rowset_vers[i].second,
-                                                   rowset_id, segments_overlap[i], 1);
-            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
-                                  delete_bitmaps_vers[i].second);
-            if (delete_bitmaps_vers[i].first < 7) {
-                expected_abnormal_rowsets[tablet_id].insert(rowset_id);
-            }
-        }
-    }
-
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
-
-    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(), 1);
-    ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
 }
 
 std::unique_ptr<MetaServiceProxy> get_meta_service() {

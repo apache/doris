@@ -177,7 +177,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 tablet->version_count(), max_version_config, tablet->tablet_id());
     }
 
-    int version_count = tablet->version_count() + tablet->stale_version_count();
+    auto version_count = tablet->version_count() + tablet->stale_version_count();
     if (tablet->avg_rs_meta_serialize_size() * version_count >
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
@@ -516,7 +516,9 @@ Status PushBrokerReader::_cast_to_input_block() {
                     {vectorized::DataTypeString().create_column_const(
                              arg.column->size(),
                              vectorized::Field::create_field<TYPE_STRING>(
-                                     remove_nullable(return_type)->get_family_name())),
+                                     is_decimal(return_type->get_primitive_type())
+                                             ? "Decimal"
+                                             : remove_nullable(return_type)->get_family_name())),
                      std::make_shared<vectorized::DataTypeString>(), ""}};
             auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
                     "CAST", arguments, return_type);

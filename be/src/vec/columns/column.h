@@ -319,24 +319,9 @@ public:
     /// Returns pointer to the position after the read data.
     virtual const char* deserialize_and_insert_from_arena(const char* pos) = 0;
 
-    /// Return the size of largest row.
-    /// This is for calculating the memory size for vectorized serialization of aggregation keys.
-    virtual size_t get_max_row_byte_size() const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method get_max_row_byte_size is not supported for " + get_name());
-        return 0;
-    }
-
-    virtual void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
+    virtual void serialize_vec(StringRef* keys, size_t num_rows) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method serialize_vec is not supported for " + get_name());
-    }
-
-    virtual void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                             const uint8_t* null_map) const {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method serialize_vec_with_null_map is not supported for " + get_name());
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
@@ -344,13 +329,28 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
     }
+    /// The exact size to serialize the `row`-th row data in this column.
+    virtual size_t serialize_size_at(size_t row) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Column {} should not be serialized.", get_name());
+    }
+    /// `serialize_impl` is the implementation to serialize a column into a continuous memory.
+    virtual size_t serialize_impl(char* pos, const size_t row) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method serialize_impl is not supported for " + get_name());
+    }
+    /// `deserialize_impl` will deserialize data which is serialized by `serialize_impl`.
+    virtual size_t deserialize_impl(const char* pos) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method deserialize_impl is not supported for " + get_name());
+    }
 
-    // Used in ColumnNullable::deserialize_vec
-    virtual void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                               const uint8_t* null_map) {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method deserialize_vec_with_null_map is not supported for " + get_name());
+    /// Return the size of largest row.
+    /// This is for calculating the memory size for vectorized serialization of aggregation keys.
+    virtual size_t get_max_row_byte_size() const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_max_row_byte_size is not supported for " + get_name());
+        return 0;
     }
 
     /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface

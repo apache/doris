@@ -124,7 +124,7 @@ public:
     size_t align_of_data() const override { return nested_function->align_of_data(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena& arena) const override {
         if (result_is_nullable && get_flag(rhs)) {
             set_flag(place);
         }
@@ -143,7 +143,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena& arena) const override {
         bool flag = true;
         if (result_is_nullable) {
             buf.read_binary(flag);
@@ -155,7 +155,7 @@ public:
     }
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
-                               BufferReadable& buf, Arena* arena) const override {
+                               BufferReadable& buf, Arena& arena) const override {
         bool flag = true;
         if (result_is_nullable) {
             buf.read_binary(flag);
@@ -201,7 +201,7 @@ public:
                       nested_function_, arguments) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         if (column->is_null_at(row_num)) {
@@ -227,7 +227,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
-                   const IColumn** columns, Arena* arena, bool agg_many) const override {
+                   const IColumn** columns, Arena& arena, bool agg_many) const override {
         const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
         const IColumn* nested_column = &column->get_nested_column();
         if (column->has_null()) {
@@ -254,7 +254,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena& arena) const override {
         const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
         bool has_null = column->has_null();
 
@@ -271,7 +271,7 @@ public:
     }
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
-                         const IColumn** columns, Arena* arena, bool has_null) override {
+                         const IColumn** columns, Arena& arena, bool has_null) override {
         const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
 
         if (has_null) {
@@ -289,7 +289,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena, UInt8* use_null_result,
+                                Arena& arena, UInt8* use_null_result,
                                 UInt8* could_use_previous_result) const override {
         auto current_frame_start = std::max<int64_t>(frame_start, partition_start);
         auto current_frame_end = std::min<int64_t>(frame_end, partition_end);
@@ -326,7 +326,7 @@ public:
     void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
                                            int64_t frame_start, int64_t frame_end,
                                            AggregateDataPtr place, const IColumn** columns,
-                                           Arena* arena, bool previous_is_nul, bool end_is_nul,
+                                           Arena& arena, bool previous_is_nul, bool end_is_nul,
                                            bool has_null, UInt8* use_null_result,
                                            UInt8* could_use_previous_result) const override {
         int64_t current_frame_start = std::max<int64_t>(frame_start, partition_start);
@@ -434,7 +434,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         /// This container stores the columns we really pass to the nested function.
         std::vector<const IColumn*> nested_columns(number_of_arguments);
 

@@ -29,7 +29,7 @@
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 constexpr int FIXED_CONTAINER_MAX_SIZE = 8;
 
 /**
@@ -300,7 +300,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         return _set.find(*reinterpret_cast<const ElementType*>(data));
@@ -457,7 +457,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
@@ -627,7 +627,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
@@ -725,5 +725,5 @@ private:
     ContainerType _set;
     ObjectPool _pool;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

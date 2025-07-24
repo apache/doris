@@ -34,7 +34,7 @@
 namespace doris::cloud {
 
 bool VersionedRangeGetIterator::has_next() {
-    while (error_code_ == TxnErrorCode::TXN_OK && !has_find_ && iter_->has_next()) {
+    while (is_valid() && !has_find_ && iter_->has_next()) {
         auto [key, value] = iter_->peek().value();
         auto [parsed_key, version] = parse_key(key);
         if (error_code_ != TxnErrorCode::TXN_OK) {
@@ -53,7 +53,7 @@ bool VersionedRangeGetIterator::has_next() {
         current_value_ = value;
         return true;
     }
-    return has_find_;
+    return is_valid() && has_find_;
 }
 
 std::optional<VersionedRangeGetIterator::Element> VersionedRangeGetIterator::next() {
@@ -78,7 +78,7 @@ std::optional<VersionedRangeGetIterator::Element> VersionedRangeGetIterator::pee
 std::tuple<std::string_view, Versionstamp> VersionedRangeGetIterator::parse_key(
         std::string_view key) {
     Versionstamp version;
-    if (decode_tailing_versionstamp(&key, &version)) {
+    if (decode_tailing_versionstamp_end(&key) || decode_tailing_versionstamp(&key, &version)) {
         LOG(ERROR) << "Failed to decode tailing versionstamp from key: " << hex(key);
         error_code_ = TxnErrorCode::TXN_INVALID_DATA;
         return {key, Versionstamp::min()};
@@ -86,18 +86,18 @@ std::tuple<std::string_view, Versionstamp> VersionedRangeGetIterator::parse_key(
     return {key, version};
 }
 
-bool versioned_put(Transaction* txn, std::string_view key, std::string_view value) {
+void versioned_put(Transaction* txn, std::string_view key, std::string_view value) {
     std::string key_with_versionstamp(key);
     uint32_t offset = encode_versionstamp(Versionstamp::min(), &key_with_versionstamp);
+    encode_versionstamp_end(&key_with_versionstamp);
     txn->atomic_set_ver_key(key_with_versionstamp, offset, value);
-    return true;
 }
 
-bool versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value) {
+void versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value) {
     std::string key_with_versionstamp(key);
     encode_versionstamp(v, &key_with_versionstamp);
+    encode_versionstamp_end(&key_with_versionstamp);
     txn->put(key_with_versionstamp, value);
-    return true;
 }
 
 TxnErrorCode versioned_get(Transaction* txn, std::string_view key, Versionstamp snapshot_version,
@@ -127,7 +127,8 @@ TxnErrorCode versioned_get(Transaction* txn, std::string_view key, Versionstamp 
 
     std::string_view actual_key = item->first;
     Versionstamp key_version;
-    if (decode_tailing_versionstamp(&actual_key, &key_version) != 0) {
+    if (decode_tailing_versionstamp_end(&actual_key) ||
+        decode_tailing_versionstamp(&actual_key, &key_version)) {
         LOG(ERROR) << "Failed to decode tailing versionstamp from key: " << hex(actual_key);
         return TxnErrorCode::TXN_INVALID_DATA;
     }
@@ -174,15 +175,31 @@ std::unique_ptr<VersionedRangeGetIterator> versioned_get_range(
     return std::make_unique<VersionedRangeGetIterator>(std::move(iter), opts.snapshot_version);
 }
 
-void versioned_remove(Transaction* txn, std::string_view key_with_versionstamp) {
-    txn->remove(key_with_versionstamp);
+void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v) {
+    txn->remove(encode_versioned_key(key, v));
 }
 
-void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v) {
-    // Remove the key with the given versionstamp
+void versioned_remove_all(Transaction* txn, std::string_view key) {
+    txn->remove(encode_versioned_key(key, Versionstamp::min()),
+                encode_versioned_key(key, Versionstamp::max()));
+}
+
+std::string encode_versioned_key(std::string_view key, Versionstamp v) {
     std::string key_with_versionstamp(key);
     encode_versionstamp(v, &key_with_versionstamp);
-    txn->remove(key_with_versionstamp);
+    encode_versionstamp_end(&key_with_versionstamp);
+    return key_with_versionstamp;
+}
+
+bool decode_versioned_key(std::string_view* key, Versionstamp* v) {
+    std::string_view modified_key(*key);
+    if (decode_tailing_versionstamp_end(&modified_key) ||
+        decode_tailing_versionstamp(&modified_key, v)) {
+        return false;
+    }
+
+    *key = modified_key;
+    return true;
 }
 
 } // namespace doris::cloud

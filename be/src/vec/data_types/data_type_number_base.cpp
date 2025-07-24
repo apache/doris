@@ -322,6 +322,11 @@ MutableColumnPtr DataTypeNumberBase<T>::create_column() const {
     return PrimitiveTypeTraits<T>::ColumnType::create();
 }
 
+template <PrimitiveType T>
+Status DataTypeNumberBase<T>::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<typename PrimitiveTypeTraits<T>::ColumnType>(column);
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberBase<TYPE_BOOLEAN>;
 template class DataTypeNumberBase<TYPE_TINYINT>;

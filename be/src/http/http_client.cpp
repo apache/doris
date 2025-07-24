@@ -24,6 +24,7 @@
 #include <memory>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "http/http_headers.h"
@@ -32,7 +33,7 @@
 #include "util/stack_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class MultiFileSplitter {
 public:
     MultiFileSplitter(std::string local_dir, std::unordered_set<std::string> expected_files)
@@ -191,7 +192,7 @@ private:
             switch_to_next_file();
         }
 
-        return write_size;
+        return cast_set<int>(write_size);
     }
 
     Status finish_inner() {
@@ -607,7 +608,8 @@ Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url)
             std::string value = query.substr(equal_pos + 1, ampersand_pos - equal_pos - 1);
 
             auto encoded_value = std::unique_ptr<char, decltype(&curl_free)>(
-                    curl_easy_escape(_curl, value.c_str(), value.length()), &curl_free);
+                    curl_easy_escape(_curl, value.c_str(), cast_set<int>(value.length())),
+                    &curl_free);
             if (encoded_value) {
                 encoded_query += key + "=" + std::string(encoded_value.get());
             } else {
@@ -628,5 +630,5 @@ Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url)
     *escaped_url = url.substr(0, query_pos + 1) + encoded_query + fragment;
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris
