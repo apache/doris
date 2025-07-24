@@ -317,6 +317,9 @@ trigger_or_skip_build() {
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "vault_p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "nonConcurrent"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
+        elif [[ ${COMMENT_TRIGGER_TYPE} == "beut" ]]; then
+            # skip beut 的时候，也把 check_coverage skip 了
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
         fi
     fi
 }
