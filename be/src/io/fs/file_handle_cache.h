@@ -49,6 +49,9 @@ public:
     /// Init opens the file handle
     Status init(int64_t file_size);
 
+    /// try to get the file size from the file system
+    Status update_file_size();
+
     hdfsFS fs() const { return _fs; }
     hdfsFile file() const { return _hdfs_file; }
     int64_t mtime() const { return _mtime; }
