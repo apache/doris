@@ -154,6 +154,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
@@ -305,6 +306,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 scanNode.finalizeForNereids();
             } catch (Exception e) {
                 throw new RuntimeException(e.getMessage(), e);
+            }
+        }
+
+        if (isSimpleQuery(physicalPlan)) {
+            // the simple query maybe has two fragments or one fragment
+            rootFragment.setForceSingleInstance();
+            for (PlanFragment child : rootFragment.getChildren()) {
+                child.setForceSingleInstance();
             }
         }
         return rootFragment;
@@ -3146,5 +3155,31 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return partitionExprs;
         }
         return Lists.newArrayList();
+    }
+
+    // matching the simple query:
+    // 1. select xxx from tbl
+    // 2. select xxx from tbl where xxx=yyy
+    private boolean isSimpleQuery(PhysicalPlan root) {
+        if (!(root instanceof PhysicalResultSink)) {
+            return false;
+        }
+        Plan child = root.child(0);
+        if (child instanceof PhysicalLimit) {
+            child = child.child(0);
+        }
+        if (child instanceof PhysicalDistribute) {
+            child = child.child(0);
+        }
+        if (child instanceof PhysicalLimit) {
+            child = child.child(0);
+        }
+        if (child instanceof PhysicalProject) {
+            child = child.child(0);
+        }
+        if (child instanceof PhysicalFilter) {
+            child = child.child(0);
+        }
+        return child instanceof PhysicalRelation;
     }
 }
