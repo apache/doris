@@ -47,6 +47,8 @@ extern doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
                                               int64_t version, int num_rows);
 extern void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
                           CreateRowsetResponse& res);
+extern void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
+                       int64_t partition_id, int64_t tablet_id);
 
 // Convert a string to a hex-escaped string.
 // A non-displayed character is represented as \xHH where HH is the hexadecimal value of the character.
@@ -1034,6 +1036,120 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         ASSERT_NE(it, commit_log.partition_version_map().end());
         ASSERT_GT(it->second, 0);
     }
+}
+
+TEST(MetaServiceOperationLogTest, UpdateVersionedTabletMeta) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "commit_partition_log";
+    std::string cloud_unique_id = "1:" + instance_id + ":1";
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+    constexpr int64_t tablet_id1 = 10004;
+    constexpr int64_t tablet_id2 = 10005;
+
+    {
+        // write instance
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    {
+        // Create tablets
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id1);
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id2);
+    }
+
+    // Update tablets
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        TabletMetaInfoPB* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        tablet_meta_info->set_ttl_seconds(300);
+        tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id2);
+        tablet_meta_info->set_ttl_seconds(3000);
+        meta_service->update_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify versioned tablet meta keys exist and have same commit_versionstamp
+    Versionstamp versionstamp1;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Check versioned tablet meta for tablet_id1
+        std::string tablet_meta_key1 = versioned::meta_tablet_key({instance_id, tablet_id1});
+        doris::TabletMetaCloudPB tablet_meta1;
+        TxnErrorCode err =
+                versioned::document_get(txn.get(), tablet_meta_key1, &tablet_meta1, &versionstamp1);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        EXPECT_EQ(tablet_meta1.ttl_seconds(), 300);
+    }
+
+    // Check versioned tablet meta for tablet_id2
+    Versionstamp versionstamp2;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string tablet_meta_key2 = versioned::meta_tablet_key({instance_id, tablet_id2});
+        doris::TabletMetaCloudPB tablet_meta2;
+        TxnErrorCode err =
+                versioned::document_get(txn.get(), tablet_meta_key2, &tablet_meta2, &versionstamp2);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        EXPECT_EQ(tablet_meta2.ttl_seconds(), 3000);
+    }
+
+    // Check operation log exists
+    Versionstamp log_versionstamp;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string log_key = versioned::log_key(instance_id);
+        OperationLogPB operation_log;
+        TxnErrorCode err =
+                versioned::document_get(txn.get(), log_key, &operation_log, &log_versionstamp);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(operation_log.has_update_tablet());
+        EXPECT_EQ(operation_log.update_tablet().tablet_ids_size(), 2);
+        EXPECT_TRUE(std::find(operation_log.update_tablet().tablet_ids().begin(),
+                              operation_log.update_tablet().tablet_ids().end(),
+                              tablet_id1) != operation_log.update_tablet().tablet_ids().end());
+        EXPECT_TRUE(std::find(operation_log.update_tablet().tablet_ids().begin(),
+                              operation_log.update_tablet().tablet_ids().end(),
+                              tablet_id2) != operation_log.update_tablet().tablet_ids().end());
+    }
+
+    // Verify all versioned keys have the same commit_versionstamp
+    EXPECT_EQ(versionstamp1, versionstamp2);
+    EXPECT_EQ(versionstamp1, log_versionstamp);
+    EXPECT_EQ(versionstamp2, log_versionstamp);
 }
 
 } // namespace doris::cloud

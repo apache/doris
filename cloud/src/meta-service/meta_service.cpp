@@ -63,9 +63,11 @@
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/codec.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "rate-limiter/rate_limiter.h"
 
 using namespace std::chrono;
@@ -761,6 +763,8 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         msg = "failed to init txn";
         return;
     }
+    UpdateTabletLogPB update_tablet_log;
+    bool is_versioned_write = is_version_write_enabled(instance_id);
     for (const TabletMetaInfoPB& tablet_meta_info : request->tablet_meta_infos()) {
         doris::TabletMetaCloudPB tablet_meta;
         internal_get_tablet(code, msg, instance_id, txn.get(), tablet_meta_info.tablet_id(),
@@ -835,7 +839,38 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         }
         txn->put(key, val);
         LOG(INFO) << "xxx put tablet_key=" << hex(key);
+
+        if (is_versioned_write) {
+            update_tablet_log.add_tablet_ids(tablet_id);
+
+            std::string tablet_meta_key = versioned::meta_tablet_key({instance_id, tablet_id});
+            if (!versioned::document_put(txn.get(), tablet_meta_key, std::move(tablet_meta))) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format(
+                        "failed to serialize tablet meta for versioned write. tablet_id={}",
+                        tablet_id);
+                return;
+            }
+            LOG(INFO) << "put versioned tablet meta, tablet_id=" << tablet_id
+                      << " key=" << hex(tablet_meta_key);
+        }
     }
+
+    if (is_versioned_write && update_tablet_log.tablet_ids_size() > 0) {
+        OperationLogPB log;
+        log.mutable_update_tablet()->Swap(&update_tablet_log);
+        std::string update_log_key = versioned::log_key(instance_id);
+        std::string operation_log_value;
+        if (!log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "failed to serialize update tablet log";
+            return;
+        }
+        versioned_put(txn.get(), update_log_key, operation_log_value);
+        LOG(INFO) << "put versioned update tablet log, key=" << hex(update_log_key)
+                  << " instance_id=" << instance_id << " log_size=" << operation_log_value.size();
+    }
+
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
