@@ -84,7 +84,7 @@ public class Scope {
         this.outerScope = Objects.requireNonNull(outerScope, "outerScope can not be null");
         this.slots = Utils.fastToImmutableList(Objects.requireNonNull(slots, "slots can not be null"));
         this.correlatedSlots = Sets.newLinkedHashSet();
-        this.buildNameToSlot = slots.size() > 500;
+        this.buildNameToSlot = slots.size() > 100;
         this.nameToSlot = buildNameToSlot ? Suppliers.memoize(this::buildNameToSlot) : null;
         this.nameToAsteriskSlot = buildNameToSlot ? Suppliers.memoize(this::buildNameToAsteriskSlot) : null;
         this.asteriskSlots = Utils.fastToImmutableList(
