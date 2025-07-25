@@ -23,8 +23,8 @@ import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -72,7 +72,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-import org.apache.doris.catalog.Table;
 
 public class BackupJobTest {
 
@@ -166,10 +165,10 @@ public class BackupJobTest {
         Deencapsulation.setField(env, "backupHandler", backupHandler);
 
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version);
-        
+
         // Create second table in setUp to avoid Env initialization issues
         table2 = UnitTestUtil.createTable(db, tblId2, table2Name, partId2, idxId2, tabletId2, backendId, version);
-        
+
         catalog = Deencapsulation.newInstance(InternalCatalog.class);
         new Expectations(env) {
             {
@@ -251,9 +250,9 @@ public class BackupJobTest {
 
     /**
      * Test normal backup job execution flow
-     * 
+     *
      * Scenario: Backup a single table with all content
-     * Expected Results: 
+     * Expected Results:
      * 1. Job should progress through all states: PENDING -> SNAPSHOTING -> UPLOAD_SNAPSHOT -> UPLOADING -> SAVE_META -> UPLOAD_INFO -> FINISHED
      * 2. Backup meta should contain the correct table information
      * 3. Snapshot and upload tasks should be created and executed successfully
@@ -385,9 +384,9 @@ public class BackupJobTest {
 
     /**
      * Test backup job execution with non-existent table
-     * 
+     *
      * Scenario: Attempt to backup a table that does not exist
-     * Expected Results: 
+     * Expected Results:
      * 1. Job should fail with NOT_FOUND error code
      * 2. Job state should be CANCELLED
      * 3. No backup tasks should be created
@@ -410,9 +409,9 @@ public class BackupJobTest {
 
     /**
      * Test backup job execution with mixed existing and non-existent tables
-     * 
+     *
      * Scenario: Backup two tables - one existing table and one non-existent table
-     * Expected Results: 
+     * Expected Results:
      * 1. Job should succeed and proceed to SNAPSHOTING state
      * 2. Backup meta should only contain the existing table
      * 3. Only snapshot tasks for the existing table should be created
@@ -433,10 +432,10 @@ public class BackupJobTest {
         tableRefs.add(
                 new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
                         null));
-        
+
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
                 env, repo.getId(), 0);
-        
+
         // 1. pending
         Assert.assertEquals(BackupJobState.PENDING, job.getState());
         job.run();
@@ -464,9 +463,9 @@ public class BackupJobTest {
 
     /**
      * Test backup job execution when a table is dropped during SNAPSHOTING phase
-     * 
+     *
      * Scenario: Start backup with two normal tables, then drop one table during SNAPSHOTING phase
-     * Expected Results: 
+     * Expected Results:
      * 1. Job should start with two tables and create snapshot tasks for both
      * 2. When one table is dropped during SNAPSHOTING, the dropped table should be marked as dropped
      * 3. Backup should continue successfully with only the remaining table
@@ -547,7 +546,7 @@ public class BackupJobTest {
             job.run(); // UPLOAD_SNAPSHOT -> UPLOADING
             Assert.assertEquals(1, AgentTaskQueue.getTaskNum());
             UploadTask upTask = (UploadTask) AgentTaskQueue.getTask(backendId, TTaskType.UPLOAD, id.get() - 1);
-            
+
             // Finish upload task
             Map<Long, List<String>> tabletFileMap = Maps.newHashMap();
             List<String> tabletFiles = Lists.newArrayList();
@@ -559,7 +558,7 @@ public class BackupJobTest {
                     upTask.getSignature(), taskStatusOK);
             requestUpload.setTabletFiles(tabletFileMap);
             Assert.assertTrue(job.finishSnapshotUploadTask(upTask, requestUpload));
-            
+
             job.run(); // UPLOADING -> SAVE_META
             Assert.assertEquals(BackupJobState.SAVE_META, job.getState());
 
@@ -582,9 +581,9 @@ public class BackupJobTest {
 
     /**
      * Test backup job serialization and deserialization
-     * 
+     *
      * Scenario: Write backup job to file and read it back
-     * Expected Results: 
+     * Expected Results:
      * 1. Backup job should be successfully written to file
      * 2. Backup job should be successfully read from file
      * 3. All job properties should be preserved during serialization/deserialization
