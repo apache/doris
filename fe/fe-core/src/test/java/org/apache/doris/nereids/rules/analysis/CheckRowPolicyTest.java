@@ -28,6 +28,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -65,7 +66,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     private static String userName = "user1";
     private static String policyName = "policy1";
 
-    private OlapTable olapTable;
+    private static OlapTable olapTable;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -81,7 +82,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 + " (k1 int, k2 int) AGGREGATE KEY(k1, k2) distributed by random buckets 1"
                 + " properties(\"replication_num\" = \"1\");");
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
-        olapTable = (OlapTable) db.getTableOrMetaException(tableName);
+        olapTable = (OlapTable) db.getTableOrAnalysisException(tableName);
 
         // create user
         UserIdentity user = new UserIdentity(userName, "%");
@@ -207,6 +208,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     public void checkOnePolicyRandomDist() throws Exception {
         useUser(userName);
         connectContext.getState().setIsQuery(true);
+        connectContext.setStatementContext(new StatementContext());
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                 ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
 

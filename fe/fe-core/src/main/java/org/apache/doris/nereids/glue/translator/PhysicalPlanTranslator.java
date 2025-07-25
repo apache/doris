@@ -238,6 +238,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -323,8 +324,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         DistributionSpec targetDistribution = distribute.getDistributionSpec();
 
         // TODO: why need set streaming here? should remove this.
-        if (upstreamFragment.getPlanRoot() instanceof AggregationNode && upstream instanceof PhysicalHashAggregate
-                && context.getFirstAggregateInFragment(upstreamFragment) == upstream) {
+        if (upstreamFragment.getPlanRoot() instanceof AggregationNode && upstream instanceof PhysicalHashAggregate) {
             PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) upstream;
             if (hashAggregate.getAggPhase() == AggPhase.LOCAL
                     && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER
@@ -590,7 +590,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // TODO: should not call legacy planner analyze in Nereids
         try {
-            outFile.analyze(null, outputExprs, labels);
+            outFile.analyze(outputExprs, labels);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
@@ -896,7 +896,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
         tupleDescriptor.setRef(tableRef);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
-        olapScanNode.setSampleTabletIds(olapScan.getSelectedTabletIds());
+        olapScanNode.setNereidsPrunedTabletIds(new LinkedHashSet<>(olapScan.getSelectedTabletIds()));
         if (olapScan.getTableSample().isPresent()) {
             olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,
                     olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
@@ -1169,17 +1169,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             default:
                 throw new RuntimeException("Unsupported agg phase: " + aggregate.getAggPhase());
         }
-        // TODO: use to set useStreamingAgg, we should remove it by set it in Nereids
-        PhysicalHashAggregate firstAggregateInFragment = context.getFirstAggregateInFragment(inputPlanFragment);
-        if (firstAggregateInFragment == null) {
-            context.setFirstAggregateInFragment(inputPlanFragment, aggregate);
-        }
 
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
         // so, if we do final phase or merge without exchange.
         // we need turn of parallel scan to ensure to get correct result.
         PlanNode leftMostNode = inputPlanFragment.getPlanRoot();
-        while (leftMostNode.getChildren().size() != 0 && !(leftMostNode instanceof ExchangeNode)) {
+        while (!leftMostNode.getChildren().isEmpty() && !(leftMostNode instanceof ExchangeNode)) {
             leftMostNode = leftMostNode.getChild(0);
         }
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
@@ -3032,7 +3027,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return false;
         }
 
-        if (sortNode.getSortInfo().getOrderingExprs().stream().anyMatch(e -> e.getType().isArrayType())) {
+        if (sortNode.getSortInfo().getOrderingExprs().stream().anyMatch(e -> e.getType().isComplexType())) {
             return false;
         }
 

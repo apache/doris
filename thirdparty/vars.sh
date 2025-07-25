@@ -110,10 +110,10 @@ GPERFTOOLS_SOURCE=gperftools-2.10
 GPERFTOOLS_MD5SUM="62bf6c76ba855ed580de5e139bd2a483"
 
 # zlib
-ZLIB_DOWNLOAD="https://sourceforge.net/projects/libpng/files/zlib/1.2.11/zlib-1.2.11.tar.gz"
-ZLIB_NAME=zlib-1.2.11.tar.gz
-ZLIB_SOURCE=zlib-1.2.11
-ZLIB_MD5SUM="1c9f62f0778697a09d36121ead88e08e"
+ZLIB_DOWNLOAD="https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
+ZLIB_NAME=zlib-1.3.1.tar.gz
+ZLIB_SOURCE=zlib-1.3.1
+ZLIB_MD5SUM="9855b6d802d7fe5b7bd5b196a2271655"
 
 # lz4
 LZ4_DOWNLOAD="https://github.com/lz4/lz4/archive/v1.9.4.tar.gz"
@@ -261,10 +261,10 @@ ARROW_SOURCE="arrow-apache-arrow-17.0.0"
 ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
 
 # Abseil
-ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
-ABSEIL_NAME="abseil-cpp-20230125.3.tar.gz"
-ABSEIL_SOURCE=abseil-cpp-20230125.3
-ABSEIL_MD5SUM="9b6dae642c4bd92f007ab2c148bc0498"
+ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
+ABSEIL_NAME="abseil-cpp-20250512.1.tar.gz"
+ABSEIL_SOURCE=abseil-cpp-20250512.1
+ABSEIL_MD5SUM="f225db90c7f3485f3bb65ab2aeae76fa"
 
 # S2
 S2_DOWNLOAD="https://github.com/google/s2geometry/archive/refs/tags/v0.10.0.tar.gz"
@@ -511,10 +511,10 @@ BASE64_SOURCE="base64-0.5.2"
 BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
 
 # azure blob
-AZURE_DOWNLOAD="https://github.com/Azure/azure-sdk-for-cpp/archive/azure-core_1.10.3.tar.gz"
-AZURE_NAME="azure-core_1.10.3.tar.gz"
-AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.10.3"
-AZURE_MD5SUM="aa470cfdba93dd69a6f3112a6958c13c"
+AZURE_DOWNLOAD="https://github.com/Azure/azure-sdk-for-cpp/archive/azure-core_1.16.0.tar.gz"
+AZURE_NAME="azure-core_1.16.0.tar.gz"
+AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.16.0"
+AZURE_MD5SUM="0fb23eab695dc24b94456bf461e6af3b"
 
 # libdragonbox for faster double/float to string
 DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"

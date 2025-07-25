@@ -31,11 +31,11 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
-#include "gutil/strings/numbers.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
+#include "util/to_string.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
@@ -63,10 +63,10 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
     } else if constexpr (std::is_same_v<typename PrimitiveTypeTraits<T>::ColumnItemType, float>) {
         // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
         char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                            TypeCheckOnRelease::DISABLE>(*ptr)
-                                        .get_element(row_num),
-                                MAX_FLOAT_STR_LENGTH + 2, buf);
+        int len = to_buffer(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                        TypeCheckOnRelease::DISABLE>(*ptr)
+                                    .get_element(row_num),
+                            MAX_FLOAT_STR_LENGTH + 2, buf);
         ostr.write(buf, len);
     } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value ||
                          std::numeric_limits<
@@ -241,7 +241,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
             auto encode_size = streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                                   cast_set<UInt32>(upper_int32(mem_size)),
                                                   (uint8_t*)(buf + sizeof(size_t)));
-            *reinterpret_cast<size_t*>(buf) = encode_size;
+            unaligned_store<size_t>(buf, encode_size);
             buf += sizeof(size_t);
             return buf + encode_size;
         }
@@ -265,7 +265,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
         auto encode_size = streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                               cast_set<UInt32>(upper_int32(mem_size)),
                                               (uint8_t*)(buf + sizeof(size_t)));
-        *reinterpret_cast<size_t*>(buf) = encode_size;
+        unaligned_store<size_t>(buf, encode_size);
         buf += sizeof(size_t);
         return buf + encode_size;
     }
@@ -289,7 +289,7 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
             memcpy(container.data(), buf, mem_size);
             buf = buf + mem_size;
         } else {
-            size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+            size_t encode_size = unaligned_load<size_t>(buf);
             buf += sizeof(size_t);
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                                cast_set<UInt32>(upper_int32(mem_size)));
@@ -309,7 +309,7 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
             return buf + mem_size;
         }
 
-        size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+        size_t encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                            cast_set<UInt32>(upper_int32(mem_size)));
@@ -320,6 +320,11 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
 template <PrimitiveType T>
 MutableColumnPtr DataTypeNumberBase<T>::create_column() const {
     return PrimitiveTypeTraits<T>::ColumnType::create();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberBase<T>::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<typename PrimitiveTypeTraits<T>::ColumnType>(column);
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

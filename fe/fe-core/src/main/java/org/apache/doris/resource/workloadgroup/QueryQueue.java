@@ -49,8 +49,6 @@ public class QueryQueue {
 
     private long wgId;
 
-    private long propVersion;
-
     private PriorityQueue<QueueToken> waitingQueryQueue;
     private Queue<QueueToken> runningQueryQueue;
 
@@ -61,10 +59,6 @@ public class QueryQueue {
         } finally {
             queueLock.unlock();
         }
-    }
-
-    long getPropVersion() {
-        return propVersion;
     }
 
     long getWgId() {
@@ -83,18 +77,17 @@ public class QueryQueue {
         return queueTimeout;
     }
 
-    public QueryQueue(long wgId, int maxConcurrency, int maxQueueSize, int queueTimeout, long propVersion) {
+    public QueryQueue(long wgId, int maxConcurrency, int maxQueueSize, int queueTimeout) {
         this.wgId = wgId;
         this.maxConcurrency = maxConcurrency;
         this.maxQueueSize = maxQueueSize;
         this.queueTimeout = queueTimeout;
-        this.propVersion = propVersion;
         this.waitingQueryQueue = new PriorityQueue<QueueToken>();
         this.runningQueryQueue = new LinkedList<QueueToken>();
     }
 
     public String debugString() {
-        return "wgId= " + wgId + ", version=" + this.propVersion + ",maxConcurrency=" + maxConcurrency
+        return "wgId= " + wgId + ",maxConcurrency=" + maxConcurrency
                 + ", maxQueueSize=" + maxQueueSize + ", queueTimeout=" + queueTimeout + ", currentRunningQueryNum="
                 + runningQueryQueue.size() + ", currentWaitingQueryNum=" + waitingQueryQueue.size();
     }
@@ -201,7 +194,6 @@ public class QueryQueue {
             this.maxConcurrency = maxConcurrency;
             this.maxQueueSize = maxQueueSize;
             this.queueTimeout = queryWaitTimeout;
-            this.propVersion = version;
         } finally {
             if (LOG.isDebugEnabled()) {
                 LOG.debug(this.debugString());

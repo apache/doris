@@ -74,14 +74,18 @@ public class Sum0 extends NotNullableAggregateFunction
      * constructor with 1 argument.
      */
     public Sum0(Expression arg) {
-        this(false, arg);
+        this(false, false, arg);
+    }
+
+    public Sum0(boolean distinct, Expression arg) {
+        this(distinct, false, arg);
     }
 
     /**
      * constructor with 2 argument.
      */
-    public Sum0(boolean distinct, Expression arg) {
-        super("sum0", distinct, arg);
+    public Sum0(boolean distinct, boolean isSkew, Expression arg) {
+        super("sum0", distinct, isSkew, arg);
     }
 
     @Override
@@ -106,7 +110,12 @@ public class Sum0 extends NotNullableAggregateFunction
     @Override
     public Sum0 withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum0(distinct, children.get(0));
+        return new Sum0(distinct, isSkew, children.get(0));
+    }
+
+    @Override
+    public Expression withIsSkew(boolean isSkew) {
+        return new Sum0(distinct, isSkew, child());
     }
 
     @Override
@@ -131,7 +140,7 @@ public class Sum0 extends NotNullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new Sum0(this.distinct, param);
+        return new Sum0(this.distinct, isSkew, param);
     }
 
     @Override

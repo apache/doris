@@ -42,8 +42,8 @@ class DoubleLiteralTest {
         Assertions.assertEquals("0.0001", new DoubleLiteral(0.0001).getStringValue());
         Assertions.assertEquals("1e+308", new DoubleLiteral(1e308).getStringValue());
         Assertions.assertEquals("-1e+308", new DoubleLiteral(-1e308).getStringValue());
-        Assertions.assertEquals("inf", new DoubleLiteral(Double.POSITIVE_INFINITY).getStringValue());
-        Assertions.assertEquals("-inf", new DoubleLiteral(Double.NEGATIVE_INFINITY).getStringValue());
-        Assertions.assertEquals("nan", new DoubleLiteral(Double.NaN).getStringValue());
+        Assertions.assertEquals("Infinity", new DoubleLiteral(Double.POSITIVE_INFINITY).getStringValue());
+        Assertions.assertEquals("-Infinity", new DoubleLiteral(Double.NEGATIVE_INFINITY).getStringValue());
+        Assertions.assertEquals("NaN", new DoubleLiteral(Double.NaN).getStringValue());
     }
 }

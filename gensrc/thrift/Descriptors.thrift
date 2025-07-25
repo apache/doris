@@ -43,6 +43,7 @@ struct TColumn {
     18: optional bool is_auto_increment = false;
     19: optional i32 cluster_key_id = -1
     20: optional i32 be_exec_version = -1
+    21: optional bool is_on_update_current_timestamp = false
 }
 
 struct TSlotDescriptor {
@@ -204,6 +205,8 @@ struct TOlapTablePartition {
     10: optional bool is_default_partition;
     // only used in random distribution scenario to make data distributed even 
     11: optional i64 load_tablet_idx
+    12: optional i32 total_replica_num
+    13: optional i32 load_required_replica_num
 }
 
 struct TOlapTablePartitionParam {

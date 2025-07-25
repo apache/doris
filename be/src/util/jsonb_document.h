@@ -72,11 +72,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <type_traits>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/exception.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "util/string_util.h"
 #include "vec/core/types.h"
 
 // #include "util/string_parser.hpp"
@@ -143,6 +145,13 @@ using int128_t = __int128;
 // forward declaration
 struct JsonbValue;
 
+class JsonbOutStream;
+
+template <class OS_TYPE>
+class JsonbWriterT;
+
+using JsonbWriter = JsonbWriterT<JsonbOutStream>;
+
 const int MaxNestingLevel = 100;
 
 /*
@@ -191,6 +200,49 @@ enum class JsonbType : char {
     T_Decimal256 = 0x11, // DecimalV3 only
     NUM_TYPES,
 };
+
+inline PrimitiveType get_primitive_type_from_json_type(JsonbType json_type) {
+    switch (json_type) {
+    case JsonbType::T_Null:
+        return TYPE_NULL;
+    case JsonbType::T_True:
+    case JsonbType::T_False:
+        return TYPE_BOOLEAN;
+    case JsonbType::T_Int8:
+        return TYPE_TINYINT;
+    case JsonbType::T_Int16:
+        return TYPE_SMALLINT;
+    case JsonbType::T_Int32:
+        return TYPE_INT;
+    case JsonbType::T_Int64:
+        return TYPE_BIGINT;
+    case JsonbType::T_Double:
+        return TYPE_DOUBLE;
+    case JsonbType::T_String:
+        return TYPE_STRING;
+    case JsonbType::T_Binary:
+        return TYPE_BINARY;
+    case JsonbType::T_Object:
+        return TYPE_STRUCT;
+    case JsonbType::T_Array:
+        return TYPE_ARRAY;
+    case JsonbType::T_Int128:
+        return TYPE_LARGEINT;
+    case JsonbType::T_Float:
+        return TYPE_FLOAT;
+    case JsonbType::T_Decimal32:
+        return TYPE_DECIMAL32;
+    case JsonbType::T_Decimal64:
+        return TYPE_DECIMAL64;
+    case JsonbType::T_Decimal128:
+        return TYPE_DECIMAL128I;
+    case JsonbType::T_Decimal256:
+        return TYPE_DECIMAL256;
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Unsupported JsonbType: {}",
+                        static_cast<int>(json_type));
+    }
+}
 
 //for parse json path
 constexpr char SCOPE = '$';
@@ -338,6 +390,8 @@ public:
         skip_whitespace();
     }
 
+    void advance() { m_position++; }
+
     void clear_leg_ptr() { leg_ptr = nullptr; }
 
     void set_leg_ptr(char* ptr) {
@@ -443,9 +497,9 @@ public:
         return true;
     }
 
-    size_t get_leg_vector_size() { return leg_vector.size(); }
+    size_t get_leg_vector_size() const { return leg_vector.size(); }
 
-    leg_info* get_leg_from_leg_vector(size_t i) { return leg_vector[i].get(); }
+    leg_info* get_leg_from_leg_vector(size_t i) const { return leg_vector[i].get(); }
 
     void clean() { leg_vector.clear(); }
 
@@ -537,8 +591,6 @@ public:
     static const int sMaxKeyId = 65535;
     using keyid_type = uint16_t;
 
-    JsonbKeyValue() = delete;
-
     static const uint8_t sMaxKeyLen = 64;
 
     // size of the key. 0 indicates it is stored as id
@@ -564,6 +616,12 @@ public:
         keyid_type id_;
         char str_[1];
     } key;
+};
+
+struct JsonbFindResult {
+    const JsonbValue* value = nullptr;   // found value
+    std::unique_ptr<JsonbWriter> writer; // writer to write the value
+    bool is_wildcard = false;            // whether the path is a wildcard path
 };
 
 /*
@@ -597,6 +655,8 @@ struct JsonbValue {
     bool isDecimal64() const { return (type == JsonbType::T_Decimal64); }
     bool isDecimal128() const { return (type == JsonbType::T_Decimal128); }
     bool isDecimal256() const { return (type == JsonbType::T_Decimal256); }
+
+    PrimitiveType get_primitive_type() const { return get_primitive_type_from_json_type(type); }
 
     const char* typeName() const {
         switch (type) {
@@ -651,7 +711,7 @@ struct JsonbValue {
     bool contains(JsonbValue* rhs) const;
 
     // find the JSONB value by JsonbPath
-    JsonbValue* findValue(JsonbPath& path, hDictFind handler);
+    JsonbFindResult findValue(JsonbPath& path) const;
     friend class JsonbDocument;
 
     JsonbType type; // type info
@@ -695,8 +755,6 @@ struct JsonbValue {
     // }
 
     int128_t int_val() const;
-
-    JsonbValue() = delete;
 };
 
 // inline ObjectVal* JsonbDocument::operator->() {
@@ -715,7 +773,6 @@ template <typename T>
     requires std::is_integral_v<T> || std::is_floating_point_v<T>
 struct NumberValT {
 public:
-    NumberValT() = delete;
     T val() const { return num; }
 
     static unsigned int numPackedBytes() { return sizeof(JsonbValue) + sizeof(T); }
@@ -745,7 +802,6 @@ template <JsonbDecimalType T>
 struct JsonbDecimalVal {
 public:
     using NativeType = typename T::NativeType;
-    JsonbDecimalVal() = delete;
 
     // get the decimal value
     NativeType val() const {
@@ -782,8 +838,6 @@ public:
 
     uint32_t size;
     char payload[0];
-
-    JsonbBinaryVal() = delete;
 };
 
 /*
@@ -792,7 +846,6 @@ public:
  */
 struct JsonbStringVal : public JsonbBinaryVal {
 public:
-    JsonbStringVal() = delete;
     /*
     This function return the actual size of a string. Since for
     a string, it can be null-terminated with null paddings or it
@@ -846,8 +899,6 @@ struct ContainerVal {
 
     uint32_t size;
     char payload[0];
-
-    ContainerVal() = delete;
 };
 
 /*
@@ -859,8 +910,6 @@ struct ObjectVal : public ContainerVal {
     using const_pointer = const value_type*;
     using iterator = JsonbFwdIteratorT<pointer, ObjectVal>;
     using const_iterator = JsonbFwdIteratorT<const_pointer, ObjectVal>;
-
-    ObjectVal() = delete;
 
     const_iterator search(const char* key, hDictFind handler = nullptr) const {
         return const_cast<ObjectVal*>(this)->search(key, handler);
@@ -1018,7 +1067,6 @@ struct ArrayVal : public ContainerVal {
     using iterator = JsonbFwdIteratorT<pointer, ArrayVal>;
     using const_iterator = JsonbFwdIteratorT<const_pointer, ArrayVal>;
 
-    ArrayVal() = delete;
     // get the JSONB value at index
     JsonbValue* get(int idx) const {
         if (idx < 0) {
@@ -1268,12 +1316,12 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     }
     case JsonbType::T_Object: {
         if (rhs->isObject()) {
-            const auto* str_value1 = unpack<ObjectVal>();
-            auto* str_value2 = rhs->unpack<ObjectVal>();
-            for (int i = 0; i < str_value2->numElem(); ++i) {
-                JsonbKeyValue* key = str_value2->getJsonbKeyValue(i);
-                JsonbValue* value = str_value1->find(key->getKeyStr(), key->klen());
-                if (key != nullptr && value != nullptr && !value->contains(key->value())) {
+            const auto* obj_value1 = unpack<ObjectVal>();
+            const auto* obj_value2 = rhs->unpack<ObjectVal>();
+            for (int i = 0; i < obj_value2->numElem(); ++i) {
+                JsonbKeyValue* key = obj_value2->getJsonbKeyValue(i);
+                JsonbValue* value = obj_value1->find(key->getKeyStr(), key->klen());
+                if (value == nullptr || !value->contains(key->value())) {
                     return false;
                 }
             }
@@ -1359,67 +1407,6 @@ inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
     return true;
 }
 
-inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
-    JsonbValue* pval = this;
-    for (size_t i = 0; i < path.get_leg_vector_size(); ++i) {
-        switch (path.get_leg_from_leg_vector(i)->type) {
-        case MEMBER_CODE: {
-            if (LIKELY(pval->type == JsonbType::T_Object)) {
-                if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
-                    *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
-                    continue;
-                }
-
-                pval = pval->unpack<ObjectVal>()->find(path.get_leg_from_leg_vector(i)->leg_ptr,
-                                                       path.get_leg_from_leg_vector(i)->leg_len,
-                                                       handler);
-
-                if (!pval) {
-                    return nullptr;
-                }
-                continue;
-            } else {
-                return nullptr;
-            }
-        }
-        case ARRAY_CODE: {
-            if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
-                *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
-                if (LIKELY(pval->type == JsonbType::T_Array)) {
-                    continue;
-                } else {
-                    return nullptr;
-                }
-            }
-
-            if (pval->type == JsonbType::T_Object &&
-                path.get_leg_from_leg_vector(i)->array_index == 0) {
-                continue;
-            }
-
-            if (pval->type != JsonbType::T_Array ||
-                path.get_leg_from_leg_vector(i)->leg_ptr != nullptr ||
-                path.get_leg_from_leg_vector(i)->leg_len != 0) {
-                return nullptr;
-            }
-
-            if (path.get_leg_from_leg_vector(i)->array_index >= 0) {
-                pval = pval->unpack<ArrayVal>()->get(path.get_leg_from_leg_vector(i)->array_index);
-            } else {
-                pval = pval->unpack<ArrayVal>()->get(pval->unpack<ArrayVal>()->numElem() +
-                                                     path.get_leg_from_leg_vector(i)->array_index);
-            }
-
-            if (!pval) {
-                return nullptr;
-            }
-            continue;
-        }
-        }
-    }
-    return pval;
-}
-
 inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
     // $[0]
     if (stream->peek() == BEGIN_ARRAY) {
@@ -1475,7 +1462,7 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
 
     stream->set_leg_ptr(const_cast<char*>(stream->position()));
 
-    for (; !stream->exhausted() && stream->peek() != END_ARRAY; stream->skip(1)) {
+    for (; !stream->exhausted() && stream->peek() != END_ARRAY; stream->advance()) {
         stream->add_leg_len();
     }
 
@@ -1496,11 +1483,22 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         auto pos = idx_string.find(MINUS);
 
         if (pos != std::string::npos) {
+            for (size_t i = 4; i < pos; ++i) {
+                if (std::isspace(idx_string[i])) {
+                    continue;
+                } else {
+                    // leading zeroes are not allowed
+                    LOG(WARNING) << "Non-space char in idx_string: '" << idx_string << "'";
+                    return false;
+                }
+            }
             idx_string = idx_string.substr(pos + 1);
+            idx_string = trim(idx_string);
 
             auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(),
                                           index);
             if (result.ec != std::errc()) {
+                LOG(WARNING) << "Invalid index in JSON path: '" << idx_string << "'";
                 return false;
             }
 

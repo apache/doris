@@ -53,6 +53,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -355,10 +356,27 @@ public class MetadataGenerator {
         if (catalog == null) {
             return errorResult("The specified catalog does not exist:" + hudiMetadataParams.getCatalog());
         }
+        if (!(catalog instanceof ExternalCatalog)) {
+            return errorResult("The specified catalog is not an external catalog: "
+                    + hudiMetadataParams.getCatalog());
+        }
+
+        ExternalTable dorisTable;
+        try {
+            dorisTable = (ExternalTable) catalog.getDbOrAnalysisException(hudiMetadataParams.getDatabase())
+                    .getTableOrAnalysisException(hudiMetadataParams.getTable());
+        } catch (AnalysisException e) {
+            return errorResult("The specified db or table does not exist");
+        }
+
+        if (!(dorisTable instanceof HMSExternalTable)) {
+            return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
+        }
+
         HudiCachedMetaClientProcessor hudiMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getHudiMetadataCacheMgr().getHudiMetaClientProcessor(catalog);
         String hudiBasePathString = ((HMSExternalCatalog) catalog).getClient()
-                .getTable(hudiMetadataParams.getDatabase(), hudiMetadataParams.getTable()).getSd().getLocation();
+                .getTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName()).getSd().getLocation();
         Configuration conf = ((HMSExternalCatalog) catalog).getConfiguration();
 
         List<TRow> dataBatch = Lists.newArrayList();
@@ -366,8 +384,8 @@ public class MetadataGenerator {
 
         switch (hudiQueryType) {
             case TIMELINE:
-                HoodieTimeline timeline = hudiMetadataCache.getHoodieTableMetaClient(hudiMetadataParams.getDatabase(),
-                        hudiMetadataParams.getTable(), hudiBasePathString, conf).getActiveTimeline();
+                HoodieTimeline timeline = hudiMetadataCache.getHoodieTableMetaClient(dorisTable.getOrBuildNameMapping(),
+                        hudiBasePathString, conf).getActiveTimeline();
                 for (HoodieInstant instant : timeline.getInstants()) {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(instant.getTimestamp()));
@@ -995,9 +1013,9 @@ public class MetadataGenerator {
         if (catalog instanceof InternalCatalog) {
             return dealInternalCatalog((Database) db, table);
         } else if (catalog instanceof MaxComputeExternalCatalog) {
-            return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, dbName, tableName);
+            return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, (ExternalTable) table);
         } else if (catalog instanceof HMSExternalCatalog) {
-            return dealHMSCatalog((HMSExternalCatalog) catalog, dbName, tableName);
+            return dealHMSCatalog((HMSExternalCatalog) catalog, (ExternalTable) table);
         }
 
         if (LOG.isDebugEnabled()) {
@@ -1006,10 +1024,10 @@ public class MetadataGenerator {
         return errorResult("not support catalog: " + catalogName);
     }
 
-    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, String dbName,
-            String tableName) {
+    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, ExternalTable table) {
         List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.getClient().listPartitionNames(dbName, tableName);
+        List<String> partitionNames = catalog.getClient()
+                .listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
         for (String partition : partitionNames) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(partition));
@@ -1021,10 +1039,10 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult dealMaxComputeCatalog(MaxComputeExternalCatalog catalog, String dbName,
-            String tableName) {
+    private static TFetchSchemaTableDataResult dealMaxComputeCatalog(MaxComputeExternalCatalog catalog,
+            ExternalTable table) {
         List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.listPartitionNames(dbName, tableName);
+        List<String> partitionNames = catalog.listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
         for (String partition : partitionNames) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(partition));
@@ -1689,7 +1707,7 @@ public class MetadataGenerator {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) tbl.getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                tbl.getDbName(), tbl.getName(), tbl.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(tbl)));
+                tbl, tbl.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(tbl)));
         Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
         List<TRow> dataBatch = Lists.newArrayList();
         for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {

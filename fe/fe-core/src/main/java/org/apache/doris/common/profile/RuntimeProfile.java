@@ -46,6 +46,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -399,20 +400,6 @@ public class RuntimeProfile {
         return brief;
     }
 
-    private void printActimeCounter(StringBuilder builder) {
-        Counter counter = this.counterMap.get("ExecTime");
-        if (counter == null) {
-            counter = this.counterMap.get("TotalTime");
-        }
-        if (counter.getValue() != 0) {
-            try (Formatter fmt = new Formatter()) {
-                builder.append("(ExecTime: ")
-                        .append(RuntimeProfile.printCounter(counter.getValue(), counter.getType()))
-                        .append(")");
-            }
-        }
-    }
-
     // Print the profile:
     // 1. Profile Name
     // 2. Info Strings
@@ -421,8 +408,6 @@ public class RuntimeProfile {
     public void prettyPrint(StringBuilder builder, String prefix) {
         // 1. profile name
         builder.append(prefix).append(name).append(":");
-        // total time
-        printActimeCounter(builder);
 
         builder.append("\n");
 
@@ -500,12 +485,21 @@ public class RuntimeProfile {
         return builder.toString();
     }
 
+    boolean shouldBeIncluded() {
+        if (Objects.equals(this.name, "CommonCounters") || Objects.equals(this.name, "CustomCounters")) {
+            return true;
+        } else {
+            return this.name.matches(".*Pipeline.*") || this.name.matches(".*_OPERATOR.*");
+        }
+    }
+
     public static void mergeProfiles(List<RuntimeProfile> profiles,
-            RuntimeProfile simpleProfile, Map<Integer, String> planNodeMap) {
-        mergeCounters(ROOT_COUNTER, profiles, simpleProfile);
+            RuntimeProfile resultProfile, Map<Integer, String> planNodeMap) {
+        mergeCounters(ROOT_COUNTER, profiles, resultProfile);
         if (profiles.isEmpty()) {
             return;
         }
+
         RuntimeProfile templateProfile = profiles.get(0);
         for (int i = 0; i < templateProfile.childList.size(); i++) {
             RuntimeProfile templateChildProfile = templateProfile.childList.get(i).first;
@@ -514,11 +508,10 @@ public class RuntimeProfile {
             RuntimeProfile newCreatedMergedChildProfile = new RuntimeProfile(templateChildProfile.name,
                     templateChildProfile.nodeId());
             mergeProfiles(allChilds, newCreatedMergedChildProfile, planNodeMap);
-            // RuntimeProfile has at least one counter named TotalTime, should exclude it.
-            if (newCreatedMergedChildProfile.counterMap.size() > 1) {
-                simpleProfile.addChildWithCheck(newCreatedMergedChildProfile, planNodeMap,
+            if (newCreatedMergedChildProfile.shouldBeIncluded()) {
+                resultProfile.addChildWithCheck(newCreatedMergedChildProfile, planNodeMap,
                                             templateProfile.childList.get(i).second);
-                simpleProfile.rowsProducedMap.putAll(newCreatedMergedChildProfile.rowsProducedMap);
+                resultProfile.rowsProducedMap.putAll(newCreatedMergedChildProfile.rowsProducedMap);
             }
         }
     }

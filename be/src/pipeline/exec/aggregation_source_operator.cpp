@@ -36,24 +36,24 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
-    _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
-    _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
-    _insert_values_to_column_timer = ADD_TIMER(profile(), "InsertValuesToColumnTime");
+    _get_results_timer = ADD_TIMER(custom_profile(), "GetResultsTime");
+    _hash_table_iterate_timer = ADD_TIMER(custom_profile(), "HashTableIterateTime");
+    _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
+    _insert_values_to_column_timer = ADD_TIMER(custom_profile(), "InsertValuesToColumnTime");
 
-    _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
-    _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
+    _merge_timer = ADD_TIMER(Base::custom_profile(), "MergeTime");
+    _deserialize_data_timer = ADD_TIMER(Base::custom_profile(), "DeserializeAndMergeTime");
+    _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
+    _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
     _hash_table_input_counter =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "HashTableInputCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT, 1);
     _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _hash_table_size_counter =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "HashTableSize", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "HashTableSize", TUnit::UNIT, 1);
 
-    _memory_usage_container = ADD_COUNTER(profile(), "MemoryUsageContainer", TUnit::BYTES);
-    _memory_usage_arena = ADD_COUNTER(profile(), "MemoryUsageArena", TUnit::BYTES);
+    _memory_usage_container = ADD_COUNTER(custom_profile(), "MemoryUsageContainer", TUnit::BYTES);
+    _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
 
     auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._without_key) {
@@ -139,7 +139,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
                             shared_state.values.resize(size + 1);
                         }
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         shared_state.aggregate_data_container->init_once();
                         auto& iter = shared_state.aggregate_data_container->iterator;
 
@@ -263,7 +263,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                             shared_state.values.resize(size);
                         }
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         shared_state.aggregate_data_container->init_once();
                         auto& iter = shared_state.aggregate_data_container->iterator;
 
@@ -490,7 +490,7 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
         key_columns[i] = block->get_by_position(i).column.get();
     }
 
-    size_t rows = block->rows();
+    uint32_t rows = (uint32_t)block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -514,8 +514,7 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
             SCOPED_TIMER(_deserialize_data_timer);
             Base::_shared_state->aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
                     _places.data(), _shared_state->offsets_of_aggregate_states[i],
-                    _deserialize_buffer.data(), column.get(), _shared_state->agg_arena_pool.get(),
-                    rows);
+                    _deserialize_buffer.data(), column.get(), _agg_arena_pool, rows);
         }
     }
 
@@ -545,7 +544,7 @@ size_t AggSourceOperatorX::get_estimated_memory_size_for_merging(RuntimeState* s
 
 void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                              vectorized::ColumnRawPtrs& key_columns,
-                                             size_t num_rows) {
+                                             uint32_t num_rows) {
     std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> void {
@@ -559,8 +558,7 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                         agg_method.init_serialized_keys(key_columns, num_rows);
 
                         auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                            HashMethodType::try_presis_key_and_origin(
-                                    key, origin, *_shared_state->agg_arena_pool);
+                            HashMethodType::try_presis_key_and_origin(key, origin, _agg_arena_pool);
                             auto mapped =
                                     Base::_shared_state->aggregate_data_container->append_data(
                                             origin);
@@ -572,7 +570,7 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                         };
 
                         auto creator_for_null_key = [&](auto& mapped) {
-                            mapped = _shared_state->agg_arena_pool->aligned_alloc(
+                            mapped = _agg_arena_pool.aligned_alloc(
                                     _shared_state->total_size_of_aggregate_states,
                                     _shared_state->align_aggregate_states);
                             auto st = _create_agg_status(mapped);
@@ -598,7 +596,7 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                                 static_cast<int64_t>(
                                         _shared_state->aggregate_data_container->memory_usage()));
                         COUNTER_SET(_memory_usage_arena,
-                                    static_cast<int64_t>(_shared_state->agg_arena_pool->size()));
+                                    static_cast<int64_t>(_agg_arena_pool.size()));
                     }},
             _shared_state->agg_data->method_variant);
 }

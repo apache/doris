@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -96,12 +97,12 @@ public class ColumnStatistic {
     public final String updatedTime;
 
     @SerializedName("hotValues")
-    public final Map<LiteralExpr, Float> hotValues;
+    public final Map<Literal, Float> hotValues;
 
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
-            String updatedTime, Map<LiteralExpr, Float> hotValues) {
+            String updatedTime, Map<Literal, Float> hotValues) {
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -263,8 +264,9 @@ public class ColumnStatistic {
     @Override
     public String toString() {
         return isUnKnown ? "unknown(" + count + ")"
-                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, avgSizeByte=%f",
-                ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte);
+                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, "
+                                + "avgSizeByte=%f, hotValues=(%s)",
+                ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte, getStringHotValues());
     }
 
     public JSONObject toJson() {
@@ -370,6 +372,10 @@ public class ColumnStatistic {
         return ndv;
     }
 
+    public ColumnStatistic getOriginal() {
+        return original;
+    }
+
     public boolean isUnKnown() {
         return isUnKnown;
     }
@@ -417,5 +423,9 @@ public class ColumnStatistic {
             sb.setLength(sb.length() - 1);
         }
         return sb.toString();
+    }
+
+    public Map<Literal, Float> getHotValues() {
+        return hotValues;
     }
 }
