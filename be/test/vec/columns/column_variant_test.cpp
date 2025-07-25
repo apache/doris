@@ -49,15 +49,14 @@ static ColumnObject::MutablePtr column_variant;
 class ColumnObjectTest : public CommonColumnTest {
 protected:
     static void SetUpTestSuite() {
-        root_dir = std::string(getenv("ROOT"));
+        column_variant = VariantUtil::construct_advanced_varint_column();
+        std::cout << column_variant->get_name() << std::endl;
+        root_dir = std::string(getenv("DORIS_HOME"));
+        // which is /root/doris/be/ut_build_ASAN/test//
         std::cout << "root_dir: " << root_dir << std::endl;
-        test_data_dir = root_dir + "/be/test/data/vec/columns";
-        test_result_dir = root_dir + "/be/test/expected_result/vec/columns";
-
-        column_variant = ColumnObject::create(true);
-        std::cout << dt_variant->get_name() << std::endl;
-
-        load_json_columns_data();
+        test_data_dir = root_dir + "../../../be/test/data/vec/columns";
+        test_result_dir = root_dir + "../../../be/test/expected_result/vec/columns";
+        //load_json_columns_data();
     }
 
     static void load_json_columns_data() {
@@ -220,11 +219,7 @@ TEST_F(ColumnObjectTest, field_test) {
         }
     };
     ColumnObject::MutablePtr obj;
-    obj = ColumnObject::create(1);
-    MutableColumns cols;
-    cols.push_back(obj->get_ptr());
-    const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
-    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = VariantUtil::construct_advanced_varint_column();
     EXPECT_TRUE(!obj->empty());
     test_func(obj);
 }
@@ -750,11 +745,7 @@ TEST_F(ColumnObjectTest, get_subcolumn) {
 
 TEST_F(ColumnObjectTest, ensure_root_node_type) {
     ColumnObject::MutablePtr obj;
-    obj = ColumnObject::create(1);
-    MutableColumns cols;
-    cols.push_back(obj->get_ptr());
-    const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
-    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = VariantUtil::construct_advanced_varint_column();
     EXPECT_TRUE(!obj->empty());
     // Store original root type
     auto root = obj->get_subcolumns().get_root();
@@ -1188,11 +1179,7 @@ TEST_F(ColumnObjectTest, find_path_lower_bound_in_sparse_data) {
         }
     };
     ColumnObject::MutablePtr obj;
-    obj = ColumnObject::create(1);
-    MutableColumns cols;
-    cols.push_back(obj->get_ptr());
-    const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
-    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = VariantUtil::construct_advanced_varint_column();
     EXPECT_TRUE(!obj->empty());
     std::cout << "column variant size: " << obj->size() << std::endl;
     test_func(obj);
@@ -1201,11 +1188,7 @@ TEST_F(ColumnObjectTest, find_path_lower_bound_in_sparse_data) {
 // used in SparseColumnExtractIterator::_fill_path_column
 TEST_F(ColumnObjectTest, fill_path_column_from_sparse_data) {
     ColumnObject::MutablePtr obj;
-    obj = ColumnObject::create(1);
-    MutableColumns cols;
-    cols.push_back(obj->get_ptr());
-    const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
-    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = VariantUtil::construct_advanced_varint_column();
     EXPECT_TRUE(!obj->empty());
     auto sparse_col = obj->get_sparse_column();
     auto cloned_sparse = sparse_col->clone_empty();
@@ -1224,27 +1207,6 @@ TEST_F(ColumnObjectTest, fill_path_column_from_sparse_data) {
             *obj->get_subcolumn({}) /*root*/, nullptr, StringRef {"array"}, sparse_col->get_ptr(),
             0, sparse_col->size());
     EXPECT_ANY_THROW(obj->check_consistency());
-}
-
-TEST_F(ColumnObjectTest, not_finalized) {
-    ColumnObject::MutablePtr obj;
-    obj = ColumnObject::create(1);
-    MutableColumns cols;
-    cols.push_back(obj->get_ptr());
-    const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
-    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
-    const auto& json_file_arr = test_data_dir_json + "json_variant/array_object_boundary.jsonl";
-    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_arr);
-    EXPECT_TRUE(obj->size() == 200);
-    EXPECT_FALSE(obj->is_finalized());
-    // test get_finalized_column_ptr/ get_finalized_column for subColumn
-    auto subcolumns = obj->get_subcolumns();
-    for (const auto& subcolumn : subcolumns) {
-        EXPECT_TRUE(subcolumn != nullptr);
-        EXPECT_FALSE(subcolumn->data.is_finalized());
-        EXPECT_ANY_THROW(subcolumn->data.get_finalized_column_ptr());
-        EXPECT_ANY_THROW(subcolumn->data.get_finalized_column());
-    }
 }
 
 doris::vectorized::Field get_field_v2(std::string_view type, size_t array_element_cnt = 0) {

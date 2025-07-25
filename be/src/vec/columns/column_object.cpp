@@ -87,12 +87,6 @@ DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_
     if (type == TypeIndex::Nothing) {
         return std::make_shared<DataTypeNothing>();
     }
-    if (type == ColumnObject::MOST_COMMON_TYPE_ID) {
-        // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
-        // So we ignored num_dimensions.
-        return is_nullable ? make_nullable(std::make_shared<ColumnObject::MostCommonType>())
-                           : std::make_shared<ColumnObject::MostCommonType>();
-    }
     DataTypePtr result =
             DataTypeFactory::instance().create_data_type(type, is_nullable, precision, scale);
     for (size_t i = 0; i < num_dimensions; ++i) {
