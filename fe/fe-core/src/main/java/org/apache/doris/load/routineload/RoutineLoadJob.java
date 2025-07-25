@@ -281,7 +281,6 @@ public abstract class RoutineLoadJob
     protected byte escape = 0;
 
     // use for cloud cluster mode
-    protected String qualifiedUser;
     protected String cloudCluster;
 
     public void setTypeRead(boolean isTypeRead) {
@@ -332,7 +331,6 @@ public abstract class RoutineLoadJob
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
-            this.qualifiedUser = ConnectContext.get().getQualifiedUser();
             try {
                 this.cloudCluster = ConnectContext.get().getCloudCluster();
             } catch (ComputeGroupException e) {
@@ -759,10 +757,6 @@ public abstract class RoutineLoadJob
 
     public void setComment(String comment) {
         this.comment = comment;
-    }
-
-    public String getQualifiedUser() {
-        return qualifiedUser;
     }
 
     public String getCloudCluster() {
