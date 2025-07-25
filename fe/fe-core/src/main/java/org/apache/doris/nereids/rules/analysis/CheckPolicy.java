@@ -91,7 +91,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                             RelatedPolicy relatedPolicy = checkPolicy.findPolicy(relation, ctx.cascadesContext);
                             relatedPolicy.rowPolicyFilter.ifPresent(expression -> combineFilter.addAll(
                                     ExpressionUtils.extractConjunctionToSet(expression)));
-                            Plan result = upAgg != null ? upAgg.withChildren(relation) : relation;
+                            Plan result = upAgg != null ? upAgg.withChildren(child) : child;
                             if (upperFilter != null) {
                                 combineFilter.addAll(upperFilter.getConjuncts());
                             }
