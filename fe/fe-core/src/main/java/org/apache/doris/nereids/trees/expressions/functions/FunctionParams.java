@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.List;
@@ -51,10 +52,15 @@ public class FunctionParams {
     }
 
     public Supplier<FunctionSignature> getOriginSignature() {
-        if (originFunction.isPresent()) {
+        if (originFunction.isPresent() && !hasUnboundExpression()) {
             return () -> originFunction.get().getSignature();
         } else {
             return null;
         }
+    }
+
+    private boolean hasUnboundExpression() {
+        BoundFunction boundFunction = originFunction.get();
+        return boundFunction.containsType(Unbound.class);
     }
 }
