@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -40,8 +41,8 @@ import java.util.Set;
 public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedPartitionDescGeneratorService {
 
     @Override
-    public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult) throws AnalysisException {
+    public void apply(MTMV mtmv, MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
+                      RelatedPartitionDescResult lastResult) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
             return;
         }
