@@ -186,6 +186,7 @@ suite("eliminate_order_by_key") {
     """
 
     // test composite key
+    sql "drop table if exists test_unique_order_by2"
     sql """create table test_unique_order_by2(a int not null, b int not null, c int, d int) unique key(a,b) distributed by hash(a) properties('replication_num'='1');"""
     sql """INSERT INTO test_unique_order_by2 (a, b, c, d)
     VALUES(1, 2, 3, 4),(2, 3, 3, 5),(3, 4, 5, 6),(4, 5, 6, 7),(5, 6, 7, 8),(6, 7, 8, 9),(7, 8, 9, 10),(8, 9, 10, 11),(9, 10, 11, 12),(10, 11, 12, 13);"""

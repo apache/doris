@@ -17,6 +17,7 @@
 suite("eliminate_group_by_key_by_uniform") {
     sql "set enable_nereids_rules = 'ELIMINATE_GROUP_BY_KEY_BY_UNIFORM'"
     sql "set runtime_filter_mode=OFF"
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "drop table if exists eli_gbk_by_uniform_t"
     sql """create table eli_gbk_by_uniform_t(a int null, b int not null, c varchar(10) null, d date, dt datetime)
     distributed by hash(a) properties("replication_num"="1");
@@ -233,7 +234,7 @@ suite("eliminate_group_by_key_by_uniform") {
     qt_to_limit_multi_group_by "select 1 as c1,a from eli_gbk_by_uniform_t where a=1 group by c1,a"
     qt_to_limit_multi_group_by_one_col_in_project "select 2 as c1 from eli_gbk_by_uniform_t where a=1 group by c1,a"
 
-    qt_to_limit_join_project_shape "explain shape plan select 1 as c1 from test1 t1 inner join (select * from test2 where b=105)  t2 on t1.a=t2.a group by c1 order by 1;"
+    qt_to_limit_join_project_shape "explain shape plan select 1 as c1 from test1 t1 inner join (select * from test2 where b=105)  t2 on t1.a=t2.a group by c1;"
     qt_to_limit_project_uniform_shape "explain shape plan select 1 as c1 from eli_gbk_by_uniform_t group by c1"
     qt_to_limit_multi_group_by_shape "explain shape plan select 2 as c1 from eli_gbk_by_uniform_t where a=1 group by c1,a"
 }
