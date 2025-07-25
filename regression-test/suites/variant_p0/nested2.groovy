@@ -68,6 +68,13 @@ suite("variant_nested_type_conflict", "p0"){
                 """
             exception "Nesting of array in Nested array within variant subcolumns is currently not supported."
         }
+        // insert batch different structure in same path
+        try {
+            sql """
+                insert into ${table_name} values (3, '{"nested": [{"a": 2.5, "b": "123.1"}]}'),  (4, '{"nested": {"a": 2.5, "b": "123.1"}}');
+                """
+            exception "Ambiguous paths"
+        }
         /// insert a array of object for a, b, c 
         // insert type conflict in multiple rows
         sql """
