@@ -1487,7 +1487,7 @@ expression
     ;
 
 funcExpression
-    : booleanExpression
+    : expression
     | lambdaExpression
     ;
 
