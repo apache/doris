@@ -24,6 +24,7 @@
 
 #include "runtime/primitive_type.h"
 #include "testutil/column_helper.h"
+#include "util/to_string.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/function/function_test_util.h"
@@ -450,15 +451,10 @@ struct FunctionCastTest : public testing::Test {
                         (*ofs_const_expected_result)
                                 << fmt::format("-- !sql_{}_{}_{} --\n", table_index, i,
                                                enable_strict_cast ? "strict" : "non_strict");
-                        if constexpr (std::is_same_v<ToValueType, float>) {
+                        if constexpr (std::is_same_v<ToValueType, float> ||
+                                      std::is_same_v<ToValueType, double>) {
                             char buffer[64] = {0};
-                            FastFloatToBuffer(test_data_set[i].second, buffer);
-                            (*ofs_const_expected_result)
-                                    << fmt::format("{}\t{}\n\n", test_data_set[i].first, buffer);
-
-                        } else if constexpr (std::is_same_v<ToValueType, double>) {
-                            char buffer[64] = {0};
-                            FastDoubleToBuffer(test_data_set[i].second, buffer);
+                            fast_to_buffer(test_data_set[i].second, buffer);
                             (*ofs_const_expected_result)
                                     << fmt::format("{}\t{}\n\n", test_data_set[i].first, buffer);
                         } else {

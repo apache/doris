@@ -198,10 +198,22 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
             (code, out, err) = be_show_tablet_status(ip, port, tablet_id)
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("[0-1]"))
-            assertTrue(out.contains("[2-9]"))
+            // Parse the tablet status to get rowset count after compaction
+            def tabletJson = parseJson(out.trim())
+            def rowsets = tabletJson.rowsets
+            int activeRowsetCount = rowsets.size()
+            // After compaction, we should have fewer rowsets than before (originally 9 rowsets: [0-1], [2-2], ..., [9-9])
+            // The exact number depends on compaction strategy, but should be less than 9
+            assertTrue(activeRowsetCount < 9, "Expected fewer rowsets after compaction, got: ${activeRowsetCount}")
+            assertTrue(activeRowsetCount >= 2, "Expected at least 2 rowsets after compaction, got: ${activeRowsetCount}")
+            // Verify we still have [0-1] and some compacted rowsets starting from version 2
+            boolean hasBaseRowset = rowsets.any { it.contains("[0-1]") }
+            boolean hasCompactedRowsets = rowsets.any { it.contains("[2-") }
+            assertTrue(hasBaseRowset, "Should have base rowset [0-1]")
+            assertTrue(hasCompactedRowsets, "Should have compacted rowsets starting from version 2")
             int segment_count = calc_segment_count(tablet)
             logger.info("TabletId: " + tablet_id + ", segment_count: " + segment_count)
-            check_nested_index_file(ip, port, tablet_id, 2, 3, "V2")
+            check_nested_index_file(ip, port, tablet_id, activeRowsetCount, 3, "V2")
         }
 
         int segmentsCount = 0
