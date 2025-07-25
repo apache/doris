@@ -351,7 +351,7 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
     CHECK(from_dim < 2) << "from_dim: " << from_dim;
     auto least_common_type_id = least_common_type.get_base_type_id();
     auto least_common_type_dim = least_common_type.get_dimensions();
-    bool type_changed = false;
+    bool type_changed = info.need_convert;
     if (data.empty()) {
         add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable));
     } else {
@@ -377,7 +377,7 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
         }
     }
 
-    if (type_changed || info.need_convert) {
+    if (type_changed) {
         Field new_field;
         convert_field_to_type(field, *least_common_type.get(), &new_field);
         field = new_field;
