@@ -49,6 +49,7 @@ import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
+import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
@@ -448,8 +449,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new CollectCteConsumerOutput()
                         )
                 ),
-                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new)
-            )
+                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new))
         )
     );
 
@@ -457,6 +457,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 // after variant sub path pruning, we need do column pruning again
+                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                 custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                 bottomUp(ImmutableList.of(
                         new PushDownFilterThroughProject(),
@@ -550,6 +551,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("rewrite cte sub-tree before sub path push down",
                                 custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(beforePushDownJobs))
                         )));
+                rewriteJobs.addAll(jobs(topic("convert outer join to anti",
+                        custom(RuleType.CONVERT_OUTER_JOIN_TO_ANTI, ConvertOuterJoinToAntiJoin::new))));
                 if (needOrExpansion) {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
