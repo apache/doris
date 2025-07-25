@@ -66,6 +66,8 @@ struct ColumnWithTypeAndName {
     void to_pb_column_meta(PColumnMeta* col_meta) const;
 
     ColumnWithTypeAndName get_nested(bool replace_null_data_to_default = false) const;
+
+    Status check_type_and_column_match() const;
 };
 
 } // namespace doris::vectorized
