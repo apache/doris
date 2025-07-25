@@ -20,6 +20,7 @@
 #include <arrow/array/builder_nested.h>
 
 #include "common/status.h"
+#include "complex_type_deserialize_util.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
@@ -148,6 +149,44 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
                                                                   &elem_deserialized, options);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return st;
+}
+
+Status DataTypeArraySerDe::from_string(StringRef& str, IColumn& column,
+                                       const FormatOptions& options) const {
+    if (str.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+
+    auto& array_column = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    DCHECK(nested_column.is_nullable());
+    if (str.front() != '[') {
+        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
+                                       str.front());
+    }
+    if (str.back() != ']') {
+        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
+                                       str.back());
+    }
+    // empty array []
+    if (str.size == 2) {
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
+        return Status::OK();
+    }
+    str = str.substring(1, str.size - 2); // remove '[' and ']'
+
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
+            str, [&](char c) { return c == options.collection_delim; });
+
+    for (auto& e : split_result) {
+        RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_column(nested_serde, nested_column,
+                                                                   e.element, options));
+    }
+
+    offsets.emplace_back(offsets.back() + split_result.size());
+    return Status::OK();
 }
 
 Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
