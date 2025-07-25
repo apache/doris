@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 
-suite('test_cache_shield_mow', 'docker') {
+suite('test_cache_guard_mow', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -152,7 +152,7 @@ suite('test_cache_shield_mow', 'docker') {
         logger.info("Cluster tag1: {}", tag1)
         logger.info("Cluster tag2: {}", tag2)
 
-        updateBeConf(clusterName2, "enable_read_cluster_file_cache_shield", "true")
+        updateBeConf(clusterName2, "enable_read_cluster_file_cache_guard", "true")
 
         def jsonSlurper = new JsonSlurper()
         def clusterId1 = jsonSlurper.parseText(tag1).compute_group_id
@@ -182,7 +182,7 @@ suite('test_cache_shield_mow', 'docker') {
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test"""
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
 
         // switch to source cluster and trigger compaction
         sql """use @${clusterName1}"""
@@ -196,8 +196,8 @@ suite('test_cache_shield_mow', 'docker') {
         qt_sql """select * from test"""
         sleep(1000)
 
-        // mow table should not trigger the cache shield
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
+        // mow table should not trigger the cache guard
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
         // due to a bug of profile, skip the check for now
         // verifyProfileContent("select * from test");
     }
