@@ -27,21 +27,29 @@ public class AggregateParam {
 
     public static AggregateParam LOCAL_RESULT = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT);
     public static AggregateParam LOCAL_BUFFER = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+    public static AggregateParam GLOBAL_RESULT = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
 
     public final AggPhase aggPhase;
     public final AggMode aggMode;
+    public final boolean isSplit;
     // TODO: this is a short-term plan to process count(distinct a, b) correctly
     public final boolean canBeBanned;
 
     /** AggregateParam */
     public AggregateParam(AggPhase aggPhase, AggMode aggMode) {
-        this(aggPhase, aggMode, true);
+        this(aggPhase, aggMode, false);
     }
 
-    public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean canBeBanned) {
+    /** AggregateParam */
+    public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean isSplit) {
+        this(aggPhase, aggMode, false, isSplit);
+    }
+
+    public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean canBeBanned, boolean isSplit) {
         this.aggMode = Objects.requireNonNull(aggMode, "aggMode cannot be null");
         this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
         this.canBeBanned = canBeBanned;
+        this.isSplit = aggPhase.isLocal() || aggMode.consumeAggregateBuffer || isSplit;
     }
 
     public AggregateParam withAggPhase(AggPhase aggPhase) {

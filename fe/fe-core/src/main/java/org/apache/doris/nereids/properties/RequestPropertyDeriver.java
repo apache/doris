@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeRes
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
@@ -63,6 +64,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -105,13 +107,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visit(Plan plan, PlanContext context) {
-        if (plan instanceof RequirePropertiesSupplier) {
-            RequireProperties requireProperties = ((RequirePropertiesSupplier<?>) plan).getRequireProperties();
-            List<PhysicalProperties> requestPhysicalProperties =
-                    requireProperties.computeRequirePhysicalProperties(plan, requestPropertyFromParent);
-            addRequestPropertyToChildren(requestPhysicalProperties);
-            return null;
-        }
+        // if (plan instanceof RequirePropertiesSupplier) {
+        //     RequireProperties requireProperties = ((RequirePropertiesSupplier<?>) plan).getRequireProperties();
+        //     List<PhysicalProperties> requestPhysicalProperties =
+        //             requireProperties.computeRequirePhysicalProperties(plan, requestPropertyFromParent);
+        //     addRequestPropertyToChildren(requestPhysicalProperties);
+        //     return null;
+        // }
 
         List<PhysicalProperties> requiredPropertyList =
                 Lists.newArrayListWithCapacity(context.arity());
@@ -409,6 +411,52 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                     PhysicalProperties.createHash(windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE)
                     .withOrderSpec(isSkew ? new MustLocalSortOrderSpec(keysNeedToBeSorted)
                             : new OrderSpec(keysNeedToBeSorted)));
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
+        // 先在这里实现一下
+        // group by a,b
+        // 如果agg收到的请求是a,agg发出的请求是a,b,a是a,b的子集, 那么agg发送a请求给孩子(这里判断一下a的ndv,如果很小的话就还是发a,b)
+        // 如果agg没有收到请求,那还是发出a,b
+        // 如果agg收到了请求,但是没有交集,那么agg仍然发出a,b
+        // 如果是local agg,那么发出any, 如果是global agg,才有要求
+        DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
+        if (agg.getAggPhase().isLocal()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+            return null;
+        } else if (agg.getAggPhase().isGlobal()) {
+            if (agg.getPartitionExpressions().isPresent()) {
+                addRequestPropertyToChildren(
+                        PhysicalProperties.createHash(agg.getPartitionExpressions().get(), ShuffleType.REQUIRE));
+                return null;
+            }
+            if (agg.getGroupByExpressions().isEmpty()) {
+                addRequestPropertyToChildren(PhysicalProperties.GATHER);
+                return null;
+            }
+            //获得当前的group by key的expr id
+            List<ExprId> groupByExprIds = agg.getGroupByExpressions().stream()
+                    .filter(SlotReference.class::isInstance)
+                    .map(SlotReference.class::cast)
+                    .map(SlotReference::getExprId)
+                    .collect(Collectors.toList());
+            if (parentDist instanceof DistributionSpecHash) {
+                DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
+                List<ExprId> hashExprIds = distributionRequestFromParent.getOrderedShuffledColumns();
+                // 还需加上ndv的判断
+                if (new HashSet<>(groupByExprIds).containsAll(hashExprIds)) {
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(hashExprIds, ShuffleType.REQUIRE));
+                    // addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+                    return null;
+                }
+            }
+            addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+            // Statistics statistics = agg.child().getStats();
+            // statistics.findColumnStatistics()
+            return null;
         }
         return null;
     }
