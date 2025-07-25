@@ -113,13 +113,20 @@ struct CastToDecimal {
         // static casting the multiplier to floating type, and also to be as precise as possible;
         // For other decimal types, we use double to be as precise as possible.
         using DoubleType = std::conditional_t<IsDecimal256<ToCppT>, long double, double>;
-        auto tmp = static_cast<double>(from * static_cast<DoubleType>(scale_multiplier) +
-                                       ((from >= 0) ? 0.5 : -0.5));
-        if (tmp <= static_cast<FromCppT>(min_result) || tmp >= static_cast<FromCppT>(max_result)) {
-            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, "float/double", precision, scale);
+        DoubleType tmp = from * static_cast<DoubleType>(scale_multiplier);
+        if (tmp <= DoubleType(min_result) || tmp >= DoubleType(max_result)) {
+            std::visit(
+                    [&](auto is_strict_cast) {
+                        if constexpr (is_strict_cast) {
+                            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, "float/double",
+                                                                           precision, scale);
+                        }
+                    },
+                    vectorized::make_bool_variant(params.is_strict));
             return false;
         }
-        to.value = static_cast<ToCppT::NativeType>(tmp);
+        to.value = static_cast<ToCppT::NativeType>(static_cast<double>(
+                from * static_cast<DoubleType>(scale_multiplier) + ((from >= 0) ? 0.5 : -0.5)));
         return true;
     }
 
