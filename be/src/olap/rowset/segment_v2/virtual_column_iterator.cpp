@@ -109,10 +109,11 @@ Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
 Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                          bool* has_null) {
     size_t rows_num_to_read = *n;
-    if (rows_num_to_read == 0 || vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
+    if (rows_num_to_read == 0 ||
+        vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
         return Status::OK();
     }
-    
+
     if (_row_id_to_idx.find(_current_ordinal) == _row_id_to_idx.end()) {
         return Status::InternalError("Current ordinal {} not found in row_id_to_idx map",
                                      _current_ordinal);
@@ -136,7 +137,8 @@ Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
 
 Status VirtualColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                              vectorized::MutableColumnPtr& dst) {
-    if (count == 0 || vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
+    if (count == 0 ||
+        vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
         return Status::OK();
     }
 

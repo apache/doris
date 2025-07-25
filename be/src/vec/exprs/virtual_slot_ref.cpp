@@ -193,12 +193,12 @@ bool VirtualSlotRef::equals(const VExpr& other) {
     if (!other_ptr) {
         return false;
     }
-    
+
     // Compare slot_id and column_id
     if (this->_slot_id != other_ptr->_slot_id || this->_column_id != other_ptr->_column_id) {
         return false;
     }
-    
+
     // Compare column_name pointers properly
     if (this->_column_name == nullptr && other_ptr->_column_name == nullptr) {
         // Both are null, they are equal
@@ -209,12 +209,12 @@ bool VirtualSlotRef::equals(const VExpr& other) {
         // Both are not null, compare the string contents
         return false;
     }
-    
+
     // Compare column_label
     if (this->_column_label != other_ptr->_column_label) {
         return false;
     }
-    
+
     return true;
 }
 
