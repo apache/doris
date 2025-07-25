@@ -1812,7 +1812,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         return;
     }
     auto [space_percentage, inode_percentage] = percent;
-    int size_percentage = (_cur_cache_size / _capacity) * 100;
+    int size_percentage = static_cast<int>(_cur_cache_size / _capacity) * 100;
     auto is_insufficient = [](const int& percentage) {
         return percentage >= config::file_cache_enter_need_evict_cache_in_advance_percent;
     };
