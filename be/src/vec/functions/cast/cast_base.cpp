@@ -185,7 +185,8 @@ Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
     auto& nullable_col_to = assert_cast<ColumnNullable&>(*to_column);
     auto& nested_column = nullable_col_to.get_nested_column();
     DataTypeSerDe::FormatOptions options;
-    options.timezone = &context->state()->timezone_obj();
+    options.converted_from_string = true;
+    options.escape_char = '\\';
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (null_map && null_map[i]) {
             nullable_col_to.insert_default();
