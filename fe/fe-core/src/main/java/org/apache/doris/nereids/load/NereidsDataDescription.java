@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.load;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -1166,8 +1167,10 @@ public class NereidsDataDescription {
         List<Expr> legacyColumnMappingList = new ArrayList<>();
         if (this.columnMappingList != null && !this.columnMappingList.isEmpty()) {
             for (Expression expression : this.columnMappingList) {
-                if (expression != null) {
-                    legacyColumnMappingList.add(PlanUtils.translateToLegacyExpr(expression, null, ctx));
+                if (expression != null && expression instanceof EqualTo) {
+                    Expr left = PlanUtils.translateToLegacyExpr(((EqualTo) expression).left(), null, ctx);
+                    Expr right = PlanUtils.translateToLegacyExpr(((EqualTo) expression).right(), null, ctx);
+                    legacyColumnMappingList.add(new BinaryPredicate(BinaryPredicate.Operator.EQ, left, right));
                 }
             }
         }
