@@ -445,6 +445,16 @@ suite("test_point_query", "nonConcurrent") {
     sql "set enable_short_circuit_query = true"
     qt_sql "select length(loc3) from table_with_chars where col1 = 10"
 
+    def ensure_one_fragment = {
+        sql "set enable_nereids_planner=true"
+        explain {
+            sql "select * from table_with_chars where col1 = 10"
+            check { explainStr ->
+                assertEquals(1, explainStr.count("PLAN FRAGMENT"))
+            }
+        }
+    }()
+
     // test variant type
     sql "DROP TABLE IF EXISTS test_with_variant"
     sql """
