@@ -117,6 +117,7 @@ set -x
 # shellcheck disable=SC2086
 sudo docker run -i --rm \
     --name "${docker_name}" \
+    --network=host \
     -e TZ=Asia/Shanghai \
     ${mount_swapfile} \
     -v /etc/localtime:/etc/localtime:ro \
