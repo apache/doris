@@ -298,7 +298,7 @@ public:
 
     template <PrimitiveType P>
     static typename PrimitiveTypeTraits<P>::CppType::NativeType string_to_decimal(
-            const char* __restrict s, int len, int type_precision, int type_scale,
+            const char* __restrict s, size_t len, int type_precision, int type_scale,
             ParseResult* result);
 
     template <typename T>
