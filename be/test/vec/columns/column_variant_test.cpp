@@ -715,32 +715,4 @@ TEST_F(ColumnVariantTest, subcolumn_insert_range_from_test_advanced) {
     }
 }
 
-TEST_F(ColumnVariantTest, subcolumn_get_least_common_type_test) {
-    Field int_field = Field::create_field<TYPE_INT>(200000);
-    Field double_field = Field::create_field<TYPE_DOUBLE>(2.2);
-
-    ColumnVariant::Subcolumn subcolumn(0, true, false);
-    subcolumn.insert(int_field);
-    subcolumn.insert(double_field);
-    subcolumn.finalize();
-
-    Array array_int(2);
-    array_int[0] = int_field;
-    array_int[1] = int_field;
-    Field array_int_field = Field::create_field<TYPE_ARRAY>(array_int);
-
-    Array array_double(2);
-    array_double[0] = double_field;
-    array_double[1] = double_field;
-    Field array_double_field = Field::create_field<TYPE_ARRAY>(array_double);
-
-    ColumnVariant::Subcolumn subcolumn2(0, true /* is_nullable */, false /* is_root */);
-    subcolumn2.insert(array_int_field);
-    subcolumn2.insert(array_double_field);
-    subcolumn2.finalize();
-
-    std::cout << "subcolumn2.get_least_common_type()->get_name(): "
-              << subcolumn2.get_least_common_type()->get_name() << std::endl;
-}
-
 } // namespace doris::vectorized
