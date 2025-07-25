@@ -247,6 +247,18 @@ public:
         DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
     }
 
+    void set_llm_resources(std::map<std::string, TLLMResource> llm_resources) {
+        _llm_resources =
+                std::make_unique<std::map<std::string, TLLMResource>>(std::move(llm_resources));
+    }
+
+    const std::map<std::string, TLLMResource>& get_llm_resources() const {
+        if (_llm_resources == nullptr) {
+            throw Status::InternalError("LLM resources not found");
+        }
+        return *_llm_resources;
+    }
+
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
     get_using_brpc_stubs() {
         std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
@@ -334,6 +346,8 @@ private:
     // fragment_id -> list<profile>
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
+
+    std::unique_ptr<std::map<std::string, TLLMResource>> _llm_resources;
 
     void _report_query_profile();
 
