@@ -116,6 +116,12 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_DECIMAL64;
     case PrimitiveType::TYPE_DECIMAL128I:
         return FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
+    case PrimitiveType::TYPE_DECIMAL256:
+        return FieldType::OLAP_FIELD_TYPE_DECIMAL256;
+    case PrimitiveType::TYPE_IPV4:
+        return FieldType::OLAP_FIELD_TYPE_IPV4;
+    case PrimitiveType::TYPE_IPV6:
+        return FieldType::OLAP_FIELD_TYPE_IPV6;
     case PrimitiveType::TYPE_JSONB:
         return FieldType::OLAP_FIELD_TYPE_JSONB;
     case PrimitiveType::TYPE_VARIANT:
@@ -153,6 +159,8 @@ PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
         return PrimitiveType::TYPE_DOUBLE;
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return PrimitiveType::TYPE_VARCHAR;
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+        return PrimitiveType::TYPE_STRING;
     case FieldType::OLAP_FIELD_TYPE_DATE:
         return PrimitiveType::TYPE_DATE;
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
@@ -169,8 +177,6 @@ PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
         return PrimitiveType::TYPE_HLL;
     case FieldType::OLAP_FIELD_TYPE_BITMAP:
         return PrimitiveType::TYPE_BITMAP;
-    case FieldType::OLAP_FIELD_TYPE_STRING:
-        return PrimitiveType::TYPE_STRING;
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         return PrimitiveType::TYPE_QUANTILE_STATE;
     case FieldType::OLAP_FIELD_TYPE_DATEV2:
@@ -187,6 +193,10 @@ PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
         return PrimitiveType::TYPE_DECIMAL128I;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
         return PrimitiveType::TYPE_DECIMAL256;
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+        return PrimitiveType::TYPE_IPV4;
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        return PrimitiveType::TYPE_IPV6;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         return PrimitiveType::TYPE_JSONB;
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
