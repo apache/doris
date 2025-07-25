@@ -49,9 +49,9 @@ public class AlterColocateGroupStmt extends DdlStmt implements NotFallbackInPars
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        colocateGroupName.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
+        colocateGroupName.analyze();
 
         String dbName = colocateGroupName.getDb();
         if (Strings.isNullOrEmpty(dbName)) {

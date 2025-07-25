@@ -23,8 +23,10 @@
 #include "common/logging.h"
 #include "common/stats.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "meta_service.h"
 
 namespace doris::cloud {
@@ -461,6 +463,11 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         return;
     }
 
+    CommitPartitionLogPB commit_partition_log;
+    commit_partition_log.set_db_id(request->db_id());
+    commit_partition_log.set_table_id(request->table_id());
+    commit_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
+
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -505,14 +512,51 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         }
         LOG_INFO("remove recycle partition").tag("key", hex(key));
         txn->remove(key);
+
+        // Save the partition meta/index keys
+        if (request->has_db_id() && is_version_write_enabled(instance_id)) {
+            int64_t db_id = request->db_id();
+            int64_t table_id = request->table_id();
+            std::string part_meta_key = versioned::meta_partition_key({instance_id, part_id});
+            std::string part_index_key = versioned::partition_index_key({instance_id, part_id});
+            std::string part_inverted_index_key = versioned::partition_inverted_index_key(
+                    {instance_id, db_id, table_id, part_id});
+            PartitionIndexPB part_index_pb;
+            part_index_pb.set_db_id(db_id);
+            part_index_pb.set_table_id(table_id);
+            LOG(INFO) << part_index_pb.DebugString();
+            std::string part_index_value;
+            if (!part_index_pb.SerializeToString(&part_index_value)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format("failed to serialize PartitionIndexPB");
+                LOG_WARNING(msg).tag("part_id", part_id);
+                return;
+            }
+            versioned_put(txn.get(), part_meta_key, "");
+            txn->put(part_inverted_index_key, "");
+            txn->put(part_index_key, part_index_value);
+
+            commit_partition_log.add_partition_ids(part_id);
+        }
     }
 
     // update table versions
     if (request->has_db_id()) {
-        std::string ver_key =
-                table_version_key({instance_id, request->db_id(), request->table_id()});
-        txn->atomic_add(ver_key, 1);
-        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
+        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+    }
+
+    if (commit_partition_log.partition_ids_size() > 0 && is_version_write_enabled(instance_id)) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_commit_partition()->Swap(&commit_partition_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 
     err = txn->commit();
@@ -560,6 +604,12 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         pb.SerializeToString(&to_save_val);
     }
     bool need_commit = false;
+    DropPartitionLogPB drop_partition_log;
+    drop_partition_log.set_db_id(request->db_id());
+    drop_partition_log.set_table_id(request->table_id());
+    drop_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
+    drop_partition_log.set_expiration(request->expiration());
+
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -567,6 +617,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             LOG_INFO("put recycle partition").tag("key", hex(key));
             txn->put(key, to_save_val);
+            drop_partition_log.add_partition_ids(part_id);
             need_commit = true;
             continue;
         }
@@ -604,10 +655,24 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     // Update table version only when deleting non-empty partitions
     if (request->has_db_id() && request->has_need_update_table_version() &&
         request->need_update_table_version()) {
-        std::string ver_key =
-                table_version_key({instance_id, request->db_id(), request->table_id()});
-        txn->atomic_add(ver_key, 1);
-        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
+        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+        drop_partition_log.set_update_table_version(true);
+    }
+
+    if ((drop_partition_log.update_table_version() ||
+         drop_partition_log.partition_ids_size() > 0) &&
+        is_version_write_enabled(instance_id)) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_drop_partition()->Swap(&drop_partition_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 
     err = txn->commit();

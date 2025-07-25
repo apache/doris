@@ -33,6 +33,10 @@ singleStatement
     : SEMICOLON* statement? SEMICOLON* EOF
     ;
 
+expressionWithEof
+    : expression EOF
+    ;
+
 statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
@@ -69,12 +73,6 @@ statementBase
     | supportedStatsStatement           #supportedStatsStatementAlias
     | supportedTransactionStatement     #supportedTransactionStatementAlias
     | supportedGrantRevokeStatement     #supportedGrantRevokeStatementAlias
-    | unsupportedStatement              #unsupported
-    ;
-
-unsupportedStatement
-    : unsupportedStatsStatement
-    | unsupportedLoadStatement
     ;
 
 materializedViewStatement
@@ -124,9 +122,13 @@ constraintStatement
     | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
     ;
 
+optSpecBranch
+    : ATSIGN BRANCH LEFT_PAREN name=identifier RIGHT_PAREN
+    ;
+
 supportedDmlStatement
     : explain? cte? INSERT (INTO | OVERWRITE TABLE)
-        (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
+        (tableName=multipartIdentifier (optSpecBranch)? | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -437,6 +439,7 @@ supportedShowStatement
 
 supportedLoadStatement
     : SYNC                                                                          #sync
+    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad    
     | createRoutineLoad                                                             #createRoutineLoadAlias
     | LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
@@ -492,10 +495,6 @@ createRoutineLoad
               (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
               LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
               commentSpec?
-    ;
-
-unsupportedLoadStatement
-    : SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     ;
 
 loadProperty
@@ -781,6 +780,7 @@ supportedStatsStatement
         columnList=identifierList                                               #showColumnHistogramStats
     | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
+    | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     | ANALYZE DATABASE name=multipartIdentifier
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
@@ -800,10 +800,6 @@ supportedStatsStatement
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
-    ;
-
-unsupportedStatsStatement
-    : SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
 analyzeProperties
@@ -1231,8 +1227,16 @@ joinRelation
 
 // Just like `opt_plan_hints` in legacy CUP parser.
 distributeType
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketDistributeType
-    | HINT_START identifier HINT_END                                  #commentDistributeType
+    : LEFT_BRACKET identifier skewHint? RIGHT_BRACKET
+    | HINT_START identifier skewHint? HINT_END
+    ;
+
+skewHint
+    :  LEFT_BRACKET identifier LEFT_PAREN qualifiedName constantList RIGHT_PAREN RIGHT_BRACKET
+    ;
+
+constantList
+    : LEFT_PAREN values+=constant (COMMA values+=constant)* RIGHT_PAREN
     ;
 
 relationHint
@@ -1275,7 +1279,7 @@ hintStatement
     ;
 
 hintAssignment
-    : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
+    : key=identifierOrText skew=skewHint? (EQ (constantValue=constant | identifierValue=identifier))?
     | constant
     ;
 
@@ -1311,7 +1315,7 @@ limitClause
     ;
 
 partitionClause
-    : PARTITION BY expression (COMMA expression)*
+    : PARTITION BY (LEFT_BRACKET identifier RIGHT_BRACKET)? expression (COMMA expression)*
     ;
 
 joinType
@@ -1558,6 +1562,12 @@ primaryExpression
           RIGHT_PAREN                                                                          #charFunction
     | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN        #convertCharSet
     | CONVERT LEFT_PAREN argument=expression COMMA castDataType RIGHT_PAREN                    #convertType
+    | GROUP_CONCAT LEFT_PAREN (DISTINCT|ALL)?
+        (LEFT_BRACKET identifier RIGHT_BRACKET)?
+        argument=expression
+        (ORDER BY sortItem (COMMA sortItem)*)?
+        (SEPARATOR sep=expression)? RIGHT_PAREN
+        (OVER windowSpec)?                                                                     #groupConcat
     | functionCallExpression                                                                   #functionCall
     | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
     | value=primaryExpression LEFT_BRACKET begin=valueExpression
@@ -1588,6 +1598,7 @@ functionCallExpression
     : functionIdentifier
               LEFT_PAREN (
                   (DISTINCT|ALL)?
+                  (LEFT_BRACKET identifier RIGHT_BRACKET)?
                   arguments+=expression (COMMA arguments+=expression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
@@ -1928,6 +1939,7 @@ nonReserved
     | GRAPH
     | GROUPING
     | GROUPS
+    | GROUP_CONCAT
     | HASH
     | HASH_MAP
     | HDFS
@@ -2071,6 +2083,7 @@ nonReserved
     | SCHEDULER
     | SCHEMA
     | SECOND
+    | SEPARATOR
     | SERIALIZABLE
     | SET_SESSION_VARIABLE
     | SESSION

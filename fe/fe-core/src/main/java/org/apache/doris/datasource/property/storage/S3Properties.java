@@ -26,6 +26,7 @@ import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
@@ -71,14 +72,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "glue.access_key",
             "aws.glue.access-key", "client.credentials-provider.glue.access_key"},
             required = false,
-            description = "The access key of S3.")
+            description = "The access key of S3. Optional for anonymous access to public datasets.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "glue.secret_key",
             "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
             required = false,
-            description = "The secret key of S3.")
+            description = "The secret key of S3. Optional for anonymous access to public datasets.")
     protected String secretKey = "";
 
 
@@ -164,8 +165,18 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
             return;
         }
+        // When using vended credentials with a REST catalog, AK/SK are not provided directly.
+        // The credentials will be fetched from the REST service later.
+        // So we skip the credential check in this case.
+        if (Boolean.parseBoolean(origProps.getOrDefault("iceberg.rest.vended-credentials-enabled", "false"))) {
+            return;
+        }
+        // Allow anonymous access if both access_key and secret_key are empty
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return;
+        }
         throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
-                + "s3.external_id");
+                + "s3.external_id or omit all for anonymous access to public bucket.");
     }
 
     /**
@@ -229,15 +240,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         options.set("s3.secret-key", s3SecretKey);
     }*/
 
-    public void toIcebergS3FileIOProperties(Map<String, String> catalogProps) {
-        // See S3FileIOProperties.java
-        catalogProps.put("s3.endpoint", endpoint);
-        catalogProps.put("s3.access-key-id", accessKey);
-        catalogProps.put("s3.secret-access-key", secretKey);
-        catalogProps.put("client.region", region);
-        catalogProps.put("s3.path-style-access", usePathStyle);
-    }
-
     @Override
     public Map<String, String> getBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration(s3ConnectionMaximum,
@@ -277,11 +279,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                         }
                     }).build();
         }
+        // For anonymous access (no credentials required)
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return AnonymousCredentialsProvider.create();
+        }
         return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
                 EnvironmentVariableCredentialsProvider.create(),
                 WebIdentityTokenFileCredentialsProvider.create(),
                 ProfileCredentialsProvider.create(),
                 InstanceProfileCredentialsProvider.create());
     }
-
 }

@@ -752,10 +752,8 @@ nonterminal List<BinaryPredicate> set_clause;
 nonterminal List<BinaryPredicate> assignment_list;
 nonterminal BinaryPredicate assignment;
 
-nonterminal BackupStmt backup_stmt;
 nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
 nonterminal Boolean backup_exclude_or_not;
-nonterminal RestoreStmt restore_stmt;
 
 nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
 nonterminal Expr set_expr_or_default;
@@ -1188,10 +1186,6 @@ stmt ::=
     {: RESULT = stmt; :}
     | sync_stmt : stmt
     {: RESULT = stmt; :}
-    | backup_stmt : stmt
-    {: RESULT = stmt; :}
-    | restore_stmt : stmt
-    {: RESULT = stmt; :}
     | transaction_stmt : stmt
     {: RESULT = stmt; :}
     | unsupported_stmt : stmt
@@ -1246,15 +1240,7 @@ refresh_stmt ::=
     ;
 
 clean_stmt ::=
-    KW_CLEAN KW_LABEL from_or_in ident:db
-    {:
-        RESULT = new CleanLabelStmt(db, null);
-    :}
-    | KW_CLEAN KW_LABEL ident:label from_or_in ident:db
-    {:
-        RESULT = new CleanLabelStmt(db, label);
-    :}
-    | KW_CLEAN KW_ALL KW_PROFILE
+    KW_CLEAN KW_ALL KW_PROFILE
     {:
         RESULT = new CleanProfileStmt();
     :}
@@ -1290,26 +1276,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
-    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_DATA KW_QUOTA quantity:quota_quantity
-    {:
-        RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.DATA, quota_quantity);
-    :}
-    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_REPLICA KW_QUOTA INTEGER_LITERAL:number
-    {:
-        RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.REPLICA, String.valueOf(number));
-    :}
-    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_TRANSACTION KW_QUOTA INTEGER_LITERAL:number
-    {:
-        RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.TRANSACTION, String.valueOf(number));
-    :}
-    | KW_ALTER KW_DATABASE ident:dbName KW_RENAME ident:newDbName
-    {:
-        RESULT = new AlterDatabaseRename(dbName, newDbName);
-    :}
-    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_PROPERTIES LPAREN key_value_map:map RPAREN
-    {:
-        RESULT = new AlterDatabasePropertyStmt(dbName, map);
-    :}
     | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
@@ -1322,20 +1288,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterWorkloadSchedPolicyStmt(policyName, properties);
     :}
-    | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
-      opt_datasource_properties:datasourceProperties
-    {:
-        RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
-    :}
     | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
     opt_properties:properties
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
-    :}
-    | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN
-      key_value_map:map RPAREN opt_partition_names:partitionNames
-    {:
-        RESULT = new AlterTableStatsStmt(tbl, map);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -1780,10 +1736,6 @@ create_stmt ::=
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
-    :}
-    | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role opt_comment:comment
-    {:
-        RESULT = new CreateRoleStmt(ifNotExists, role, comment);
     :}
     | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
     {:
@@ -2526,12 +2478,6 @@ resume_job_stmt ::=
     {:
         RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.RUNNING);
     :}
-    ;    
-cancel_job_task_stmt ::=
-   KW_CANCEL KW_TASK opt_wild_where
-    {:
-      RESULT = new CancelJobTaskStmt(parser.where);
-    :}
     ;                          
 // Routine load statement
 create_routine_load_stmt ::=
@@ -2690,21 +2636,9 @@ drop_stmt ::=
     {:
         RESULT = new DropRepositoryStmt(repoName);
     :}
-    | KW_DROP KW_ROLE opt_if_exists:ifExists ident:role
-    {:
-        RESULT = new DropRoleStmt(ifExists, role);
-    :}
-    | KW_DROP KW_FILE STRING_LITERAL:fileName opt_db:dbName KW_PROPERTIES LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new DropFileStmt(fileName, dbName, properties);
-    :}
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
-    :}
-    | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
-    {:
-        RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
     :}
     | KW_DROP KW_WORKLOAD KW_POLICY opt_if_exists:ifExists ident_or_text:policyName
     {:
@@ -3671,10 +3605,6 @@ show_param ::=
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
     :}
-    | KW_WARM KW_UP KW_JOB opt_wild_where
-    {:
-        RESULT = new ShowCloudWarmUpStmt(parser.where);
-    :}
     ;
 
 opt_tmp ::=
@@ -4017,17 +3947,6 @@ assignment ::=
     :}
     ;
 
-// backup stmt
-backup_stmt ::=
-    KW_BACKUP KW_SNAPSHOT job_label:label
-    KW_TO ident:repoName
-    opt_backup_table_ref_list:tblRefClause
-    opt_properties:properties
-    {:
-        RESULT = new BackupStmt(label, repoName, tblRefClause, properties);
-    :}
-    ;
-
 unlock_tables_stmt ::=
     KW_UNLOCK KW_TABLES
     {:
@@ -4115,17 +4034,6 @@ backup_exclude_or_not ::=
     | KW_EXCLUDE
     {:
         RESULT = true;
-    :}
-    ;
-
-// Restore statement
-restore_stmt ::=
-    KW_RESTORE KW_SNAPSHOT job_label:label
-    KW_FROM ident:repoName
-    opt_backup_table_ref_list:tblRefClause
-    opt_properties:properties
-    {:
-        RESULT = new RestoreStmt(label, repoName, tblRefClause, properties);
     :}
     ;
 

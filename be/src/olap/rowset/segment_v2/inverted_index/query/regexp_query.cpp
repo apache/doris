@@ -25,6 +25,7 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 RegexpQuery::RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                          const TQueryOptions& query_options, const io::IOContext* io_ctx)
@@ -129,8 +130,8 @@ void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
     try {
         if (prefix) {
             std::wstring ws_prefix = StringUtil::string_to_wstring(*prefix);
-            Term prefix(field_name.c_str(), ws_prefix.c_str());
-            enumerator = _searcher->getReader()->terms(&prefix, _io_ctx);
+            Term prefix_term(field_name.c_str(), ws_prefix.c_str());
+            enumerator = _searcher->getReader()->terms(&prefix_term, _io_ctx);
         } else {
             enumerator = _searcher->getReader()->terms(nullptr, _io_ctx);
             enumerator->next();
@@ -147,8 +148,8 @@ void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
                 }
 
                 bool is_match = false;
-                if (hs_scan(database, input.data(), input.size(), 0, scratch, on_match,
-                            (void*)&is_match) != HS_SUCCESS) {
+                if (hs_scan(database, input.data(), static_cast<uint32_t>(input.size()), 0, scratch,
+                            on_match, (void*)&is_match) != HS_SUCCESS) {
                     LOG(ERROR) << "hyperscan match failed: " << input;
                     break;
                 }
@@ -174,4 +175,5 @@ void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
     })
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

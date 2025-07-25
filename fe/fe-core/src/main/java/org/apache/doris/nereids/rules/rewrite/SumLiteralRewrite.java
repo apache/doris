@@ -157,7 +157,7 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
     }
 
     private NamedExpression constructSum(SumInfo info, Map<AggregateFunction, NamedExpression> existedAggFunc) {
-        Sum sum = new Sum(info.isDistinct, info.isAlwaysNullable, info.expr);
+        Sum sum = new Sum(info.isDistinct, info.isAlwaysNullable, false, info.expr);
         NamedExpression namedSum;
         if (existedAggFunc.containsKey(sum)) {
             namedSum = existedAggFunc.get(sum);

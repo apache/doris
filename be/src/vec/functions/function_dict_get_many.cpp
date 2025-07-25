@@ -25,11 +25,14 @@
 #include "vec/columns/column_struct.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/data_types/data_type_struct.h"
 #include "vec/functions/dictionary.h"
 #include "vec/functions/dictionary_factory.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+
 namespace doris::vectorized {
 
 struct DictGetState {

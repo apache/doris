@@ -537,7 +537,6 @@ message TabletIndexPB {
 message PartitionIndexPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
 }
 
 message TabletMetaInfoPB { // For update tablet meta
@@ -652,12 +651,20 @@ message SchemaChangeLogPB {
     repeated RecycleRowsetPB recycle_rowsets = 4;
 }
 
+message CommitPartitionLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+}
+
 message DropPartitionLogPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
-    optional int64 partition_id = 4;
-    optional RecyclePartitionPB recycle_partition = 5;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+    optional int64 expiration = 5; // expiration timestamp
+    optional bool update_table_version = 6;
 }
 
 message DropIndexLogPB {
@@ -688,6 +695,7 @@ message OperationLogPB {
     optional DropIndexLogPB drop_index = 6;
     optional UpdateTabletLogPB update_tablet = 7;
     optional UpdateDeleteBitmapLogPB update_delete_bitmap = 8;
+    optional CommitPartitionLogPB commit_partition = 9;
 }
 
 enum SnapshotType {
@@ -1726,6 +1734,7 @@ message GetDeleteBitmapUpdateLockRequest {
     optional bool require_compaction_stats = 7 [default = false];
     repeated TabletIndexPB tablet_indexes = 8;
     optional string request_ip = 9;
+    optional bool urgent = 10;
 }
 
 message GetDeleteBitmapUpdateLockResponse {

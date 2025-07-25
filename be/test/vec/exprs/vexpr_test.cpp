@@ -275,7 +275,7 @@ template <>
 struct literal_traits<TYPE_TIMEV2> {
     const static TPrimitiveType::type ttype = TPrimitiveType::TIMEV2;
     const static TExprNodeType::type tnode_type = TExprNodeType::TIMEV2_LITERAL;
-    using CXXType = std::string;
+    using CXXType = double;
 };
 
 //======================== set literal ===================================
@@ -350,7 +350,7 @@ void set_literal(TExprNode& node, const U& value) {
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
-    requires std::numeric_limits<U>::is_iec559
+    requires(std::numeric_limits<U>::is_iec559 && T != TYPE_TIMEV2)
 void set_literal(TExprNode& node, const U& value) {
     TFloatLiteral floatLiteral;
     floatLiteral.__set_value(value);
@@ -369,9 +369,7 @@ template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
     requires(T == TYPE_TIMEV2)
 void set_literal(TExprNode& node, const U& value) {
     TTimeV2Literal timev2_literal;
-    double v;
-    TimeValue::timev2_to_double_from_str(value.c_str(), v);
-    timev2_literal.__set_value(v);
+    timev2_literal.__set_value(value);
     node.__set_timev2_literal(timev2_literal);
 }
 
@@ -603,13 +601,13 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // timev2
     {
-        VLiteral literal(create_literal<TYPE_TIMEV2, std::string>(std::string("12:00:00.0000"), 4));
+        VLiteral literal(create_literal<TYPE_TIMEV2, double>(12123400, 4));
         Block block;
         int ret = -1;
         EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<Float64>();
-        EXPECT_FLOAT_EQ(v / 1000000, 12 * 60 * 60);
-        EXPECT_EQ("12:00:00.0000", literal.value());
+        EXPECT_FLOAT_EQ(v / 1000000, 12.1234);
+        EXPECT_EQ("00:00:12.1234", literal.value());
     }
 }
