@@ -25,7 +25,7 @@
 #include <type_traits>
 
 #include "arrow/type.h"
-#include "common/consts.h"
+#include "orc/Int128.hh"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
@@ -402,14 +402,23 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
     if constexpr (T == TYPE_DECIMAL256) {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     } else {
+        constexpr bool use_int128 =
+                (sizeof(typename ColumnDecimal<T>::value_type) >= sizeof(Int128));
         auto& col_data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
-        auto* cur_batch = dynamic_cast<
-                std::conditional_t<sizeof(typename ColumnDecimal<T>::value_type) >= sizeof(Int128),
-                                   orc::Decimal128VectorBatch, orc::Decimal64VectorBatch>*>(
-                orc_col_batch);
+        auto* cur_batch =
+                dynamic_cast<std::conditional_t<use_int128, orc::Decimal128VectorBatch,
+                                                orc::Decimal64VectorBatch>*>(orc_col_batch);
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                cur_batch->values[row_id] = col_data[row_id].value;
+                const auto& int_value = col_data[row_id].value;
+                if constexpr (use_int128) {
+                    // orc::Int128 only support construct from two int64_t values
+                    // so we need to split the int128 value into two int64_t values
+                    orc::Int128 value(int_value >> 64, (uint64_t)int_value);
+                    cur_batch->values[row_id] = value;
+                } else {
+                    cur_batch->values[row_id] = int_value;
+                }
             }
         }
         cur_batch->numElements = end - start;
