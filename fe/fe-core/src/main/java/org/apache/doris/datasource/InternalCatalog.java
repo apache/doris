@@ -1086,6 +1086,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = tablet.getReplicaById(info.getReplicaId());
+        if (replica == null) {
+            LOG.warn("skip table {}, unprotectUpdateReplica {}", olapTable.getName(), info);
+            return;
+        }
         Preconditions.checkNotNull(replica, info);
         replica.updateVersionWithFailed(info.getVersion(), info.getLastFailedVersion(),
                 info.getLastSuccessVersion());
