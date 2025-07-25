@@ -314,7 +314,6 @@ DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
-DEFINE_mInt32(fetch_rpc_timeout_seconds, "30");
 
 // default thrift client retry interval (in milliseconds)
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
@@ -1997,6 +1996,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
+    fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
+            ((distribution(*generator) % 2) == 0) ? "5" : "10";
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

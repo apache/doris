@@ -5398,7 +5398,9 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
-            Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
+            AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+            manager.removeTableStats(table.getId());
+            manager.dropStats(table, null);
         }
     }
 
@@ -5426,6 +5428,7 @@ public class Env {
 
         Database db = getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(tableId);
         table.writeLock();
         try {
             renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, true);
@@ -6010,6 +6013,12 @@ public class Env {
             // In previous versions(before 2.1.8), there is no catalog info in TruncateTableInfo,
             // So if the catalog info is empty, we assume it's internal table.
             getInternalCatalog().replayTruncateTable(info);
+            if (info.isEntireTable()) {
+                Env.getCurrentEnv().getAnalysisManager().removeTableStats(info.getTblId());
+            } else {
+                Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(info.getUpdateRecords(),
+                        info.getDbId(), info.getTblId(), 0);
+            }
         } else {
             ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
             if (ctl != null) {
