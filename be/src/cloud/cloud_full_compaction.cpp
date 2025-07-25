@@ -370,6 +370,20 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
                 pre_rowset_ids_to_segment_num, _input_rowsets.front()->start_version(),
                 _input_rowsets.back()->end_version(), delete_bitmap.get());
     }
+    auto storage_resource_optional = _output_rowset->rowset_meta()->remote_storage_resource();
+    if (!storage_resource_optional) {
+        LOG(WARNING) << "invalid storage resource when full compaction. tablet_id="
+                     << _tablet->tablet_id()
+                     << ", rowset_id=" << _output_rowset->rowset_id().to_string()
+                     << ", version=" << _output_rowset->version().to_string();
+    }
+    auto storage_resource_optional = _output_rowset->rowset_meta()->remote_storage_resource();
+    if (!storage_resource_optional) {
+        LOG(WARNING) << "invalid storage resource when full compaction. tablet_id="
+                     << _tablet->tablet_id()
+                     << ", rowset_id=" << _output_rowset->rowset_id().to_string()
+                     << ", version=" << _output_rowset->version().to_string();
+    }
     auto storage_resource = *DORIS_TRY(_output_rowset->rowset_meta()->remote_storage_resource());
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *cloud_tablet(), -1, initiator, delete_bitmap.get(),
