@@ -1279,6 +1279,6 @@ public class DateTimeExtractAndTransform {
         }
         int daysToSubtract = (date.getDayOfWeek() - dayOfWeek + 7) % 7;
         daysToSubtract = daysToSubtract == 0 ? 7 : daysToSubtract;
-        return date.minusDays(daysToSubtract);
+        return date.plusDays(-daysToSubtract);
     }
 }
