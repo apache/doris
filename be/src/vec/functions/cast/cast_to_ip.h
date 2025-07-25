@@ -109,19 +109,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename OtherType::ColumnType>(
-                block.get_by_position(arguments[0]).column.get());
-        const auto size = col_from->size();
-        auto col_to = DataTypeIPv4::ColumnType::create(size);
-        auto& to_data = col_to->get_data();
-        const auto& from_data = col_from->get_data();
-
-        for (size_t i = 0; i < size; ++i) {
-            to_data[i] = static_cast<IPv4>(from_data[i]);
-        }
-
-        block.get_by_position(result).column = std::move(col_to);
-        return Status::OK();
+        return Status::InternalError("Cast from {} to IPv4 is not supported",
+                                     type_to_string(OtherType::PType));
     }
 };
 
@@ -131,17 +120,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename OtherType::ColumnType>(
-                block.get_by_position(arguments[0]).column.get());
-        const auto size = col_from->size();
-        auto col_to = DataTypeIPv6::ColumnType::create(size);
-        auto& to_data = col_to->get_data();
-        const auto& from_data = col_from->get_data();
-        for (size_t i = 0; i < size; ++i) {
-            to_data[i] = static_cast<IPv6>(from_data[i]);
-        }
-        block.get_by_position(result).column = std::move(col_to);
-        return Status::OK();
+        return Status::InternalError("Cast from {} to IPv6 is not supported",
+                                     type_to_string(OtherType::PType));
     }
 };
 
