@@ -617,6 +617,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         // So dont need to sync it.
         if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
             tablet->tablet_state() == TABLET_RUNNING) {
+            DeleteBitmapPtr delete_bitmap_backup;
+            bool check_delete_bitmap = config::delete_bitmap_store_version == 2 &&
+                                       config::enable_delete_bitmap_store_v2_check_correctness &&
+                                       !resp.rowset_meta().empty();
+            if (check_delete_bitmap) {
+                delete_bitmap_backup =
+                        std::make_shared<DeleteBitmap>(tablet->tablet_meta()->delete_bitmap());
+            }
             DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
                             DBUG_BLOCK);
             DeleteBitmap delete_bitmap(tablet_id);
@@ -708,10 +716,9 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         .tag("new_rowsets(rowset,count,cardinality)",
                              fmt::format("[{}]", fmt::join(new_rowset_msgs, ", ")));
             }
-            if (config::delete_bitmap_store_version == 2 &&
-                config::enable_delete_bitmap_store_v2_check_correctness &&
-                !resp.rowset_meta().empty()) {
-                DeleteBitmap full_delete_bitmap(tablet_id);
+            if (check_delete_bitmap) {
+                int64_t new_max_version =
+                        std::max(old_max_version, resp.rowset_meta().rbegin()->end_version());
                 // rowset_id, num_segments
                 std::vector<std::pair<RowsetId, int64_t>> all_rowsets;
                 std::map<std::string, std::string> rowset_to_resource;
@@ -731,24 +738,19 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                 rowset->rowset_meta()->resource_id();
                     }
                 }
-                auto status = sync_tablet_delete_bitmap_v2(
-                        tablet, -1, resp.rowset_meta(), resp.stats(), req.idx(),
-                        &full_delete_bitmap, false, nullptr, rowset_to_resource, true);
-                if (!status.ok()) {
-                    LOG_WARNING("failed to check delete bitmap correctness")
-                            .tag("tablet", tablet->tablet_id())
-                            .error(status);
-                } else {
-                    int64_t new_max_version =
-                            std::max(old_max_version, resp.rowset_meta().rbegin()->end_version());
+
+                auto compare_delete_bitmap = [&](DeleteBitmap* delete_bitmap, int version) {
+                    bool success = true;
                     for (auto& [rs_id, num_segments] : all_rowsets) {
                         for (int seg_id = 0; seg_id < num_segments; ++seg_id) {
                             DeleteBitmap::BitmapKey key = {rs_id, seg_id, new_max_version};
                             auto dm1 = tablet->tablet_meta()->delete_bitmap().get_agg(key);
-                            auto dm2 = full_delete_bitmap.get_agg_without_cache(key);
+                            auto dm2 = delete_bitmap->get_agg_without_cache(key);
                             if (*dm1 != *dm2) {
-                                LOG(WARNING) << "check delete bitmap correctness failed. tablet_id="
-                                             << tablet->tablet_id()
+                                success = false;
+                                LOG(WARNING) << "failed to check delete bitmap correctness by v"
+                                             << std::to_string(version)
+                                             << ", tablet_id=" << tablet->tablet_id()
                                              << ", rowset_id=" << rs_id.to_string()
                                              << ", segment_id=" << seg_id
                                              << ", max_version=" << new_max_version
@@ -757,6 +759,39 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                             }
                         }
                     }
+                    if (success) {
+                        LOG(INFO) << "succeed to check delete bitmap correctness by v"
+                                  << std::to_string(version)
+                                  << ", tablet_id=" << tablet->tablet_id()
+                                  << ", max_version=" << new_max_version;
+                    }
+                };
+
+                // check v2 delete bitmap in ms
+                DeleteBitmap full_delete_bitmap(tablet_id);
+                auto status = sync_tablet_delete_bitmap_v2(
+                        tablet, -1, resp.rowset_meta(), resp.stats(), req.idx(),
+                        &full_delete_bitmap, false, nullptr, rowset_to_resource, true);
+                if (!status.ok()) {
+                    LOG_WARNING("failed to check delete bitmap correctness by v2")
+                            .tag("tablet", tablet->tablet_id())
+                            .error(status);
+                } else {
+                    compare_delete_bitmap(&full_delete_bitmap, 2);
+                }
+
+                // get v1 delete bitmap
+                DeleteBitmap v1_delete_bitmap(tablet_id);
+                status = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
+                                                   resp.stats(), req.idx(), &v1_delete_bitmap,
+                                                   false, nullptr, 1);
+                if (!status.ok()) {
+                    LOG_WARNING("failed to check delete bitmap correctness by v1")
+                            .tag("tablet", tablet->tablet_id())
+                            .error(status);
+                } else {
+                    delete_bitmap_backup->merge(v1_delete_bitmap);
+                    compare_delete_bitmap(delete_bitmap_backup.get(), 1);
                 }
             }
         }
@@ -923,12 +958,12 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
                                                std::ranges::range auto&& rs_metas,
                                                const TabletStatsPB& stats, const TabletIndexPB& idx,
                                                DeleteBitmap* delete_bitmap, bool full_sync,
-                                               SyncRowsetStats* sync_stats) {
+                                               SyncRowsetStats* sync_stats, int version) {
     if (rs_metas.empty()) {
         return Status::OK();
     }
 
-    if (config::delete_bitmap_store_version == 2) {
+    if (version == 2) {
         return sync_tablet_delete_bitmap_v2(tablet, old_max_version, rs_metas, stats, idx,
                                             delete_bitmap, full_sync, sync_stats);
     }

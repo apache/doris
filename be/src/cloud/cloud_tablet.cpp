@@ -1151,12 +1151,6 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
                      << tablet_id() << ", rowset_id=" << output_rowset->rowset_id().to_string()
                      << ", version=" << output_rowset->version().to_string();
     }
-    auto storage_resource_optional = output_rowset->rowset_meta()->remote_storage_resource();
-    if (!storage_resource_optional) {
-        LOG(WARNING) << "invalid storage resource when cal delete bitmap for compaction. tablet_id="
-                     << tablet_id() << ", rowset_id=" << output_rowset->rowset_id().to_string()
-                     << ", version=" << output_rowset->version().to_string();
-    }
     auto storage_resource = *DORIS_TRY(output_rowset->rowset_meta()->remote_storage_resource());
     auto st = _engine.meta_mgr().update_delete_bitmap(
             *this, -1, initiator, output_rowset_delete_bitmap.get(), delete_bitmap_v2.get(),

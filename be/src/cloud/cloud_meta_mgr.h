@@ -25,6 +25,7 @@
 #include <variant>
 #include <vector>
 
+#include "cloud/config.h"
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_meta.h"
@@ -135,7 +136,8 @@ private:
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
-                                     bool full_sync = false, SyncRowsetStats* sync_stats = nullptr);
+                                     bool full_sync = false, SyncRowsetStats* sync_stats = nullptr,
+                                     int version = config::delete_bitmap_store_version);
     Status sync_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t old_max_version,
                                         std::ranges::range auto&& rs_metas,
                                         const TabletStatsPB& stats, const TabletIndexPB& idx,
