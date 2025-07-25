@@ -1325,8 +1325,7 @@ public:
 private:
     static bool is_ipv4_mapped(const UInt8* address) {
         return (LittleEndian::Load64(address + 8) == 0) &&
-               ((LittleEndian::Load64(address) & 0xFFFFFFFF00000000ULL) ==
-                0x0000FFFF00000000ULL);
+               ((LittleEndian::Load64(address) & 0xFFFFFFFF00000000ULL) == 0x0000FFFF00000000ULL);
     }
 
     static void cut_address(unsigned char* address, char*& dst, UInt8 zeroed_tail_bytes_count) {
