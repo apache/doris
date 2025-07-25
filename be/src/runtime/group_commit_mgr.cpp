@@ -398,13 +398,15 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                                                    RuntimeState* state) {
     Status st;
     Status result_status;
-    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
-                    { status = Status::InternalError(""); });
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status", {
+        status = Status::InternalError("LoadBlockQueue._finish_group_commit_load.err_status");
+    });
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.load_error",
                     { status = Status::InternalError("load_error"); });
     if (status.ok()) {
-        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error",
-                        { status = Status::InternalError(""); });
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error", {
+            status = Status::InternalError("LoadBlockQueue._finish_group_commit_load.commit_error");
+        });
         // commit txn
         TLoadTxnCommitRequest request;
         request.__set_auth_code(0); // this is a fake, fe not check it now
@@ -479,8 +481,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     // status: exec_plan_fragment result
     // st: commit txn rpc status
     // result_status: commit txn result
-    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_st",
-                    { st = Status::InternalError(""); });
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_st", {
+        st = Status::InternalError("LoadBlockQueue._finish_group_commit_load.err_st");
+    });
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         if (!config::group_commit_wait_replay_wal_finish) {
