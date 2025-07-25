@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctionParams;
 
 import org.jetbrains.annotations.Nullable;
