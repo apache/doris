@@ -38,6 +38,11 @@ public class CumeDist extends WindowFunction implements AlwaysNotNullable, LeafE
         super("cume_dist");
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CumeDist(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(FunctionSignature.ret(DoubleType.INSTANCE).args());
@@ -50,8 +55,8 @@ public class CumeDist extends WindowFunction implements AlwaysNotNullable, LeafE
 
     @Override
     public CumeDist withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0);
-        return new CumeDist();
+        Preconditions.checkArgument(children.isEmpty());
+        return new CumeDist(getFunctionParams(children));
     }
 
     @Override

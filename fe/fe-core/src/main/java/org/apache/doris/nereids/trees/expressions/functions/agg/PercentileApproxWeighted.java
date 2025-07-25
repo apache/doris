@@ -82,6 +82,11 @@ public class PercentileApproxWeighted extends NullableAggregateFunction
         super("percentile_approx_weighted", distinct, alwaysNullable, arg0, arg1, arg2, arg3);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private PercentileApproxWeighted(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(2).isConstant()) {
@@ -101,27 +106,14 @@ public class PercentileApproxWeighted extends NullableAggregateFunction
      * withDistinctAndChildren.
      */
     @Override
-    public PercentileApproxWeighted withDistinctAndChildren(boolean distinct,
-            List<Expression> children) {
+    public PercentileApproxWeighted withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3 || children.size() == 4);
-        if (children.size() == 3) {
-            return new PercentileApproxWeighted(distinct, alwaysNullable, children.get(0),
-                    children.get(1), children.get(2));
-        } else {
-            return new PercentileApproxWeighted(distinct, alwaysNullable, children.get(0),
-                    children.get(1), children.get(2), children.get(3));
-        }
+        return new PercentileApproxWeighted(getFunctionParams(distinct, children));
     }
 
     @Override
     public PercentileApproxWeighted withAlwaysNullable(boolean alwaysNullable) {
-        if (children.size() == 3) {
-            return new PercentileApproxWeighted(distinct, alwaysNullable, children.get(0),
-                    children.get(1), children.get(2));
-        } else {
-            return new PercentileApproxWeighted(distinct, alwaysNullable, children.get(0),
-                    children.get(1), children.get(2), children.get(3));
-        }
+        return new PercentileApproxWeighted(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

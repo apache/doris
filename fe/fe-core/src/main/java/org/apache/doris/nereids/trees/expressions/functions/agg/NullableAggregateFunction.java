@@ -30,6 +30,7 @@ import java.util.Objects;
  */
 public abstract class NullableAggregateFunction extends AggregateFunction implements
         PropagateNullable, AlwaysNullable {
+
     protected final boolean alwaysNullable;
 
     protected NullableAggregateFunction(String name, boolean distinct, boolean alwaysNullable,
@@ -53,9 +54,43 @@ public abstract class NullableAggregateFunction extends AggregateFunction implem
         this.alwaysNullable = alwaysNullable;
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected NullableAggregateFunction(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.alwaysNullable = functionParams.alwaysNullable;
+    }
+
     @Override
     public boolean nullable() {
         return alwaysNullable ? AlwaysNullable.super.nullable() : PropagateNullable.super.nullable();
+    }
+
+    @Override
+    public NullableAggregateFunctionParams getFunctionParams(List<Expression> arguments) {
+        return new NullableAggregateFunctionParams(
+                this, getName(), isDistinct(), isSkew(), alwaysNullable, arguments, isInferred()
+        );
+    }
+
+    @Override
+    public NullableAggregateFunctionParams getFunctionParams(boolean isDistinct, List<Expression> arguments) {
+        return new NullableAggregateFunctionParams(
+                this, getName(), isDistinct, isSkew(), alwaysNullable, arguments, isInferred()
+        );
+    }
+
+    @Override
+    public NullableAggregateFunctionParams getFunctionParams(
+            boolean isDistinct, boolean isSkew, List<Expression> arguments) {
+        return new NullableAggregateFunctionParams(
+                this, getName(), isDistinct, isSkew, alwaysNullable, arguments, isInferred()
+        );
+    }
+
+    public NullableAggregateFunctionParams getAlwaysNullableFunctionParams(boolean alwaysNullable) {
+        return new NullableAggregateFunctionParams(
+                this, getName(), isDistinct(), isSkew(), alwaysNullable, children, isInferred()
+        );
     }
 
     public boolean isAlwaysNullable() {

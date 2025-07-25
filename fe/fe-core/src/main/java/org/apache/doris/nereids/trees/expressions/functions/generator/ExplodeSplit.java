@@ -46,13 +46,18 @@ public class ExplodeSplit extends TableGeneratingFunction implements BinaryExpre
         super("explode_split", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeSplit(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeSplit withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ExplodeSplit(children.get(0), children.get(1));
+        return new ExplodeSplit(getFunctionParams(children));
     }
 
     @Override

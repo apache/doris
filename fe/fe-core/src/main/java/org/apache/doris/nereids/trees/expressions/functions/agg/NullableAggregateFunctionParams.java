@@ -18,27 +18,26 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctionParams;
 
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-/** AggregateFunctionParams */
-public class AggregateFunctionParams extends ScalarFunctionParams {
-    public final boolean isDistinct;
-    public final boolean isSkew;
+/** NullableAggregateFunctionParams */
+public class NullableAggregateFunctionParams extends AggregateFunctionParams {
+    public final boolean alwaysNullable;
 
-    public AggregateFunctionParams(
-            String functionName, boolean isDistinct, boolean isSkew, List<Expression> arguments) {
-        this(null, functionName, isDistinct, isSkew, arguments, false);
+    public NullableAggregateFunctionParams(
+            String functionName, boolean isDistinct, boolean isSkew,
+            boolean alwaysNullable, List<Expression> arguments) {
+        super(functionName, isDistinct, isSkew, arguments);
+        this.alwaysNullable = alwaysNullable;
     }
 
-    public AggregateFunctionParams(@Nullable AggregateFunction previousFunction, String functionName,
-            boolean isDistinct, boolean isSkew, List<Expression> arguments, boolean inferred) {
-        super(previousFunction, functionName, arguments, inferred);
-        this.isDistinct = isDistinct;
-        this.isSkew = isSkew;
+    public NullableAggregateFunctionParams(
+            @Nullable AggregateFunction previousFunction, String functionName,
+            boolean isDistinct, boolean isSkew, boolean alwaysNullable, List<Expression> arguments, boolean inferred) {
+        super(previousFunction, functionName, isDistinct, isSkew, arguments, inferred);
+        this.alwaysNullable = alwaysNullable;
     }
 }

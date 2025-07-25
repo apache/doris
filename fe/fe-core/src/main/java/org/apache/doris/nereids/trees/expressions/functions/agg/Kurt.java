@@ -58,13 +58,18 @@ public class Kurt extends AggregateFunction
         super("kurt", distinct, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Kurt(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public Kurt withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Kurt(distinct, children.get(0));
+        return new Kurt(getFunctionParams(distinct, children));
     }
 
     @Override

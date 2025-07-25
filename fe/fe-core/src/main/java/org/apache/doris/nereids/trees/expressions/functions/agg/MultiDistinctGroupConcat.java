@@ -79,6 +79,13 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
         this.nonOrderArguments = findOrderExprIndex(children);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected MultiDistinctGroupConcat(boolean mustUseMultiDistinctAgg, NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
+        this.nonOrderArguments = findOrderExprIndex(children);
+    }
+
     @Override
     public boolean nullable() {
         return alwaysNullable || children().stream()
@@ -87,7 +94,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
 
     @Override
     public MultiDistinctGroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
+        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     /**
@@ -95,7 +102,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
      */
     @Override
     public MultiDistinctGroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
+        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, getFunctionParams(distinct, children));
     }
 
     @Override

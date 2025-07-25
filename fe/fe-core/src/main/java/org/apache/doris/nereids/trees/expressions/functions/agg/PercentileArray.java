@@ -75,6 +75,11 @@ public class PercentileArray extends NotNullableAggregateFunction
         super("percentile_array", distinct, arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private PercentileArray(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant()) {
@@ -89,7 +94,7 @@ public class PercentileArray extends NotNullableAggregateFunction
     @Override
     public PercentileArray withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PercentileArray(distinct, children.get(0), children.get(1));
+        return new PercentileArray(getFunctionParams(distinct, children));
     }
 
     @Override
