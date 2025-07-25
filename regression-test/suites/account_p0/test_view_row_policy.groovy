@@ -63,6 +63,7 @@ suite("test_view_row_policy") {
     // create user
     sql "DROP USER IF EXISTS ${user}"
     sql "CREATE USER ${user} IDENTIFIED BY '${pwd}'"
+    sql """grant select_priv on regression_test to ${user}"""
     sql "GRANT SELECT_PRIV ON internal.${dbName}.* TO ${user}"
 
     sql 'sync'
