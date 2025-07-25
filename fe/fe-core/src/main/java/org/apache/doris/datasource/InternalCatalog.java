@@ -3559,7 +3559,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
         OlapTable copiedTbl;
 
-        boolean truncateEntireTable = partitionNames == null;
+        boolean truncateEntireTable = partitionNames == null || partitionNames.isStar();
 
         Database db = (Database) getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
@@ -3741,11 +3741,17 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // replace
             oldPartitions = truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
+            if (truncateEntireTable) {
+                Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
+            } else {
+                Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(
+                        updateRecords, db.getId(), olapTable.getId(), 0);
+            }
 
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                            newPartitions, truncateEntireTable, rawTruncateSql, oldPartitions);
+                            newPartitions, truncateEntireTable, rawTruncateSql, oldPartitions, updateRecords);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
@@ -3759,7 +3765,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         erasePartitionDropBackendReplicas(oldPartitions);
 
         Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNames);
-        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords, db.getId(), olapTable.getId(), 0);
         LOG.info("finished to truncate table {}.{}, partitions: {}", dbName, tableName, partitionNames);
     }
 

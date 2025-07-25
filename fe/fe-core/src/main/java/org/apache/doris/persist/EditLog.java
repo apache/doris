@@ -18,6 +18,7 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
@@ -929,6 +930,10 @@ public class EditLog {
                             break;
                         case SCHEMA_CHANGE:
                             env.getSchemaChangeHandler().replayAlterJobV2(alterJob);
+                            if (alterJob.getJobState().equals(JobState.FINISHED)) {
+                                AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+                                manager.removeTableStats(alterJob.getTableId());
+                            }
                             break;
                         default:
                             break;

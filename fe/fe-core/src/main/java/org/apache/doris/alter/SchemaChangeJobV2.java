@@ -51,6 +51,7 @@ import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -709,7 +710,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
-        Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
+        AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+        manager.removeTableStats(tbl.getId());
+        manager.dropStats(tbl, null);
     }
 
     private void onFinished(OlapTable tbl) {
