@@ -70,7 +70,12 @@ run() {
 
     # start minio docker to run case test_rountine_load
     sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
-    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c minio; then echo; else echo "ERROR: start minio docker failed"; fi
+    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c minio ||
+        bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c minio; then
+        echo "INFO: start minio docker success"
+    else
+        echo "ERROR: start minio docker twice failed" && return 1
+    fi
 
     # used to set up HDFS docker
     docker_compose_hdfs_yaml='
