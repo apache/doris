@@ -15,14 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-/*
 // Open after implementing the where in mv function
 suite ("nereids_k123p") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS d_table; """
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO;"
+
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
 
     sql """
             create table d_table(
@@ -40,8 +42,8 @@ suite ("nereids_k123p") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("""create materialized view k123p1w as select k1,k2+k3 from d_table where k1 = 1;""")
-    createMV ("""create materialized view k123p4w as select k1,k2+k3 from d_table where k4 = "b";""")
+    create_sync_mv(db, "d_table", "k123p1w","""select k1,k2+k3 from d_table where k1 = 1;""")
+    create_sync_mv (db, "d_table", "k123p4w","""select k1,k2+k3 from d_table where k4 = "b";""")
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 2,2,2,'b';"
@@ -49,48 +51,26 @@ suite ("nereids_k123p") {
 
     qt_select_star "select * from d_table order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;", ["k123p1w", "k123p4w"])
     qt_select_mv "select k1,k2+k3 from d_table order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k1 = 1 order by k1;")
-        contains "(k123p1w)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = 1 order by k1;", "k123p1w")
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 1 order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k1 = 2 order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k1 = 2 order by k1;", ["k123p1w", "k123p4w"])
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 2 order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k1 = '1' order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
     qt_select_mv "select k1,k2+k3 from d_table where k1 = '1' order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k4 = 'b' order by k1;")
-        contains "(k123p4w)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'b' order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k4 = 'a' order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k4 = 'a' order by k1;", ["k123p1w", "k123p4w"])
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'a' order by k1;"
 
-    explain {
-        sql("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""")
-        contains "(k123p4w)"
-    }
+    mv_rewrite_success("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
     qt_select_mv """select k1,k2+k3 from d_table where k1 = 2 and k4 = "b" order by k1;"""
 
     qt_select_mv_constant """select bitmap_empty() from d_table where true;"""
 }
-*/
