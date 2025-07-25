@@ -284,6 +284,17 @@ public class PlanChecker {
         return this;
     }
 
+    public NereidsPlanner plan(String sql) {
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
+        LogicalPlanAdapter parsedPlanAdaptor = new LogicalPlanAdapter(parsedPlan, statementContext);
+        statementContext.setParsedStatement(parsedPlanAdaptor);
+        planner.plan(parsedPlanAdaptor);
+        return planner;
+    }
+
     public PlanChecker dpHypOptimize() {
         double now = System.currentTimeMillis();
         cascadesContext.getStatementContext().setDpHyp(true);
