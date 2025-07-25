@@ -18,20 +18,26 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -211,7 +217,50 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
-        // don't propagate uniform slots
+        final Optional<ExpressionRewriteContext> context = ConnectContext.get() == null ? Optional.empty()
+                : Optional.of(new ExpressionRewriteContext(CascadesContext.initContext(
+                        ConnectContext.get().getStatementContext(), this, PhysicalProperties.ANY)));
+        for (int i = 0; i < getOutputs().size(); i++) {
+            Optional<Literal> value = Optional.empty();
+            if (!constantExprsList.isEmpty()) {
+                value = ExpressionUtils.checkConstantExpr(constantExprsList.get(0).get(i), context);
+                if (!value.isPresent()) {
+                    continue;
+                }
+                final int fi = i;
+                Literal literal = value.get();
+                if (constantExprsList.stream()
+                        .map(exprs -> ExpressionUtils.checkConstantExpr(exprs.get(fi), context))
+                        .anyMatch(val -> !val.isPresent() || !val.get().equals(literal))) {
+                    continue;
+                }
+            }
+            for (int childIdx = 0; childIdx < children.size(); childIdx++) {
+                // TODO: use originOutputs = child(childIdx).getOutput() ?
+                List<? extends Slot> originOutputs = regularChildrenOutputs.get(childIdx);
+                Slot slot = originOutputs.get(i);
+                Optional<Expression> childValue = child(childIdx).getLogicalProperties()
+                        .getTrait().getUniformValue(slot);
+                if (childValue == null || !childValue.isPresent() || !childValue.get().isConstant()) {
+                    value = Optional.empty();
+                    break;
+                }
+                Optional<Literal> constExprOpt = ExpressionUtils.checkConstantExpr(childValue.get(), context);
+                if (!constExprOpt.isPresent()) {
+                    value = Optional.empty();
+                    break;
+                }
+                if (!value.isPresent()) {
+                    value = constExprOpt;
+                } else if (!value.equals(constExprOpt)) {
+                    value = Optional.empty();
+                    break;
+                }
+            }
+            if (value.isPresent()) {
+                builder.addUniformSlotAndLiteral(getOutputs().get(i).toSlot(), value.get());
+            }
+        }
     }
 
     @Override

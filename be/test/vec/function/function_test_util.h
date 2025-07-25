@@ -46,6 +46,8 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_hll.h"
@@ -277,22 +279,22 @@ struct Consted {
     When you need scale in and scale out(like, DatetimeV2 to DatetimeV2), you need:
         InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 3}}; // input scale
         ...
-        check_function<DataTypeDateTimeV2, true, 3>(func_name, input_types, data_set); // output scale
+        check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 3); // output scale
      IF YOU FORGET TO SET THE SCALE, THE MICROSECOND WILL NOT BE TESTED. we can't force to check it because Field doesn't
      keep the scale. So if the scale doesn't match, 
     And for Decimal input or output, you need:
         {{...}, DECIMAL64(1653395696, 789, 3)} // an output example
      because every Decimal type already set its precision. so scale in enough.
     For Decimal output, you need sepecific output's scale and precision:
-        check_function<DataTypeDecimal<Decimal64>, true, 6, 9>(func_name, input_types, data_set);
+        check_function<DataTypeDecimal<Decimal64>, true>(func_name, input_types, data_set, 6, 9);
 */
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
-template <typename ResultType, bool ResultNullable = false, int ResultScale = -1,
-          int ResultPrecision = -1, bool datetime_is_string_format = true>
+template <typename ResultType, bool ResultNullable = false, bool datetime_is_string_format = true>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
-                      const DataSet& data_set, bool expect_execute_fail = false,
-                      bool expect_result_ne = false, bool is_strict_mode = false) {
+                      const DataSet& data_set, int result_scale = -1, int result_precision = -1,
+                      bool expect_execute_fail = false, bool expect_result_ne = false,
+                      bool is_strict_mode = false) {
     TestCaseInfo::arg_size = static_cast<int>(input_types.size());
     TestCaseInfo::func_call_index++;
     // 1.0 create data type
@@ -339,14 +341,19 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     }
 
     // 2. execute function
-    auto return_type = []() {
-        if constexpr (ResultPrecision != -1) { // decimal
-            return ResultNullable ? make_nullable(std::make_shared<ResultType>(ResultPrecision,
-                                                                               ResultScale))
-                                  : std::make_shared<ResultType>(ResultPrecision, ResultScale);
-        } else if constexpr (ResultScale != -1) { // datetimev2
-            return ResultNullable ? make_nullable(std::make_shared<ResultType>(ResultScale))
-                                  : std::make_shared<ResultType>(ResultScale);
+    auto return_type = [&]() {
+        if constexpr (IsDataTypeDecimal<ResultType>) { // decimal
+            return ResultNullable ? make_nullable(std::make_shared<ResultType>(result_precision,
+                                                                               result_scale))
+                                  : std::make_shared<ResultType>(result_precision, result_scale);
+        } else if constexpr (IsDataTypeDateTimeV2<ResultType> ||
+                             IsTimeV2Type<ResultType>) { // datetimev2 or timev2
+            UInt32 real_scale = 0;
+            if (result_scale != -1) {
+                real_scale = static_cast<UInt32>(result_scale);
+            }
+            return ResultNullable ? make_nullable(std::make_shared<ResultType>(real_scale))
+                                  : std::make_shared<ResultType>(real_scale);
         } else {
             return ResultNullable ? make_nullable(std::make_shared<ResultType>())
                                   : std::make_shared<ResultType>();
@@ -357,8 +364,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     assert(func.get() != nullptr);
 
     // this may be useless now. for some type like array, it's wrong. TODO: need more details explainations
-    auto fn_ctx_return = get_return_type_descriptor<ResultType>(std::max(0, ResultScale),
-                                                                std::max(0, ResultPrecision));
+    auto fn_ctx_return = get_return_type_descriptor<ResultType>(std::max(0, result_scale),
+                                                                std::max(0, result_precision));
 
     FunctionUtils fn_utils(fn_ctx_return, arg_types, is_strict_mode);
     auto* fn_ctx = fn_utils.get_fn_ctx();
@@ -382,14 +389,19 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 3.0. create expected result column in block
     DataTypePtr result_type_ptr;
-    if constexpr (ResultPrecision != -1) { // decimal
-        result_type_ptr =
-                ResultNullable
-                        ? make_nullable(std::make_shared<ResultType>(ResultPrecision, ResultScale))
-                        : std::make_shared<ResultType>(ResultPrecision, ResultScale);
-    } else if constexpr (ResultScale != -1) { // datetimev2
-        result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>(ResultScale))
-                                         : std::make_shared<ResultType>(ResultScale);
+    if constexpr (IsDataTypeDecimal<ResultType>) { // decimal
+        result_type_ptr = ResultNullable
+                                  ? make_nullable(std::make_shared<ResultType>(result_precision,
+                                                                               result_scale))
+                                  : std::make_shared<ResultType>(result_precision, result_scale);
+    } else if constexpr (IsDataTypeDateTimeV2<ResultType> ||
+                         IsTimeV2Type<ResultType>) { // datetimev2
+        UInt32 real_scale = 0;
+        if (result_scale != -1) {
+            real_scale = static_cast<UInt32>(result_scale);
+        }
+        result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>(real_scale))
+                                         : std::make_shared<ResultType>(real_scale);
     } else {
         result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>())
                                          : std::make_shared<ResultType>();
@@ -466,8 +478,8 @@ void check_function_all_arg_comb(const std::string& func_name, const InputTypeSe
                 DataSet tmp_set {line};
                 // check_function_all_arg_comb is ONE call. adding here and minuing in check_function to make it consistent.
                 TestCaseInfo::func_call_index--;
-                static_cast<void>(check_function<ReturnType, nullable>(func_name, input_types,
-                                                                       tmp_set, false));
+                static_cast<void>(
+                        check_function<ReturnType, nullable>(func_name, input_types, tmp_set));
             }
         } else {
             TestCaseInfo::func_call_index--;

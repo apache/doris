@@ -45,7 +45,7 @@ public class ShowAnalyzeTaskStatus extends ShowStmt implements NotFallbackInPars
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");

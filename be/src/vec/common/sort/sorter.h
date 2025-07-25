@@ -84,7 +84,7 @@ public:
     std::unique_ptr<Block>& unsorted_block() { return _unsorted_block; }
 
 private:
-    Status _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
+    void _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
 
     std::unique_ptr<Block> _unsorted_block;
     MergeSorterQueue _queue;

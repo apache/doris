@@ -39,15 +39,15 @@ TEST_F(FunctionCastToDecimalTest, test_to_decimal256_from_float) {
         (*ofs_const_case) << "    sql \"set enable_decimal256 = true;\"\n";
         (*ofs_case) << "    sql \"set enable_decimal256 = true;\"\n";
     }
-    from_float_double_test_func<TYPE_FLOAT, Decimal256, 76, 0>(
-            table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
-            ofs_const_expected_result);
-    from_float_double_test_func<TYPE_FLOAT, Decimal256, 76, 38>(
-            table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
-            ofs_const_expected_result);
-    from_float_double_test_func<TYPE_FLOAT, Decimal256, 76, 75>(
-            table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
-            ofs_const_expected_result);
+    from_float_double_test_func<TYPE_FLOAT, Decimal256>(76, 0, table_index++, test_data_index,
+                                                        ofs_case, ofs_expected_result,
+                                                        ofs_const_case, ofs_const_expected_result);
+    from_float_double_test_func<TYPE_FLOAT, Decimal256>(76, 38, table_index++, test_data_index,
+                                                        ofs_case, ofs_expected_result,
+                                                        ofs_const_case, ofs_const_expected_result);
+    from_float_double_test_func<TYPE_FLOAT, Decimal256>(76, 75, table_index++, test_data_index,
+                                                        ofs_case, ofs_expected_result,
+                                                        ofs_const_case, ofs_const_expected_result);
     if (FLAGS_gen_regression_case) {
         (*ofs_const_case) << "}";
         (*ofs_case) << "}";

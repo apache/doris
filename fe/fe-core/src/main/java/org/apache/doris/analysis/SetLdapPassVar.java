@@ -37,7 +37,7 @@ public class SetLdapPassVar extends SetVar {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                     PrivPredicate.ADMIN.getPrivs().toString());
