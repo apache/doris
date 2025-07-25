@@ -73,6 +73,8 @@ suite("check_hash_bucket_table") {
                 sql "set use_fix_replica=-1;"
             }
             logger.info("""===== [check] Finish to check table partition: ${db}.${tblName}, partitionName: ${partitionName}, replica num: ${replicaNum}, bucket num: ${bucketNum}, bucket columns: ${bucketColsStr}""")
+        } catch (AssertionError e) {
+            throw e
         } catch (Throwable e) {
             logger.info("===== [check] catch exception, table: ${db}.${tblName}, partition name: ${partitionName}, e=${e}")
         }
