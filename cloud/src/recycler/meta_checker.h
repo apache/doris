@@ -33,10 +33,22 @@ namespace doris::cloud {
 class TxnKv;
 
 struct StatInfo {
+    // fe
     int64_t check_fe_tablet_num = 0;
+    int64_t check_fe_partition_num = 0;
+    int64_t check_fe_tablet_schema_num = 0;
+    // fdb
     int64_t check_fdb_tablet_idx_num = 0;
     int64_t check_fdb_tablet_meta_num = 0;
     int64_t check_fdb_partition_version_num = 0;
+};
+
+enum CHECK_TYPE {
+    CHECK_TXN,
+    CHECK_VERSION,
+    CHECK_META,
+    CHECK_STATS,
+    CHECK_JOB,
 };
 
 class MetaChecker {
@@ -46,6 +58,17 @@ public:
                   const std::string& password, const std::string& instance_id, std::string& msg);
     bool check_fe_meta_by_fdb(MYSQL* conn);
     bool check_fdb_by_fe_meta(MYSQL* conn);
+
+    template <CHECK_TYPE>
+    bool handle_check_fe_meta_by_fdb(MYSQL* conn);
+
+private:
+    bool scan_and_handle_kv(std::string& start_key, const std::string& end_key,
+                            std::function<int(std::string_view, std::string_view)>);
+
+    bool do_meta_tablet_index_check(MYSQL* conn);
+
+    bool do_meta_tablet_check(MYSQL* conn);
 
 private:
     std::shared_ptr<TxnKv> txn_kv_;
