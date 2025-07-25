@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_view_row_policy") {
-    String suiteName = "test_version_info_mtmv"
+    String suiteName = "test_view_row_policy"
     String dbName = context.config.getDbNameByFile(context.file)
     String tableName = "${suiteName}_table"
     String viewName = "${suiteName}_view"
@@ -25,11 +25,6 @@ suite("test_view_row_policy") {
     String viewPolcyName = "${suiteName}_view_policy"
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
-    def isCloudMode = {
-        def ret = sql_return_maparray  """show backends"""
-        ret.Tag[0].contains("cloud_cluster_name")
-    }
-    def cloudMode = isCloudMode.call()
 
     sql "DROP ROW POLICY IF EXISTS ${tablePolcyName} ON ${dbName}.${tableName} FOR ${user}"
     sql "DROP ROW POLICY IF EXISTS ${viewPolcyName} ON ${dbName}.${viewName} FOR ${user}"
@@ -62,11 +57,11 @@ suite("test_view_row_policy") {
     sql 'sync'
 
     //cloud-mode
-    if (cloudMode) {
+    if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     // no policy
