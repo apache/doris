@@ -157,7 +157,8 @@ private:
                        bool need_wait_after_quorum_success);
 
     bool _quorum_success(
-            const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams);
+            const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams,
+            const std::unordered_set<int64_t>& need_finish_tablets);
 
     int _load_required_replicas_num(int64_t tablet_id);
 
@@ -245,6 +246,7 @@ private:
 
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_node;
 
     std::shared_ptr<LoadStreamMap> _load_stream_map;
 
@@ -256,8 +258,6 @@ private:
 
     // tablet_id -> <total replicas num, load required replicas num>
     std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
-    std::mutex _write_tablets_lock;
-    std::unordered_set<int64_t> _write_tablets;
 };
 
 } // namespace vectorized
