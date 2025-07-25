@@ -116,12 +116,6 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_DECIMAL64;
     case PrimitiveType::TYPE_DECIMAL128I:
         return FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
-    case PrimitiveType::TYPE_DECIMAL256:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL256;
-    case PrimitiveType::TYPE_IPV4:
-        return FieldType::OLAP_FIELD_TYPE_IPV4;
-    case PrimitiveType::TYPE_IPV6:
-        return FieldType::OLAP_FIELD_TYPE_IPV6;
     case PrimitiveType::TYPE_JSONB:
         return FieldType::OLAP_FIELD_TYPE_JSONB;
     case PrimitiveType::TYPE_VARIANT:
