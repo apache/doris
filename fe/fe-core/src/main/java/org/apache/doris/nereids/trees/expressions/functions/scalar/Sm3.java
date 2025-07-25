@@ -49,13 +49,18 @@ public class Sm3 extends ScalarFunction
         super("sm3", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sm3(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sm3 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sm3(children.get(0));
+        return new Sm3(getFunctionParams(children));
     }
 
     @Override

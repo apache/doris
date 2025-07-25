@@ -25,9 +25,8 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.Utils;
-
-import com.google.common.base.Suppliers;
 
 import java.util.List;
 import java.util.Objects;
@@ -37,16 +36,11 @@ import java.util.stream.Collectors;
 
 /** BoundFunction. */
 public abstract class BoundFunction extends Function implements ComputeSignature {
-
-    private final Supplier<FunctionSignature> signatureCache = Suppliers.memoize(() -> {
-        // first step: find the candidate signature in the signature list
-        FunctionSignature matchedSignature = searchSignature(getSignatures());
-        // second step: change the signature, e.g. fill precision for decimal v2
-        return computeSignature(matchedSignature);
-    });
+    private final Supplier<FunctionSignature> signatureCache;
 
     public BoundFunction(String name, Expression... arguments) {
         super(name, arguments);
+        this.signatureCache = buildSignatureCache(null);
     }
 
     public BoundFunction(String name, List<Expression> children) {
@@ -55,6 +49,12 @@ public abstract class BoundFunction extends Function implements ComputeSignature
 
     public BoundFunction(String name, List<Expression> children, boolean inferred) {
         super(name, children, inferred);
+        this.signatureCache = buildSignatureCache(null);
+    }
+
+    public BoundFunction(FunctionParams functionParams) {
+        super(functionParams.functionName, functionParams.arguments, functionParams.inferred);
+        this.signatureCache = buildSignatureCache(functionParams.getOriginSignature());
     }
 
     @Override
@@ -107,6 +107,16 @@ public abstract class BoundFunction extends Function implements ComputeSignature
         return getName() + "(" + args + ")";
     }
 
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        throw new UnsupportedOperationException(
+                "Please implement withChildren by create new function with FunctionParams");
+    }
+
+    protected FunctionParams getFunctionParams(List<Expression> arguments) {
+        return new FunctionParams(this, getName(), arguments, isInferred());
+    }
+
     /**
      * checkOrderExprIsValid.
      */
@@ -117,6 +127,20 @@ public abstract class BoundFunction extends Function implements ComputeSignature
                 throw new AnalysisException(
                         String.format("%s doesn't support order by expression", getName()));
             }
+        }
+    }
+
+    private Supplier<FunctionSignature> buildSignatureCache(FunctionSignature specifiedSignature) {
+        if (specifiedSignature != null) {
+            // use specifiedSignature to make ensure idempotency of computed signatures
+            return LazyCompute.ofInstance(specifiedSignature);
+        } else {
+            return LazyCompute.of(() -> {
+                // first step: find the candidate signature in the signature list
+                FunctionSignature matchedSignature = searchSignature(getSignatures());
+                // second step: change the signature, e.g. fill precision for decimal v2
+                return computeSignature(matchedSignature);
+            });
         }
     }
 }

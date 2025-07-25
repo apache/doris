@@ -80,6 +80,11 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     }
 
     @Override
+    public AggregateFunctionParams getFunctionParams(List<Expression> arguments) {
+        return new AggregateFunctionParams(this, getName(), isDistinct(), arguments, isInferred());
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

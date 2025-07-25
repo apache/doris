@@ -50,6 +50,11 @@ public class CreateMap extends ScalarFunction
         super("map", varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CreateMap(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public DataType getDataType() {
         if (arity() >= 2) {
@@ -86,7 +91,7 @@ public class CreateMap extends ScalarFunction
      */
     @Override
     public CreateMap withChildren(List<Expression> children) {
-        return new CreateMap(children.toArray(new Expression[0]));
+        return new CreateMap(getFunctionParams(children));
     }
 
     @Override
