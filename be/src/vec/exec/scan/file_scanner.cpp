@@ -376,7 +376,8 @@ Status FileScanner::open(RuntimeState* state) {
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
         if (_state->query_options().enable_runtime_filter_partition_prune &&
-            !_partition_slot_index_map.empty()) {
+            (!_partition_slot_index_map.empty() ||
+             _current_range.__isset.data_lake_partition_values)) {
             _init_runtime_filter_partition_prune_ctxs();
             _init_runtime_filter_partition_prune_block();
         }
@@ -917,6 +918,7 @@ Status FileScanner::_get_next_reader() {
 
         // try to get the partition columns from the range
         RETURN_IF_ERROR(_generate_partition_columns());
+        // try to get the data lake partition columns from the range
         RETURN_IF_ERROR(_generate_data_lake_partition_columns());
 
         const auto& partition_col_descs = !_partition_col_descs.empty()
