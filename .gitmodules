@@ -23,9 +23,9 @@
 	branch = orc
 [submodule "doris-faiss"]
 	path = contrib/faiss
-	url = git@github.com:zhiqiang-hhhh/doris-thirdparty.git
+	url = git@github.com:apache/doris-thirdparty.git
 	branch = faiss
 [submodule "doris-openblas"]
 	path = contrib/openblas
-	url = git@github.com:zhiqiang-hhhh/doris-thirdparty.git
+	url = git@github.com:apache/doris-thirdparty.git
 	branch = openblas
