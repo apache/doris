@@ -117,7 +117,6 @@
 #include "util/uid_util.h"
 #include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/topn_sorter.h"
-#include "vec/functions/llm/functions_llm.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/spill/spill_stream.h"
 

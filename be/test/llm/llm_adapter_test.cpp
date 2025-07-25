@@ -388,4 +388,100 @@ TEST(LLM_ADAPTER_TEST, adapter_type_names) {
     ASSERT_EQ(anthropic.get_type(), "anthropic");
 }
 
+TEST(LLM_ADAPTER_TEST, unsupported_provider_type) {
+    TLLMResource config;
+    config.provider_type = "not_exist";
+    auto adapter = doris::vectorized::LLMAdapterFactory::create_adapter(config.provider_type);
+    ASSERT_EQ(adapter, nullptr);
+}
+
+TEST(LLM_ADAPTER_TEST, adapter_factory_all_types) {
+    std::vector<std::string> types = {"LOCAL", "OPENAI", "MOONSHOT", "DEEPSEEK",  "MINIMAX",
+                                      "ZHIPU", "QWEN",   "BAICHUAN", "ANTHROPIC", "GEMINI"};
+    for (const auto& type : types) {
+        auto adapter = doris::vectorized::LLMAdapterFactory::create_adapter(type);
+        ASSERT_TRUE(adapter != nullptr) << "Adapter not found for type: " << type;
+    }
+}
+
+TEST(LLM_ADAPTER_TEST, local_adapter_parse_response_parse_error) {
+    LocalAdapter adapter;
+    std::string resp = "not a json";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, parse_response_wrong_type) {
+    LocalAdapter adapter;
+    // response field is not a string
+    std::string resp = R"({"response":123})";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
+    OpenAIAdapter adapter;
+    // message field missing
+    std::string resp = R"({"choices":[{}]})";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+
+    // content field is not a string
+    resp = R"({"choices":[{"message":{"content":123}}]})";
+    results.clear();
+    st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, openai_adapter_parse_response_parse_error) {
+    OpenAIAdapter adapter;
+    std::string resp = "not a json";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, openai_adapter_parse_response_choices_not_array) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({"choices":123})";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, gemini_adapter_parse_response_parse_error) {
+    GeminiAdapter adapter;
+    std::string resp = "not a json";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, gemini_parse_response_missing_candidates) {
+    GeminiAdapter adapter;
+    std::string resp = R"({"foo":"bar"})";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, anthropic_adapter_parse_response_parse_error) {
+    AnthropicAdapter adapter;
+    std::string resp = "not a json";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, anthropic_adapter_parse_response_content_not_array) {
+    AnthropicAdapter adapter;
+    std::string resp = R"({"content":123})";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+}
+
 } // namespace doris::vectorized

@@ -20,6 +20,7 @@
 #include <string>
 
 #include "testutil/column_helper.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -36,7 +37,7 @@
 
 namespace doris::vectorized {
 
-TEST(BuildPromptTest, LLMSummarizeTest) {
+TEST(LLMFunctionTest, LLMSummarizeTest) {
     FunctionLLMSummarize function;
 
     std::vector<std::string> resources = {"resource_name"};
@@ -57,7 +58,7 @@ TEST(BuildPromptTest, LLMSummarizeTest) {
     ASSERT_EQ(prompt, "This is a test document that needs to be summarized.");
 }
 
-TEST(BuildPromptTest, LLMSentimentTest) {
+TEST(LLMFunctionTest, LLMSentimentTest) {
     FunctionLLMSentiment function;
 
     std::vector<std::string> resources = {"resource_name"};
@@ -78,7 +79,7 @@ TEST(BuildPromptTest, LLMSentimentTest) {
     ASSERT_EQ(prompt, "I really enjoyed the doris community!");
 }
 
-TEST(BuildPromptTest, LLMMaskTest) {
+TEST(LLMFunctionTest, LLMMaskTest) {
     FunctionLLMMask function;
 
     std::vector<std::string> resources = {"resource_name"};
@@ -119,7 +120,7 @@ TEST(BuildPromptTest, LLMMaskTest) {
               "Text: My email is rarity@example.com and my phone is 123-456-7890");
 }
 
-TEST(BuildPromptTest, LLMGenerateTest) {
+TEST(LLMFunctionTest, LLMGenerateTest) {
     FunctionLLMGenerate function;
 
     std::vector<std::string> resources = {"resource_name"};
@@ -140,7 +141,7 @@ TEST(BuildPromptTest, LLMGenerateTest) {
     ASSERT_EQ(prompt, "Write a poem about spring");
 }
 
-TEST(BuildPromptTest, LLMFixGrammarTest) {
+TEST(LLMFunctionTest, LLMFixGrammarTest) {
     FunctionLLMFixGrammar function;
 
     std::vector<std::string> resources = {"resource_name"};
@@ -161,7 +162,7 @@ TEST(BuildPromptTest, LLMFixGrammarTest) {
     ASSERT_EQ(prompt, "She don't like apples");
 }
 
-TEST(BuildPromptTest, LLMExtractTest) {
+TEST(LLMFunctionTest, LLMExtractTest) {
     FunctionLLMExtract function;
 
     std::vector<std::string> resources = {"resource_name"};
@@ -201,7 +202,7 @@ TEST(BuildPromptTest, LLMExtractTest) {
               "Text: John Smith was born on January 15, 1980");
 }
 
-TEST(BuildPromptTest, LLMClassifyTest) {
+TEST(LLMFunctionTest, LLMClassifyTest) {
     FunctionLLMClassify function;
 
     std::vector<std::string> resources = {"resource_name"};
@@ -241,7 +242,7 @@ TEST(BuildPromptTest, LLMClassifyTest) {
               "Text: This product exceeded my expectations");
 }
 
-TEST(BuildPromptTest, LLMTranslateTest) {
+TEST(LLMFunctionTest, LLMTranslateTest) {
     FunctionLLMTranslate function;
 
     std::vector<std::string> resources = {"resource_name"};
@@ -265,6 +266,31 @@ TEST(BuildPromptTest, LLMTranslateTest) {
     ASSERT_EQ(prompt,
               "Translate the following text to Spanish.\n"
               "Text: Hello world");
+}
+
+TEST(LLMFunctionTest, ResourceNotFound) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"not_exist_resource"};
+    std::vector<std::string> texts = {"test"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto sentiment_func = FunctionLLMSentiment::create();
+    Status exec_status =
+            sentiment_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_FALSE(exec_status.ok());
+    ASSERT_TRUE(exec_status.to_string().find("LLM resource not found") != std::string::npos);
 }
 
 } // namespace doris::vectorized
