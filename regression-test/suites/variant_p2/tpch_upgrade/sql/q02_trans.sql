@@ -1,0 +1,42 @@
+-- TABLES: part,SUPPLIER,partsupp,NATION,REGION
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
+  CAST(SS.var["S_ACCTBAL"] AS DOUBLE),
+  CAST(SS.var["S_NAME"] AS TEXT),
+  CAST(NN.var["N_NAME"] AS TEXT),
+  CAST(PP.var["P_PARTKEY"] AS INT),
+  CAST(PP.var["P_MFGR"] AS TEXT),
+  CAST(SS.var["S_ADDRESS"] AS TEXT),
+  CAST(SS.var["S_PHONE"] AS TEXT),
+  CAST(SS.var["S_COMMENT"] AS TEXT)
+FROM
+  part PP,
+  supplier SS,
+  partsupp PSPS,
+  nation NN,
+  region RR
+WHERE
+  CAST(PP.var["P_PARTKEY"] AS INT) = CAST(PSPS.var["PS_PARTKEY"] AS INT)
+  AND CAST(SS.var["S_SUPPKEY"] AS INT) = CAST(PSPS.var["PS_SUPPKEY"] AS INT)
+  AND CAST(PP.var["P_SIZE"] AS INT) = 15
+  AND CAST(PP.var["P_TYPE"] AS TEXT) LIKE '%BRASS'
+  AND CAST(SS.var["S_NATIONKEY"] AS INT) = CAST(NN.var["N_NATIONKEY"] AS INT)
+  AND CAST(NN.var["N_REGIONKEY"] AS INT) = CAST(RR.var["R_REGIONKEY"] AS INT)
+  AND CAST(RR.var["R_NAME"] AS TEXT) = 'EUROPE'
+  AND CAST(PSPS.var["PS_SUPPLYCOST"] AS DOUBLE) >= (
+    SELECT MIN(CAST(PS.var["PS_SUPPLYCOST"] AS DOUBLE))
+    FROM
+      partsupp PS, supplier S, part P,
+      nation N, region R
+    WHERE
+      CAST(P.var["P_PARTKEY"] AS INT) = CAST(PS.var["PS_PARTKEY"] AS INT)
+      AND CAST(S.var["S_SUPPKEY"] AS INT) = CAST(PS.var["PS_SUPPKEY"] AS INT)
+      AND CAST(S.var["S_NATIONKEY"] AS INT) = CAST(N.var["N_NATIONKEY"] AS INT)
+      AND CAST(N.var["N_REGIONKEY"] AS INT) = CAST(R.var["R_REGIONKEY"] AS INT)
+      AND CAST(R.var["R_NAME"] AS TEXT) = 'EUROPE'
+  )
+ORDER BY
+  CAST(SS.var["S_ACCTBAL"] AS DOUBLE) DESC,
+  CAST(NN.var["N_NAME"] AS TEXT),
+  CAST(SS.var["S_NAME"] AS TEXT),
+  CAST(PP.var["P_PARTKEY"] AS INT)
+LIMIT 100
