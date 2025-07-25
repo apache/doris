@@ -83,19 +83,7 @@ public class CreateIndexOp extends AlterTableOp {
         if (tableName != null) {
             tableName.analyze(ctx);
         }
-        DatabaseIf<Table> db = Env.getCurrentEnv().getCatalogMgr().getInternalCatalog()
-                .getDb(tableName.getDb()).orElse(null);
-        if (db == null) {
-            throw new AnalysisException("Database[" + tableName.getDb() + "] is not exist");
-        }
 
-        TableIf table = db.getTable(tableName.getTbl()).orElse(null);
-        if (table == null) {
-            throw new AnalysisException("Table[" + tableName.getTbl() + "] is not exist");
-        }
-        if (!(table instanceof OlapTable)) {
-            throw new AnalysisException("Only olap table support create index");
-        }
         if (indexDef.getIndexType() == IndexDef.IndexType.ANN) {
             throw new AnalysisException(
                 "ANN index can only be created during table creation, not through CREATE INDEX.");

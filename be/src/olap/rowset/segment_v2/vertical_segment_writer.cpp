@@ -228,6 +228,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         opts.need_inverted_index = true;
         DCHECK(_index_file_writer != nullptr);
         opts.index_file_writer = _index_file_writer;
+        // TODO support multiple inverted index
     }
 
     if (const auto& index = tablet_schema->ann_index(column); index != nullptr) {

@@ -43,7 +43,6 @@ public:
     OlapScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {

@@ -161,7 +161,6 @@ Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
-
     _open_finished = true;
     return Status::OK();
 }

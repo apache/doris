@@ -47,6 +47,7 @@ public:
     virtual bool is_fulltext_index() { return false; }
     virtual bool is_string_index() { return false; }
     virtual bool is_bkd_index() { return false; }
+
     virtual bool is_support_phrase() { return false; }
 };
 using IndexReaderPtr = std::shared_ptr<IndexReader>;

@@ -131,10 +131,6 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             }
         }
     }
-
-    if (_index_file_writer == nullptr) {
-        LOG_INFO("Semgnet {} does not have index file writer", segment_id);
-    }
 }
 
 SegmentWriter::~SegmentWriter() {
@@ -1043,7 +1039,7 @@ Status SegmentWriter::finalize_columns_data() {
     _num_rows_written = 0;
 
     for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->finish()); //给索引收尾
+        RETURN_IF_ERROR(column_writer->finish());
     }
     RETURN_IF_ERROR(_write_data());
 

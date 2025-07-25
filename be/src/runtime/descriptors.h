@@ -42,7 +42,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/exprs/vexpr_fwd.h"
 namespace google::protobuf {
 template <typename Element>
 class RepeatedField;

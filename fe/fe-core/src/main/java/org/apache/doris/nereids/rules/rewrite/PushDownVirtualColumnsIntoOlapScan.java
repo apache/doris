@@ -35,9 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsLargeInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsSmallInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -61,8 +59,7 @@ import java.util.Set;
 /**
  * Extract virtual columns from filter and push down them into olap scan.
  * This rule can extract:
- * 1. Distance functions like L2DistanceApproximate and InnerProductApproximate
- * 2. Common repeated sub-expressions across multiple conjuncts to eliminate redundant computation
+ * 1. Common repeated sub-expressions across multiple conjuncts to eliminate redundant computation
  *
  * Example transformation:
  * Before:

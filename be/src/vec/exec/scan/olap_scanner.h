@@ -68,7 +68,7 @@ public:
         int64_t version;
         TabletReader::ReadSource read_source;
         int64_t limit;
-        bool is_pre_aggregation;
+        bool aggregation;
     };
 
     OlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);
@@ -93,8 +93,8 @@ private:
                                       const pipeline::FilterPredicates& filter_predicates,
                                       const std::vector<FunctionFilter>& function_filters);
 
-    Status _init_return_columns();
-    Status _init_variant_columns();
+    [[nodiscard]] Status _init_return_columns();
+    [[nodiscard]] Status _init_variant_columns();
 
     std::vector<OlapScanRange*> _key_ranges;
 

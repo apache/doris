@@ -17,8 +17,6 @@
 
 #include "operator.h"
 
-#include <thrift/protocol/TDebugProtocol.h>
-
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/aggregation_sink_operator.h"

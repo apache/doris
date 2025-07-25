@@ -647,8 +647,6 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         entry->second->add_slot(slot_d);
     }
 
-    // vectorized::write_to_json("/mnt/disk4/hezhiqiang/workspace/doris/cmaster/RELEASE/be1",
-    //                           fmt::format("{}.json", pool->size()), thrift_tbl);
     return Status::OK();
 }
 

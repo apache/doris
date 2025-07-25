@@ -937,10 +937,6 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
     auto data = *(data_ptr + 2);
     auto nested_null_map = *(data_ptr + 3);
-    LOG_INFO(
-            "ArrayColumnWriter, element_cnt: {}, num_rows {}, need_inverted_index {}, "
-            "need_ann_index {}",
-            element_cnt, num_rows, _opts.need_inverted_index, _opts.need_ann_index);
     if (element_cnt > 0) {
         RETURN_IF_ERROR(_item_writer->append(reinterpret_cast<const uint8_t*>(nested_null_map),
                                              reinterpret_cast<const void*>(data), element_cnt));
@@ -948,7 +944,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 
     if (_opts.need_inverted_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
-        // Only support scalar as nested type
+        // now only support nested type is scala
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
             RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
@@ -959,7 +955,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 
     if (_opts.need_ann_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
-        // Only support scalar as nested type
+        // now only support nested type is scala
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
             RETURN_IF_ERROR(_ann_index_builder->add_array_values(

@@ -372,7 +372,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
@@ -1869,10 +1868,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRtrimIn(RtrimIn rtrimIn, C context) {
         return visitScalarFunction(rtrimIn, context);
-    }
-
-    default R visitScore(Score score, C context) {
-        return visitScalarFunction(score, context);
     }
 
     default R visitSecond(Second second, C context) {

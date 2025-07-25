@@ -157,7 +157,7 @@ public:
     void add_sub_column(TabletColumn& sub_column);
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
-    MOCK_FUNCTION const TabletColumn& get_sub_column(uint32_t i) const { return *_sub_columns[i]; }
+    MOCK_FUNCTION const TabletColumn& get_sub_column(uint64_t i) const { return *_sub_columns[i]; }
     const std::vector<TabletColumnPtr>& get_sub_columns() const { return _sub_columns; }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);

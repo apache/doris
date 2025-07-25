@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
+#include <cstdint>
+
 #include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
@@ -51,7 +53,7 @@ struct RowsetReaderContext {
     // filter_block arguments
     vectorized::VExprContextSPtrs filter_block_conjuncts;
     // projection columns: the set of columns rowset reader should return
-    const std::vector<ColumnId>* return_columns = nullptr;
+    const std::vector<uint32_t>* return_columns = nullptr;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
@@ -84,6 +86,7 @@ struct RowsetReaderContext {
     // slots that cast may be eliminated in storage layer
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
     int64_t ttl_seconds = 0;
+
     std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;

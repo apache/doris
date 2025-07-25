@@ -114,6 +114,7 @@ bool VSlotRef::equals(const VExpr& other) {
         return false;
     }
     if (this->_slot_id != other_ptr->_slot_id || this->_column_id != other_ptr->_column_id ||
+        this->_column_name != other_ptr->_column_name ||
         this->_column_label != other_ptr->_column_label) {
         return false;
     }

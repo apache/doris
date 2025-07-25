@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/exception.h"
+#include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/ann_index_writer.h"
 
 #ifdef __clang__
@@ -52,12 +53,14 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
+#include "runtime/exec_env.h"
 #include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/slice.h"

@@ -83,9 +83,9 @@ struct LocalStateInfo {
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
-    const int task_idx = 0;
+    const int task_idx;
     RuntimeProfile* parent_profile = nullptr;
-    const int sender_id = 0;
+    const int sender_id;
     BasicSharedState* shared_state;
     const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
                                   std::vector<std::shared_ptr<Dependency>>>>& shared_state_map;
@@ -834,14 +834,11 @@ public:
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
-            LOG_INFO("Operator {}, node_id {}, output_tuple_id {}", this->_op_name, tnode.node_id,
-                     tnode.output_tuple_id);
             _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
+            _output_row_descriptor = std::make_unique<RowDescriptor>(
+                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
         }
         if (!tnode.intermediate_output_tuple_id_list.empty()) {
-            LOG_INFO("Operator {}, node_id {}, intermediate_output_tuple_id_list: [{}]",
-                     this->_op_name, tnode.node_id,
-                     fmt::join(tnode.intermediate_output_tuple_id_list, ","));
             // common subexpression elimination
             _intermediate_output_row_descriptor.reserve(
                     tnode.intermediate_output_tuple_id_list.size());

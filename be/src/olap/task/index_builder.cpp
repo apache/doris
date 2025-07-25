@@ -357,11 +357,10 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     InvertedIndexDescriptor::get_index_file_path_prefix(local_segment_path(
                             _tablet->tablet_path(), output_rowset_meta->rowset_id().to_string(),
                             seg_ptr->id()))};
-
+            std::vector<ColumnId> return_columns;
             std::vector<std::pair<int64_t, int64_t>> inverted_index_writer_signs;
             _olap_data_convertor->reserve(_alter_inverted_indexes.size());
             std::unique_ptr<IndexFileWriter> index_file_writer = nullptr;
-
             if (output_rowset_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
                 auto idx_file_reader_iter = _index_file_readers.find(
@@ -393,7 +392,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
                         seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format());
             }
-            std::vector<ColumnId> return_columns;
             // create inverted index writer
             for (auto inverted_index : _alter_inverted_indexes) {
                 DCHECK_EQ(inverted_index.columns.size(), 1);

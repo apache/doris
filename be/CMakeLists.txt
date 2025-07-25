@@ -180,8 +180,6 @@ endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
-option(BUILD_FAISS "Link doris with faiss for vector similarity search" ON)
-message(STATUS "build faiss: ${BUILD_FAISS}")
 
 include (cmake/thirdparty.cmake)
 
@@ -291,7 +289,6 @@ add_compile_options(-g
 
 add_compile_options(-Wno-unused-parameter
                     -Wno-deprecated-declarations
-                    -Wno-self-assign-field
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
