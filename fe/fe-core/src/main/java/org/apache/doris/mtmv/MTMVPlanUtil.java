@@ -100,7 +100,9 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
         // Disable add default limit rule to avoid refresh data wrong
         ctx.getSessionVariable().setDisableNereidsRules(
-                String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
+                String.join(",", ImmutableSet.of(
+                        "ELIMINATE_CONST_JOIN_CONDITION",
+                        RuleType.ADD_DEFAULT_LIMIT.name())));
         ctx.setStartTime();
         if (parentContext != null) {
             ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
