@@ -19,6 +19,8 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include "rocksdb/rate_limiter.h"
+
 namespace doris {
 
 enum class ReaderType : uint8_t {
@@ -59,6 +61,14 @@ struct FileCacheStatistics {
     int64_t inverted_index_remote_io_timer = 0;
     int64_t inverted_index_io_timer = 0;
 };
+
+using RateLimiterRef = std::shared_ptr<rocksdb::RateLimiter>;
+// !fix: need to check rate_bytes_per_sec and refill_period_us
+const RateLimiterRef rate_limiter =
+        std::shared_ptr<rocksdb::RateLimiter>(rocksdb::NewGenericRateLimiter(
+                10 * 1024 * 1024 /* rate_bytes_per_sec */, 100 * 1000 /* refill_period_us */,
+                10 /* fairness */, rocksdb::RateLimiter::Mode::kAllIo /* mode */,
+                true /* auto_tuned */));
 
 struct IOContext {
     ReaderType reader_type = ReaderType::UNKNOWN;
