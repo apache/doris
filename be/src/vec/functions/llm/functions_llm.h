@@ -27,40 +27,13 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "http/http_client.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_state.h"
 #include "util/threadpool.h"
 #include "vec/functions/function.h"
 #include "vec/functions/llm/llm_adapter.h"
 
 namespace doris::vectorized {
-// Used to receive LLM Resource in the fragment
-class LLMFunctionUtil {
-public:
-    LLMFunctionUtil(const LLMFunctionUtil&) = delete;
-    LLMFunctionUtil& operator=(const LLMFunctionUtil&) = delete;
-
-    static LLMFunctionUtil& instance() {
-        static LLMFunctionUtil util;
-        return util;
-    }
-
-    void prepare(std::map<std::string, TLLMResource> llm_resources) {
-        _llm_resources = std::move(llm_resources);
-    }
-
-    const TLLMResource& get_llm_resource(const std::string& resource_name) const {
-        auto it = _llm_resources.find(resource_name);
-        if (it != _llm_resources.end()) {
-            return it->second;
-        }
-        throw Status::InternalError("LLM resource not found: " + resource_name);
-    }
-
-private:
-    std::map<std::string, TLLMResource> _llm_resources;
-    LLMFunctionUtil() = default;
-    ~LLMFunctionUtil() = default;
-};
-
 // Base class for LLM-based functions
 template <typename Derived>
 class LLMFunction : public IFunction {
@@ -79,12 +52,20 @@ public:
     }
 
     // The llm resource must be literal
-    Status init_from_resource(const Block& block, const ColumnNumbers& arguments, size_t row_num) {
+    Status init_from_resource(FunctionContext* context, const Block& block,
+                              const ColumnNumbers& arguments, size_t row_num) {
         // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         StringRef resource_name_ref = resource_column.column->get_data_at(row_num);
         std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
-        _config = LLMFunctionUtil::instance().get_llm_resource(resource_name);
+
+        const std::map<std::string, TLLMResource>& llm_resources =
+                context->state()->get_query_ctx()->get_llm_resources();
+        auto it = llm_resources.find(resource_name);
+        if (it == llm_resources.end()) {
+            throw Status::InternalError("LLM resource not found: " + resource_name);
+        }
+        _config = it->second;
 
         // 2. Create an adapter based on provider_type
         _adapter = LLMAdapterFactory::create_adapter(_config.provider_type);
@@ -169,7 +150,7 @@ public:
         std::vector<RowResult> results(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             Status submit_status =
-                    thread_pool->submit_func([this, i, &block, &arguments, &results]() {
+                    thread_pool->submit_func([&context, this, i, &block, &arguments, &results]() {
                         RowResult& row_result = results[i];
 
                         try {
@@ -180,7 +161,7 @@ public:
                             // 2. Init LLM resources and adapters
                             if (status.ok()) {
                                 status = const_cast<Derived*>(assert_cast<const Derived*>(this))
-                                                 ->init_from_resource(block, arguments, i);
+                                                 ->init_from_resource(context, block, arguments, i);
                             }
 
                             if (!status.ok()) {
