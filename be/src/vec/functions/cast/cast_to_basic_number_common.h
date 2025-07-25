@@ -370,6 +370,8 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
                 CastToFloat::from_bool(vec_from[i], vec_to[i], params);
             } else if constexpr (IsDataTypeInt<FromDataType>) {
                 CastToFloat::from_int(vec_from[i], vec_to[i], params);
+            } else if constexpr (IsDataTypeFloat<FromDataType>) {
+                CastToFloat::from_float(vec_from[i], vec_to[i], params);
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
                 CastToFloat::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
                                            vec_to[i], params);
