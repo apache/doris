@@ -77,7 +77,7 @@ suite("test_view_row_policy") {
     }
 
     // no policy
-    connect(user, "${pwd}", context.config.jdbcUrl) {
+    connect(user, "${pwd}", url) {
         order_qt_no_policy "SELECT * FROM ${viewName}"
     }
 
@@ -86,7 +86,7 @@ suite("test_view_row_policy") {
         CREATE ROW POLICY IF NOT EXISTS ${tablePolcyName} ON ${dbName}.${tableName}
         AS RESTRICTIVE TO ${user} USING (k=1)
     """
-    connect(user, "${pwd}", context.config.jdbcUrl) {
+    connect(user, "${pwd}", url) {
         order_qt_table_policy "SELECT * FROM ${viewName}"
     }
 
@@ -95,7 +95,7 @@ suite("test_view_row_policy") {
         CREATE ROW POLICY IF NOT EXISTS ${viewPolcyName} ON ${dbName}.${viewName}
         AS RESTRICTIVE TO ${user} USING (v=2)
     """
-    connect(user, "${pwd}", context.config.jdbcUrl) {
+    connect(user, "${pwd}", url) {
         order_qt_view_policy "SELECT * FROM ${viewName}"
     }
 
