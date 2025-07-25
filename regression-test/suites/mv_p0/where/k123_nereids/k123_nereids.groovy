@@ -21,7 +21,7 @@ suite ("k123p_nereids") {
     sql """ DROP TABLE IF EXISTS d_table; """
     sql """set enable_nereids_planner=true"""
     // Virtual column will make mv rewrite fail, so we disable the rule
-    sql """set disable_nereids_rules='PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN';"""
+    sql "set disable_nereids_rules='CONSTANT_PROPAGATION,PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN'"
     sql """
             create table d_table(
                 k1 int null,

@@ -276,7 +276,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
     }
 
     @Override

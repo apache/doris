@@ -1974,7 +1974,6 @@ public class Env {
 
         dnsCache.start();
 
-        workloadGroupMgr.start();
         workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
         admissionControl.start();

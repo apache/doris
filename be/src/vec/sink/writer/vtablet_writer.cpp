@@ -317,18 +317,24 @@ Status IndexChannel::close_wait(
                     { return Status::TimedOut("injected timeout"); });
     Status status = Status::OK();
     // 1. wait quorum success
-    std::unordered_set<int64_t> write_tablets;
-    for (const auto& [node_id, node_channel] : _node_channels) {
-        auto node_channel_write_tablets = node_channel->write_tablets();
-        write_tablets.insert(node_channel_write_tablets.begin(), node_channel_write_tablets.end());
+    std::unordered_set<int64_t> need_finish_tablets;
+    auto partition_ids = _parent->_tablet_finder->partition_ids();
+    for (const auto& part : _parent->_vpartition->get_partitions()) {
+        if (partition_ids.contains(part->id)) {
+            for (const auto& index : part->indexes) {
+                for (const auto& tablet_id : index.tablets) {
+                    need_finish_tablets.insert(tablet_id);
+                }
+            }
+        }
     }
     while (true) {
         RETURN_IF_ERROR(check_each_node_channel_close(
                 &unfinished_node_channel_ids, node_add_batch_counter_map, writer_stats, status));
-        bool quorum_success = _quorum_success(unfinished_node_channel_ids, write_tablets);
+        bool quorum_success = _quorum_success(unfinished_node_channel_ids, need_finish_tablets);
         if (unfinished_node_channel_ids.empty() || quorum_success) {
             LOG(INFO) << "quorum_success: " << quorum_success
-                      << ", is all unfinished: " << unfinished_node_channel_ids.empty()
+                      << ", is all finished: " << unfinished_node_channel_ids.empty()
                       << ", txn_id: " << _parent->_txn_id
                       << ", load_id: " << print_id(_parent->_load_id);
             break;
@@ -400,28 +406,27 @@ Status IndexChannel::check_each_node_channel_close(
 }
 
 bool IndexChannel::_quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
-                                   const std::unordered_set<int64_t>& write_tablets) {
+                                   const std::unordered_set<int64_t>& need_finish_tablets) {
     if (!config::enable_quorum_success_write) {
         return false;
     }
-    std::unordered_map<int64_t, int64_t> finished_tablets_replica;
+    if (need_finish_tablets.empty()) [[unlikely]] {
+        return false;
+    }
 
     // 1. collect all write tablets and finished tablets
+    std::unordered_map<int64_t, int64_t> finished_tablets_replica;
     for (const auto& [node_id, node_channel] : _node_channels) {
-        auto node_channel_write_tablets = node_channel->write_tablets();
         if (unfinished_node_channel_ids.contains(node_id) || !node_channel->check_status().ok()) {
             continue;
         }
-        for (const auto& tablet_id : node_channel_write_tablets) {
+        for (const auto& tablet_id : _tablets_by_channel[node_id]) {
             finished_tablets_replica[tablet_id]++;
         }
     }
 
     // 2. check if quorum success
-    if (write_tablets.empty()) {
-        return false;
-    }
-    for (const auto& tablet_id : write_tablets) {
+    for (const auto& tablet_id : need_finish_tablets) {
         if (finished_tablets_replica[tablet_id] < _load_required_replicas_num(tablet_id)) {
             return false;
         }
@@ -755,10 +760,6 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     }
     for (auto tablet_id : payload->second) {
         _cur_add_block_request->add_tablet_ids(tablet_id);
-    }
-    {
-        std::lock_guard<std::mutex> l(_write_tablets_lock);
-        _write_tablets.insert(payload->second.begin(), payload->second.end());
     }
     _write_bytes.fetch_add(_cur_mutable_block->bytes());
 

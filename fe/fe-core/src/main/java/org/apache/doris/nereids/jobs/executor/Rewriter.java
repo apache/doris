@@ -50,6 +50,7 @@ import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
@@ -199,7 +200,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 //   such as group by key matching and replaced
                                 //   but we need to do some normalization before subquery unnesting,
                                 //   such as extract common expression.
-                                new ExpressionNormalizationAndOptimization(),
+                                ExpressionNormalizationAndOptimization.FULL_RULE_INSTANCE,
                                 new AvgDistinctToSumDivCount(),
                                 new CountDistinctRewrite(),
                                 new ExtractFilterFromCrossJoin()
@@ -376,6 +377,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalFilter.class, LogicalJoin.class, LogicalSetOperation.class
                         ),
+                        custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
                         // column pruning create new project, so we should use PUSH_DOWN_FILTERS
                         // to change filter-project to project-filter
@@ -392,7 +394,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // in the non-equivalent join condition and turn it into slotReference,
                         // This results in the inability to obtain Cast child information in INFER_PREDICATES,
                         // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
-                        topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                        topDown(
+                                new ProjectOtherJoinConditionForNestedLoopJoin(),
+                                // constant propagation and push down condition may change join conditions empty or not
+                                new ConvertInnerOrCrossJoin())
                     )
                 ),
                 // this rule should invoke after ColumnPruning

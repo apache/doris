@@ -2317,7 +2317,7 @@ public:
         EXPECT_EQ(bitmap->cardinality(), 1);
 
         // Test try_read functionality with non-BKD index (should succeed)
-        uint32_t count = 0;
+        size_t count = 0;
         auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
         status = inverted_index_iterator->try_read_from_inverted_index(
                 "c2", &str_ref, InvertedIndexQueryType::EQUAL_QUERY, &count);
@@ -2755,7 +2755,7 @@ public:
 
         for (auto& test_case : test_cases) {
             // Test try_query path
-            uint32_t count = 0;
+            size_t count = 0;
             auto status = bkd_reader->try_query(&io_ctx, &stats, &runtime_state, "c1",
                                                 &test_case.second, test_case.first, &count);
             EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
@@ -2844,7 +2844,7 @@ public:
         EXPECT_TRUE(status.ok());
 
         // Test try_read_from_inverted_index with non-BKD compatible query
-        uint32_t count = 0;
+        size_t count = 0;
         status = inverted_index_iterator->try_read_from_inverted_index(
                 "c1", &query_value, InvertedIndexQueryType::MATCH_ANY_QUERY, &count);
         EXPECT_TRUE(status.ok()); // Should succeed but not do anything for non-BKD queries
@@ -2987,7 +2987,7 @@ public:
             }
 
             for (auto& test_case : test_cases) {
-                uint32_t count = 0;
+                size_t count = 0;
                 auto status = bkd_reader->try_query(&io_ctx, &stats, &runtime_state, "c_int",
                                                     &test_case.second, test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
