@@ -29,6 +29,10 @@ namespace doris::segment_v2 {
 
 ColumnReaderCache::ColumnReaderCache(Segment* segment) : _segment(segment) {}
 
+ColumnReaderCache::~ColumnReaderCache() {
+    g_segment_column_cache_count << -_cache_map.size();
+}
+
 std::shared_ptr<ColumnReader> ColumnReaderCache::_lookup(const ColumnReaderCacheKey& key) {
     std::lock_guard<std::mutex> lock(_cache_mutex);
     auto it = _cache_map.find(key);
@@ -73,11 +77,13 @@ Status ColumnReaderCache::_insert(const ColumnReaderCacheKey& key, const ColumnR
     g_segment_column_cache_count << 1;
     DCHECK(key.first >= 0) << " col_uid: " << key.first
                            << " relative_path: " << key.second.get_path();
-    VLOG_DEBUG << "insert cache: " << key.first << " " << key.second.get_path()
-               << ", type: " << (int)reader_ptr->get_meta_type();
     _lru_list.push_front(CacheNode {key, reader_ptr, std::chrono::steady_clock::now()});
     _cache_map[key] = _lru_list.begin();
     *column_reader = reader_ptr;
+    VLOG_DEBUG << "insert cache: " << key.first << " " << key.second.get_path()
+               << ", type: " << (int)reader_ptr->get_meta_type()
+               << ", cache_size: " << _cache_map.size() << ", list_size: " << _lru_list.size()
+               << ", cache_map: " << _cache_map.size() << ", lru_list: " << _lru_list.size();
     return Status::OK();
 }
 
@@ -108,7 +114,11 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
         return Status::OK();
     }
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-    RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
+    {
+        std::lock_guard<std::mutex> lock(_cache_mutex);
+        // keep the lock until the footer is loaded, since _get_segment_footer is not thread safe
+        RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
+    }
     // lazy create column reader from footer
     const auto& col_footer_pb = footer_pb_shared->columns(it->second);
     ColumnReaderOptions opts {
@@ -135,8 +145,8 @@ Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
         return Status::OK();
     }
     const SubcolumnColumnMetaInfo::Node* node = node_hint;
+    std::shared_ptr<ColumnReader> variant_column_reader;
     if (node == nullptr) {
-        std::shared_ptr<ColumnReader> variant_column_reader;
         RETURN_IF_ERROR(get_column_reader(col_uid, &variant_column_reader, stats));
         node = variant_column_reader
                        ? static_cast<VariantColumnReader*>(variant_column_reader.get())
@@ -147,7 +157,11 @@ Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
         // lazy create column reader from footer
         DCHECK_GE(node->data.footer_ordinal, 0);
         std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-        RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
+        {
+            std::lock_guard<std::mutex> lock(_cache_mutex);
+            // keep the lock until the footer is loaded, since _get_segment_footer is not thread safe
+            RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
+        }
         const auto& col_footer_pb = footer_pb_shared->columns(node->data.footer_ordinal);
         ColumnReaderOptions opts {
                 .kept_in_memory = _segment->tablet_schema()->is_in_memory(),

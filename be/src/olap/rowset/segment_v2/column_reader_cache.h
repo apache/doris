@@ -41,7 +41,7 @@ struct CacheNode {
 class ColumnReaderCache {
 public:
     explicit ColumnReaderCache(Segment* segment);
-    virtual ~ColumnReaderCache() = default;
+    virtual ~ColumnReaderCache();
     // Get all available readers
     // if include_subcolumns is true, return all available readers, including subcolumn readers
     // otherwise, return only none variant subcolumn readers
