@@ -461,15 +461,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlEncode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.InttoUuid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
@@ -480,10 +478,14 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XpathString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
@@ -1755,9 +1757,9 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(power, context);
     }
 
-	default R visitPreviousDay(PreviousDay previousDay, C context) {
-		return visitScalarFunction(previousDay, context);
-	}
+    default R visitPreviousDay(PreviousDay previousDay, C context) {
+        return visitScalarFunction(previousDay, context);
+    }
 
     default R visitProtocol(Protocol protocol, C context) {
         return visitScalarFunction(protocol, context);
