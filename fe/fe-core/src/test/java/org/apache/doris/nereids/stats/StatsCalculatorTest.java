@@ -314,6 +314,45 @@ public class StatsCalculatorTest {
 
         ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
         Assertions.assertEquals(1, ibStatsOut.getHotValues().size());
+    }
 
+    @Test
+    public void testOuterJoinSkew() {
+        double rowCount = 100;
+        Pair<Expression, ArrayList<SlotReference>>  pair = StatsTestUtil.instance.createExpr("ia = ib");
+        Expression joinCondition = pair.first;
+        SlotReference ia = pair.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, new String[]{"1", "2"});
+
+        SlotReference ib = pair.second.get(1);
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
+                rowCount, "1", "10", 0, new String[]{"2", "3", "4"});
+
+        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE);
+        ColumnStatistic icStats = StatsTestUtil.instance.createColumnStatistic("ic", 10,
+                rowCount, "1", "10", 0, new String[]{"4", "5", "6", "7"});
+
+        LogicalJoin join = new LogicalJoin(JoinType.LEFT_OUTER_JOIN, Lists.newArrayList(joinCondition),
+                new DummyPlan(), new DummyPlan(),
+                JoinReorderContext.EMPTY);
+
+        StatsCalculator calculator = new StatsCalculator(null);
+
+        Statistics leftStats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats, ic, icStats));
+        Statistics rightStats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
+        Statistics outputStats = calculator.computeJoin(join, leftStats, rightStats);
+
+        ColumnStatistic icStatsOut = outputStats.findColumnStatistics(ic);
+        Assertions.assertEquals(4, icStatsOut.getHotValues().size());
+
+        // left outer join,
+        // ia.hotValues:  "2", "3", "4" -> "2", "3", "4"
+        // ib.hotValues: "4", "5" -> "4"
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(2, iaStatsOut.getHotValues().size());
+
+        ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
+        Assertions.assertEquals(1, ibStatsOut.getHotValues().size());
     }
 }
