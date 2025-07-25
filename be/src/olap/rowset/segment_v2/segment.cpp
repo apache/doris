@@ -1026,8 +1026,8 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
         VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is found in cache",
                                   _file_reader->path().native(), _file_reader->size(),
                                   _file_reader->size() - 12);
+        footer_pb_shared = cache_handle.get<std::shared_ptr<SegmentFooterPB>>();
     }
-    footer_pb_shared = cache_handle.get<std::shared_ptr<SegmentFooterPB>>();
     _footer_pb = footer_pb_shared;
     footer_pb = footer_pb_shared;
     return Status::OK();
