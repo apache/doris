@@ -15,11 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+
 suite("check_hash_bucket_table") {
 
-    int dbNum = 0
-    int tableNum = 0
-    int partitionNum = 0
+    AtomicInteger dbNum = new AtomicInteger(0)
+    AtomicInteger tableNum = new AtomicInteger(0)
+    AtomicInteger partitionNum = new AtomicInteger(0)
+    def executor = Executors.newFixedThreadPool(30)
+    def futures = []
+
     def excludedDbs = ["mysql", "information_schema", "__internal_schema"].toSet()
 
     logger.info("===== [check] begin to check hash bucket tables")
@@ -39,20 +46,22 @@ suite("check_hash_bucket_table") {
                 return false
             }
         }
+
+        def bucketColsStr = bucketCols.collect { "`${it}`" }.join(",")
         def partitionName = info["PartitionName"]
         try {
             def tabletIdList = sql_return_maparray(""" show replica status from ${tblName} partition(${partitionName}); """).collect { it.TabletId }.toList()
             def tabletIds = tabletIdList.toSet()
             int replicaNum = tabletIdList.stream().filter { it == tabletIdList[0] }.count()
-            logger.info("""===== [check] Begin to check partition: ${db}.${tblName}, partition name: ${partitionName}, bucket num: ${bucketNum}, replica num: ${replicaNum}, bucket columns: ${bucketColumns}""")
+            logger.info("""===== [check] Begin to check partition: ${db}.${tblName}, partition name: ${partitionName}, bucket num: ${bucketNum}, replica num: ${replicaNum}, bucket columns: ${bucketColsStr}""")
             (0..replicaNum-1).each { replica ->
                 sql "set use_fix_replica=${replica};"
                 tabletIds.each { it2 ->
                     def tabletId = it2
                     try {
-                        def res = sql "select crc32_internal(${bucketColumns}) % ${bucketNum} from ${db}.${tblName} tablet(${tabletId}) group by crc32_internal(${bucketColumns}) % ${bucketNum};"
+                        def res = sql "select crc32_internal(${bucketColsStr}) % ${bucketNum} from ${db}.${tblName} tablet(${tabletId}) group by crc32_internal(${bucketColsStr}) % ${bucketNum};"
                         if (res.size() > 1) {
-                            logger.info("""===== [check] check failed: ${db}.${tblName}, partition name: ${partitionName}, tabletId: ${tabletId}, bucket columns: ${bucketColumns}, res.size()=${res.size()}, res=${res}""")
+                            logger.info("""===== [check] check failed: ${db}.${tblName}, partition name: ${partitionName}, tabletId: ${tabletId}, bucket columns: ${bucketColsStr}, res.size()=${res.size()}, res=${res}""")
                             assert res.size() == 1
                         }
                     } catch (AssertionError e) {
@@ -63,7 +72,7 @@ suite("check_hash_bucket_table") {
                 }
                 sql "set use_fix_replica=-1;"
             }
-            logger.info("""===== [check] Finish to check table partition: ${db}.${tblName}, partitionName: ${partitionName}, replica num: ${replicaNum}, bucket num: ${bucketNum}, bucket columns: ${bucketColumns}""")
+            logger.info("""===== [check] Finish to check table partition: ${db}.${tblName}, partitionName: ${partitionName}, replica num: ${replicaNum}, bucket num: ${bucketNum}, bucket columns: ${bucketColsStr}""")
         } catch (Throwable e) {
             logger.info("===== [check] catch exception, table: ${db}.${tblName}, partition name: ${partitionName}, e=${e}")
         }
@@ -81,34 +90,36 @@ suite("check_hash_bucket_table") {
             }
         }
         logger.info("""===== [check] Finish to check table: ${db}.${tblName}""")
-        partitionNum += checkedPartition
+        partitionNum.addAndGet(checkedPartition)
         return checkedPartition > 0
     }
 
     def checkDb = { String db ->
         sql "use ${db};"
+        dbNum.incrementAndGet()
         def tables = sql("show full tables").stream().filter{ it[1] == "BASE TABLE" }.collect{ it[0] }.toList()
         def asyncMVs = sql_return_maparray("""select * from mv_infos("database"="${db}");""").collect{ it.Name }.toSet()
-        int checkedTable = 0
         tables.each {
-            if (!asyncMVs.contains(it)) {
-                if (checkTable(db, it)) {
-                    checkedTable++
-                }
+            def tblName = it
+            if (!asyncMVs.contains(tblName)) {
+                futures << executor.submit({
+                    if (checkTable(db, tblName)) {
+                        tableNum.incrementAndGet()
+                    }
+                })
             }
         }
-        tableNum += checkedTable
-        return checkedTable > 0
     }
 
     def allDbs = sql "show databases"
     allDbs.each {
         def db = it[0]
         if (!excludedDbs.contains(db)) {
-            if (checkDb(db)) {
-                ++dbNum
-            }
+            checkDb(db)
         }
     }
+    futures.each { it.get() }
+    executor.shutdown()
+    executor.awaitTermination(Long.MAX_VALUE, TimeUnit.MINUTES)
     logger.info("===== [check] finish to check hash bucket tables, db num: ${dbNum}, table num: ${tableNum}, partition num: ${partitionNum}")
 }
