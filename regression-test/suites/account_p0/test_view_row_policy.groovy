@@ -30,13 +30,6 @@ suite("test_view_row_policy") {
         ret.Tag[0].contains("cloud_cluster_name")
     }
     def cloudMode = isCloudMode.call()
-    //cloud-mode
-    if (cloudMode) {
-        def clusters = sql " SHOW CLUSTERS; "
-        assertTrue(!clusters.isEmpty())
-        def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
-    }
 
     sql "DROP ROW POLICY IF EXISTS ${tablePolcyName} ON ${dbName}.${tableName} FOR ${user}"
     sql "DROP ROW POLICY IF EXISTS ${viewPolcyName} ON ${dbName}.${viewName} FOR ${user}"
