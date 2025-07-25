@@ -82,7 +82,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true", "inverted_index_storage_format"= "v2", "enable_unique_key_merge_on_write" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v", "inverted_index_storage_format"= "v2", "enable_unique_key_merge_on_write" = "false");
     """
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
