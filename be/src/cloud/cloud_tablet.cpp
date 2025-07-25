@@ -998,7 +998,7 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
     }
     auto storage_resource = *DORIS_TRY(rowset->rowset_meta()->remote_storage_resource());
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
-            *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(),
+            *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(), new_delete_bitmap.get(),
             rowset->rowset_id().to_string(), storage_resource, txn_id, is_explicit_txn,
             next_visible_version));
     return Status::OK();
@@ -1127,6 +1127,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
 
     // 3. store delete bitmap
+    DeleteBitmapPtr delete_bitmap_v2 = std::make_shared<DeleteBitmap>(*output_rowset_delete_bitmap);
     auto delete_bitmap_size = output_rowset_delete_bitmap->delete_bitmap.size();
     if (config::delete_bitmap_store_version == 2) {
         std::vector<std::pair<RowsetId, int64_t>> pre_rowsets_to_segment_num;
@@ -1140,9 +1141,9 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
                 }
             }
         }
-        tablet_meta()->delete_bitmap().subset(
-                pre_rowsets_to_segment_num, output_rowset->start_version(),
-                output_rowset->end_version(), output_rowset_delete_bitmap.get());
+        tablet_meta()->delete_bitmap().subset(pre_rowsets_to_segment_num,
+                                              output_rowset->start_version(),
+                                              output_rowset->end_version(), delete_bitmap_v2.get());
     }
     auto storage_resource_optional = output_rowset->rowset_meta()->remote_storage_resource();
     if (!storage_resource_optional) {
@@ -1158,7 +1159,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
     auto storage_resource = *DORIS_TRY(output_rowset->rowset_meta()->remote_storage_resource());
     auto st = _engine.meta_mgr().update_delete_bitmap(
-            *this, -1, initiator, output_rowset_delete_bitmap.get(),
+            *this, -1, initiator, output_rowset_delete_bitmap.get(), delete_bitmap_v2.get(),
             output_rowset->rowset_id().to_string(), storage_resource);
     int64_t t6 = MonotonicMicros();
     LOG(INFO) << "calc_delete_bitmap_for_compaction, tablet_id=" << tablet_id()

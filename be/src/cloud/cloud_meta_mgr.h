@@ -126,7 +126,8 @@ public:
     Status lease_tablet_job(const TabletJobInfoPB& job);
 
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
-                                DeleteBitmap* delete_bitmap, std::string rowset_id = "",
+                                DeleteBitmap* delete_bitmap, DeleteBitmap* delete_bitmap_v2,
+                                std::string rowset_id = "",
                                 std::optional<StorageResource> storage_resource = std::nullopt,
                                 int64_t txn_id = -1, bool is_explicit_txn = false,
                                 int64_t next_visible_version = -1);
