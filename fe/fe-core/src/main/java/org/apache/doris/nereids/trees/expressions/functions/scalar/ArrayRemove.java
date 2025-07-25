@@ -55,13 +55,18 @@ public class ArrayRemove extends ScalarFunction
         super("array_remove", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayRemove(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayRemove withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArrayRemove(children.get(0), children.get(1));
+        return new ArrayRemove(getFunctionParams(children));
     }
 
     @Override

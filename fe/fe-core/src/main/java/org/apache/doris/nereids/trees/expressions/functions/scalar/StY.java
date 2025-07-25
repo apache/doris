@@ -51,13 +51,18 @@ public class StY extends ScalarFunction
         super("st_y", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StY(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StY withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StY(children.get(0));
+        return new StY(getFunctionParams(children));
     }
 
     @Override

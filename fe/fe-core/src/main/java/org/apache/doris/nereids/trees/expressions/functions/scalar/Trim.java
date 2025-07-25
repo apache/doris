@@ -63,13 +63,18 @@ public class Trim extends ScalarFunction
         super("trim", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Trim(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Trim withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        return new Trim(children);
+        return new Trim(getFunctionParams(children));
     }
 
     @Override

@@ -77,14 +77,18 @@ public class Greatest extends ScalarFunction
         super("greatest", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Greatest(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Greatest withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new Greatest(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        return new Greatest(getFunctionParams(children));
     }
 
     @Override

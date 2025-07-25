@@ -48,13 +48,18 @@ public class BitmapHasAny extends ScalarFunction
         super("bitmap_has_any", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapHasAny(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapHasAny withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new BitmapHasAny(children.get(0), children.get(1));
+        return new BitmapHasAny(getFunctionParams(children));
     }
 
     @Override

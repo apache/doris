@@ -49,13 +49,18 @@ public class StGeomFromWKB extends ScalarFunction
         super("st_geomfromwkb", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StGeomFromWKB(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StGeomFromWKB withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StGeomFromWKB(children.get(0));
+        return new StGeomFromWKB(getFunctionParams(children));
     }
 
     @Override

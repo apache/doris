@@ -49,13 +49,18 @@ public class ArrayRangeSecondUnit extends ScalarFunction
         super("array_range_second_unit", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayRangeSecondUnit(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayRangeSecondUnit withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new ArrayRangeSecondUnit(children.get(0), children.get(1), children.get(2));
+        return new ArrayRangeSecondUnit(getFunctionParams(children));
     }
 
     @Override

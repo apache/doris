@@ -48,13 +48,18 @@ public class ArrayDistinct extends ScalarFunction
         super("array_distinct", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayDistinct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayDistinct withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayDistinct(children.get(0));
+        return new ArrayDistinct(getFunctionParams(children));
     }
 
     @Override

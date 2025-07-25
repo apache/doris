@@ -61,17 +61,18 @@ public class SplitByRegexp extends ScalarFunction
         super("split_by_regexp", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SplitByRegexp(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public SplitByRegexp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
-        if (children.size() == 2) {
-            return new SplitByRegexp(children.get(0), children.get(1));
-        } else {
-            return new SplitByRegexp(children.get(0), children.get(1), children.get(2));
-        }
+        return new SplitByRegexp(getFunctionParams(children));
     }
 
     @Override

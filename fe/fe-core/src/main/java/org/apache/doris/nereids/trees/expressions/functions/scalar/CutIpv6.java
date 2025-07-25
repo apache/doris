@@ -46,13 +46,18 @@ public class CutIpv6 extends ScalarFunction
         super("cut_ipv6", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CutIpv6(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public CutIpv6 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3,
                 "cut_ipv6 accept 3 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new CutIpv6(children.get(0), children.get(1), children.get(2));
+        return new CutIpv6(getFunctionParams(children));
     }
 
     @Override

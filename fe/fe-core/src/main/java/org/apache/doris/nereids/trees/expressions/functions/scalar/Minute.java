@@ -57,13 +57,18 @@ public class Minute extends ScalarFunction
         super("minute", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Minute(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Minute withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Minute(children.get(0));
+        return new Minute(getFunctionParams(children));
     }
 
     @Override

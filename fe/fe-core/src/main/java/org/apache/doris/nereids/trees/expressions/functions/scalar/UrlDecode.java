@@ -48,6 +48,11 @@ public class UrlDecode extends ScalarFunction
         super("url_decode", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private UrlDecode(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
 
     /**
      * withChildren.
@@ -55,7 +60,7 @@ public class UrlDecode extends ScalarFunction
     @Override
     public UrlDecode withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new UrlDecode(children.get(0));
+        return new UrlDecode(getFunctionParams(children));
     }
 
     @Override

@@ -49,13 +49,18 @@ public class ArrayExcept extends ScalarFunction implements ExplicitlyCastableSig
         super("array_except", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayExcept(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayExcept withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArrayExcept(children.get(0), children.get(1));
+        return new ArrayExcept(getFunctionParams(children));
     }
 
     @Override

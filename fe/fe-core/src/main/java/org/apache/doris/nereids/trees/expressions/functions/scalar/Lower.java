@@ -49,13 +49,18 @@ public class Lower extends ScalarFunction
         super("lower", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Lower(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Lower withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Lower(children.get(0));
+        return new Lower(getFunctionParams(children));
     }
 
     @Override

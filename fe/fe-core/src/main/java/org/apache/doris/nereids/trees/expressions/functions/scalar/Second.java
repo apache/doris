@@ -57,13 +57,18 @@ public class Second extends ScalarFunction
         super("second", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Second(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Second withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Second(children.get(0));
+        return new Second(getFunctionParams(children));
     }
 
     @Override

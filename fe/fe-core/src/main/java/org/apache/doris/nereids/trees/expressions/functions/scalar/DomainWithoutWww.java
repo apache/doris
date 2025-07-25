@@ -47,13 +47,18 @@ public class DomainWithoutWww extends ScalarFunction
         super("domain_without_www", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DomainWithoutWww(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DomainWithoutWww withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new DomainWithoutWww(children.get(0));
+        return new DomainWithoutWww(getFunctionParams(children));
     }
 
     @Override

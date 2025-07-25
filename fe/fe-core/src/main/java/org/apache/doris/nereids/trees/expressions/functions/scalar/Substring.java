@@ -64,6 +64,11 @@ public class Substring extends ScalarFunction
         super("substring", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Substring(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         Optional<Expression> length = arity() == 3
@@ -93,13 +98,8 @@ public class Substring extends ScalarFunction
      */
     @Override
     public Substring withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2
-                || children.size() == 3);
-        if (children.size() == 2) {
-            return new Substring(children.get(0), children.get(1));
-        } else {
-            return new Substring(children.get(0), children.get(1), children.get(2));
-        }
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
+        return new Substring(getFunctionParams(children));
     }
 
     @Override

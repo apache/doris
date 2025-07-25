@@ -50,13 +50,18 @@ public class FindInSet extends ScalarFunction
         super("find_in_set", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FindInSet(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public FindInSet withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new FindInSet(children.get(0), children.get(1));
+        return new FindInSet(getFunctionParams(children));
     }
 
     @Override

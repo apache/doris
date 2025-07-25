@@ -49,13 +49,18 @@ public class Right extends ScalarFunction
         super("right", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Right(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Right withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Right(children.get(0), children.get(1));
+        return new Right(getFunctionParams(children));
     }
 
     @Override

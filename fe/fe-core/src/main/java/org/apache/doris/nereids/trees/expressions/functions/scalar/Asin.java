@@ -48,13 +48,18 @@ public class Asin extends ScalarFunction
         super("asin", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Asin(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Asin withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Asin(children.get(0));
+        return new Asin(getFunctionParams(children));
     }
 
     @Override

@@ -73,6 +73,11 @@ public abstract class AesCryptoFunction extends CryptoFunction {
         super(name, arguments);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected AesCryptoFunction(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /** getDefaultBlockEncryptionMode */
     public static StringLiteral getDefaultBlockEncryptionMode() {
         StringLiteral encryptionMode = CryptoFunction.getDefaultBlockEncryptionMode("AES_128_ECB");

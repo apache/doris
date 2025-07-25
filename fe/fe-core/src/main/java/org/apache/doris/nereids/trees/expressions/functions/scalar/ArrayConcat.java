@@ -49,13 +49,18 @@ public class ArrayConcat extends ScalarFunction implements ExplicitlyCastableSig
         super("array_concat", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayConcat(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayConcat withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new ArrayConcat(children.get(0), children.subList(1, children.size()).toArray(new Expression[0]));
+        return new ArrayConcat(getFunctionParams(children));
     }
 
     @Override

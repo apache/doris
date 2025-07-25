@@ -37,6 +37,11 @@ public class Nullable extends ScalarFunction implements UnaryExpression, CustomS
         super("nullable", expr);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Nullable(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();
@@ -47,6 +52,6 @@ public class Nullable extends ScalarFunction implements UnaryExpression, CustomS
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "the child expression of NonNullable should be only one");
-        return new Nullable(children.get(0));
+        return new Nullable(getFunctionParams(children));
     }
 }

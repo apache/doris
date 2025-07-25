@@ -62,10 +62,15 @@ public class QuartersSub extends ScalarFunction implements BinaryExpression, Exp
         super("quarters_sub", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private QuartersSub(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public QuartersSub withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new QuartersSub(children.get(0), children.get(1));
+        return new QuartersSub(getFunctionParams(children));
     }
 
     @Override

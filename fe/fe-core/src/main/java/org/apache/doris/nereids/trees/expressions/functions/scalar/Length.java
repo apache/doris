@@ -50,13 +50,18 @@ public class Length extends ScalarFunction
         super("length", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Length(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Length withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Length(children.get(0));
+        return new Length(getFunctionParams(children));
     }
 
     @Override

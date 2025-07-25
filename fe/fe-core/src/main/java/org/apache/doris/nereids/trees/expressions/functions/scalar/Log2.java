@@ -48,13 +48,18 @@ public class Log2 extends ScalarFunction
         super("log2", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Log2(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Log2 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Log2(children.get(0));
+        return new Log2(getFunctionParams(children));
     }
 
     @Override
