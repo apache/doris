@@ -189,18 +189,32 @@ std::string VirtualSlotRef::debug_string() const {
 }
 
 bool VirtualSlotRef::equals(const VExpr& other) {
-    if (!VExpr::equals(other)) {
-        return false;
-    }
     const auto* other_ptr = dynamic_cast<const VirtualSlotRef*>(&other);
     if (!other_ptr) {
         return false;
     }
-    if (this->_slot_id != other_ptr->_slot_id || this->_column_id != other_ptr->_column_id ||
-        this->_column_name != other_ptr->_column_name ||
-        this->_column_label != other_ptr->_column_label) {
+    
+    // Compare slot_id and column_id
+    if (this->_slot_id != other_ptr->_slot_id || this->_column_id != other_ptr->_column_id) {
         return false;
     }
+    
+    // Compare column_name pointers properly
+    if (this->_column_name == nullptr && other_ptr->_column_name == nullptr) {
+        // Both are null, they are equal
+    } else if (this->_column_name == nullptr || other_ptr->_column_name == nullptr) {
+        // One is null, the other is not, they are not equal
+        return false;
+    } else if (*this->_column_name != *other_ptr->_column_name) {
+        // Both are not null, compare the string contents
+        return false;
+    }
+    
+    // Compare column_label
+    if (this->_column_label != other_ptr->_column_label) {
+        return false;
+    }
+    
     return true;
 }
 

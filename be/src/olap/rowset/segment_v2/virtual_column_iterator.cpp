@@ -108,10 +108,11 @@ Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
 // Next batch implementation
 Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                          bool* has_null) {
-    if (vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
+    size_t rows_num_to_read = *n;
+    if (rows_num_to_read == 0 || vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
         return Status::OK();
     }
-    size_t rows_num_to_read = *n;
+    
     if (_row_id_to_idx.find(_current_ordinal) == _row_id_to_idx.end()) {
         return Status::InternalError("Current ordinal {} not found in row_id_to_idx map",
                                      _current_ordinal);
@@ -120,11 +121,11 @@ Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
     // Update dst column
     if (vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst)) {
         VLOG_DEBUG << fmt::format("Dst is nothing column, create new mutable column");
-        dst = _materialized_column_ptr->clone_resized(rows_num_to_read);
-    } else {
-        size_t start = _row_id_to_idx[_current_ordinal];
-        dst->insert_range_from(*_materialized_column_ptr, start, rows_num_to_read);
+        dst = _materialized_column_ptr->clone_empty();
     }
+
+    size_t start = _row_id_to_idx[_current_ordinal];
+    dst->insert_range_from(*_materialized_column_ptr, start, rows_num_to_read);
 
     VLOG_DEBUG << fmt::format("Virtual column iterators, next_batch, rows reads: {}, dst size: {}",
                               rows_num_to_read, dst->size());
@@ -135,7 +136,7 @@ Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
 
 Status VirtualColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                              vectorized::MutableColumnPtr& dst) {
-    if (vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
+    if (count == 0 || vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
         return Status::OK();
     }
 

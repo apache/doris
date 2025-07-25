@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
@@ -429,30 +430,12 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             return true;
         }
 
-        // Multi-match functions
-        if (expr instanceof MultiMatch || expr instanceof MultiMatchAny) {
+        // Multi-match functions or Match predicate
+        if (expr instanceof MultiMatch || expr instanceof MultiMatchAny || expr instanceof Match) {
             return true;
+        } else {
+            return false;
         }
-
-        // Check if it's a function call with name that matches known index pushdown functions
-        // This covers various match functions and other index-capable functions
-        String functionName = getFunctionName(expr);
-        if (functionName != null) {
-            // Functions that can use inverted index (based on BE implementation)
-            switch (functionName.toLowerCase()) {
-                case "match_any":
-                case "match_all":
-                case "match_phrase":
-                case "match_phrase_prefix":
-                case "match_regexp":
-                case "match_phrase_edge":
-                    return true;
-                default:
-                    break;
-            }
-        }
-
-        return false;
     }
 
     /**

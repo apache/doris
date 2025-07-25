@@ -69,7 +69,7 @@ void TabletReader::ReaderParams::check_validation() const {
 std::string TabletReader::ReaderParams::to_string() const {
     std::stringstream ss;
     ss << "tablet=" << tablet->tablet_id() << " reader_type=" << int(reader_type)
-       << " is_pre_aggregation=" << aggregation << " version=" << version
+       << " aggregation=" << aggregation << " version=" << version
        << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
     for (const auto& key : start_key) {

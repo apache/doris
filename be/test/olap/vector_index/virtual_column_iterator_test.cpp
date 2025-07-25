@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_string.h"
@@ -43,6 +44,14 @@ TEST_F(VirtualColumnIteratorTest, TestDefaultConstructor) {
     Status status = iterator.read_by_rowids(rowids, count, dst);
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(dst->size(), 0);
+}
+
+// Test init method
+TEST_F(VirtualColumnIteratorTest, TestInit) {
+    VirtualColumnIterator iterator;
+    ColumnIteratorOptions opts;
+    Status status = iterator.init(opts);
+    ASSERT_TRUE(status.ok());
 }
 
 // Test with a materialized int32_t column
@@ -419,5 +428,243 @@ TEST_F(VirtualColumnIteratorTest, TestColumnNothing) {
     ASSERT_EQ(tmp_col_i32->get_data()[0], 20);
     ASSERT_EQ(tmp_col_i32->get_data()[1], 40);
     ASSERT_EQ(tmp_col_i32->get_data()[2], 30);
+}
+
+// Test the combination of seek_to_ordinal + next_batch behavior
+// NOTE: next_batch only works when row IDs are consecutive
+TEST_F(VirtualColumnIteratorTest, SeekAndNextBatchCombination) {
+    VirtualColumnIterator iterator;
+
+    // Create test data with CONSECUTIVE global row IDs
+    // Original column values: [100, 200, 300, 400]
+    // Global row IDs:         [0,   1,   2,   3]  (consecutive)
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
+    std::vector<int> values = {100, 200, 300, 400};
+    std::vector<uint64_t> global_row_ids = {0, 1, 2, 3};  // Consecutive row IDs
+    
+    for (int val : values) {
+        int_column->insert_value(val);
+    }
+    
+    auto labels = std::make_unique<std::vector<uint64_t>>();
+    for (uint64_t id : global_row_ids) {
+        labels->push_back(id);
+    }
+    
+    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    
+    // Row IDs are already in order: [0, 1, 2, 3]
+    // Corresponding values:         [100, 200, 300, 400]
+    // _row_id_to_idx mapping: {0->0, 1->1, 2->2, 3->3}
+    
+    // Test 1: Seek to ordinal 1, then read 2 rows
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
+        Status st = iterator.seek_to_ordinal(1);
+        ASSERT_TRUE(st.ok());
+        
+        size_t rows_to_read = 2;
+        bool has_null = false;
+        st = iterator.next_batch(&rows_to_read, dst, &has_null);
+        ASSERT_TRUE(st.ok());
+        
+        ASSERT_EQ(dst->size(), 2);
+        EXPECT_EQ(dst->get_int(0), 200);  // ordinal 1 -> value 200
+        EXPECT_EQ(dst->get_int(1), 300);  // ordinal 2 -> value 300
+    }
+    
+    // Test 2: Multiple consecutive next_batch calls
+    {
+        Status st = iterator.seek_to_ordinal(0);
+        ASSERT_TRUE(st.ok());
+        
+        // First next_batch: read 1 row
+        vectorized::MutableColumnPtr dst1 = vectorized::ColumnVector<TYPE_INT>::create();
+        size_t rows_to_read = 1;
+        bool has_null = false;
+        st = iterator.next_batch(&rows_to_read, dst1, &has_null);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(dst1->size(), 1);
+        EXPECT_EQ(dst1->get_int(0), 100);  // ordinal 0 -> value 100
+        
+        // Second next_batch: read 2 more rows (current_ordinal should be 1 now)
+        vectorized::MutableColumnPtr dst2 = vectorized::ColumnVector<TYPE_INT>::create();
+        rows_to_read = 2;
+        st = iterator.next_batch(&rows_to_read, dst2, &has_null);
+        ASSERT_TRUE(st.ok()) << st.to_string();  
+        ASSERT_EQ(dst2->size(), 2);
+        EXPECT_EQ(dst2->get_int(0), 200);  // ordinal 1 -> value 200
+        EXPECT_EQ(dst2->get_int(1), 300);  // ordinal 2 -> value 300
+    }
+}
+
+// Test read_by_rowids with different scenarios
+TEST_F(VirtualColumnIteratorTest, ReadByRowidsComprehensive) {
+    VirtualColumnIterator iterator;
+
+    // Create test data with gaps in global row IDs
+    // Original column values: [1000, 2000, 3000, 4000]
+    // Global row IDs:         [100,  50,   200,  25]
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
+    std::vector<int> values = {1000, 2000, 3000, 4000};
+    std::vector<uint64_t> global_row_ids = {100, 50, 200, 25};
+    
+    for (int val : values) {
+        int_column->insert_value(val);
+    }
+    
+    auto labels = std::make_unique<std::vector<uint64_t>>();
+    for (uint64_t id : global_row_ids) {
+        labels->push_back(id);
+    }
+    
+    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    
+    // After sorting by global_row_id: [25, 50, 100, 200]
+    // Corresponding original values:  [4000, 2000, 1000, 3000]
+    // _row_id_to_idx mapping: {25->0, 50->1, 100->2, 200->3}
+    
+    // Test 1: Read by multiple rowids in descending order
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
+        rowid_t rowids[] = {200, 25, 100};
+        Status status = iterator.read_by_rowids(rowids, 3, dst);
+        ASSERT_TRUE(status.ok());
+        ASSERT_EQ(dst->size(), 3);
+        EXPECT_EQ(dst->get_int(0), 4000);  // global_row_id 25 -> original value 4000
+        EXPECT_EQ(dst->get_int(1), 1000);  // global_row_id 100 -> original value 1000
+        EXPECT_EQ(dst->get_int(2), 3000);  // global_row_id 200 -> original value 3000
+    }
+    
+    // Test 2: Read by duplicate rowids (should work due to filter logic)
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
+        rowid_t rowids[] = {100, 100, 100};
+        Status status = iterator.read_by_rowids(rowids, 3, dst); 
+        ASSERT_TRUE(status.ok());
+        ASSERT_EQ(dst->size(), 1);  // Filter deduplicates
+        EXPECT_EQ(dst->get_int(0), 1000);  // global_row_id 100 -> original value 1000
+    }
+}
+
+// Test combination of seek_to_ordinal + next_batch + read_by_rowids
+// NOTE: next_batch requires consecutive row IDs, read_by_rowids works with any row IDs
+TEST_F(VirtualColumnIteratorTest, MixedOperationsCombination) {
+    VirtualColumnIterator iterator;
+
+    // Test data with consecutive row IDs for next_batch testing
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
+    std::vector<int> values = {10, 20, 30, 40};
+    std::vector<uint64_t> global_row_ids = {0, 1, 2, 3};  // Consecutive for next_batch
+    
+    for (int val : values) {
+        int_column->insert_value(val);
+    }
+    
+    auto labels = std::make_unique<std::vector<uint64_t>>();
+    for (uint64_t id : global_row_ids) {
+        labels->push_back(id);
+    }
+    
+    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    
+    // Row IDs are consecutive: [0, 1, 2, 3], values [10, 20, 30, 40]
+    // _row_id_to_idx: {0->0, 1->1, 2->2, 3->3}
+    
+    // Operation 1: read_by_rowids with specific row IDs
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
+        rowid_t rowids[] = {1, 3};
+        Status status = iterator.read_by_rowids(rowids, 2, dst);
+        ASSERT_TRUE(status.ok());
+        ASSERT_EQ(dst->size(), 2);
+        EXPECT_EQ(dst->get_int(0), 20);  // row_id 1 -> value 20
+        EXPECT_EQ(dst->get_int(1), 40);  // row_id 3 -> value 40
+    }
+    
+    // Operation 2: seek and next_batch (works because row IDs are consecutive)
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
+        Status st = iterator.seek_to_ordinal(0);
+        ASSERT_TRUE(st.ok());
+        
+        size_t rows_to_read = 2;
+        bool has_null = false;
+        st = iterator.next_batch(&rows_to_read, dst, &has_null);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(dst->size(), 2);
+        EXPECT_EQ(dst->get_int(0), 10);  // ordinal 0 -> value 10
+        EXPECT_EQ(dst->get_int(1), 20);  // ordinal 1 -> value 20
+    }
+}
+
+// Test dst column is ColumnNothing in different scenarios
+TEST_F(VirtualColumnIteratorTest, DstColumnNothingHandling) {
+    VirtualColumnIterator iterator;
+
+    // Create test data with consecutive row IDs for next_batch compatibility
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
+    std::vector<int> values = {100, 200, 300};
+    std::vector<uint64_t> global_row_ids = {0, 1, 2};  // Consecutive for next_batch
+    
+    for (int val : values) {
+        int_column->insert_value(val);
+    }
+    
+    auto labels = std::make_unique<std::vector<uint64_t>>();
+    for (uint64_t id : global_row_ids) {
+        labels->push_back(id);
+    }
+    
+    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    
+    // Row IDs are consecutive: [0, 1, 2] -> [100, 200, 300]
+    
+    // Test 1: next_batch with ColumnNothing dst
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnNothing::create(0);
+        Status st = iterator.seek_to_ordinal(0);
+        ASSERT_TRUE(st.ok());
+        
+        size_t rows_to_read = 2;
+        bool has_null = false;
+        st = iterator.next_batch(&rows_to_read, dst, &has_null);
+        ASSERT_TRUE(st.ok());
+        
+        // dst should be replaced with materialized column data
+        auto nothing_check = vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst);
+        EXPECT_EQ(nothing_check, nullptr);  // Should not be ColumnNothing anymore
+        ASSERT_EQ(dst->size(), 2);
+        EXPECT_EQ(dst->get_int(0), 100);  // ordinal 0 -> value 100
+        EXPECT_EQ(dst->get_int(1), 200);  // ordinal 1 -> value 200
+    }
+    
+    // Test 2: read_by_rowids with ColumnNothing dst
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnNothing::create(0);
+        rowid_t rowids[] = {1, 2};
+        Status status = iterator.read_by_rowids(rowids, 2, dst);
+        ASSERT_TRUE(status.ok());
+        
+        // dst should be replaced with filtered results
+        auto nothing_check = vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst);
+        EXPECT_EQ(nothing_check, nullptr);  // Should not be ColumnNothing anymore
+        ASSERT_EQ(dst->size(), 2);
+        EXPECT_EQ(dst->get_int(0), 200);  // row_id 1 -> value 200
+        EXPECT_EQ(dst->get_int(1), 300);  // row_id 2 -> value 300
+    }
+    
+    // Test 3: Empty read_by_rowids with ColumnNothing dst (should remain ColumnNothing)
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnNothing::create(0);
+        rowid_t rowids[1];  // Empty array
+        Status status = iterator.read_by_rowids(rowids, 0, dst);
+        ASSERT_TRUE(status.ok());
+        
+        // dst should remain ColumnNothing for empty results
+        auto nothing_check = vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst);
+        EXPECT_NE(nothing_check, nullptr);  // Should still be ColumnNothing
+        ASSERT_EQ(dst->size(), 0);
+    }
 }
 } // namespace doris::vectorized

@@ -46,23 +46,8 @@ public:
     std::shared_ptr<VExpr> get_virtual_column_expr() const { return _virtual_column_expr; }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
-        LOG_INFO(
-                "Evaluating inverted index for virtual slot ref: column_id={}, slot_id={}, this={}",
-                _column_id, _slot_id, this->debug_string());
         return _virtual_column_expr->evaluate_inverted_index(context, segment_num_rows);
     }
-
-#ifdef BE_TEST
-    void set_column_id(int column_id) { _column_id = column_id; }
-    void set_slot_id(int slot_id) { _slot_id = slot_id; }
-    void set_column_name(const std::string* column_name) { _column_name = column_name; }
-    void set_column_data_type(DataTypePtr column_data_type) {
-        _column_data_type = std::move(column_data_type);
-    }
-    void set_virtual_column_expr(std::shared_ptr<VExpr> virtual_column_expr) {
-        _virtual_column_expr = virtual_column_expr;
-    }
-#endif
 
 private:
     int _column_id;
