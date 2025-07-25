@@ -3605,10 +3605,6 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
-    | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
-    {:
-        RESULT = new ShowAnalyzeTaskStatus(jobId);
-    :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
