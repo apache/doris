@@ -20,7 +20,7 @@ import org.apache.doris.regression.util.NodeType
 import groovy.json.JsonSlurper
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite('test_cache_shield_compaction_conflict', 'docker') {
+suite('test_cache_guard_compaction_conflict', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -141,7 +141,7 @@ suite('test_cache_shield_compaction_conflict', 'docker') {
         logger.info("Cluster tag1: {}", tag1)
         logger.info("Cluster tag2: {}", tag2)
 
-        updateBeConf(clusterName2, "enable_read_cluster_file_cache_shield", "true")
+        updateBeConf(clusterName2, "enable_read_cluster_file_cache_guard", "true")
 
         def jsonSlurper = new JsonSlurper()
         def clusterId1 = jsonSlurper.parseText(tag1).compute_group_id
@@ -172,8 +172,8 @@ suite('test_cache_shield_compaction_conflict', 'docker') {
         sql """use @${clusterName2}"""
         qt_sql """select * from test"""
         assertEquals(5, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_num"))
 
         // switch to source cluster and trigger compaction
         sql """use @${clusterName1}"""
@@ -195,8 +195,8 @@ suite('test_cache_shield_compaction_conflict', 'docker') {
         qt_sql """select * from test"""
         sleep(1000)
         assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 11)
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
+        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_num"))
 
         def tablets = sql_return_maparray """show tablets from test"""
         // cluster2 trigger cumu compaction failed (conflict with warmup rowsets)

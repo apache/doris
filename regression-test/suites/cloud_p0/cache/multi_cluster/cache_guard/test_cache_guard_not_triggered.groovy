@@ -19,7 +19,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import groovy.json.JsonSlurper
 
-suite('test_cache_shield_basic', 'docker') {
+suite('test_cache_guard_not_triggered', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -90,17 +90,6 @@ suite('test_cache_shield_basic', 'docker') {
         return getBrpcMetrics(ip, port, name)
     }
 
-    def injectAddOverlapRowsetSleep = {cluster, sleep_s ->
-        def backends = sql """SHOW BACKENDS"""
-        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
-        def injectName = 'CloudTablet.warm_up_done_cb.inject_sleep_s'
-        for (be in cluster_bes) {
-            def ip = be[1]
-            def port = be[4]
-            GetDebugPoint().enableDebugPoint(ip, port as int, NodeType.BE, injectName, [sleep:sleep_s])
-        }
-    }
-
     def getProfileList = {ip, port, user, pwd ->
         def conn = new URL("http://${ip}:${port}/rest/v1/query_profile").openConnection()
         conn.setRequestMethod("GET")
@@ -162,10 +151,10 @@ suite('test_cache_shield_basic', 'docker') {
         def tag1 = getCloudBeTagByName(clusterName1)
         def tag2 = getCloudBeTagByName(clusterName2)
 
+        updateBeConf(clusterName2, "enable_read_cluster_file_cache_guard", "true")
+
         logger.info("Cluster tag1: {}", tag1)
         logger.info("Cluster tag2: {}", tag2)
-
-        updateBeConf(clusterName2, "enable_read_cluster_file_cache_shield", "true")
 
         def jsonSlurper = new JsonSlurper()
         def clusterId1 = jsonSlurper.parseText(tag1).compute_group_id
@@ -186,39 +175,36 @@ suite('test_cache_shield_basic', 'docker') {
         clearFileCacheOnAllBackends()
         sleep(15000)
 
-        sql """insert into test values (1, '{"a" : 1.0}')"""
-        sql """insert into test values (2, '{"a" : 111.1111}')"""
-        sql """insert into test values (3, '{"a" : "11111"}')"""
-        sql """insert into test values (4, '{"a" : 1111111111}')"""
-        sql """insert into test values (5, '{"a" : 1111.11111}')"""
+        sql """insert into test values (1, '{"a" : 1.0}')"""        // [2-2]
+        sql """insert into test values (2, '{"a" : 111.1111}')"""   // [3-3]
+        sql """insert into test values (3, '{"a" : "11111"}')"""    // [4-4]
+        sql """insert into test values (4, '{"a" : 1111111111}')""" // [5-5]
+        sql """insert into test values (5, '{"a" : 1111.11111}')""" // [6-6]
 
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test"""
         assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 5)
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
 
-        // switch to source cluster and trigger compaction
+        // switch to source cluster
+        // write data, then compaction, which will not trigger the cache guard
         sql """use @${clusterName1}"""
-        trigger_and_wait_compaction("test", "cumulative")
-        sql """insert into test values (6, '{"a" : 1111.11111}')"""
+        sql """insert into test values (6, '{"a" : 1111.11111}')""" // [7-7]
+        trigger_and_wait_compaction("test", "cumulative")           // [2-7]
+        sql """insert into test values (7, '{"a" : 1111.11111}')""" // [8-8]
         sleep(2000)
 
         // switch to read cluster, trigger a sync rowset
+        // max version of read cluster is 6, but we synced [2-7] and [8-8],
+        // the file cache guard is not triggered
         sql """use @${clusterName2}"""
         sql """set enable_profile=true"""
-
-        // inject sleep on warm_up_done_cb, to avoid the warmup complete before query
-        injectAddOverlapRowsetSleep(clusterName2, 3);
         qt_sql """select * from test"""
-        // wait until the injection complete
-        sleep(3000)
+        sleep(1000)
 
         assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 7)
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_num"))
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_shield_delayed_rowset_add_failure_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
         // due to a bug of profile, skip the check for now
         // verifyProfileContent("select * from test");
     }
