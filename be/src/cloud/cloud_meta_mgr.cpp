@@ -767,7 +767,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 //   after doing EMPTY_CUMULATIVE compaction, MS cp is 13, get_rowset will return [2-11][12-12].
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
-                if (config::enable_read_cluster_file_cache_shield &&
+                if (config::enable_read_cluster_file_cache_guard &&
                     !tablet->enable_unique_key_merge_on_write()) {
                     VLOG_DEBUG << "warmup rowset";
                     std::vector<RowsetSharedPtr> new_rowsets;
@@ -794,7 +794,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                     }
                 } else {
                     VLOG_DEBUG << "add rowset without warmup, the config is: "
-                               << config::enable_read_cluster_file_cache_shield
+                               << config::enable_read_cluster_file_cache_guard
                                << ", is mow: " << tablet->enable_unique_key_merge_on_write()
                                << ", version_overlap: " << version_overlap
                                << ", warmup_delta_data: " << options.warmup_delta_data;
