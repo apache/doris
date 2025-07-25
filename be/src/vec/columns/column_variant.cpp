@@ -348,12 +348,16 @@ void ColumnVariant::Subcolumn::add_new_column_part(DataTypePtr type) {
 void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
     auto from_type_id = info.scalar_type_id;
     auto from_dim = info.num_dimensions;
-    CHECK(from_dim < 2) << "from_dim: " << from_dim;
     auto least_common_type_id = least_common_type.get_base_type_id();
     auto least_common_type_dim = least_common_type.get_dimensions();
     bool type_changed = info.need_convert;
     if (data.empty()) {
-        add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable));
+        if (from_dim > 1) {
+            add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
+            type_changed = true;
+        } else {
+            add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable));
+        }
     } else {
         if (least_common_type_dim != from_dim) {
             add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
