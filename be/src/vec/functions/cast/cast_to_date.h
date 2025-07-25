@@ -19,6 +19,7 @@
 
 #include <sys/types.h>
 
+#include <cstdlib>
 #include <type_traits>
 
 #include "cast_base.h"
@@ -298,8 +299,8 @@ public:
                         uint32_t rounded_microseconds = ((microseconds / divisor) + 1) * divisor;
                         // need carry on
                         if (rounded_microseconds >= 1000000) {
-                            static_cast<void>(dtmv2.set_time_unit<TimeUnit::MICROSECOND>(
-                                    rounded_microseconds % 1000000));
+                            DCHECK(rounded_microseconds == 1000000);
+                            dtmv2.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
 
                             bool overflow = !dtmv2.date_add_interval<TimeUnit::SECOND>(
                                     TimeInterval {TimeUnit::SECOND, 1, false});
@@ -327,6 +328,57 @@ public:
                     }
                     col_to->get_data()[i] =
                             binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtmv2);
+                }
+            } else if constexpr (IsTimeV2Type<FromDataType> && IsTimeV2Type<ToDataType>) {
+                const auto* type = assert_cast<const DataTypeTimeV2*>(
+                        block.get_by_position(arguments[0]).type.get());
+                auto scale = type->get_scale();
+
+                const auto* to_type = assert_cast<const DataTypeTimeV2*>(
+                        block.get_by_position(result).type.get());
+                UInt32 to_scale = to_type->get_scale();
+
+                if (to_scale >= scale) {
+                    // nothing to do, just copy
+                    col_to->get_data()[i] = col_from->get_data()[i];
+                } else {
+                    double time = col_from->get_data()[i];
+                    auto sign = TimeValue::sign(time);
+                    time = std::abs(time);
+                    // e.g. scale reduce to 4, means we need to round the last 2 digits
+                    // 999956: 56 > 100/2, then round up to 1000000
+                    uint32_t microseconds = TimeValue::microsecond(time);
+                    uint32_t divisor = common::exp10_i64(6 - to_scale);
+                    uint32_t remainder = microseconds % divisor;
+
+                    if (remainder >= divisor / 2) { // need to round up
+                        // do rounding up
+                        uint32_t rounded_microseconds = ((microseconds / divisor) + 1) * divisor;
+                        // need carry on
+                        if (rounded_microseconds >= TimeValue::ONE_SECOND_MICROSECONDS) {
+                            DCHECK(rounded_microseconds == TimeValue::ONE_SECOND_MICROSECONDS);
+                            time = ((int)time / TimeValue::ONE_SECOND_MICROSECONDS + 1) *
+                                   TimeValue::ONE_SECOND_MICROSECONDS;
+
+                            if (!TimeValue::valid(time)) {
+                                if constexpr (CastMode == CastModeType::StrictMode) {
+                                    return Status::InvalidArgument(
+                                            "TimeV2 overflow when casting {} from {} to {}",
+                                            type->to_string(*col_from, i), type->get_name(),
+                                            to_type->get_name());
+                                } else {
+                                    col_nullmap->get_data()[i] = true;
+                                    col_to->get_data()[i] = 0;
+                                }
+                            }
+                        } else {
+                            time = TimeValue::reset_microsecond(time, rounded_microseconds);
+                        }
+                    } else {
+                        // truncate
+                        time = TimeValue::reset_microsecond(time, microseconds / divisor * divisor);
+                    }
+                    col_to->get_data()[i] = sign * time;
                 }
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsTimeV2Type<ToDataType>) {
                 // from Datetime to Time
