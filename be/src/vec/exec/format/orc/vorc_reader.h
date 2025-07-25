@@ -777,8 +777,8 @@ public:
               _profile(profile) {}
 
     ~ORCFileInputStream() override {
-        if (_file_reader != nullptr) {
-            _file_reader->collect_profile_before_close();
+        if (_tracing_file_reader != nullptr) {
+            _tracing_file_reader->collect_profile_before_close();
         }
         for (const auto& stripe_stream : _stripe_streams) {
             if (stripe_stream != nullptr) {
@@ -788,7 +788,7 @@ public:
         _stripe_streams.clear();
     }
 
-    uint64_t getLength() const override { return _file_reader->size(); }
+    uint64_t getLength() const override { return _tracing_file_reader->size(); }
 
     uint64_t getNaturalReadSize() const override { return config::orc_natural_read_size_mb << 20; }
 
@@ -827,9 +827,16 @@ private:
             std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams);
 
     const std::string& _file_name;
+
+    // _inner_reader is original file reader.
+    // _file_reader == RangeCacheFileReader used by tiny stripe case, if not tiny stripe case,
+    // _file_reader == _inner_reader.
+    // _tracing_file_reader is tracing file reader with io context.
+    // If io_ctx is null, _tracing_file_reader will be the same as _file_reader.
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
     io::FileReaderSPtr _tracing_file_reader;
+
     bool _is_all_tiny_stripes = false;
     int64_t _orc_once_max_read_bytes;
     int64_t _orc_max_merge_distance_bytes;

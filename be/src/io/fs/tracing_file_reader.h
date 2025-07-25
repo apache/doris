@@ -44,6 +44,9 @@ public:
     bool closed() const override { return _inner->closed(); }
     const std::string& get_data_dir_path() override { return _inner->get_data_dir_path(); }
 
+    void _collect_profile_at_runtime() override { return _inner->collect_profile_at_runtime(); }
+    void _collect_profile_before_close() override { return _inner->collect_profile_before_close(); }
+
     FileReaderStats* stats() const { return _stats; }
 
 private:

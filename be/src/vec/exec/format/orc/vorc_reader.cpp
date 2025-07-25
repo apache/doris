@@ -1113,10 +1113,8 @@ Status OrcReader::set_fill_columns(
                 orc_input_stream_ptr->set_all_tiny_stripes();
                 auto& orc_file_reader = orc_input_stream_ptr->get_file_reader();
                 auto orc_inner_reader = orc_input_stream_ptr->get_inner_reader();
-                orc_file_reader = std::make_shared<io::TracingFileReader>(
-                        std::make_shared<io::RangeCacheFileReader>(_profile, orc_inner_reader,
-                                                                   range_finder),
-                        _io_ctx->file_reader_stats);
+                orc_file_reader = std::make_shared<io::RangeCacheFileReader>(
+                        _profile, orc_inner_reader, range_finder);
             }
         }
 
@@ -2782,8 +2780,14 @@ void ORCFileInputStream::_build_small_ranges_input_stripe_streams(
     for (const auto& merged_range : merged_ranges) {
         auto merge_range_file_reader =
                 std::make_shared<OrcMergeRangeFileReader>(_profile, _file_reader, merged_range);
-        auto tracing_file_reader = std::make_shared<io::TracingFileReader>(
-                std::move(merge_range_file_reader), _io_ctx->file_reader_stats);
+
+        std::shared_ptr<io::FileReader> tracing_file_reader;
+        if (_io_ctx) {
+            tracing_file_reader = std::make_shared<io::TracingFileReader>(
+                    std::move(merge_range_file_reader), _io_ctx->file_reader_stats);
+        } else {
+            tracing_file_reader = std::move(merge_range_file_reader);
+        }
 
         // Use binary search to find the starting point in sorted_ranges
         auto it =
@@ -2811,7 +2815,9 @@ void ORCFileInputStream::_build_large_ranges_input_stripe_streams(
     for (const auto& range : ranges) {
         auto stripe_stream_input_stream = std::make_shared<StripeStreamInputStream>(
                 getName(),
-                std::make_shared<io::TracingFileReader>(_file_reader, _io_ctx->file_reader_stats),
+                _io_ctx ? std::make_shared<io::TracingFileReader>(_file_reader,
+                                                                  _io_ctx->file_reader_stats)
+                        : _file_reader,
                 _io_ctx, _profile);
         streams.emplace(range.first, stripe_stream_input_stream);
         _stripe_streams.emplace_back(stripe_stream_input_stream);

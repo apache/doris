@@ -121,6 +121,7 @@ ParquetReader::~ParquetReader() {
     _close_internal();
 }
 
+// for unit test
 void ParquetReader::set_file_reader(io::FileReaderSPtr file_reader) {
     _file_reader = file_reader;
     _tracing_file_reader = file_reader;

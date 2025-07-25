@@ -104,7 +104,7 @@ public:
                   io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
-    // for test
+    // for unit test
     void set_file_reader(io::FileReaderSPtr file_reader);
 
     Status init_reader(
@@ -251,6 +251,10 @@ private:
     FileMetaData* _file_metadata = nullptr;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
+    // _tracing_file_reader wraps _file_reader.
+    // _file_reader is original file reader.
+    // _tracing_file_reader is tracing file reader with io context.
+    // If io_ctx is null, _tracing_file_reader will be the same as file_reader.
     io::FileReaderSPtr _file_reader = nullptr;
     io::FileReaderSPtr _tracing_file_reader = nullptr;
     std::unique_ptr<RowGroupReader> _current_group_reader;
