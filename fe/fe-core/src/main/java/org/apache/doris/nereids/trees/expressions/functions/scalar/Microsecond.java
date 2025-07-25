@@ -52,13 +52,18 @@ public class Microsecond extends ScalarFunction
         super("microsecond", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Microsecond(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Microsecond withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Microsecond(children.get(0));
+        return new Microsecond(getFunctionParams(children));
     }
 
     @Override

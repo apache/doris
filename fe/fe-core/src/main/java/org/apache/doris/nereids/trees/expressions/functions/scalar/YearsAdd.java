@@ -64,10 +64,15 @@ public class YearsAdd extends ScalarFunction
         super("years_add", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private YearsAdd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public YearsAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new YearsAdd(children.get(0), children.get(1));
+        return new YearsAdd(getFunctionParams(children));
     }
 
     @Override

@@ -48,14 +48,18 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
         super("array_intersect", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayIntersect(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayIntersect withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new ArrayIntersect(children.get(0), children.get(1),
-                children.subList(2, children.size()).toArray(new Expression[0]));
+        return new ArrayIntersect(getFunctionParams(children));
     }
 
     @Override

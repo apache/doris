@@ -64,10 +64,15 @@ public class MonthsAdd extends ScalarFunction
         super("months_add", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MonthsAdd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MonthsAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MonthsAdd(children.get(0), children.get(1));
+        return new MonthsAdd(getFunctionParams(children));
     }
 
     @Override

@@ -69,6 +69,11 @@ public class ArrayAvg extends ScalarFunction implements ExplicitlyCastableSignat
         super("array_avg", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayAvg(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     // TODO use this computePrecision if be support dynamic scale
     // @Override
     // public FunctionSignature computePrecision(FunctionSignature signature) {
@@ -113,7 +118,7 @@ public class ArrayAvg extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public ArrayAvg withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayAvg(children.get(0));
+        return new ArrayAvg(getFunctionParams(children));
     }
 
     @Override

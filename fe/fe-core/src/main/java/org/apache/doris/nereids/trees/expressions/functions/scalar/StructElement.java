@@ -47,6 +47,11 @@ public class StructElement extends ScalarFunction
         super("struct_element", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StructElement(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!(child(0).getDataType() instanceof StructType)) {
@@ -64,7 +69,7 @@ public class StructElement extends ScalarFunction
     @Override
     public StructElement withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2, "children size should be 2");
-        return new StructElement(children.get(0), children.get(1));
+        return new StructElement(getFunctionParams(children));
     }
 
     @Override

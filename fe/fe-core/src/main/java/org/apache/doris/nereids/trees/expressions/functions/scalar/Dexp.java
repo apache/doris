@@ -47,13 +47,18 @@ public class Dexp extends ScalarFunction
         super("dexp", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Dexp(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Dexp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Dexp(children.get(0));
+        return new Dexp(getFunctionParams(children));
     }
 
     @Override

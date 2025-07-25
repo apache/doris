@@ -47,13 +47,18 @@ public class Sha1 extends ScalarFunction
         super("sha1", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sha1(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sha1 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sha1(children.get(0));
+        return new Sha1(getFunctionParams(children));
     }
 
     @Override

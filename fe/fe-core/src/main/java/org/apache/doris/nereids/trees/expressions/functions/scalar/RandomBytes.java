@@ -49,6 +49,11 @@ public class RandomBytes extends ScalarFunction
         super("random_bytes", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private RandomBytes(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
 
     /**
      * withChildren.
@@ -56,7 +61,7 @@ public class RandomBytes extends ScalarFunction
     @Override
     public RandomBytes withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new RandomBytes(children.get(0));
+        return new RandomBytes(getFunctionParams(children));
     }
 
     @Override

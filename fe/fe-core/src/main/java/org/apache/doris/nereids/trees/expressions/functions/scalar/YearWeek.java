@@ -63,18 +63,18 @@ public class YearWeek extends ScalarFunction
         super("yearweek", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private YearWeek(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public YearWeek withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1
-                || children.size() == 2);
-        if (children.size() == 1) {
-            return new YearWeek(children.get(0));
-        } else {
-            return new YearWeek(children.get(0), children.get(1));
-        }
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new YearWeek(getFunctionParams(children));
     }
 
     @Override

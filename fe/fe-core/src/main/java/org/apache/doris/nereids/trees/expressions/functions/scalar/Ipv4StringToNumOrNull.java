@@ -46,13 +46,18 @@ public class Ipv4StringToNumOrNull extends ScalarFunction
         super("ipv4_string_to_num_or_null", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ipv4StringToNumOrNull(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public Ipv4StringToNumOrNull withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "ipv4_string_to_num_or_null accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv4StringToNumOrNull(children.get(0));
+        return new Ipv4StringToNumOrNull(getFunctionParams(children));
     }
 
     @Override

@@ -47,13 +47,18 @@ public class SecToTime extends ScalarFunction
         super("sec_to_time", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SecToTime(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public SecToTime withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new SecToTime(children.get(0));
+        return new SecToTime(getFunctionParams(children));
     }
 
     @Override

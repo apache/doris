@@ -46,13 +46,18 @@ public class Ipv4StringToNum extends ScalarFunction
         super("ipv4_string_to_num", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ipv4StringToNum(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public Ipv4StringToNum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "ipv4_string_to_num accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv4StringToNum(children.get(0));
+        return new Ipv4StringToNum(getFunctionParams(children));
     }
 
     @Override

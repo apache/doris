@@ -47,13 +47,18 @@ public class Cbrt extends ScalarFunction
         super("cbrt", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Cbrt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Cbrt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cbrt(children.get(0));
+        return new Cbrt(getFunctionParams(children));
     }
 
     @Override

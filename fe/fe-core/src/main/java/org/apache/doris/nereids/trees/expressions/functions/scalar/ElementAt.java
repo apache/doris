@@ -58,13 +58,18 @@ public class ElementAt extends ScalarFunction
         super("element_at", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected ElementAt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ElementAt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ElementAt(children.get(0), children.get(1));
+        return new ElementAt(getFunctionParams(children));
     }
 
     @Override

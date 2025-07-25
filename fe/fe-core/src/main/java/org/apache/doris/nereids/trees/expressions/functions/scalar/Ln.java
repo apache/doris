@@ -48,13 +48,18 @@ public class Ln extends ScalarFunction
         super("ln", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ln(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Ln withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Ln(children.get(0));
+        return new Ln(getFunctionParams(children));
     }
 
     @Override

@@ -49,13 +49,18 @@ public class CountSubstring extends ScalarFunction
         super("count_substrings", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CountSubstring(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public CountSubstring withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new CountSubstring(children.get(0), children.get(1));
+        return new CountSubstring(getFunctionParams(children));
     }
 
     @Override

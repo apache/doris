@@ -56,6 +56,11 @@ public class ConcatWs extends ScalarFunction
         super("concat_ws", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ConcatWs(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * custom compute nullable.
      */
@@ -70,8 +75,7 @@ public class ConcatWs extends ScalarFunction
     @Override
     public ConcatWs withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new ConcatWs(children.get(0), children.get(1),
-                children.subList(2, children.size()).toArray(new Expression[0]));
+        return new ConcatWs(getFunctionParams(children));
     }
 
     @Override

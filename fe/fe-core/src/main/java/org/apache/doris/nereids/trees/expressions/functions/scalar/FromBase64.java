@@ -50,13 +50,18 @@ public class FromBase64 extends ScalarFunction
         super("from_base64", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FromBase64(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public FromBase64 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new FromBase64(children.get(0));
+        return new FromBase64(getFunctionParams(children));
     }
 
     @Override

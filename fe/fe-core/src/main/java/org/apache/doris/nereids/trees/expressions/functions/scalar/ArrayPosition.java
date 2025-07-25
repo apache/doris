@@ -55,13 +55,18 @@ public class ArrayPosition extends ScalarFunction
         super("array_position", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayPosition(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayPosition withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArrayPosition(children.get(0), children.get(1));
+        return new ArrayPosition(getFunctionParams(children));
     }
 
     @Override

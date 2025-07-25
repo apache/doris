@@ -48,13 +48,18 @@ public class JsonbParse extends ScalarFunction
         super("jsonb_parse", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonbParse(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonbParse withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new JsonbParse(children.get(0));
+        return new JsonbParse(getFunctionParams(children));
     }
 
     @Override

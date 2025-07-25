@@ -42,6 +42,11 @@ public class ArrayFlatten extends ScalarFunction
         super("array_flatten", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayFlatten(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();
@@ -57,7 +62,7 @@ public class ArrayFlatten extends ScalarFunction
     @Override
     public ArrayFlatten withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayFlatten(children.get(0));
+        return new ArrayFlatten(getFunctionParams(children));
     }
 
     @Override

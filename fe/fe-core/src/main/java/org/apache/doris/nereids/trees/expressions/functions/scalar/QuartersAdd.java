@@ -62,10 +62,15 @@ public class QuartersAdd extends ScalarFunction implements BinaryExpression, Exp
         super("quarters_add", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private QuartersAdd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public QuartersAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new QuartersAdd(children.get(0), children.get(1));
+        return new QuartersAdd(getFunctionParams(children));
     }
 
     @Override

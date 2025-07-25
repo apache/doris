@@ -48,13 +48,18 @@ public class Uncompress extends ScalarFunction
         super("uncompress", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Uncompress(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Uncompress withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Uncompress(children.get(0));
+        return new Uncompress(getFunctionParams(children));
     }
 
     @Override

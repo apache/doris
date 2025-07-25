@@ -47,13 +47,18 @@ public class CutToFirstSignificantSubdomain extends ScalarFunction
         super("cut_to_first_significant_subdomain", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CutToFirstSignificantSubdomain(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public CutToFirstSignificantSubdomain withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new CutToFirstSignificantSubdomain(children.get(0));
+        return new CutToFirstSignificantSubdomain(getFunctionParams(children));
     }
 
     @Override

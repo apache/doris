@@ -54,10 +54,15 @@ public class HoursSub extends ScalarFunction
         super("hours_sub", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private HoursSub(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public HoursSub withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new HoursSub(children.get(0), children.get(1));
+        return new HoursSub(getFunctionParams(children));
     }
 
     @Override
