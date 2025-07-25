@@ -68,6 +68,12 @@ public class Count extends NotNullableAggregateFunction
         this.isStar = false;
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Count(boolean isStar, AggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.isStar = isStar;
+    }
+
     public boolean isCountStar() {
         return isStar
                 || children.isEmpty()
@@ -122,13 +128,8 @@ public class Count extends NotNullableAggregateFunction
             if (distinct) {
                 throw new AnalysisException("Can not count distinct empty arguments");
             }
-            return new Count();
-        } else if (children.size() == 1) {
-            return new Count(distinct, isSkew, children.get(0));
-        } else {
-            return new Count(distinct, isSkew, children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
         }
+        return new Count(isStar, getFunctionParams(distinct, isSkew, children));
     }
 
     @Override
@@ -178,7 +179,6 @@ public class Count extends NotNullableAggregateFunction
 
     @Override
     public AggregateFunction convertToMultiDistinct() {
-        return new MultiDistinctCount(getArgument(0),
-                getArguments().subList(1, arity()).toArray(new Expression[0]));
+        return new MultiDistinctCount(false, getFunctionParams(children));
     }
 }

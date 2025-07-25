@@ -62,10 +62,16 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
         this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected MultiDistinctCount(boolean mustUseMultiDistinctAgg, AggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
+    }
+
     @Override
     public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() > 0);
-        return new MultiDistinctCount(mustUseMultiDistinctAgg, distinct, children);
+        Preconditions.checkArgument(!children.isEmpty());
+        return new MultiDistinctCount(mustUseMultiDistinctAgg, getFunctionParams(distinct, children));
     }
 
     @Override
@@ -85,7 +91,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
 
     @Override
     public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctCount(mustUseMultiDistinctAgg, false, children);
+        return new MultiDistinctCount(mustUseMultiDistinctAgg, getFunctionParams(children));
     }
 
     @Override

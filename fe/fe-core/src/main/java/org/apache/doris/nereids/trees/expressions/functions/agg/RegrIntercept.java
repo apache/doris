@@ -66,6 +66,11 @@ public class RegrIntercept extends AggregateFunction
         super("regr_intercept", distinct, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private RegrIntercept(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
         DataType arg0Type = left().getDataType();
@@ -82,7 +87,7 @@ public class RegrIntercept extends AggregateFunction
     @Override
     public RegrIntercept withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new RegrIntercept(distinct, children.get(0), children.get(1));
+        return new RegrIntercept(getFunctionParams(distinct, children));
     }
 
     @Override

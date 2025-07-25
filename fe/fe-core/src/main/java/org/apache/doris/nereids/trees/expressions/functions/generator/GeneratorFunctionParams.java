@@ -15,30 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.agg;
+package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctionParams;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionParams;
 
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-/** AggregateFunctionParams */
-public class AggregateFunctionParams extends ScalarFunctionParams {
-    public final boolean isDistinct;
-    public final boolean isSkew;
-
-    public AggregateFunctionParams(
-            String functionName, boolean isDistinct, boolean isSkew, List<Expression> arguments) {
-        this(null, functionName, isDistinct, isSkew, arguments, false);
+/** WindowFunctionParams */
+public class GeneratorFunctionParams extends FunctionParams {
+    public GeneratorFunctionParams(String functionName,
+            List<Expression> arguments) {
+        super(functionName, arguments);
     }
 
-    public AggregateFunctionParams(@Nullable AggregateFunction previousFunction, String functionName,
-            boolean isDistinct, boolean isSkew, List<Expression> arguments, boolean inferred) {
-        super(previousFunction, functionName, arguments, inferred);
-        this.isDistinct = isDistinct;
-        this.isSkew = isSkew;
+    public GeneratorFunctionParams(@Nullable
+            TableGeneratingFunction originFunction, String functionName,
+            List<Expression> arguments, boolean inferred) {
+        super(originFunction, functionName, arguments, inferred);
     }
 }

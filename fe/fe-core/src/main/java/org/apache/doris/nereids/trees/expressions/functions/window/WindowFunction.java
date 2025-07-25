@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionParams;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
@@ -38,6 +39,11 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
         super(name, children);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected WindowFunction(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -54,6 +60,11 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
     @Override
     public int computeHashCode() {
         return Objects.hash(getName(), children);
+    }
+
+    @Override
+    protected WindowFunctionParams getFunctionParams(List<Expression> arguments) {
+        return new WindowFunctionParams(this, getName(), arguments, isInferred());
     }
 
     /**

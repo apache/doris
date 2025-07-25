@@ -48,9 +48,14 @@ public class CountByEnum extends NotNullableAggregateFunction implements Explici
         super("count_by_enum", distinct, varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CountByEnum(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new CountByEnum(distinct, children.toArray(new Expression[0]));
+        return new CountByEnum(getFunctionParams(distinct, children));
     }
 
     @Override

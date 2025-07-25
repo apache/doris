@@ -130,10 +130,10 @@ public abstract class BoundFunction extends Function implements ComputeSignature
         }
     }
 
-    private Supplier<FunctionSignature> buildSignatureCache(FunctionSignature specifiedSignature) {
+    private Supplier<FunctionSignature> buildSignatureCache(Supplier<FunctionSignature> specifiedSignature) {
         if (specifiedSignature != null) {
             // use specifiedSignature to make ensure idempotency of computed signatures
-            return LazyCompute.ofInstance(specifiedSignature);
+            return specifiedSignature;
         } else {
             return LazyCompute.of(() -> {
                 // first step: find the candidate signature in the signature list

@@ -55,6 +55,13 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         this.isSkew = isSkew;
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected AggregateFunction(AggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.distinct = functionParams.isDistinct;
+        this.isSkew = functionParams.isSkew;
+    }
+
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(VarcharType.SYSTEM_DEFAULT);
     }
@@ -81,7 +88,19 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
 
     @Override
     public AggregateFunctionParams getFunctionParams(List<Expression> arguments) {
-        return new AggregateFunctionParams(this, getName(), isDistinct(), arguments, isInferred());
+        return new AggregateFunctionParams(this, getName(), isDistinct(), isSkew(), arguments, isInferred());
+    }
+
+    public AggregateFunctionParams getFunctionParams(boolean isDistinct, List<Expression> arguments) {
+        return new AggregateFunctionParams(
+                this, getName(), isDistinct, isSkew(), arguments, isInferred()
+        );
+    }
+
+    public AggregateFunctionParams getFunctionParams(boolean isDistinct, boolean isSkew, List<Expression> arguments) {
+        return new AggregateFunctionParams(
+                this, getName(), isDistinct, isSkew, arguments, isInferred()
+        );
     }
 
     @Override
