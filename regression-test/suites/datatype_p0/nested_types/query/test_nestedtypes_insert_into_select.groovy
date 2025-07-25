@@ -32,7 +32,7 @@ suite("test_nestedtypes_insert_into_select", "p0") {
 
     test {
         sql "insert into ast values ('text' , [named_struct('a',1,'b','home'),named_struct('a',2,'b','work')]);"
-        exception "mismatched input 'named_struct' expecting"
+        exception "no viable alternative at input '[named_struct'"
     }
 
 
@@ -50,6 +50,6 @@ suite("test_nestedtypes_insert_into_select", "p0") {
 
     test {
         sql "insert into ast values ('text' , [named_struct('a',1,'b','home'),named_struct('a',2,'b','work')]);"
-        exception "mismatched input 'named_struct' expecting"
+        exception "no viable alternative at input '[named_struct'"
     }
 }

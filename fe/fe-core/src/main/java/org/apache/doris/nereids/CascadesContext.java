@@ -473,9 +473,16 @@ public class CascadesContext implements ScheduleContext {
         this.currentRootRewriteJobContext = Optional.ofNullable(currentRootRewriteJobContext);
     }
 
+    /** showPlanProcess */
     public boolean showPlanProcess() {
         Boolean show = showPlanProcess.get();
-        return show != null && show;
+        if (show != null && show) {
+            return true;
+        }
+        if (parent.isPresent()) {
+            return parent.get().showPlanProcess();
+        }
+        return false;
     }
 
     /** set showPlanProcess in task scope */

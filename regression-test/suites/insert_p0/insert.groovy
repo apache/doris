@@ -114,6 +114,7 @@ suite("insert") {
         """
     sql """
     DROP TABLE IF EXISTS source;
+    DROP TABLE IF EXISTS dest;
     CREATE TABLE source (
                 l_shipdate    DATE NOT NULL,
                         l_orderkey    bigint NOT NULL,
@@ -125,11 +126,29 @@ suite("insert") {
         PROPERTIES (
                 "replication_num" = "1"
         );
+        
+    CREATE TABLE dest (
+                l_shipdate    DATE NOT NULL,
+                        l_orderkey    bigint NOT NULL,
+                l_linenumber  int not null
+        )ENGINE=OLAP
+        DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
+        COMMENT "OLAP"
+        auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
+        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+        PROPERTIES (
+                "replication_num" = "1"
+        );
 
     insert into source values('1994-12-08', 1,1) , ('1994-12-14',1,1), ('1994-12-14',2,1);
 
 
     """
+
+    test {
+        sql("insert into dest values(now(), 0xff, 0xaa)")
+        exception "Unknown column '0xff' in 'table list' in UNBOUND_OLAP_TABLE_SINK clause"
+    }
 
     try {
         sql """ insert into source values('2000-12-08', 1, 1);
