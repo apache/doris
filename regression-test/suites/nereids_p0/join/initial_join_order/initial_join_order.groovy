@@ -46,6 +46,7 @@ suite("initial_join_order") {
 
         set runtime_filter_mode=off;
         set memo_max_group_expression_size=1;
+        set enable_parallel_result_sink = true;
     """
 
     qt_inner """
