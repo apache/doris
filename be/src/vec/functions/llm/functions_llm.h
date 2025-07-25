@@ -63,7 +63,7 @@ public:
                 context->state()->get_query_ctx()->get_llm_resources();
         auto it = llm_resources.find(resource_name);
         if (it == llm_resources.end()) {
-            throw Status::InternalError("LLM resource not found: " + resource_name);
+            return Status::InternalError("LLM resource not found: " + resource_name);
         }
         _config = it->second;
 
