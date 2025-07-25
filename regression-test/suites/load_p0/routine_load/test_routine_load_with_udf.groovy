@@ -20,16 +20,14 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
-suite("test_routine_load_with_sc","p0") {
+suite("test_routine_load_with_udf","p0") {
     def kafkaCsvTpoics = [
-                  "test_routine_load_with_sc",
+                  "test_routine_load_udf",
                 ]
-
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
     String kafka_port = context.config.otherConfigs.get("kafka_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     def kafka_broker = "${externalEnvIp}:${kafka_port}"
-
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         // define kafka 
         def props = new Properties()
@@ -75,30 +73,40 @@ suite("test_routine_load_with_sc","p0") {
         }
     }
 
-    def jobName = "test_routine_load_with_sc_job"
-    def tableName = "test_routine_load_with_sc"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        try {
-            sql """ DROP TABLE IF EXISTS ${tableName}"""
-            sql """ CREATE TABLE IF NOT EXISTS ${tableName}
-                    (
-                        `k1` int(20) NULL,
-                        `k2` string NULL,
-                        `v1` date  NULL,
-                        `v2` string  NULL,
-                        `v3` datetime  NULL,
-                        `v4` varchar(5)  NULL
-                    ) ENGINE=OLAP
-                    DUPLICATE KEY(`k1`)
-                    COMMENT 'OLAP'
-                    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
-                    PROPERTIES ("replication_allocation" = "tag.location.default: 1");
-                """
-            sql "sync"
+        def tableName = "test_routine_load_with_udf"
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `k1` int(20) NULL,
+                `k2` string NULL,
+                `v1` date  NULL,
+                `v2` string  NULL,
+                `v3` datetime  NULL,
+                `v4` string  NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
+        def jarPath = """${context.file.parent}/../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
+        scp_udf_file_to_all_be(jarPath)
+        log.info("Jar path: ${jarPath}".toString())
 
+        sql """ ADMIN SET FRONTEND CONFIG ("enable_udf_in_load" = "true"); """
+        try_sql("DROP GLOBAL FUNCTION IF EXISTS java_udf_string_load_global(string);")
+        sql """ CREATE GLOBAL FUNCTION java_udf_string_load_global(string) RETURNS string PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.StringLoadTest",
+            "type"="JAVA_UDF"
+        ); """
+
+        try {
             sql """
-                CREATE ROUTINE LOAD ${jobName} ON ${tableName}
-                COLUMNS TERMINATED BY ","
+                CREATE ROUTINE LOAD test_udf_load ON ${tableName}
+                COLUMNS TERMINATED BY ",",
+                COLUMNS(k1, k2, v1, v2, v3, tmp, v4=java_udf_string_load_global(v2))
                 PROPERTIES
                 (
                     "max_batch_interval" = "5",
@@ -114,43 +122,13 @@ suite("test_routine_load_with_sc","p0") {
             """
             sql "sync"
 
+            String db = context.config.getDbNameByFile(context.file)
+            log.info("reason of state changed: ${db}".toString())
+
             def count = 0
             while (true) {
-                sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                def state = res[0][8].toString()
-                if (state != "PAUSED") {
-                    count++
-                    if (count > 60) {
-                        assertEquals(1, 2)
-                    } 
-                    continue;
-                }
-                log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                break;
-            }
-
-            sql "ALTER TABLE ${tableName} MODIFY COLUMN v4 VARCHAR(10)"
-            sql "resume routine load for ${jobName}"
-
-            def props = new Properties()
-            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
-            props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-            props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-            def producer = new KafkaProducer<>(props)
-            for (String kafkaCsvTopic in kafkaCsvTpoics) {
-                def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
-                def lines = txt.readLines()
-                lines.each { line ->
-                    logger.info("=====${line}========")
-                    def record = new ProducerRecord<>(kafkaCsvTopic, null, line)
-                    producer.send(record)
-                }
-            }
-
-            while (true) {
                 def res = sql "select count(*) from ${tableName}"
-                def state = sql "show routine load for ${jobName}"
+                def state = sql "show routine load for test_udf_load"
                 log.info("routine load state: ${state[0][8].toString()}".toString())
                 log.info("routine load statistic: ${state[0][14].toString()}".toString())
                 log.info("reason of state changed: ${state[0][17].toString()}".toString())
@@ -165,10 +143,9 @@ suite("test_routine_load_with_sc","p0") {
                 sleep(5000)
                 count++
             }
-            qt_sql_with_sc "select * from ${tableName} order by k1"
+            qt_sql_topic_udf "select * from ${tableName} order by k1"
         } finally {
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            sql "stop routine load for test_udf_load"
         }
     }
 }

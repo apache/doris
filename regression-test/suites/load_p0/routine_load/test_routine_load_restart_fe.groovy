@@ -15,15 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.suite.ClusterOptions
+import org.apache.doris.regression.util.NodeType
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
-import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_multi_table_load_eror","nonConcurrent") {
+suite("test_routine_load_restart_fe", "docker") {
     def kafkaCsvTpoics = [
-                  "multi_table_csv",
+                  "test_out_of_range",
                 ]
 
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
@@ -74,91 +75,85 @@ suite("test_multi_table_load_eror","nonConcurrent") {
                 producer.send(record)
             }
         }
-    }
 
-    def load_with_injection = { injection ->
-        def jobName = "test_multi_table_load_eror"
+        def options = new ClusterOptions()
+        options.setFeNum(1)
+        options.enableDebugPoints()
+        def jobName = "test_routine_load_restart"
         def tableName = "dup_tbl_basic_multi_table"
-        if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            try {
-                GetDebugPoint().enableDebugPointForAllBEs(injection)
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
-                sql "sync"
+        docker(options) {
+            def load_with_injection = { injection ->
+                try {
+                    GetDebugPoint().enableDebugPointForAllBEs(injection)
+                    sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                    sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+                    sql "sync"
 
-                sql """
-                    CREATE ROUTINE LOAD ${jobName}
-                    COLUMNS TERMINATED BY "|"
-                    PROPERTIES
-                    (
-                        "max_batch_interval" = "5",
-                        "max_batch_rows" = "300000",
-                        "max_batch_size" = "209715200"
-                    )
-                    FROM KAFKA
-                    (
-                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-                        "kafka_topic" = "multi_table_csv",
-                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
-                    );
-                """
-                sql "sync"
+                    sql """
+                        CREATE ROUTINE LOAD ${jobName}
+                        COLUMNS TERMINATED BY "|"
+                        PROPERTIES
+                        (
+                            "max_batch_interval" = "5",
+                            "max_batch_rows" = "300000",
+                            "max_batch_size" = "209715200"
+                        )
+                        FROM KAFKA
+                        (
+                            "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                            "kafka_topic" = "test_out_of_range",
+                            "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                        );
+                    """
+                    sql "sync"
 
-                def count = 0
-                while (true) {
-                    sleep(1000)
-                    def res = sql "show routine load for ${jobName}"
-                    def state = res[0][8].toString()
-                    if (state != "RUNNING") {
-                        count++
-                        if (count > 60) {
-                            assertEquals(1, 2)
-                        } 
-                        continue;
-                    }
-                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    break;
-                }
-
-                count = 0
-                while (true) {
-                    sleep(1000)
-                    def res = sql "show routine load for ${jobName}"
-                    def state = res[0][8].toString()
-                    if (state == "RUNNING") {
-                        count++
-                        if (count > 60) {
+                    def count = 0
+                    while (true) {
+                        sleep(1000)
+                        def res = sql "show routine load for ${jobName}"
+                        def state = res[0][8].toString()
+                        if (state == "PAUSED") {
+                            log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                            assertTrue(res[0][17].toString().contains("Offset out of range"))
+                            assertTrue(res[0][17].toString().contains("consume partition"))
+                            assertTrue(res[0][17].toString().contains("consume offset"))
+                            GetDebugPoint().disableDebugPointForAllBEs(injection)
                             break;
                         }
-                        continue;
-                    }
-                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals(1, 2)
-                }
-
-                count = 0
-                while (true) {
-                    sleep(1000)
-                    def res = sql "show routine load for ${jobName}"
-                    log.info("routine load statistic: ${res[0][14].toString()}".toString())
-                    def json = parseJson(res[0][14])
-                    if (json.loadedRows.toString() != "0") {
                         count++
                         if (count > 60) {
+                            GetDebugPoint().disableDebugPointForAllBEs(injection)
                             assertEquals(1, 2)
-                        } 
-                        continue;
-                    }
-                    break;
+                            break;
+                        } else {
+                            continue;
+                        }
+                    }                    
+                } catch (Exception e) {
+                    log.info("exception: {}", e)
+                    sql "stop routine load for ${jobName}"
+                    sql "DROP TABLE IF EXISTS ${tableName}"
                 }
-            } finally {
-                GetDebugPoint().disableDebugPointForAllBEs(injection)
-                sql "stop routine load for ${jobName}"
-                sql "DROP TABLE IF EXISTS ${tableName}"
             }
+            load_with_injection("KafkaDataConsumer.group_consume.out_of_range")
+
+            cluster.restartFrontends()
+            sleep(30000)
+            context.reconnectFe()
+
+            def res = sql "show routine load for ${jobName}"
+            def state = res[0][8].toString()
+            if (state == "PAUSED") {
+                log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                assertTrue(res[0][17].toString().contains("Offset out of range"))
+                assertTrue(res[0][17].toString().contains("consume partition"))
+                assertTrue(res[0][17].toString().contains("consume offset"))
+            } else {
+                assertEquals(1, 2)
+            }
+            sql "stop routine load for ${jobName}"
+            sql "DROP TABLE IF EXISTS ${tableName}"
         }
     }
-
-    load_with_injection("FragmentMgr.exec_plan_fragment.failed")
-    load_with_injection("MultiTablePipe.exec_plans.failed")
 }
+
