@@ -58,6 +58,8 @@ import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
+import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector;
+import org.apache.doris.nereids.rules.rewrite.DistinctAggregateSplitter;
 import org.apache.doris.nereids.rules.rewrite.DistinctWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
@@ -148,7 +150,6 @@ import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
-import org.apache.doris.nereids.rules.rewrite.SplitMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
@@ -532,6 +533,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new PushDownFilterThroughProject(),
                         new MergeProjectable()
                 )),
+                topDown(DistinctAggregateSplitter.INSTANCE),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topic("topn optimize",
@@ -643,8 +645,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                 }
+                // rewriteJobs.addAll(jobs(topic("split multi distinct",
+                //         custom(RuleType.SPLIT_MULTI_DISTINCT, () -> SplitMultiDistinct.INSTANCE))));
+
                 rewriteJobs.addAll(jobs(topic("split multi distinct",
-                        custom(RuleType.SPLIT_MULTI_DISTINCT, () -> SplitMultiDistinct.INSTANCE))));
+                        custom(RuleType.SPLIT_MULTI_DISTINCT, () -> DistinctAggStrategySelector.INSTANCE))));
 
                 if (needSubPathPushDown) {
                     rewriteJobs.addAll(jobs(

@@ -112,8 +112,10 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         this.partitionExpressions = Objects.requireNonNull(
                 partitionExpressions, "partitionExpressions cannot be null");
         this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
+        // this.aggregateParam = aggregateParam;
         this.maybeUsingStream = maybeUsingStream;
-        this.requireProperties = Objects.requireNonNull(requireProperties, "requireProperties cannot be null");
+        // this.requireProperties = Objects.requireNonNull(requireProperties, "requireProperties cannot be null");
+        this.requireProperties = requireProperties;
     }
 
     /**
@@ -141,7 +143,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 partitionExpressions, "partitionExpressions cannot be null");
         this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
         this.maybeUsingStream = maybeUsingStream;
-        this.requireProperties = Objects.requireNonNull(requireProperties, "requireProperties cannot be null");
+        // this.requireProperties = Objects.requireNonNull(requireProperties, "requireProperties cannot be null");
+        this.requireProperties = requireProperties;
     }
 
     @Override
