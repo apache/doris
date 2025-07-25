@@ -48,6 +48,8 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -1780,6 +1782,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return ((Sum0) function).convertToMultiDistinct();
         } else if (function instanceof GroupConcat && function.isDistinct()) {
             return ((GroupConcat) function).convertToMultiDistinct();
+        } else if (function instanceof CollectList && function.isDistinct()) {
+            return ((CollectList) function).convertToMultiDistinct();
+        } else if (function instanceof ArrayAgg && function.isDistinct()) {
+            return ((ArrayAgg) function).convertToMultiDistinct();
         }
         return function;
     }
@@ -2042,7 +2048,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 continue;
             }
             if (!(func instanceof Count || func instanceof Sum || func instanceof GroupConcat
-                    || func instanceof Sum0)) {
+                    || func instanceof Sum0
+                    || func instanceof CollectList || func instanceof ArrayAgg)) {
                 return false;
             }
             if (func.arity() <= 1) {
