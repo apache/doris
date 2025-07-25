@@ -46,7 +46,8 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
                                bool is_strict_mode_, int64_t timestamp_ms_, int32_t nano_seconds_,
                                const std::string& timezone_,
                                const std::string& auto_increment_column,
-                               int32_t sequence_map_col_uid, int64_t cur_max_version) {
+                               std::vector<RowsetSharedPtr>& rowsets, int32_t sequence_map_col_uid,
+                               int64_t cur_max_version) {
     partial_update_mode = unique_key_update_mode;
     partial_update_new_key_policy = policy;
     partial_update_input_columns = partial_update_cols;
@@ -57,6 +58,7 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
     timezone = timezone_;
     missing_cids.clear();
     update_cids.clear();
+    this->all_rowsets = rowsets;
 
     if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         // partial_update_cols should include all key columns
