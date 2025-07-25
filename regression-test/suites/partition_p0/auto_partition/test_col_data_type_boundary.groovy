@@ -68,7 +68,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_tinyint modify column c_tinyint largeint key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
     sql """drop table if exists table_smallint"""
@@ -97,7 +97,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_smallint modify column c_smallint largeint key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
     sql """drop table if exists table_int"""
@@ -126,7 +126,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_int modify column c_int largeint key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
     sql """drop table if exists table_bigint"""
@@ -155,7 +155,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_bigint modify column c_bigint largeint key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
     sql """drop table if exists table_largeint"""
@@ -225,7 +225,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_date_range modify column c_date datetime key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
 
@@ -249,7 +249,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_date_list modify column c_date datetime key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
     sql """drop table if exists table_datetime_range"""
@@ -274,7 +274,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_datetime_range modify column c_datetime date key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
     sql """drop table if exists table_datetime_list"""
@@ -299,7 +299,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_datetime_list modify column c_datetime date key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
 
@@ -323,7 +323,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_char modify column c_char varchar key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
 
@@ -347,7 +347,7 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_varchar modify column c_varchar date key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
     }
 
 
