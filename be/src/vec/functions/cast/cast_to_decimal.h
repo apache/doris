@@ -575,23 +575,13 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeDecimal<FromDataType> && IsDataTypeDecimalV3<ToDataType>)
 Status caset_between_decimal_types(Block& block, uint32_t result,
                                    const typename FromDataType::ColumnType* col_from,
-                                   UInt32 from_precision, UInt32 from_scale,
-                                   UInt32 from_max_int_digit_count) {
+                                   UInt32 from_precision, UInt32 from_scale, UInt32 to_precision,
+                                   UInt32 to_scale, bool narrow_integral) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
-    const ColumnWithTypeAndName& named_to = block.get_by_position(result);
-    const auto& to_decimal_type = assert_cast<const ToDataType&>(*named_to.type);
-    UInt32 to_precision = to_decimal_type.get_precision();
-    ToDataType::check_type_precision(to_precision);
-    UInt32 to_scale = to_decimal_type.get_scale();
-    ToDataType::check_type_scale(to_scale);
 
-    auto to_max_int_digit_count = to_precision - to_scale;
     size_t size = col_from->size();
     UInt32 to_max_digits = NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
-    bool narrow_integral =
-            (to_max_int_digit_count < from_max_int_digit_count) ||
-            (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
     bool multiply_may_overflow = false;
     if (to_scale > from_scale) {
         multiply_may_overflow = (from_precision + to_scale - from_scale) >= to_max_digits;
@@ -713,9 +703,22 @@ public:
         UInt32 from_original_precision = from_decimal_type.get_original_precision();
         UInt32 from_original_scale = from_decimal_type.get_original_scale();
 
+        const ColumnWithTypeAndName& named_to = block.get_by_position(result);
+        const auto& to_decimal_type = assert_cast<const ToDataType&>(*named_to.type);
+        UInt32 to_precision = to_decimal_type.get_precision();
+        ToDataType::check_type_precision(to_precision);
+        UInt32 to_scale = to_decimal_type.get_scale();
+        ToDataType::check_type_scale(to_scale);
+
         auto from_max_int_digit_count = from_original_precision - from_original_scale;
+        auto to_max_int_digit_count = to_precision - to_scale;
+        bool narrow_integral = (to_max_int_digit_count < from_max_int_digit_count) ||
+                               (to_max_int_digit_count == from_max_int_digit_count &&
+                                to_scale < from_original_scale);
+
         return caset_between_decimal_types<CastMode, FromDataType, ToDataType>(
-                block, result, col_from, from_precision, from_scale, from_max_int_digit_count);
+                block, result, col_from, from_precision, from_scale, to_precision, to_scale,
+                narrow_integral);
     }
 };
 
@@ -739,9 +742,22 @@ public:
         UInt32 from_precision = from_decimal_type.get_precision();
         UInt32 from_scale = from_decimal_type.get_scale();
 
+        const ColumnWithTypeAndName& named_to = block.get_by_position(result);
+        const auto& to_decimal_type = assert_cast<const ToDataType&>(*named_to.type);
+        UInt32 to_precision = to_decimal_type.get_precision();
+        ToDataType::check_type_precision(to_precision);
+        UInt32 to_scale = to_decimal_type.get_scale();
+        ToDataType::check_type_scale(to_scale);
+
         auto from_max_int_digit_count = from_precision - from_scale;
+        auto to_max_int_digit_count = to_precision - to_scale;
+        bool narrow_integral =
+                (to_max_int_digit_count < from_max_int_digit_count) ||
+                (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
+
         return caset_between_decimal_types<CastMode, FromDataType, ToDataType>(
-                block, result, col_from, from_precision, from_scale, from_max_int_digit_count);
+                block, result, col_from, from_precision, from_scale, to_precision, to_scale,
+                narrow_integral);
     }
 };
 
