@@ -480,19 +480,12 @@ class UpCommand(Command):
                 "Do not set BE meta service endpoint in conf. Default is False."
             )
 
-        if self._support_boolean_action():
-            parser.add_argument(
-                "--be-cluster-id",
-                default=False,
-                action=self._get_parser_bool_action(False),
-                help="Do not set BE cluster ID in conf. Default is False.")
-        else:
-            parser.add_argument(
-                "--no-be-cluster-id",
-                dest='be_cluster_id',
-                default=False,
-                action=self._get_parser_bool_action(False),
-                help="Do not set BE cluster ID in conf. Default is False.")
+        # if default==False, use this style to parser, like --be-cluster-id
+        parser.add_argument(
+            "--be-cluster-id",
+            default=False,
+            action=self._get_parser_bool_action(True),
+            help="Do not set BE cluster ID in conf. Default is False.")
 
         parser.add_argument(
             "--fdb-version",
@@ -500,6 +493,7 @@ class UpCommand(Command):
             default="7.1.26",
             help="fdb image version. Only use in cloud cluster.")
 
+        # if default==True, use this style to parser, like --detach
         if self._support_boolean_action():
             parser.add_argument(
                 "--detach",

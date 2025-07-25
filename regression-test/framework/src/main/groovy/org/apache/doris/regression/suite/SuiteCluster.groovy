@@ -355,8 +355,8 @@ class SuiteCluster {
         if (!options.beMetaServiceEndpoint) {
             cmd += ['--no-be-metaservice-endpoint']
         }
-        if (!options.beClusterId) {
-            cmd += ['--no-be-cluster-id']
+        if (options.beClusterId) {
+            cmd += ['--be-cluster-id']
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
