@@ -18,12 +18,10 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionParams;
 
-import org.jetbrains.annotations.Nullable;
-
 import java.util.List;
+import javax.annotation.Nullable;
 
 /** WindowFunctionParams */
 public class GeneratorFunctionParams extends FunctionParams {

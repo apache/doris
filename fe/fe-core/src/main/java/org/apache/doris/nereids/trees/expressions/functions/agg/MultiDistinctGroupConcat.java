@@ -80,7 +80,8 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
     }
 
     /** constructor for withChildren and reuse signature */
-    protected MultiDistinctGroupConcat(boolean mustUseMultiDistinctAgg, NullableAggregateFunctionParams functionParams) {
+    protected MultiDistinctGroupConcat(
+            boolean mustUseMultiDistinctAgg, NullableAggregateFunctionParams functionParams) {
         super(functionParams);
         this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
         this.nonOrderArguments = findOrderExprIndex(children);
