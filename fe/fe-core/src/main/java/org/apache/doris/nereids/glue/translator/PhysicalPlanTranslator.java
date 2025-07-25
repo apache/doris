@@ -223,7 +223,6 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -997,7 +996,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         unionNode.setNereidsId(oneRowRelation.getId());
         context.getNereidsIdToPlanNodeIdMap().put(oneRowRelation.getId(), unionNode.getId());
         unionNode.setCardinality(1L);
-        unionNode.addConstExprList(legacyExprs);
         List<List<Expression>> constExpressionList = Lists.newArrayList();
         constExpressionList.add(expressionList);
         finalizeForSetOperationNode(unionNode, oneRowTuple.getSlots(), new ArrayList<>(),
@@ -2274,27 +2272,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<List<Expression>> resultExpressionLists = Lists.newArrayList();
         context.getNereidsIdToPlanNodeIdMap().put(setOperation.getId(), setOperationNode.getId());
         for (List<SlotReference> regularChildrenOutput : setOperation.getRegularChildrenOutputs()) {
-            Builder<Expr> translateOutputs = ImmutableList.builderWithExpectedSize(regularChildrenOutput.size());
-            List<Expression> expressionList = new ArrayList<>(regularChildrenOutput.size());
-            for (SlotReference childOutput : regularChildrenOutput) {
-                translateOutputs.add(ExpressionTranslator.translate(childOutput, context));
-                expressionList.add(childOutput);
-            }
-            resultExpressionLists.add(expressionList);
-            setOperationNode.addResultExprLists(translateOutputs.build());
+            resultExpressionLists.add(new ArrayList<>(regularChildrenOutput));
         }
 
         List<List<Expression>> constExpressionLists = Lists.newArrayList();
         if (setOperation instanceof PhysicalUnion) {
             for (List<NamedExpression> unionConsts : ((PhysicalUnion) setOperation).getConstantExprsList()) {
-                Builder<Expr> translateConsts = ImmutableList.builderWithExpectedSize(unionConsts.size());
-                List<Expression> expressionList = new ArrayList<>(unionConsts.size());
-                for (NamedExpression unionConst : unionConsts) {
-                    translateConsts.add(ExpressionTranslator.translate(unionConst, context));
-                    expressionList.add(unionConst);
-                }
-                setOperationNode.addConstExprList(translateConsts.build());
-                constExpressionLists.add(expressionList);
+                constExpressionLists.add(new ArrayList<>(unionConsts));
             }
         }
 
