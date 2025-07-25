@@ -520,7 +520,7 @@ public class JoinEstimation {
                         leftBuilder.setHotValues(newHotValues);
                     }
                 }
-                updatedCols.put(eqRight, leftBuilder.build());
+                updatedCols.put(eqLeft, leftBuilder.build());
             } else if (joinType == JoinType.RIGHT_SEMI_JOIN
                     || joinType == JoinType.RIGHT_ANTI_JOIN) {
                 ColumnStatisticBuilder rightBuilder = new ColumnStatisticBuilder(rightColStats);
