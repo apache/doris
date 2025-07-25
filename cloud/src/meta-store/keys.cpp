@@ -146,7 +146,7 @@ static void encode_prefix(const T& t, std::string* key) {
         StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
-        MowTabletJobInfo, MetaDeleteBitmapInfoV2>);
+        MowTabletJobInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -164,7 +164,6 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MetaSchemaKeyInfo>
                       || std::is_same_v<T, MetaSchemaPBDictionaryInfo>
                       || std::is_same_v<T, MetaDeleteBitmapInfo>
-                      || std::is_same_v<T, MetaDeleteBitmapInfoV2>
                       || std::is_same_v<T, MetaDeleteBitmapUpdateLockInfo>
                       || std::is_same_v<T, MetaPendingDeleteBitmapInfo>
                       || std::is_same_v<T, MowTabletJobInfo>) {
@@ -325,13 +324,6 @@ void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out) {
     encode_bytes(std::get<2>(in), out);              // rowset_id
     encode_int64(std::get<3>(in), out);              // version
     encode_int64(std::get<4>(in), out);              // segment_id
-}
-
-void meta_delete_bitmap_key_v2(const MetaDeleteBitmapInfoV2& in, std::string* out) {
-    encode_prefix(in, out);                          // 0x01 "meta" ${instance_id} // TODO 0x03
-    encode_bytes(META_KEY_INFIX_DELETE_BITMAP, out); // "delete_bitmap"
-    encode_int64(std::get<1>(in), out);              // tablet_id
-    encode_bytes(std::get<2>(in), out);              // rowset_id
 }
 
 void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in,
@@ -713,6 +705,14 @@ void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, std::string* ou
     encode_int64(std::get<2>(in), out);               // version
 }
 
+void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);              // "meta"
+    encode_bytes(std::get<0>(in), out);              // instance_id
+    encode_bytes(META_KEY_INFIX_DELETE_BITMAP, out); // "delete_bitmap"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+    encode_bytes(std::get<2>(in), out);              // rowset_id
+}
 //==============================================================================
 // Data keys
 //==============================================================================
