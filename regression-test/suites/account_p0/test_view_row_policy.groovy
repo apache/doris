@@ -20,6 +20,7 @@ suite("test_view_row_policy") {
     String tableName = "${suiteName}_table"
     String viewName = "${suiteName}_view"
     String user = "${suiteName}_user"
+    String pwd = 'C123_567p'
     String tablePolcyName = "${suiteName}_table_policy"
     String viewPolcyName = "${suiteName}_view_policy"
     def tokens = context.config.jdbcUrl.split('/')
@@ -61,7 +62,7 @@ suite("test_view_row_policy") {
     
     // create user
     sql "DROP USER IF EXISTS ${user}"
-    sql "CREATE USER ${user} IDENTIFIED BY '123abc!@#'"
+    sql "CREATE USER ${user} IDENTIFIED BY '${pwd}'"
     sql "GRANT SELECT_PRIV ON internal.${dbName}.* TO ${user}"
 
     sql 'sync'
@@ -75,7 +76,7 @@ suite("test_view_row_policy") {
     }
 
     // no policy
-    connect(user=user, password='123abc!@#', url=url) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         order_qt_no_policy "SELECT * FROM ${viewName}"
     }
 
@@ -84,7 +85,7 @@ suite("test_view_row_policy") {
         CREATE ROW POLICY IF NOT EXISTS ${tablePolcyName} ON ${dbName}.${tableName}
         AS RESTRICTIVE TO ${user} USING (k=1)
     """
-    connect(user=user, password='123abc!@#', url=url) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         order_qt_table_policy "SELECT * FROM ${viewName}"
     }
 
@@ -93,7 +94,7 @@ suite("test_view_row_policy") {
         CREATE ROW POLICY IF NOT EXISTS ${viewPolcyName} ON ${dbName}.${viewName}
         AS RESTRICTIVE TO ${user} USING (v=2)
     """
-    connect(user=user, password='123abc!@#', url=url) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         order_qt_view_policy "SELECT * FROM ${viewName}"
     }
 
