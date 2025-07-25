@@ -315,12 +315,6 @@ void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_o
             continue;
         }
 
-        auto storage_resource = rowset_meta->remote_storage_resource();
-        if (!storage_resource) {
-            LOG(WARNING) << storage_resource.error();
-            continue;
-        }
-
                     auto storage_resource = rowset_meta->remote_storage_resource();
                     if (!storage_resource) {
                         LOG(WARNING) << storage_resource.error();
@@ -419,10 +413,11 @@ void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_o
     }
 }
 
-bool CloudTablet::is_warm_up_confilict_with_compaction() {
+bool CloudTablet::is_warm_up_conflict_with_compaction() {
     if (!config::enable_read_cluster_file_cache_guard) {
         return false;
     }
+    std::shared_lock rdlock(_meta_lock);
     for (auto& [rowset_id, state] : _rowset_warm_up_states) {
         if (state == WarmUpState::TRIGGERED_BY_SYNC_ROWSET) {
             return true;
@@ -442,7 +437,7 @@ void CloudTablet::warm_up_done_cb(RowsetSharedPtr rowset, Status status, bool de
 
         g_file_cache_guard_delayed_rowset_add_num << 1;
     }
-    std::unique_lock<std::shared_mutex> meta_lock;
+    std::unique_lock<std::shared_mutex> meta_lock(_meta_lock);
     if (status.ok()) {
         VLOG_DEBUG << "warm up rowset " << rowset->version() << " done";
         _rowset_warm_up_states[rowset->rowset_id()] = WarmUpState::DONE;
@@ -455,12 +450,12 @@ void CloudTablet::warm_up_done_cb(RowsetSharedPtr rowset, Status status, bool de
                   << ", version: " << rowset->version();
         for (auto [ver, rs] : _rs_version_map) {
             // e.g. ver = [5-10]
-            // if rs->version() is [5-8], it should not be added
-            // if rs->version() is [4-8] or [6-15], it should not be added
-            // if rs->version() is [5-10], it should be added
-            // if rs->version() is [5-15], it should be added
+            // if rowset->version() is [5-8], it should not be added
+            // if rowset->version() is [4-8] or [6-15], it should not be added
+            // if rowset->version() is [5-10], it should be added
+            // if rowset->version() is [5-15], it should be added
             if (ver != rowset->version() && !rowset->version().contains(ver) &&
-                !(ver.second <= rowset->version().first || ver.first >= rowset->version().second)) {
+                !(ver.second < rowset->version().first || ver.first > rowset->version().second)) {
                 g_file_cache_guard_delayed_rowset_add_failure_num << 1;
                 LOG(WARNING) << "rowset " << rowset->version()
                              << " is not added to tablet due to version overlap with rowset "
