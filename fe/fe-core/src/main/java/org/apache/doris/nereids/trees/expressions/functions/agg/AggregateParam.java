@@ -27,6 +27,7 @@ public class AggregateParam {
 
     public static AggregateParam LOCAL_RESULT = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT);
     public static AggregateParam LOCAL_BUFFER = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+    public static AggregateParam GLOBAL_RESULT = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
 
     public final AggPhase aggPhase;
     public final AggMode aggMode;
@@ -38,22 +39,16 @@ public class AggregateParam {
         this(aggPhase, aggMode, true);
     }
 
+    /** AggregateParam */
     public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean canBeBanned) {
         this.aggMode = Objects.requireNonNull(aggMode, "aggMode cannot be null");
         this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
         this.canBeBanned = canBeBanned;
-    }
-
-    public AggregateParam withAggPhase(AggPhase aggPhase) {
-        return new AggregateParam(aggPhase, aggMode, canBeBanned);
-    }
-
-    public AggregateParam withAggPhase(AggMode aggMode) {
-        return new AggregateParam(aggPhase, aggMode, canBeBanned);
-    }
-
-    public AggregateParam withAppPhaseAndAppMode(AggPhase aggPhase, AggMode aggMode) {
-        return new AggregateParam(aggPhase, aggMode, canBeBanned);
+        // 从三阶段拆分出来的顶层一阶段的agg needSplit设置为false,
+        // 如果指定了false,那么不拆分, 如果指定了true,不代表需要拆分,
+        // 需要同时满足(!aggMode.productAggregateBuffer && !aggMode.consumeAggregateBuffer)
+        // needSplit && (!aggMode.productAggregateBuffer && !aggMode.consumeAggregateBuffer) 才需要拆分
+        // this.needSplit = needSplit && (!aggMode.productAggregateBuffer && !aggMode.consumeAggregateBuffer);
     }
 
     @Override
@@ -79,6 +74,7 @@ public class AggregateParam {
         return "AggregateParam{"
                 + "aggPhase=" + aggPhase
                 + ", aggMode=" + aggMode
+                // + ", needSplit=" + needSplit
                 + '}';
     }
 }

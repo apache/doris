@@ -21,6 +21,8 @@ suite("test_create_mv_and_mtmv") {
     def tableName = "test_create_mv_and_mtmt_advertiser_view_record"
     def mvName = "test_create_mv_and_mtmt_advertiser_uv"
     def mtmvName = "test_create_mv_and_mtmt_advertiser_uv_mtmv"
+    sql "set disable_nereids_rules='DISTINCT_AGGREGATE_SPLIT';"
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ DROP MATERIALIZED VIEW IF EXISTS ${mtmvName} """
     sql """

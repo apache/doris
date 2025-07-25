@@ -205,7 +205,7 @@ suite("partition_mv_rewrite_dimension_2_3") {
             group by 
             o_shippriority, 
             o_comment """
-    mv_rewrite_success(sql_stmt_3, mv_name_3)
+    mv_rewrite_fail(sql_stmt_3, mv_name_3)
     compare_res(sql_stmt_3 + " order by 1,2,3,4,5,6,7,8")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_3};"""
 

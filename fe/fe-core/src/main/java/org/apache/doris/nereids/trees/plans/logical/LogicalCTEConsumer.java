@@ -198,7 +198,9 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
                 "cteId", cteId,
                 "relationId", relationId,
                 "name", name,
-                "stats", statistics);
+                "stats", statistics,
+                "p2c", producerToConsumerOutputMap,
+                "c2p", consumerToProducerOutputMap);
     }
 
     @Override
