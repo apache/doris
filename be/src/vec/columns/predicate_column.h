@@ -70,8 +70,11 @@ private:
         static_assert(std::is_same_v<ColumnContainer<Y>, ColumnType>);
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
+        // Has to reserve first, could not call resize or reserve after get_end_ptr
+        // because reserve or resize may change memory block.
+        size_t org_num = res_data.size();
+        res_data.reserve(sel_size);
         auto* y = (typename PrimitiveTypeTraits<Y>::ColumnItemType*)res_data.get_end_ptr();
-        res_data.resize(sel_size);
         for (size_t i = 0; i < sel_size; i++) {
             if constexpr (std::is_same_v<typename PrimitiveTypeTraits<Y>::ColumnItemType,
                                          typename PrimitiveTypeTraits<Y>::CppType>) {
@@ -82,6 +85,7 @@ private:
                        sizeof(T));
             }
         }
+        res_data.resize(org_num + sel_size);
     }
 
     void insert_byte_to_res_column(const uint16_t* sel, size_t sel_size, IColumn* res_ptr) {
@@ -178,10 +182,10 @@ public:
         const auto* input_data_ptr = reinterpret_cast<const uint24_t*>(data_ptr);
         auto* res_ptr = reinterpret_cast<VecDateTimeValue*>(data.get_end_ptr());
         size_t old_size = data.size();
-        data.resize(old_size + num);
         for (int i = 0; i < num; i++) {
             res_ptr[i].set_olap_date(unaligned_load<uint24_t>(&input_data_ptr[i]));
         }
+        data.resize(old_size + num);
     }
 
     void insert_many_datetime(const char* data_ptr, size_t num) {
@@ -191,10 +195,10 @@ public:
         const auto* input_data_ptr = reinterpret_cast<const uint64_t*>(data_ptr);
         auto* res_ptr = reinterpret_cast<VecDateTimeValue*>(data.get_end_ptr());
         size_t old_size = data.size();
-        data.resize(old_size + num);
         for (int i = 0; i < num; i++) {
             res_ptr[i].from_olap_datetime(input_data_ptr[i]);
         }
+        data.resize(old_size + num);
     }
 
     // The logic is same to ColumnDecimal::insert_many_fix_len_data
