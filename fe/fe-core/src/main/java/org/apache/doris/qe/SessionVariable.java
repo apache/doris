@@ -803,6 +803,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
                                                             "default_variant_enable_typed_paths_to_sparse";
 
+    public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2433,6 +2435,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
             description = {"cast使用严格模式", "Use strict mode for cast"})
     public boolean enableStrictCast = false;
+
+    @VariableMgr.VarAttr(name = MULTI_DISTINCT_STRATEGY)
+    public int multiDistinctStrategy = 0;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();

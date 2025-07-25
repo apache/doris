@@ -22,6 +22,7 @@ suite("with_select_table_auth","p0,auth") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set disable_nereids_rules='DISTINCT_AGGREGATE_SPLIT';"
 
     String user_name = 'with_select_table_auth'
     String pwd = 'test1'

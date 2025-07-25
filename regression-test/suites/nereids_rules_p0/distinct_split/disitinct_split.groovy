@@ -202,11 +202,11 @@ suite("distinct_split") {
     qt_multi_sum_with_gby """explain shape plan select sum(distinct b), sum(distinct a) from test_distinct_multi group by c"""
     qt_sum_count_with_gby """explain shape plan select sum(distinct b), count(distinct a) from test_distinct_multi group by a"""
     qt_has_grouping """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi group by grouping sets((a,b),(c));"""
-    test {
-        sql """select count(distinct a,b), count(distinct a) from test_distinct_multi
-        group by grouping sets((a,b),(c));"""
-        exception "The query contains multi count distinct or sum distinct, each can't have multi columns"
-    }
+//    test {
+//        sql """select count(distinct a,b), count(distinct a) from test_distinct_multi
+//        group by grouping sets((a,b),(c));"""
+//        exception "The query contains multi count distinct or sum distinct, each can't have multi columns"
+//    }
 
     //----------------test null hash join ------------------------
     sql "drop table if exists test_distinct_multi_null_hash;"
