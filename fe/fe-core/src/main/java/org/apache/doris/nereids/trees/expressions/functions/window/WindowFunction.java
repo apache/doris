@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.FunctionParams;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
