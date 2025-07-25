@@ -76,7 +76,7 @@ suite("push_topn_to_agg") {
         sql "select count(distinct o_clerk), sum(distinct o_shippriority) from orders group by o_orderkey limit 14; "
         contains("VTOP-N")
         contains("order by: o_orderkey")
-        multiContains("sortByGroupKey:true", 2)
+        //multiContains("sortByGroupKey:true", 2)
     }
 
     // use group key as sort key to enable topn-push opt

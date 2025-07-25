@@ -806,6 +806,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
                                                             "default_variant_max_sparse_column_statistics_size";
+    public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
+    public static final String AGG_PHASE = "agg_phase";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2457,6 +2459,28 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
             description = {"cast使用严格模式", "Use strict mode for cast"})
     public boolean enableStrictCast = false;
+
+    @VariableMgr.VarAttr(name = MULTI_DISTINCT_STRATEGY, description = {"用于控制在包含多个 DISTINCT 函数的 SQL 查询中所采用的"
+            + "执行策略。默认值为 0，表示由系统自动选择最优策略；设为 1 表示强制使用 MultiDistinct 方式处理；"
+            + "设为 2 表示强制采用 CTE 拆分方式执行。",
+            "Used to control the execution strategy used in SQL queries containing multiple DISTINCT "
+                    + "functions. The default value is 0, which means that the system automatically selects "
+                    + "the optimal strategy; setting it to 1 means forcing the use of MultiDistinct processing;"
+                    + " setting it to 2 means forcing the use of CTE splitting execution"},
+            checker = "checkMultiDistinctStrategy")
+    public int multiDistinctStrategy = 0;
+
+    @VariableMgr.VarAttr(name = AGG_PHASE, description = {"用于控制聚合查询的执行阶段划分策略。默认值为 0，"
+            + "表示由系统自动选择最优执行阶段；设为 1 至 4 之间的值则表示强制指定使用对应 1 至 4 阶段进行聚合计算。",
+            "Controls the execution phase strategy for aggregate queries. The default value is 0,"
+                    + "which means the system automatically selects the optimal execution phase. Setting this value"
+                    + "between 1 and 4 forces the use of phases 1 to 4 for aggregate calculations."},
+            checker = "checkAggPhase")
+    public int aggPhase = 0;
+
+    public void setAggPhase(int phase) {
+        aggPhase = phase;
+    }
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
@@ -4997,6 +5021,28 @@ public class SessionVariable implements Serializable, Writable {
         } catch (NumberFormatException e) {
             throw new InvalidParameterException(
                     SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR + " must be a valid number between 0 and 65535");
+        }
+    }
+
+    public void checkAggPhase(String aggPhaseStr) {
+        try {
+            long aggPhase = Long.parseLong(aggPhaseStr);
+            if (aggPhase < 0 || aggPhase > 4) {
+                throw new InvalidParameterException(AGG_PHASE + " should be between 0 and 4");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(AGG_PHASE + " must be a valid number between 0 and 4");
+        }
+    }
+
+    public void checkMultiDistinctStrategy(String multiDistinctStrategyStr) {
+        try {
+            long aggPhase = Long.parseLong(multiDistinctStrategyStr);
+            if (aggPhase < 0 || aggPhase > 2) {
+                throw new InvalidParameterException(MULTI_DISTINCT_STRATEGY + " should be between 0 and 2");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(MULTI_DISTINCT_STRATEGY + " must be a valid number between 0 and 2");
         }
     }
 

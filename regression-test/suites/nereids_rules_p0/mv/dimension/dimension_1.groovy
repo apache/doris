@@ -19,6 +19,7 @@
 This suite is a one dimensional test case file.
  */
 suite("partition_mv_rewrite_dimension_1") {
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
 
