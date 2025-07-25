@@ -48,7 +48,7 @@ inline uint8_t bits_may_more_than_64(const uint128_t v) {
         return 0;
     }
     uint64_t hi = v >> 64;
-    auto lo = cast_set<uint64_t>(v);
+    auto lo = static_cast<uint64_t>(v); // Use static_cast to get low 64 bits without range check
     int z[3] = {leading_zeroes(hi), leading_zeroes(lo) + 64, 128};
     int idx = !hi + ((!lo) & (!hi));
     return cast_set<uint8_t>(128 - z[idx]);
