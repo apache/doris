@@ -68,18 +68,23 @@ public class Stddev extends NullableAggregateFunction
         super("stddev", distinct, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Stddev(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public Stddev withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Stddev(distinct, alwaysNullable, children.get(0));
+        return new Stddev(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Stddev(distinct, alwaysNullable, children.get(0));
+        return new Stddev(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

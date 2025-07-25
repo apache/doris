@@ -55,13 +55,18 @@ public class OrthogonalBitmapUnionCount extends NotNullableAggregateFunction
         super("orthogonal_bitmap_union_count", distinct, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private OrthogonalBitmapUnionCount(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public OrthogonalBitmapUnionCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new OrthogonalBitmapUnionCount(distinct, children.get(0));
+        return new OrthogonalBitmapUnionCount(getFunctionParams(distinct, children));
     }
 
     @Override

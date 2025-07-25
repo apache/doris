@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -49,9 +50,9 @@ public class FunctionParams {
         this.inferred = inferred;
     }
 
-    public FunctionSignature getOriginSignature() {
+    public Supplier<FunctionSignature> getOriginSignature() {
         if (originFunction.isPresent()) {
-            return originFunction.get().getSignature();
+            return () -> originFunction.get().getSignature();
         } else {
             return null;
         }

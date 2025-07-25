@@ -51,6 +51,11 @@ public class NthValue extends WindowFunction
         super("nth_value", children);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private NthValue(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
@@ -59,7 +64,7 @@ public class NthValue extends WindowFunction
     @Override
     public NthValue withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new NthValue(children);
+        return new NthValue(getFunctionParams(children));
     }
 
     @Override

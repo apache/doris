@@ -163,31 +163,23 @@ public class TopNWeighted extends NullableAggregateFunction
         super("topn_weighted", distinct, alwaysNullable, arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private TopNWeighted(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public TopNWeighted withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 3
-                || children.size() == 4);
-        if (children.size() == 3) {
-            return new TopNWeighted(distinct, alwaysNullable, children.get(0), children.get(1),
-                    children.get(2));
-        } else {
-            return new TopNWeighted(distinct, alwaysNullable, children.get(0), children.get(1),
-                    children.get(2), children.get(3));
-        }
+        Preconditions.checkArgument(children.size() == 3 || children.size() == 4);
+        return new TopNWeighted(getFunctionParams(distinct, children));
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        if (children.size() == 3) {
-            return new TopNWeighted(distinct, alwaysNullable, children.get(0), children.get(1),
-                    children.get(2));
-        } else {
-            return new TopNWeighted(distinct, alwaysNullable, children.get(0), children.get(1),
-                    children.get(2), children.get(3));
-        }
+    public TopNWeighted withAlwaysNullable(boolean alwaysNullable) {
+        return new TopNWeighted(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

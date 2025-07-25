@@ -47,13 +47,18 @@ public class ExplodeJsonArrayJson extends TableGeneratingFunction implements Una
         super("explode_json_array_json", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonArrayJson(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonArrayJson withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonArrayJson(children.get(0));
+        return new ExplodeJsonArrayJson(getFunctionParams(children));
     }
 
     @Override

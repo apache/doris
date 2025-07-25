@@ -38,6 +38,11 @@ public class DenseRank extends WindowFunction implements AlwaysNotNullable, Leaf
         super("dense_rank");
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DenseRank(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(FunctionSignature.ret(BigIntType.INSTANCE).args());
@@ -50,8 +55,8 @@ public class DenseRank extends WindowFunction implements AlwaysNotNullable, Leaf
 
     @Override
     public DenseRank withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0);
-        return new DenseRank();
+        Preconditions.checkArgument(children.isEmpty());
+        return new DenseRank(getFunctionParams(children));
     }
 
     @Override

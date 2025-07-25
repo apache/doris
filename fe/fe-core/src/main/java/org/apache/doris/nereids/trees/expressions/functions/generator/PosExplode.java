@@ -47,13 +47,18 @@ public class PosExplode extends TableGeneratingFunction implements UnaryExpressi
         super("posexplode", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private PosExplode(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public PosExplode withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PosExplode(children.get(0));
+        return new PosExplode(getFunctionParams(children));
     }
 
     @Override

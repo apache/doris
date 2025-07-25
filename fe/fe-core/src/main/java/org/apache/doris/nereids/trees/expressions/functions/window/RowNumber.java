@@ -38,6 +38,11 @@ public class RowNumber extends WindowFunction implements AlwaysNotNullable, Leaf
         super("row_number");
     }
 
+    /** constructor for withChildren and reuse signature */
+    private RowNumber(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(FunctionSignature.ret(BigIntType.INSTANCE).args());
@@ -50,8 +55,8 @@ public class RowNumber extends WindowFunction implements AlwaysNotNullable, Leaf
 
     @Override
     public RowNumber withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0);
-        return new RowNumber();
+        Preconditions.checkArgument(children.isEmpty());
+        return new RowNumber(getFunctionParams(children));
     }
 
     @Override

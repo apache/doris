@@ -63,6 +63,11 @@ public class BitmapUnionInt extends NotNullableAggregateFunction
         this(arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapUnionInt(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argumentType = getArgumentType(0);
@@ -82,7 +87,7 @@ public class BitmapUnionInt extends NotNullableAggregateFunction
     @Override
     public BitmapUnionInt withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapUnionInt(children.get(0));
+        return new BitmapUnionInt(getFunctionParams(distinct, children));
     }
 
     @Override
