@@ -36,7 +36,7 @@ import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -526,7 +526,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
             }
             tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
             tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
-            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+            List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroup(tmpCtx);
             if (wgList.size() == 0) {
                 throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
