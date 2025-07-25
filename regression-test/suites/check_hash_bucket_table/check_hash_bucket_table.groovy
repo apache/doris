@@ -40,29 +40,33 @@ suite("check_hash_bucket_table") {
             }
         }
         def partitionName = info["PartitionName"]
-        def tabletIdList = sql_return_maparray(""" show replica status from ${tblName} partition(${partitionName}); """).collect { it.TabletId }.toList()
-        def tabletIds = tabletIdList.toSet()
-        int replicaNum = tabletIdList.stream().filter { it == tabletIdList[0] }.count()
-        logger.info("""===== [check] Begin to check partition: ${db}.${tblName}, partition name: ${partitionName}, bucket num: ${bucketNum}, replica num: ${replicaNum}, bucket columns: ${bucketColumns}""")
-        (0..replicaNum-1).each { replica ->
-            sql "set use_fix_replica=${replica};"
-            tabletIds.each { it2 ->
-                def tabletId = it2
-                try {
-                    def res = sql "select crc32_internal(${bucketColumns}) % ${bucketNum} from ${db}.${tblName} tablet(${tabletId}) group by crc32_internal(${bucketColumns}) % ${bucketNum};"
-                    if (res.size() > 1) {
-                        logger.info("""===== [check] check failed: ${db}.${tblName}, partition name: ${partitionName}, tabletId: ${tabletId}, bucket columns: ${bucketColumns}, res.size()=${res.size()}, res=${res}""")
-                        assert res.size() == 1
+        try {
+            def tabletIdList = sql_return_maparray(""" show replica status from ${tblName} partition(${partitionName}); """).collect { it.TabletId }.toList()
+            def tabletIds = tabletIdList.toSet()
+            int replicaNum = tabletIdList.stream().filter { it == tabletIdList[0] }.count()
+            logger.info("""===== [check] Begin to check partition: ${db}.${tblName}, partition name: ${partitionName}, bucket num: ${bucketNum}, replica num: ${replicaNum}, bucket columns: ${bucketColumns}""")
+            (0..replicaNum-1).each { replica ->
+                sql "set use_fix_replica=${replica};"
+                tabletIds.each { it2 ->
+                    def tabletId = it2
+                    try {
+                        def res = sql "select crc32_internal(${bucketColumns}) % ${bucketNum} from ${db}.${tblName} tablet(${tabletId}) group by crc32_internal(${bucketColumns}) % ${bucketNum};"
+                        if (res.size() > 1) {
+                            logger.info("""===== [check] check failed: ${db}.${tblName}, partition name: ${partitionName}, tabletId: ${tabletId}, bucket columns: ${bucketColumns}, res.size()=${res.size()}, res=${res}""")
+                            assert res.size() == 1
+                        }
+                    } catch (AssertionError e) {
+                        throw e
+                    } catch (Throwable e) {
+                        logger.info("===== [check] catch exception, table: ${db}.${tblName}, partition name: ${partitionName}, tabletId: ${tabletId}, e=${e}")
                     }
-                } catch (AssertionError e) {
-                    throw e
-                } catch (Throwable e) {
-                    logger.info("===== [check] catch exception, table: ${db}.${tblName}, partition name: ${partitionName}, tabletId: ${tabletId}, e=${e}")
                 }
+                sql "set use_fix_replica=-1;"
             }
-            sql "set use_fix_replica=-1;"
+            logger.info("""===== [check] Finish to check table partition: ${db}.${tblName}, partitionName: ${partitionName}, replica num: ${replicaNum}, bucket num: ${bucketNum}, bucket columns: ${bucketColumns}""")
+        } catch (Throwable e) {
+            logger.info("===== [check] catch exception, table: ${db}.${tblName}, partition name: ${partitionName}, e=${e}")
         }
-        logger.info("""===== [check] Finish to check table partition: ${db}.${tblName}, partitionName: ${partitionName}, replica num: ${replicaNum}, bucket num: ${bucketNum}, bucket columns: ${bucketColumns}""")
         return true
     }
 
