@@ -26,7 +26,11 @@ suite("test_filecache_with_base_compaction", "docker") {
     options.setFeNum(1)
     options.setBeNum(1)
 
-    def dbName = ""
+    options.beConfigs.add('enable_flush_file_cache_async=false')
+    options.beConfigs.add('file_cache_enter_disk_resource_limit_mode_percent=99')
+    options.beConfigs.add('enable_evict_file_cache_in_advance=false')
+    options.beConfigs.add('')
+
     def testTable = "test_filecache_with_base_compaction"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -106,24 +110,6 @@ suite("test_filecache_with_base_compaction", "docker") {
         logger.info("frontends: ${fes}")
         def url = "jdbc:mysql://${fes[0].Host}:${fes[0].QueryPort}/"
         logger.info("url: " + url)
-        AtomicBoolean query_result = new AtomicBoolean(true)
-        def query = {
-            connect( context.config.jdbcUser,  context.config.jdbcPassword,  url) {
-                logger.info("query start")
-                def results = sql_return_maparray """ select * from ${dbName}.${testTable}; """
-                logger.info("query result: " + results)
-                Set<String> keys = new HashSet<>()
-                for (final def result in results) {
-                    if (keys.contains(result.k)) {
-                        logger.info("find duplicate key: " + result.k)
-                        query_result.set(false)
-                        break
-                    }
-                    keys.add(result.k)
-                }
-                logger.info("query finish. query_result: " + query_result.get())
-            }
-        }
 
         def result = sql 'SELECT DATABASE()'
 
