@@ -73,7 +73,7 @@ Status CloudBaseCompaction::prepare_compact() {
         RETURN_IF_ERROR(st);
     }
 
-    if (cloud_tablet()->is_warm_up_confilict_with_compaction()) {
+    if (cloud_tablet()->is_warm_up_conflict_with_compaction()) {
         return Status::Error<BE_NO_SUITABLE_VERSION>("some rowsets of tablet {} is in warmup state",
                                                      _tablet->tablet_id());
     }

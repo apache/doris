@@ -62,8 +62,7 @@ using namespace ErrorCode;
 
 bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
 
-bvar::Adder<uint64_t> g_file_cache_guard_delayed_rowset_num(
-        "file_cache_guard_delayed_rowset_num");
+bvar::Adder<uint64_t> g_file_cache_guard_delayed_rowset_num("file_cache_guard_delayed_rowset_num");
 bvar::Adder<uint64_t> g_file_cache_guard_delayed_rowset_add_num(
         "file_cache_guard_delayed_rowset_add_num");
 bvar::Adder<uint64_t> g_file_cache_guard_delayed_rowset_add_failure_num(
