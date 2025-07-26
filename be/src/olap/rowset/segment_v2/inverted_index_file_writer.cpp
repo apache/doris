@@ -24,6 +24,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "io/fs/s3_file_writer.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
@@ -129,7 +130,8 @@ Status InvertedIndexFileWriter::add_into_searcher_cache() {
             std::make_unique<InvertedIndexFileReader>(_fs, _index_path_prefix, _storage_format);
     auto st = inverted_index_file_reader->init();
     if (!st.ok()) {
-        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr
+            || dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr) {
             //StreamSinkFileWriter not found file is normal.
             return Status::OK();
         }
