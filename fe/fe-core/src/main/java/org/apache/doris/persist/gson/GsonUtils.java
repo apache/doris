@@ -643,6 +643,7 @@ public class GsonUtils {
             .registerTypeAdapter(ImmutableList.class, new ImmutableListDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
+            .registerTypeAdapter(FunctionCallExpr.class, new FunctionCallExpr.FunctionCallExprSerializer())
             .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
                     new ExclusionStrategy() {
                         @Override
