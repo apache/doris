@@ -1909,7 +1909,12 @@ public:
         case BitmapTypeCode::BITMAP64_V2:
             _type = BITMAP;
             _is_shared = false;
-            _bitmap = std::make_shared<detail::Roaring64Map>(detail::Roaring64Map::read(src));
+            try {
+                _bitmap = std::make_shared<detail::Roaring64Map>(detail::Roaring64Map::read(src));
+            } catch (const std::runtime_error& e) {
+                LOG(ERROR) << "Decode roaring bitmap failed, " << e.what();
+                return false;
+            }
             break;
         case BitmapTypeCode::SET: {
             _type = SET;
