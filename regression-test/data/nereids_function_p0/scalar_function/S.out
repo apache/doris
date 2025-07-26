@@ -956,6 +956,35 @@
 1
 1
 
+-- !sql_signbit_Double --
+\N
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !sql_signbit_Double_notnull --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
 -- !sql_sin_Double --
 \N
 0.09983341664682815
