@@ -25,6 +25,7 @@
 #include <variant>
 #include <vector>
 
+#include "cloud/config.h"
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_meta.h"
@@ -110,8 +111,11 @@ public:
     Status lease_tablet_job(const TabletJobInfoPB& job);
 
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
-                                DeleteBitmap* delete_bitmap, int64_t txn_id = -1,
-                                bool is_explicit_txn = false, int64_t next_visible_version = -1);
+                                DeleteBitmap* delete_bitmap, DeleteBitmap* delete_bitmap_v2,
+                                std::string rowset_id = "",
+                                std::optional<StorageResource> storage_resource = std::nullopt,
+                                int64_t txn_id = -1, bool is_explicit_txn = false,
+                                int64_t next_visible_version = -1);
 
     Status cloud_update_delete_bitmap_without_lock(
             const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
@@ -132,7 +136,15 @@ private:
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
-                                     bool full_sync = false, SyncRowsetStats* sync_stats = nullptr);
+                                     bool full_sync = false, SyncRowsetStats* sync_stats = nullptr,
+                                     int version = config::delete_bitmap_store_version);
+    Status sync_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t old_max_version,
+                                        std::ranges::range auto&& rs_metas,
+                                        const TabletStatsPB& stats, const TabletIndexPB& idx,
+                                        DeleteBitmap* delete_bitmap, bool full_sync,
+                                        SyncRowsetStats* sync_stats,
+                                        std::map<std::string, std::string> rowset_to_resource = {},
+                                        bool all_sync = false);
     void check_table_size_correctness(const RowsetMeta& rs_meta);
     int64_t get_segment_file_size(const RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);

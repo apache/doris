@@ -60,6 +60,7 @@
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-store/codec.h"
 #include "meta-store/keys.h"
 #include "recycler/recycler_service.h"
 #include "recycler/sync_executor.h"
@@ -1742,6 +1743,13 @@ int InstanceRecycler::delete_rowset_data(
     bool is_formal_rowset = (type == RowsetRecyclingState::FORMAL_ROWSET);
 
     for (const auto& [_, rs] : rowsets) {
+        // Recycle the versioned delete_bitmap keys
+        auto delete_bitmap_key = versioned::meta_delete_bitmap_key(
+                {instance_id_, rs.tablet_id(), rs.rowset_id_v2()});
+        std::string end_key = delete_bitmap_key;
+        encode_int64(INT64_MAX, &end_key);
+        // txn_kv_->remove(delete_bitmap_key, end_key);
+
         // we have to treat tmp rowset as "orphans" that may not related to any existing tablets
         // due to aborted schema change.
         if (is_formal_rowset) {
