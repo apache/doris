@@ -20,18 +20,16 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
-suite("test_routine_load_with_sc","p0") {
-    def kafkaCsvTpoics = [
-                  "test_routine_load_with_sc",
-                ]
-
+suite("test_black_list","nonConcurrent,p0") {
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
-    String kafka_port = context.config.otherConfigs.get("kafka_port")
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    def kafka_broker = "${externalEnvIp}:${kafka_port}"
-
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        // define kafka 
+        // 1. send data
+        def kafkaCsvTpoics = [
+                  "test_black_list",
+                ]
+        String kafka_port = context.config.otherConfigs.get("kafka_port")
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        def kafka_broker = "${externalEnvIp}:${kafka_port}"
         def props = new Properties()
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
@@ -63,7 +61,6 @@ suite("test_routine_load_with_sc","p0") {
             throw e  
         }
         logger.info("Kafka connect success")
-
         for (String kafkaCsvTopic in kafkaCsvTpoics) {
             def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
             def lines = txt.readLines()
@@ -73,38 +70,32 @@ suite("test_routine_load_with_sc","p0") {
                 producer.send(record)
             }
         }
-    }
 
-    def jobName = "test_routine_load_with_sc_job"
-    def tableName = "test_routine_load_with_sc"
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        // 2. create table and routine load job
+        def tableName = "test_black_list"
+        def job = "test_black_list_job"
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `k1` int(20) NULL,
+                `k2` string NULL,
+                `v1` date  NULL,
+                `v2` string  NULL,
+                `v3` datetime  NULL,
+                `v4` string  NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
+
+        def inject = "KafkaDataConsumer.get_latest_offsets_for_partitions.timeout"
         try {
-            sql """ DROP TABLE IF EXISTS ${tableName}"""
-            sql """ CREATE TABLE IF NOT EXISTS ${tableName}
-                    (
-                        `k1` int(20) NULL,
-                        `k2` string NULL,
-                        `v1` date  NULL,
-                        `v2` string  NULL,
-                        `v3` datetime  NULL,
-                        `v4` varchar(5)  NULL
-                    ) ENGINE=OLAP
-                    DUPLICATE KEY(`k1`)
-                    COMMENT 'OLAP'
-                    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
-                    PROPERTIES ("replication_allocation" = "tag.location.default: 1");
-                """
-            sql "sync"
-
+            GetDebugPoint().enableDebugPointForAllBEs(inject)
             sql """
-                CREATE ROUTINE LOAD ${jobName} ON ${tableName}
+                CREATE ROUTINE LOAD ${job} ON ${tableName}
                 COLUMNS TERMINATED BY ","
-                PROPERTIES
-                (
-                    "max_batch_interval" = "5",
-                    "max_batch_rows" = "300000",
-                    "max_batch_size" = "209715200"
-                )
                 FROM KAFKA
                 (
                     "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
@@ -112,63 +103,48 @@ suite("test_routine_load_with_sc","p0") {
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
-            sql "sync"
 
             def count = 0
             while (true) {
-                sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                def state = res[0][8].toString()
-                if (state != "PAUSED") {
-                    count++
-                    if (count > 60) {
-                        assertEquals(1, 2)
-                    } 
-                    continue;
-                }
-                log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                break;
-            }
-
-            sql "ALTER TABLE ${tableName} MODIFY COLUMN v4 VARCHAR(10)"
-            sql "resume routine load for ${jobName}"
-
-            def props = new Properties()
-            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
-            props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-            props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-            def producer = new KafkaProducer<>(props)
-            for (String kafkaCsvTopic in kafkaCsvTpoics) {
-                def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
-                def lines = txt.readLines()
-                lines.each { line ->
-                    logger.info("=====${line}========")
-                    def record = new ProducerRecord<>(kafkaCsvTopic, null, line)
-                    producer.send(record)
-                }
-            }
-
-            while (true) {
                 def res = sql "select count(*) from ${tableName}"
-                def state = sql "show routine load for ${jobName}"
+                log.info("res: ${res}")
+                def state = sql "show routine load for ${job}"
                 log.info("routine load state: ${state[0][8].toString()}".toString())
-                log.info("routine load statistic: ${state[0][14].toString()}".toString())
                 log.info("reason of state changed: ${state[0][17].toString()}".toString())
-                if (res[0][0] > 0) {
+                log.info("other msg: ${state[0][19].toString()}".toString())
+                if (state[0][17].toString().contains("Failed to get info") || state[0][19].toString().contains("Failed to get info")) {
                     break
                 }
-                if (count >= 120) {
-                    log.error("routine load can not visible for long time")
-                    assertEquals(20, res[0][0])
+                if (count >= 90) {
+                    log.error("routine load test fail")
+                    assertEquals(1, 2)
                     break
                 }
-                sleep(5000)
+                sleep(1000)
                 count++
             }
-            qt_sql_with_sc "select * from ${tableName} order by k1"
+
+            count = 0
+            GetDebugPoint().disableDebugPointForAllBEs(inject)
+            while (true) {
+                sleep(1000)
+                def res = sql "show routine load for ${job}"
+                log.info("routine load statistic: ${res[0][14].toString()}".toString())
+                log.info("progress: ${res[0][15].toString()}".toString())
+                log.info("lag: ${res[0][16].toString()}".toString())
+                res = sql "select count(*) from ${tableName}"
+                if (res[0][0] > 0) {
+                    break;
+                }
+                count++
+                if (count > 60) {
+                    assertEquals(1, 2)
+                } 
+                continue;
+            }
         } finally {
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            GetDebugPoint().disableDebugPointForAllBEs(inject)
+            sql "stop routine load for ${job}"
         }
     }
 }

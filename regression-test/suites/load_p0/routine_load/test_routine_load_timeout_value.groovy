@@ -20,10 +20,9 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
-
-suite("test_routine_load_schedule","p0") {
+suite("test_routine_load_timeout_value","nonConcurrent") {
     def kafkaCsvTpoics = [
-                  "test_schedule",
+                  "test_routine_load_timeout_value",
                 ]
 
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
@@ -31,8 +30,8 @@ suite("test_routine_load_schedule","p0") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     def kafka_broker = "${externalEnvIp}:${kafka_port}"
 
+    // send data to kafka 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        // define kafka 
         def props = new Properties()
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
@@ -64,7 +63,6 @@ suite("test_routine_load_schedule","p0") {
             throw e  
         }
         logger.info("Kafka connect success")
-
         for (String kafkaCsvTopic in kafkaCsvTpoics) {
             def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
             def lines = txt.readLines()
@@ -76,11 +74,10 @@ suite("test_routine_load_schedule","p0") {
         }
     }
 
-    sleep(10000)
-
-    def jobName = "testScheduleJob"
-    def tableName = "test_routine_load_schedule"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        // create table
+        def jobName = "test_routine_load_timeout_value"
+        def tableName = "test_routine_load_timeout_value"
         try {
             sql """
             CREATE TABLE IF NOT EXISTS ${tableName}
@@ -95,8 +92,8 @@ suite("test_routine_load_schedule","p0") {
                 k07 LARGEINT        NULL,
                 k08 FLOAT           NULL,
                 k09 DOUBLE          NULL,
-                k10 DECIMAL(10,1)    NULL,
-                k11 DECIMALV3(10,1)  NULL,
+                k10 DECIMAL(9,1)    NULL,
+                k11 DECIMALV3(9,1)  NULL,
                 k12 DATETIME        NULL,
                 k13 DATEV2          NULL,
                 k14 DATETIMEV2      NULL,
@@ -131,7 +128,6 @@ suite("test_routine_load_schedule","p0") {
                 INDEX idx_ngrambf_k115 (`k15`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
                 INDEX idx_ngrambf_k116 (`k16`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
                 INDEX idx_ngrambf_k117 (`k17`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
-
                 INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
                 INDEX idx_bitmap_k110 (`kd01`) USING BITMAP
                 
@@ -151,6 +147,7 @@ suite("test_routine_load_schedule","p0") {
             """
             sql "sync"
 
+            // create job
             sql """
                 CREATE ROUTINE LOAD ${jobName} on ${tableName}
                 COLUMNS(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18),
@@ -164,84 +161,55 @@ suite("test_routine_load_schedule","p0") {
                 FROM KAFKA
                 (
                     "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-                    "kafka_topic" = "test_schedule",
-                    "property.kafka_default_offsets" = "OFFSET_END"
+                    "kafka_topic" = "${kafkaCsvTpoics[0]}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
             sql "sync"
 
+            // test timeout less than 60s
             def count = 0
             while (true) {
-                sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                def state = res[0][8].toString()
-                if (state != "RUNNING") {
-                    count++
-                    if (count > 300) {
-                        assertEquals(1, 2)
-                    } 
-                    continue;
-                }
-                break;
-            }
-
-            if (enabled != null && enabled.equalsIgnoreCase("true")) {
-                // define kafka 
-                def props = new Properties()
-                props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
-                props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-                props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-                // Create kafka producer
-                def producer = new KafkaProducer<>(props)
-
-                for (String kafkaCsvTopic in kafkaCsvTpoics) {
-                    def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
-                    def lines = txt.readLines()
-                    lines.each { line ->
-                        logger.info("=====${line}========")
-                        def record = new ProducerRecord<>(kafkaCsvTopic, null, line)
-                        producer.send(record)
-                    }
-                }
-            }
-
-            sleep(5000)
-
-            count = 0
-            while (true) {
-                sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                def state = res[0][8].toString()
-                if (state != "RUNNING") {
-                    count++
-                    if (count > 60) {
-                        assertEquals(1, 2)
-                    } 
-                    continue;
-                }
-                log.info("reason of state changed: ${res[0][11].toString()}".toString())
-                break;
-            }
-            while (true) {
-                sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                log.info("routine load statistic: ${res[0][14].toString()}".toString())
-                log.info("progress: ${res[0][15].toString()}".toString())
-                log.info("lag: ${res[0][16].toString()}".toString())
-                res = sql "select count(*) from ${tableName}"
-                if (res[0][0] > 0) {
+                def res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = '${jobName}'"
+                if (res.size() > 0) {
+                    log.info("res: ${res[0].toString()}".toString())
+                    log.info("timeout: ${res[0][6].toString()}".toString())
+                    assertTrue(res[0][6].toString().contains("60"))
                     break;
                 }
                 count++
                 if (count > 60) {
                     assertEquals(1, 2)
-                } 
-                continue;
+                    break;
+                } else {
+                    sleep(1000)
+                    continue;
+                }
             }
-            qt_sql "select * from ${tableName} order by k00, k01"
+            sql "pause routine load for ${jobName}"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES ( \"max_batch_interval\" = \"10\") FROM KAFKA(\"kafka_partitions\" = \"0\", \"kafka_offsets\" = \"0\");"
+            sql "resume routine load for ${jobName}"
+            // test timeout greater than 60s
+            while (true) {
+                def res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = '${jobName}'"
+                if (res.size() > 0) {
+                    log.info("res: ${res[0].toString()}".toString())
+                    log.info("timeout: ${res[0][6].toString()}".toString())
+                    assertTrue(res[0][6].toString().contains("100"))
+                    break;
+                }
+                count++
+                if (count > 60) {
+                    assertEquals(1, 2)
+                    break;
+                } else {
+                    sleep(1000)
+                    continue;
+                }
+            }
         } finally {
             sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 }

@@ -42,6 +42,7 @@ suite("test_routine_load_jsonpath_dollar", "p0") {
             producer.send(record)
         }
         producer.close()
+
         try {
             sql """
                 DROP TABLE IF EXISTS ${tableName}
@@ -49,7 +50,7 @@ suite("test_routine_load_jsonpath_dollar", "p0") {
 
             sql """
                 CREATE TABLE ${tableName} (
-                    time BIGINT,
+                    time DATETIME,
                     id INT,
                     name VARCHAR(50),
                     content TEXT
@@ -64,7 +65,8 @@ suite("test_routine_load_jsonpath_dollar", "p0") {
             // Create routine load job with $. in jsonpaths
             sql """
                 CREATE ROUTINE LOAD ${jobName} ON ${tableName}
-                COLUMNS(time, id, name, content)
+                COLUMNS(ot,time=from_unixtime(`ot`), id, name, content),
+                PRECEDING FILTER ((`ot` > 0) AND (`id` != ''))
                 PROPERTIES
                 (
                     "format" = "json",
@@ -136,11 +138,10 @@ suite("test_routine_load_jsonpath_dollar", "p0") {
             assertTrue(jsonContent.contains("field1"), "Content should contain the full JSON with 'field1'")
             assertTrue(jsonContent.contains("time"), "Content should contain the full JSON with 'time' field")
 
-            def specificData = sql "select time, id, name from ${tableName} where id = 1"
-            assertEquals(1752600673, specificData[0][0])
+            def specificData = sql "select date_format(time, '%Y-%m-%dT%H:%i:%s'), id, name from ${tableName} where id = 1"
+            assertEquals("2025-07-16T01:31:13", specificData[0][0])
             assertEquals(1, specificData[0][1])
             assertEquals("test1", specificData[0][2])
-
         } finally {
             try {
                 sql "stop routine load for ${jobName}"

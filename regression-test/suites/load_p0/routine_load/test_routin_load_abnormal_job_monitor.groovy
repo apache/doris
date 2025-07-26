@@ -20,10 +20,11 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
+import groovy.json.JsonSlurper
 
-suite("test_routine_load_schedule","p0") {
+suite("test_routine_load_abnormal_job_monitor","p0") {
     def kafkaCsvTpoics = [
-                  "test_schedule",
+                  "test_abnormal_job_monitor",
                 ]
 
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
@@ -32,7 +33,7 @@ suite("test_routine_load_schedule","p0") {
     def kafka_broker = "${externalEnvIp}:${kafka_port}"
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        // define kafka 
+        // define kafka
         def props = new Properties()
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
@@ -76,10 +77,9 @@ suite("test_routine_load_schedule","p0") {
         }
     }
 
-    sleep(10000)
-
-    def jobName = "testScheduleJob"
-    def tableName = "test_routine_load_schedule"
+    def jobName1 = "test_abnormal_job_monitor1"
+    def jobName2 = "test_abnormal_job_monitor2"
+    def tableName = "test_abnormal_job_monitor"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             sql """
@@ -95,8 +95,8 @@ suite("test_routine_load_schedule","p0") {
                 k07 LARGEINT        NULL,
                 k08 FLOAT           NULL,
                 k09 DOUBLE          NULL,
-                k10 DECIMAL(10,1)    NULL,
-                k11 DECIMALV3(10,1)  NULL,
+                k10 DECIMAL(9,1)    NULL,
+                k11 DECIMALV3(9,1)  NULL,
                 k12 DATETIME        NULL,
                 k13 DATEV2          NULL,
                 k14 DATETIMEV2      NULL,
@@ -149,10 +149,8 @@ suite("test_routine_load_schedule","p0") {
                 "replication_num" = "1"
             );
             """
-            sql "sync"
-
             sql """
-                CREATE ROUTINE LOAD ${jobName} on ${tableName}
+                CREATE ROUTINE LOAD ${jobName1} on ${tableName}
                 COLUMNS(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18),
                 COLUMNS TERMINATED BY "|"
                 PROPERTIES
@@ -164,83 +162,89 @@ suite("test_routine_load_schedule","p0") {
                 FROM KAFKA
                 (
                     "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-                    "kafka_topic" = "test_schedule",
-                    "property.kafka_default_offsets" = "OFFSET_END"
+                    "kafka_topic" = "test_abnormal_job_monitor_invaild",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            sql """
+                CREATE ROUTINE LOAD ${jobName2} on ${tableName}
+                COLUMNS(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18),
+                COLUMNS TERMINATED BY "|"
+                PROPERTIES
+                (
+                    "max_batch_interval" = "5",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "test_abnormal_job_monitor",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
             sql "sync"
 
+            sql "pause routine load for ${jobName2}"
+
             def count = 0
+            def metricCount = 0
+            String masterHttpAddress = getMasterIp() + ":" + getMasterPort()
+            log.info("master host: ${masterHttpAddress}".toString())
             while (true) {
-                sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                def state = res[0][8].toString()
-                if (state != "RUNNING") {
-                    count++
-                    if (count > 300) {
-                        assertEquals(1, 2)
-                    } 
-                    continue;
-                }
-                break;
-            }
+                metricCount = 0
+                httpTest {
+                    endpoint masterHttpAddress
+                    uri "/metrics?type=json"
+                    op "get"
+                    check { code, body ->
+                        def jsonSlurper = new JsonSlurper()
+                        def result = jsonSlurper.parseText(body)
 
-            if (enabled != null && enabled.equalsIgnoreCase("true")) {
-                // define kafka 
-                def props = new Properties()
-                props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
-                props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-                props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-                // Create kafka producer
-                def producer = new KafkaProducer<>(props)
+                        def entry = result.find { it.tags?.metric == "doris_fe_job" && it.tags?.state == "ABNORMAL_PAUSED"}
+                        def value = entry ? entry.value : null
+                        log.info("Contains ABNORMAL_PAUSE: ${entry != null}".toString())
+                        log.info("Value of ABNORMAL_PAUSE: ${value}".toString())
+                        if (value > 0) {
+                            metricCount++
+                        }
 
-                for (String kafkaCsvTopic in kafkaCsvTpoics) {
-                    def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
-                    def lines = txt.readLines()
-                    lines.each { line ->
-                        logger.info("=====${line}========")
-                        def record = new ProducerRecord<>(kafkaCsvTopic, null, line)
-                        producer.send(record)
+                        entry = result.find { it.tags?.metric == "doris_fe_job" && it.tags?.state == "USER_PAUSED"}
+                        value = entry ? entry.value : null
+                        log.info("Contains USER_PAUSE: ${entry != null}".toString())
+                        log.info("Value of USER_PAUSE: ${value}".toString())
+                        if (value > 0) {
+                            metricCount++
+                        }
+
+                        if (body.contains("doris_fe_routine_load_progress")){
+                            log.info("contain doris_fe_routine_load_progress")
+                            metricCount++
+                        }
+
+                        if (body.contains("doris_fe_routine_load_lag")){
+                            log.info("contain doris_fe_routine_load_lag")
+                            metricCount++
+                        }
+
+                        if (body.contains("doris_fe_routine_load_abort_task_num")){
+                            log.info("contain doris_fe_routine_load_abort_task_num")
+                            metricCount++
+                        }
                     }
                 }
-            }
-
-            sleep(5000)
-
-            count = 0
-            while (true) {
-                sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                def state = res[0][8].toString()
-                if (state != "RUNNING") {
-                    count++
-                    if (count > 60) {
-                        assertEquals(1, 2)
-                    } 
-                    continue;
-                }
-                log.info("reason of state changed: ${res[0][11].toString()}".toString())
-                break;
-            }
-            while (true) {
-                sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                log.info("routine load statistic: ${res[0][14].toString()}".toString())
-                log.info("progress: ${res[0][15].toString()}".toString())
-                log.info("lag: ${res[0][16].toString()}".toString())
-                res = sql "select count(*) from ${tableName}"
-                if (res[0][0] > 0) {
-                    break;
+                if (metricCount == 5) {
+                    break
                 }
                 count++
+                sleep(1000)
                 if (count > 60) {
                     assertEquals(1, 2)
-                } 
-                continue;
+                }
             }
-            qt_sql "select * from ${tableName} order by k00, k01"
         } finally {
-            sql "stop routine load for ${jobName}"
+            sql "stop routine load for ${jobName1}"
+            sql "stop routine load for ${jobName2}"
             sql "DROP TABLE IF EXISTS ${tableName}"
         }
     }
