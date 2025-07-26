@@ -218,6 +218,9 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_commit_index;
 extern BvarLatencyRecorderWithTag g_bvar_ms_prepare_partition;
 extern BvarLatencyRecorderWithTag g_bvar_ms_commit_partition;
 extern BvarLatencyRecorderWithTag g_bvar_ms_drop_partition;
+extern BvarLatencyRecorderWithTag g_bvar_ms_prepare_restore_job;
+extern BvarLatencyRecorderWithTag g_bvar_ms_commit_restore_job;
+extern BvarLatencyRecorderWithTag g_bvar_ms_finish_restore_job;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_tablet_stats;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_obj_store_info;
 extern BvarLatencyRecorderWithTag g_bvar_ms_alter_obj_store_info;
@@ -262,6 +265,7 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts;
 
 // recycler's mbvars
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
