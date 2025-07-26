@@ -245,6 +245,7 @@ private:
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
     size_t _last_sorted_pos = 0;
+    size_t _last_agg_pos = 0;
 
     //return number of same keys
     size_t _sort();
