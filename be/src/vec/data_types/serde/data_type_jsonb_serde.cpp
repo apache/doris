@@ -317,5 +317,15 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
     }
     return Status::OK();
 }
+
+Status DataTypeJsonbSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                     JsonbWriter& writer) const {
+    const auto& jsonb_binary = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
+    JsonbDocument* doc = nullptr;
+    RETURN_IF_ERROR(
+            JsonbDocument::checkAndCreateDocument(jsonb_binary.data, jsonb_binary.size, &doc));
+    writer.writeValue(doc->getValue());
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

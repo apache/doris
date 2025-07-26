@@ -26,100 +26,6 @@
 
 namespace doris::vectorized::CastWrapper {
 #include "common/compile_check_begin.h"
-struct ConvertNothingToJsonb {
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count,
-                          const NullMap::value_type* null_map = nullptr) {
-        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-        const IColumn& col_from = *col_with_type_and_name.column;
-        auto data_type_to = block.get_by_position(result).type;
-        size_t size = col_from.size();
-        auto col_to = data_type_to->create_column_const_with_default_value(size);
-        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 1);
-        block.replace_by_position(result, ColumnNullable::create(col_to->assume_mutable(),
-                                                                 std::move(col_null_map_to)));
-        return Status::OK();
-    }
-};
-
-struct ConvertImplStringToJsonbAsJsonbString {
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count,
-                          const NullMap::value_type* null_map = nullptr) {
-        auto data_type_to = block.get_by_position(result).type;
-        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-        const IColumn& col_from = *col_with_type_and_name.column;
-        auto dst = ColumnString::create();
-        auto* dst_str = assert_cast<ColumnString*>(dst.get());
-        const auto* from_string = assert_cast<const ColumnString*>(&col_from);
-        JsonbWriter writer;
-        for (size_t i = 0; i < input_rows_count; i++) {
-            auto str_ref = from_string->get_data_at(i);
-            writer.reset();
-            // write raw string to jsonb
-            writer.writeStartString();
-            writer.writeString(str_ref.data, str_ref.size);
-            writer.writeEndString();
-            dst_str->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
-        }
-        block.replace_by_position(result, std::move(dst));
-        return Status::OK();
-    }
-};
-
-// Generic conversion of number to jsonb.
-template <typename ColumnType>
-struct ConvertImplNumberToJsonb {
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count,
-                          const NullMap::value_type* null_map = nullptr) {
-        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-
-        auto column_string = ColumnString::create();
-        JsonbWriter writer;
-
-        const auto* col =
-                check_and_get_column<const ColumnType>(col_with_type_and_name.column.get());
-        const auto& data = col->get_data();
-
-        for (size_t i = 0; i < input_rows_count; i++) {
-            writer.reset();
-            if constexpr (std::is_same_v<ColumnUInt8, ColumnType>) {
-                writer.writeBool(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt8, ColumnType>) {
-                writer.writeInt8(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt16, ColumnType>) {
-                writer.writeInt16(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt32, ColumnType>) {
-                writer.writeInt32(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt64, ColumnType>) {
-                writer.writeInt64(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt128, ColumnType>) {
-                writer.writeInt128(data[i]);
-            } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
-                writer.writeDouble(data[i]);
-            } else if constexpr (std::is_same_v<ColumnDecimal128V3, ColumnType>) {
-                auto type = col_with_type_and_name.type;
-                writer.writeDecimal(data[i], type->get_precision(), type->get_scale());
-            } else {
-                static_assert(std::is_same_v<ColumnType, ColumnUInt8> ||
-                                      std::is_same_v<ColumnType, ColumnInt8> ||
-                                      std::is_same_v<ColumnType, ColumnInt16> ||
-                                      std::is_same_v<ColumnType, ColumnInt32> ||
-                                      std::is_same_v<ColumnType, ColumnInt64> ||
-                                      std::is_same_v<ColumnType, ColumnInt128> ||
-                                      std::is_same_v<ColumnType, ColumnFloat64>,
-                              "unsupported type");
-                __builtin_unreachable();
-            }
-            column_string->insert_data(writer.getOutput()->getBuffer(),
-                                       writer.getOutput()->getSize());
-        }
-
-        block.replace_by_position(result, std::move(column_string));
-        return Status::OK();
-    }
-};
 
 struct ConvertImplGenericFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -419,38 +325,23 @@ WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const Dat
                             "Got {} to {}",
                             from_type->get_name(), to_type.get_name()));
     }
-    switch (from_type->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
-    case PrimitiveType::TYPE_TINYINT:
-        return &ConvertImplNumberToJsonb<ColumnInt8>::execute;
-    case PrimitiveType::TYPE_SMALLINT:
-        return &ConvertImplNumberToJsonb<ColumnInt16>::execute;
-    case PrimitiveType::TYPE_INT:
-        return &ConvertImplNumberToJsonb<ColumnInt32>::execute;
-    case PrimitiveType::TYPE_BIGINT:
-        return &ConvertImplNumberToJsonb<ColumnInt64>::execute;
-    case PrimitiveType::TYPE_LARGEINT:
-        return &ConvertImplNumberToJsonb<ColumnInt128>::execute;
-    case PrimitiveType::TYPE_DOUBLE:
-        return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
-    case PrimitiveType::TYPE_DECIMAL128I:
-        return &ConvertImplNumberToJsonb<ColumnDecimal128V3>::execute;
-    case PrimitiveType::TYPE_STRING:
-    case PrimitiveType::TYPE_CHAR:
-    case PrimitiveType::TYPE_VARCHAR:
-        if (string_as_jsonb_string) {
-            // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
-            // each line in original string column.
-            return &ConvertImplStringToJsonbAsJsonbString::execute;
-        } else {
-            return cast_from_string_to_generic;
-        }
-    case PrimitiveType::INVALID_TYPE:
-        return &ConvertNothingToJsonb::execute;
-    default:
-        return cast_from_generic_to_jsonb;
+
+    // parse string as jsonb
+    if (is_string_type(from_type->get_primitive_type()) && !string_as_jsonb_string) {
+        return cast_from_string_to_generic;
     }
+
+    return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+              uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
+        // same as to_json function
+        auto to_column = ColumnString::create();
+        auto from_type_serde = block.get_by_position(arguments[0]).type->get_serde();
+        auto from_column = block.get_by_position(arguments[0]).column;
+        RETURN_IF_ERROR(
+                from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column));
+        block.get_by_position(result).column = std::move(to_column);
+        return Status::OK();
+    };
 }
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized::CastWrapper
