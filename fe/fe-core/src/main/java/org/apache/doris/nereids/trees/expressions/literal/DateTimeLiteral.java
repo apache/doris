@@ -29,7 +29,6 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -337,11 +336,7 @@ public class DateTimeLiteral extends DateLiteral {
         if (this.dataType.equals(targetType)) {
             return this;
         }
-        boolean strictCast = ConnectContext.get().getSessionVariable().enableStrictCast();
         if (targetType.isIntegralType()) {
-            if (targetType.isTinyIntType() || targetType.isSmallIntType() || targetType.isIntegerType()) {
-                throw new AnalysisException("DateTime can't cast to TinyInt, SmallInt or Integer.");
-            }
             if (targetType.isBigIntType()) {
                 return new BigIntLiteral(getValue());
             } else if (targetType.isLargeIntType()) {
@@ -352,8 +347,10 @@ public class DateTimeLiteral extends DateLiteral {
         } else if (targetType.isDateType()) {
             return new DateLiteral(year, month, day);
         } else if (targetType.isDateTimeV2Type()) {
+            // High scale datetime to low scale datetime may overflow.
             try {
-                return new DateTimeV2Literal((DateTimeV2Type) targetType, getStringValue());
+                return new DateTimeV2Literal((DateTimeV2Type) targetType,
+                        year, month, day, hour, minute, second, microSecond);
             } catch (AnalysisException e) {
                 throw new CastException(e.getMessage(), e);
             }
@@ -361,14 +358,8 @@ public class DateTimeLiteral extends DateLiteral {
             return new TimeV2Literal((int) hour, (int) minute, (int) second, (int) microSecond,
                     ((TimeV2Type) targetType).getScale(), false);
         } else if (targetType.isFloatType()) {
-            if (strictCast) {
-                throw new AnalysisException("DateTimeType can't cast to FloatType in strict mode.");
-            }
             return new FloatLiteral(getValue());
         } else if (targetType.isDoubleType()) {
-            if (strictCast) {
-                throw new AnalysisException("DateTimeType can't cast to DoubleType in strict mode.");
-            }
             return new DoubleLiteral(getValue());
         }
         return super.uncheckedCastTo(targetType);

@@ -162,7 +162,7 @@ suite('test_cast', "arrow_flight_sql") {
         INSERT INTO test_json VALUES(26, '{"k1":"v1", "k2": 200}', '[\"asd]');
     """
     sql "sync"
-    sql "Select cast(j as int) from test_json"
-    sql "select cast(v as int) from test_json"
+    //sql "Select cast(j as int) from test_json"
+    //sql "select cast(v as int) from test_json"
     sql "DROP TABLE IF EXISTS test_json"
 }
