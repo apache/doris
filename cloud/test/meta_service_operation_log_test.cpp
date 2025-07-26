@@ -285,6 +285,14 @@ TEST(MetaServiceOperationLogTest, DropPartitionLog) {
         ASSERT_EQ(new_num_logs, num_logs)
                 << "Expected no new operation logs for drop partition 0, but found "
                 << new_num_logs - num_logs << dump_range(txn_kv.get());
+
+        // The recycle partition key must exists.
+        std::string recycle_key = recycle_partition_key({instance_id, partition_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     }
 
     {
@@ -328,6 +336,16 @@ TEST(MetaServiceOperationLogTest, DropPartitionLog) {
                 << "Expected new operation logs for drop partition 3, but found "
                 << new_num_logs - num_logs << dump_range(txn_kv.get());
         num_logs = new_num_logs;
+
+        // The recycle partition key should not be exists.
+        std::string recycle_key = recycle_partition_key({instance_id, partition_id + 3});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Expected recycle partition key to not exist, but found it: " << hex(recycle_key)
+                << " with value: " << escape_hex(value);
     }
 
     Versionstamp version1;
