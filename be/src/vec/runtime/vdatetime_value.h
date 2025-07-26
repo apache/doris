@@ -1341,6 +1341,7 @@ public:
                 }
                 date_v2_value_.hour_ = val;
             } else {
+                //TODO: use static_assert since we already upgrade to newer clang
                 DCHECK(false) << "shouldn't set for date";
             }
         } else if constexpr (unit == TimeUnit::MINUTE) {

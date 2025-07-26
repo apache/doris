@@ -22,6 +22,7 @@
 
 #include <iostream>
 
+#include "common/status.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/runtime_state.h"
 #include "util/bitmap_value.h"
@@ -47,6 +48,8 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/exprs/table_function/table_function.h"
+#include "vec/functions/cast/cast_base.h"
+#include "vec/functions/cast/cast_to_time_impl.tpp"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -493,8 +496,9 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             TimeValue::TimeType time_value = 0;
             if (datetime_is_string_format) {
                 auto value = any_cast<std::string>(cell);
-                auto serde = DataTypeTimeV2SerDe(type_ptr->get_scale());
-                RETURN_IF_FALSE(serde._from_string(value, time_value));
+                CastParameters params {.status = Status::OK(), .is_strict = false};
+                RETURN_IF_FALSE(CastToTimeV2::from_string_strict_mode<false>(
+                        StringRef {value}, time_value, nullptr, type_ptr->get_scale(), params));
             } else {
                 time_value = any_cast<TimeValue::TimeType>(cell);
             }
