@@ -157,12 +157,11 @@ suite("test_warm_up_compute_group") {
         int i = 0
         for (; i < retryTime; i++) {
             sleep(1000)
-            def status = getJobState(jobId[0][0])
-            logger.info(status)
-            if (status.equals("CANCELLED")) {
+            def statuses = getJobState(jobId[0][0])
+            if (statuses.any { it != null && it.equals("CANCELLED") }) {
                 assertTrue(false);
             }
-            if (status.equals("FINISHED")) {
+            if (statuses.any { it != null && it.equals("FINISHED") }) {
                 break;
             }
         }
