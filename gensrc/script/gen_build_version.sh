@@ -38,7 +38,9 @@ build_version="${build_version_prefix}-${build_version_major}.${build_version_mi
 if [[ ${build_version_hotfix} -gt 0 ]]; then
     build_version+=".${build_version_hotfix}"
 fi
-build_version+="-${build_version_rc_version}"
+if [[ -n "${build_version_rc_version}" ]]; then
+    build_version+="-${build_version_rc_version}"
+fi
 
 # This version is used to check FeMetaVersion is not changed during release
 build_fe_meta_version=0

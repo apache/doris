@@ -191,11 +191,11 @@ public final class MetricRepo {
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
-    private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+    private static final ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "metric-timer-pool", true);
-    private static MetricCalculator metricCalculator = new MetricCalculator();
+    private static final MetricCalculator metricCalculator = new MetricCalculator();
 
-    // init() should only be called after catalog is contructed.
+    // init() should only be called after catalog is constructed.
     public static synchronized void init() {
         if (isInit) {
             return;
@@ -206,18 +206,24 @@ public final class MetricRepo {
             @Override
             public Long getValue() {
                 try {
-                    return Long.parseLong("" + Version.DORIS_BUILD_VERSION_MAJOR + "0"
-                                            + Version.DORIS_BUILD_VERSION_MINOR + "0"
-                                            + Version.DORIS_BUILD_VERSION_PATCH
-                                            + (Version.DORIS_BUILD_VERSION_HOTFIX > 0
-                                                ? ("0" + Version.DORIS_BUILD_VERSION_HOTFIX)
-                                                : ""));
+                    String verStr = Version.DORIS_BUILD_VERSION_MAJOR + "0" + Version.DORIS_BUILD_VERSION_MINOR + "0"
+                            + Version.DORIS_BUILD_VERSION_PATCH;
+                    if (Version.DORIS_BUILD_VERSION_HOTFIX > 0) {
+                        verStr += ("0" + Version.DORIS_BUILD_VERSION_HOTFIX);
+                    }
+                    return Long.parseLong(verStr);
                 } catch (Throwable t) {
                     LOG.warn("failed to init version metrics", t);
                     return 0L;
                 }
             }
         };
+        feVersion.addLabel(new MetricLabel("version", Version.DORIS_BUILD_VERSION));
+        feVersion.addLabel(new MetricLabel("major", String.valueOf(Version.DORIS_BUILD_VERSION_MAJOR)));
+        feVersion.addLabel(new MetricLabel("minor", String.valueOf(Version.DORIS_BUILD_VERSION_MINOR)));
+        feVersion.addLabel(new MetricLabel("patch", String.valueOf(Version.DORIS_BUILD_VERSION_PATCH)));
+        feVersion.addLabel(new MetricLabel("hotfix", String.valueOf(Version.DORIS_BUILD_VERSION_HOTFIX)));
+        feVersion.addLabel(new MetricLabel("short_hash", Version.DORIS_BUILD_SHORT_HASH));
         DORIS_METRIC_REGISTER.addMetrics(feVersion);
 
         // load jobs
@@ -362,14 +368,14 @@ public final class MetricRepo {
                 "total query from hive table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_HIVE_TABLE);
         USER_COUNTER_QUERY_ALL = new AutoMappedMetric<>(name -> {
-            LongCounterMetric userCountQueryAll  = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
+            LongCounterMetric userCountQueryAll = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
                     "total query for single user");
             userCountQueryAll.addLabel(new MetricLabel("user", name));
             DORIS_METRIC_REGISTER.addMetrics(userCountQueryAll);
             return userCountQueryAll;
         });
         USER_COUNTER_QUERY_ERR = new AutoMappedMetric<>(name -> {
-            LongCounterMetric userCountQueryErr  = new LongCounterMetric("query_err", MetricUnit.REQUESTS,
+            LongCounterMetric userCountQueryErr = new LongCounterMetric("query_err", MetricUnit.REQUESTS,
                     "total error query for single user");
             userCountQueryErr.addLabel(new MetricLabel("user", name));
             DORIS_METRIC_REGISTER.addMetrics(userCountQueryErr);
