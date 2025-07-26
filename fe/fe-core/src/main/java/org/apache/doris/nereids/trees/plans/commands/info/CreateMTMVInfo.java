@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.CreateMTMVStmt;
+import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
@@ -26,6 +27,7 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
@@ -71,6 +73,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -78,6 +81,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -332,6 +336,10 @@ public class CreateMTMVInfo {
         this.relation = MTMVPlanUtil.generateMTMVRelation(tables, ctx);
     }
 
+    public MTMVRelation getRelation() {
+        return relation;
+    }
+
     private PartitionDesc generatePartitionDesc(ConnectContext ctx) {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return null;
@@ -416,4 +424,66 @@ public class CreateMTMVInfo {
                 partitionDesc, mvPartitionInfo, relation);
     }
 
+    public String getCatalogName() {
+        return mvName.getCtl();
+    }
+
+    public String getDbName() {
+        return mvName.getDb();
+    }
+
+    public String getTableName() {
+        return mvName.getTbl();
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
+    }
+
+    public List<Column> getColumns() {
+        return columns.stream().map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
+    }
+
+    public Map<String, String> getProperties() {
+        if (this.properties == null) {
+            this.properties = Maps.newHashMap();
+        }
+        return this.properties;
+    }
+
+    public PartitionDesc getPartitionDesc() {
+        return partitionDesc;
+    }
+
+    public String getComment() {
+        return Strings.nullToEmpty(comment);
+    }
+
+    public DistributionDesc getDistributionDesc() {
+        return distribution.translateToCatalogStyle();
+    }
+
+    public KeysDesc getKeysDesc() {
+        return new KeysDesc(KeysType.DUP_KEYS, keys);
+    }
+
+    public MTMVRefreshInfo getRefreshInfo() {
+        return refreshInfo;
+    }
+
+    public String getQuerySql() {
+        return querySql;
+    }
+
+    public Map<String, String> getMvProperties() {
+        return mvProperties;
+    }
+
+    public MTMVPartitionInfo getMvPartitionInfo() {
+        return mvPartitionInfo;
+    }
+
+    public List<Index> getIndexes() {
+        return new ArrayList<>();
+    }
 }
