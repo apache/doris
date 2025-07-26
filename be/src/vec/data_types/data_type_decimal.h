@@ -709,6 +709,11 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
     using FromFieldType = typename FromDataType::FieldType;
 
     if constexpr (std::is_floating_point_v<FromFieldType>) {
+        // For decimal256, we need to use long double to avoid overflow when
+        // static casting the multiplier to floating type, and also to be as precise as possible;
+        // For other decimal types, we use double to be as precise as possible.
+        using DoubleType =
+                std::conditional_t<IsDataTypeDecimal256<ToDataType>, long double, double>;
         auto multiplier = ToDataType::get_scale_multiplier(to_scale);
         if constexpr (narrow_integral) {
             for (size_t i = 0; i < size; ++i) {
@@ -722,8 +727,8 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
                                         "to decimal");
                     }
                 }
-                FromFieldType tmp = src[i] * static_cast<FromFieldType>(multiplier);
-                if (tmp <= FromFieldType(min_result) || tmp >= FromFieldType(max_result)) {
+                DoubleType tmp = src[i] * static_cast<DoubleType>(multiplier.value);
+                if (tmp <= DoubleType(min_result.value) || tmp >= DoubleType(max_result.value)) {
                     if constexpr (result_is_nullable) {
                         null_map[i] = 1;
                         continue;
@@ -739,11 +744,6 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
             }
         }
         for (size_t i = 0; i < size; ++i) {
-            // For decimal256, we need to use long double to avoid overflow when
-            // static casting the multiplier to floating type, and also to be as precise as possible;
-            // For other decimal types, we use double to be as precise as possible.
-            using DoubleType =
-                    std::conditional_t<IsDataTypeDecimal256<ToDataType>, long double, double>;
             dst[i].value = typename ToDataType::FieldType::NativeType(
                     static_cast<double>(src[i] * static_cast<DoubleType>(multiplier.value) +
                                         ((src[i] >= 0) ? 0.5 : -0.5)));

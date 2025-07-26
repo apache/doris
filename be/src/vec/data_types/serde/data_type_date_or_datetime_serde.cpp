@@ -1158,7 +1158,7 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
         if (decimal_col.get_intergral_part(i) > std::numeric_limits<int64_t>::max() ||
             decimal_col.get_intergral_part(i) < std::numeric_limits<int64_t>::min()) {
             return Status::InvalidArgument("invalid intergral value for time: {}",
-                                           decimal_col.get_element(i));
+                                           decimal_col.get_intergral_part(i));
         }
         auto int_part = (int64_t)decimal_col.get_intergral_part(i);
         if (int_part <= 0) {

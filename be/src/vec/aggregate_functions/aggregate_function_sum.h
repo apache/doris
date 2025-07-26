@@ -235,10 +235,12 @@ public:
             auto incoming_pos = frame_end - 1;
             if (!previous_is_nul && outcoming_pos >= partition_start &&
                 outcoming_pos < partition_end) {
-                this->data(place).sum -= data[outcoming_pos];
+                this->data(place).add(typename PrimitiveTypeTraits<TResult>::ColumnItemType(
+                        -data[outcoming_pos]));
             }
             if (!end_is_nul && incoming_pos >= partition_start && incoming_pos < partition_end) {
-                this->data(place).sum += data[incoming_pos];
+                this->data(place).add(
+                        typename PrimitiveTypeTraits<TResult>::ColumnItemType(data[incoming_pos]));
             }
         } else {
             this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
