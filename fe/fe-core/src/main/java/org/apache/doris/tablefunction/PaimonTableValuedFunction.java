@@ -105,7 +105,7 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         NameMapping buildNameMapping = externalTable.getOrBuildNameMapping();
         this.tblId = externalTable.getId();
 
-        this.paimonSysTable = paimonExternalCatalog.getPaimonSystemTable(buildNameMapping,
+        this.paimonSysTable = paimonExternalCatalog.getPaimonTable(buildNameMapping,
                 queryType);
         this.schema = PaimonUtil.parseSchema(paimonSysTable);
 

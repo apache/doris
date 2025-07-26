@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 public class TableScanParams {
+    public static final String PARAMS_NAME = "name";
     public static String INCREMENTAL_READ = "incr";
     public static String BRANCH = "branch";
     public static String TAG = "tag";
