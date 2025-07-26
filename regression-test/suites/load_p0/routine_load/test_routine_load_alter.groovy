@@ -170,12 +170,61 @@ suite("test_routine_load_alter","p0") {
                     assertEquals(20, res[0][0])
                     break
                 }
-                sleep(5000)
+                sleep(1000)
                 count++
             }
             qt_sql_alter_after "select * from ${tableName} order by k1" 
         } finally {
             sql "stop routine load for ${jobName}"
+            sql "truncate table ${tableName}"
+        }
+
+        // test alter columns
+        try {
+            sql """
+                CREATE ROUTINE LOAD ${jobName} ON ${tableName}
+                COLUMNS TERMINATED BY ",",
+                COLUMNS(k1, k2)
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "${kafkaCsvTpoics[0]}",
+                    "kafka_partitions" = "0",
+                    "kafka_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            sql "sync"
+            sql "pause routine load for ${jobName}"
+            sql """
+                ALTER ROUTINE LOAD FOR ${jobName} COLUMNS(k1, k2, v1, v2, v3, v4);
+            """
+            sql "resume routine load for ${jobName}"
+            def count = 0
+            while (true) {
+                def res = sql "select count(*) from ${tableName}"
+                log.info("count: ${res[0][0]}".toString())
+                def state = sql "show routine load for ${jobName}"
+                log.info("routine load state: ${state[0][8].toString()}".toString())
+                log.info("routine load properties: ${state[0][11].toString()}".toString())
+                log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                if (res[0][0] > 0) {
+                    break
+                }
+                if (count >= 120) {
+                    log.error("routine load can not visible for long time")
+                    assertEquals(20, res[0][0])
+                    break
+                }
+                sleep(1000)
+                count++
+            }
+            def res = sql "select * from ${tableName} order by k1"
+            log.info("res: ${res.size()}".toString())
+            assertEquals(6, res.size())
+        } finally {
+            sql "stop routine load for ${jobName}"
+            sql """ DROP TABLE IF EXISTS ${tableName} """
         }
     }
 }
