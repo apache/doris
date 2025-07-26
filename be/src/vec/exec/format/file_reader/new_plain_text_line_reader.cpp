@@ -429,10 +429,11 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                 _more_input_bytes = 0;
                 _more_output_bytes = 0;
                 RETURN_IF_ERROR(_decompressor->decompress(
-                        _input_buf + _input_buf_pos,                        /* input */
-                        _input_buf_limit - _input_buf_pos,                  /* input_len */
-                        &input_read_bytes, _output_buf + _output_buf_limit, /* output */
-                        _output_buf_size - _output_buf_limit,               /* output_max_len */
+                        _input_buf + _input_buf_pos,                           /* input */
+                        cast_set<uint32_t>(_input_buf_limit - _input_buf_pos), /* input_len */
+                        &input_read_bytes, _output_buf + _output_buf_limit,    /* output */
+                        cast_set<uint32_t>(_output_buf_size -
+                                           _output_buf_limit), /* output_max_len */
                         &decompressed_len, &stream_end, &_more_input_bytes, &_more_output_bytes));
 
                 VLOG_DEBUG << "after decompress:"
