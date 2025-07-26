@@ -28,11 +28,12 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Hash function for TNetworkAddress. This function must be called hash_value to be picked
 // up properly by boost.
 inline std::size_t hash_value(const TNetworkAddress& host_port) {
-    uint32_t hash = HashUtil::hash(host_port.hostname.c_str(), host_port.hostname.length(), 0);
+    uint32_t hash = HashUtil::hash(host_port.hostname.c_str(),
+                                   static_cast<uint32_t>(host_port.hostname.length()), 0);
     return HashUtil::hash(&host_port.port, sizeof(host_port.port), hash);
 }
 
@@ -97,5 +98,5 @@ std::reference_wrapper<const V> find_with_default(const std::unordered_map<K, V>
 
     return it->second;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris
