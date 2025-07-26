@@ -1,0 +1,34 @@
+-- ERROR: Not stable
+-- SELECT
+--   CAST(C.var["C_NAME"] AS TEXT),
+--   CAST(C.var["C_CUSTKEY"] AS INT),
+--   CAST(O.var["O_ORDERKEY"] AS INT),
+--   CAST(O.var["O_ORDERDATE"] AS DATE),
+--   CAST(O.var["O_TOTALPRICE"] AS DOUBLE),
+--   SUM(CAST(L.var["L_QUANTITY"] AS DOUBLE))
+-- FROM
+--   customer C,
+--   orders O,
+--   lineitem L
+-- WHERE
+--   CAST(O.var["O_ORDERKEY"] AS INT) IN (
+--     SELECT CAST(LL.var["L_ORDERKEY"] AS INT)
+--     FROM
+--       lineitem LL
+--     GROUP BY
+--       CAST(LL.var["L_ORDERKEY"] AS INT)
+--     HAVING
+--       SUM(CAST(LL.var["L_QUANTITY"] AS DOUBLE)) > 300
+--   )
+--   AND CAST(C.var["C_CUSTKEY"] AS INT) = CAST(O.var["O_CUSTKEY"] AS INT)
+--   AND CAST(O.var["O_ORDERKEY"] AS INT) = CAST(L.var["L_ORDERKEY"] AS INT)
+-- GROUP BY
+--   CAST(C.var["C_NAME"] AS TEXT),
+--   CAST(C.var["C_CUSTKEY"] AS INT),
+--   CAST(O.var["O_ORDERKEY"] AS INT),
+--   CAST(O.var["O_ORDERDATE"] AS DATE),
+--   CAST(O.var["O_TOTALPRICE"] AS DOUBLE)
+-- ORDER BY
+--   CAST(O.var["O_TOTALPRICE"] AS DOUBLE) DESC,
+--   CAST(O.var["O_ORDERDATE"] AS DATE)
+-- LIMIT 100
