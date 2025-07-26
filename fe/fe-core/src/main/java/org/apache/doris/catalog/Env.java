@@ -193,6 +193,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
+import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
@@ -200,6 +201,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -4341,6 +4343,15 @@ public class Env {
     }
 
     // Drop table
+    public void dropTable(DropMTMVCommand command) throws DdlException {
+        if (command == null) {
+            throw new DdlException("DropMTMVCommand is null");
+        }
+        DropMTMVInfo dropMTMVInfo = command.getDropMTMVInfo();
+        dropTable(dropMTMVInfo.getCatalogName(), dropMTMVInfo.getDbName(), dropMTMVInfo.getTableName(), false,
+                true, dropMTMVInfo.isIfExists(), true);
+    }
+
     public void dropTable(DropTableStmt stmt) throws DdlException {
         if (stmt == null) {
             throw new DdlException("DropTableStmt is null");
