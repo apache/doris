@@ -16,10 +16,11 @@
 // under the License.
 
 #include "exec/schema_scanner/schema_encryption_keys_scanner.h"
-#include "vec/core/block.h"
 
 #include <gen_cpp/FrontendService_types.h>
 #include <gtest/gtest.h>
+
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -28,7 +29,6 @@ class ScheamEncryptionKeysScannerTest : public testing::Test {
     void TearDown() override {}
 };
 
-
 TEST_F(ScheamEncryptionKeysScannerTest, test_get_next_block_internal) {
     TEncryptionKey t_key;
     std::vector<TEncryptionKey> keys;
@@ -36,11 +36,11 @@ TEST_F(ScheamEncryptionKeysScannerTest, test_get_next_block_internal) {
 
     SchemaEncryptionKeysScanner scnanner;
     scnanner._result.__set_master_keys(keys);
-    
+
     auto data_block = vectorized::Block::create_unique();
     scnanner._init_block(data_block.get());
 
     auto st = scnanner._fill_block_impl(data_block.get());
 }
 
-}
+} // namespace doris
