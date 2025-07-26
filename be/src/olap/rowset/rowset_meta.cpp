@@ -39,6 +39,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 RowsetMeta::~RowsetMeta() {
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
@@ -180,7 +182,7 @@ void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
 }
 
 bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
-    if (!_rowset_meta_pb.ParseFromArray(value.data(), value.size())) {
+    if (!_rowset_meta_pb.ParseFromArray(value.data(), cast_set<int32_t>(value.size()))) {
         _rowset_meta_pb.Clear();
         return false;
     }
@@ -328,5 +330,7 @@ bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
         return false;
     return true;
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
