@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -52,11 +50,6 @@ public class CreateTableLikeInfo {
         this.withAllRollup = withAllRollup;
     }
 
-    public CreateTableLikeStmt translateToLegacyStmt() throws DdlException {
-        return new CreateTableLikeStmt(ifNotExists, isTemp, tableName.transferToTableName(),
-                existedTableName.transferToTableName(), rollupNames, withAllRollup);
-    }
-
     /** validate */
     public void validate(ConnectContext ctx) throws AnalysisException {
         existedTableName.analyze(ctx);
@@ -78,5 +71,37 @@ public class CreateTableLikeInfo {
                 tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
+    }
+
+    public String getExistedDbName() {
+        return existedTableName.getDb();
+    }
+
+    public String getExistedTableName() {
+        return existedTableName.getTbl();
+    }
+
+    public String getDbName() {
+        return tableName.getDb();
+    }
+
+    public String getTableName() {
+        return tableName.getTbl();
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
+    }
+
+    public ArrayList<String> getRollupNames() {
+        return rollupNames;
+    }
+
+    public boolean isWithAllRollup() {
+        return withAllRollup;
+    }
+
+    public boolean isTemp() {
+        return isTemp;
     }
 }
