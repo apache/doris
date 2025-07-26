@@ -156,6 +156,11 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
+bool VectorizedFnCall::could_prune_result_bitmap_for_missing_column(VExprContext* context) {
+    DCHECK_GE(get_num_children(), 1);
+    return _could_prune_result_bitmap_for_missing_column(context);
+}
+
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
                                      ColumnNumbers& args) {

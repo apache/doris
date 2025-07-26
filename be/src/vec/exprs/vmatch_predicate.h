@@ -55,6 +55,7 @@ public:
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    bool could_prune_result_bitmap_for_missing_column(VExprContext* context) override;
     const std::string& expr_name() const override;
     const std::string& function_name() const;
 
