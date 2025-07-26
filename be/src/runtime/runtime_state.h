@@ -422,6 +422,10 @@ public:
 
     bool enable_page_cache() const;
 
+    int64_t query_freshness_tolerance_ms() const {
+        return _query_options.query_freshness_tolerance_ms;
+    }
+
     std::vector<TTabletCommitInfo> tablet_commit_infos() const {
         std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         return _tablet_commit_infos;
