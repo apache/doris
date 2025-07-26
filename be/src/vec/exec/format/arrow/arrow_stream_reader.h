@@ -65,6 +65,7 @@ private:
     RuntimeState* _state;
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
+    io::IOContext* _io_ctx;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<doris::vectorized::ArrowPipInputStream> _pip_stream;
     cctz::time_zone _ctzz;

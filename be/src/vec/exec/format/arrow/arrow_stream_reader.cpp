@@ -26,6 +26,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/stream_load_pipe.h"
+#include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
@@ -44,14 +45,22 @@ ArrowStreamReader::ArrowStreamReader(RuntimeState* state, RuntimeProfile* profil
                                      const TFileRangeDesc& range,
                                      const std::vector<SlotDescriptor*>& file_slot_descs,
                                      io::IOContext* io_ctx)
-        : _state(state), _range(range), _file_slot_descs(file_slot_descs), _file_reader(nullptr) {
+        : _state(state),
+          _range(range),
+          _file_slot_descs(file_slot_descs),
+          _io_ctx(io_ctx),
+          _file_reader(nullptr) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz);
 }
 
 ArrowStreamReader::~ArrowStreamReader() = default;
 
 Status ArrowStreamReader::init_reader() {
-    RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, false));
+    io::FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &file_reader, _state, false));
+    _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
+                                                                     _io_ctx->file_reader_stats)
+                           : file_reader;
     _pip_stream = ArrowPipInputStream::create_unique(_file_reader);
     return Status::OK();
 }
