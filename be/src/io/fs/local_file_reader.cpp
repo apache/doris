@@ -39,7 +39,6 @@
 #include "olap/options.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
-#include "util/async_io.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
