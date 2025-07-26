@@ -33,11 +33,11 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(
     }
     if (argument_types.size() == 2) {
         return creator_without_type::create<AggregateFunctionPercentileApproxTwoParams>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
     if (argument_types.size() == 3) {
         return creator_without_type::create<AggregateFunctionPercentileApproxThreeParams>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
     return nullptr;
 }
@@ -51,11 +51,11 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
     }
     if (argument_types.size() == 3) {
         return creator_without_type::create<AggregateFunctionPercentileApproxWeightedThreeParams>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
     if (argument_types.size() == 4) {
         return creator_without_type::create<AggregateFunctionPercentileApproxWeightedFourParams>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
     return nullptr;
 }

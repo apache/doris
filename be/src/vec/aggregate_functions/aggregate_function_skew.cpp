@@ -15,14 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_statistic.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -30,17 +27,18 @@ namespace doris::vectorized {
 template <PrimitiveType T>
 AggregateFunctionPtr type_dispatch_for_aggregate_function_skew(const DataTypes& argument_types,
                                                                const bool result_is_nullable,
+                                                               const AggregateFunctionAttr& attr,
                                                                bool nullable_input) {
     using StatFunctionTemplate = StatFuncOneArg<T, 3>;
 
     if (nullable_input) {
         return creator_without_type::create_ignore_nullable<
                 AggregateFunctionVarianceSimple<StatFunctionTemplate, true>>(
-                argument_types, result_is_nullable, STATISTICS_FUNCTION_KIND::SKEW_POP);
+                argument_types, result_is_nullable, attr, STATISTICS_FUNCTION_KIND::SKEW_POP);
     } else {
         return creator_without_type::create_ignore_nullable<
                 AggregateFunctionVarianceSimple<StatFunctionTemplate, false>>(
-                argument_types, result_is_nullable, STATISTICS_FUNCTION_KIND::SKEW_POP);
+                argument_types, result_is_nullable, attr, STATISTICS_FUNCTION_KIND::SKEW_POP);
     }
 };
 
@@ -62,28 +60,28 @@ AggregateFunctionPtr create_aggregate_function_skew(const std::string& name,
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return type_dispatch_for_aggregate_function_skew<TYPE_BOOLEAN>(
-                argument_types, result_is_nullable, nullable_input);
+                argument_types, result_is_nullable, attr, nullable_input);
     case PrimitiveType::TYPE_TINYINT:
         return type_dispatch_for_aggregate_function_skew<TYPE_TINYINT>(
-                argument_types, result_is_nullable, nullable_input);
+                argument_types, result_is_nullable, attr, nullable_input);
     case PrimitiveType::TYPE_SMALLINT:
         return type_dispatch_for_aggregate_function_skew<TYPE_SMALLINT>(
-                argument_types, result_is_nullable, nullable_input);
+                argument_types, result_is_nullable, attr, nullable_input);
     case PrimitiveType::TYPE_INT:
         return type_dispatch_for_aggregate_function_skew<TYPE_INT>(
-                argument_types, result_is_nullable, nullable_input);
+                argument_types, result_is_nullable, attr, nullable_input);
     case PrimitiveType::TYPE_BIGINT:
         return type_dispatch_for_aggregate_function_skew<TYPE_BIGINT>(
-                argument_types, result_is_nullable, nullable_input);
+                argument_types, result_is_nullable, attr, nullable_input);
     case PrimitiveType::TYPE_LARGEINT:
         return type_dispatch_for_aggregate_function_skew<TYPE_LARGEINT>(
-                argument_types, result_is_nullable, nullable_input);
+                argument_types, result_is_nullable, attr, nullable_input);
     case PrimitiveType::TYPE_FLOAT:
         return type_dispatch_for_aggregate_function_skew<TYPE_FLOAT>(
-                argument_types, result_is_nullable, nullable_input);
+                argument_types, result_is_nullable, attr, nullable_input);
     case PrimitiveType::TYPE_DOUBLE:
         return type_dispatch_for_aggregate_function_skew<TYPE_DOUBLE>(
-                argument_types, result_is_nullable, nullable_input);
+                argument_types, result_is_nullable, attr, nullable_input);
     default:
         LOG(WARNING) << "unsupported input type " << argument_types[0]->get_name()
                      << " for aggregate function " << name;
