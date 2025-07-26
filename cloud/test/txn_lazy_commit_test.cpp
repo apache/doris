@@ -974,7 +974,7 @@ TEST(TxnLazyCommitTest, FallThroughCommitTxnEventuallyTest) {
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.ShortDebugString();
         ASSERT_TRUE(commit_txn_immediatelly_hit);
         ASSERT_TRUE(commit_txn_eventually_finish_hit);
     }
