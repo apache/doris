@@ -77,6 +77,9 @@ MutableColumnPtr DataTypeString::create_column() const {
 }
 
 Status DataTypeString::check_column(const IColumn& column) const {
+    if (check_column_non_nested_type<ColumnString64>(column).ok()) {
+        return Status::OK();
+    }
     return check_column_non_nested_type<ColumnString>(column);
 }
 

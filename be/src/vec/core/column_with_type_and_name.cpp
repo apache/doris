@@ -28,6 +28,7 @@
 #include <string>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -115,4 +116,25 @@ ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_t
     }
 }
 
+Status ColumnWithTypeAndName::check_type_and_column_match() const {
+    if (!type) {
+        return Status::InternalError("ColumnWithTypeAndName type is nullptr");
+    }
+    if (!column) {
+        return Status::InternalError("ColumnWithTypeAndName column is nullptr");
+    }
+
+    if (check_and_get_column<ColumnNothing>(column.get())) {
+        return Status::OK();
+    }
+
+    auto st = type->check_column(*column);
+    if (!st.ok()) {
+        return Status::InternalError(
+                "ColumnWithTypeAndName check column type failed, column name: {}, type: {},  "
+                "column: {} , error: {}",
+                name, type->get_name(), column->get_name(), st.to_string());
+    }
+    return Status::OK();
+}
 } // namespace doris::vectorized
