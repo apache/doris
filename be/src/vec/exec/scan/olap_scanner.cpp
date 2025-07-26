@@ -22,14 +22,13 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <stdlib.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <iterator>
 #include <ostream>
 #include <set>
-#include <shared_mutex>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -45,14 +44,9 @@
 #include "olap/inverted_index_profile.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
 #include "olap/schema_cache.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/tablet_schema_cache.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -63,6 +57,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/scan_node.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/json/path_in_data.h"
 #include "vec/olap/block_reader.h"
@@ -96,9 +91,14 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                   .topn_filter_source_node_ids {},
                   .filter_block_conjuncts {},
                   .key_group_cluster_key_idxes {},
+                  .virtual_column_exprs {},
+                  .vir_cid_to_idx_in_block {},
+                  .vir_col_idx_to_type {},
+                  .ann_topn_runtime {},
           }) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _is_init = false;
+    _vector_search_params = params.state->get_vector_search_params();
 }
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
@@ -130,11 +130,24 @@ Status OlapScanner::init() {
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+
     for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
         _common_expr_ctxs_push_down.emplace_back(context);
+        RETURN_IF_ERROR(context->prepare_ann_range_search(_vector_search_params));
     }
+
+    for (auto pair : local_state->_slot_id_to_virtual_column_expr) {
+        // Scanner will be executed in a different thread, so we need to clone the context.
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(pair.second->clone(_state, context));
+        _slot_id_to_virtual_column_expr[pair.first] = context;
+    }
+
+    _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
+    _slot_id_to_col_type = local_state->_slot_id_to_col_type;
+    _ann_topn_runtime = local_state->_ann_topn_runtime;
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
@@ -150,8 +163,9 @@ Status OlapScanner::init() {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
-            olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
-            tablet->tablet_schema()->num_variant_columns() == 0) {
+            olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
+            tablet->tablet_schema()->num_variant_columns() == 0 &&
+            tablet->tablet_schema()->num_virtual_columns() == 0) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
                                                 olap_scan_node.schema_version);
@@ -286,8 +300,12 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
+    _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
+    _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
+    _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.output_columns =
             ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
+    _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] =
@@ -479,6 +497,20 @@ Status OlapScanner::_init_return_columns() {
                     "field name is invalid. field={}, field_name_to_index={}, col_unique_id={}",
                     slot->col_name(), tablet_schema->get_all_field_names(), slot->col_unique_id());
         }
+
+        if (slot->get_virtual_column_expr()) {
+            ColumnId virtual_column_cid = index;
+            _virtual_column_exprs[virtual_column_cid] = _slot_id_to_virtual_column_expr[slot->id()];
+            size_t idx_in_block = _slot_id_to_index_in_block[slot->id()];
+            _vir_cid_to_idx_in_block[virtual_column_cid] = idx_in_block;
+            _vir_col_idx_to_type[idx_in_block] = _slot_id_to_col_type[slot->id()];
+
+            VLOG_DEBUG << fmt::format(
+                    "Virtual column, slot id: {}, cid {}, column index: {}, type: {}", slot->id(),
+                    virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
+                    _vir_col_idx_to_type[idx_in_block]->get_name());
+        }
+
         _return_columns.push_back(index);
         if (slot->is_nullable() && !tablet_schema->column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
@@ -493,7 +525,14 @@ Status OlapScanner::_init_return_columns() {
 
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
+    } else {
+        std::string msg = "";
+        for (auto& column : _return_columns) {
+            msg += fmt::format("{}, ", column);
+        }
+        LOG_INFO("OlapScanner init return columns, return columns cid: [{}]", msg);
     }
+
     return Status::OK();
 }
 
@@ -738,6 +777,18 @@ void OlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(local_state->_read_uncompressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
+
+    COUNTER_UPDATE(local_state->_ann_index_range_search_filter_counter,
+                   stats.rows_ann_index_range_filtered);
+    COUNTER_UPDATE(local_state->_ann_index_topn_filter_counter, stats.rows_ann_index_topn_filtered);
+    COUNTER_UPDATE(local_state->_ann_index_filter_counter,
+                   (local_state->_ann_index_range_search_filter_counter->value() +
+                    local_state->_ann_index_topn_filter_counter->value()));
+    COUNTER_UPDATE(local_state->_ann_index_range_search_timer, stats.rows_ann_index_range_costs_ns);
+    COUNTER_UPDATE(local_state->_ann_index_topn_timer, stats.rows_ann_index_topn_costs_ns);
+    COUNTER_UPDATE(local_state->_ann_index_filter_timer,
+                   (local_state->_ann_index_range_search_timer->value() +
+                    local_state->_ann_index_topn_timer->value()));
 }
 
 } // namespace doris::vectorized

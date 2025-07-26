@@ -59,6 +59,8 @@ public:
         return res;
     }
 
+    Status open(RuntimeState* state) override;
+
 private:
     friend class vectorized::OlapScanner;
 
@@ -205,6 +207,13 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
 
+    RuntimeProfile::Counter* _ann_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_range_search_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_topn_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_filter_timer = nullptr;
+    RuntimeProfile::Counter* _ann_index_range_search_timer = nullptr;
+    RuntimeProfile::Counter* _ann_index_topn_timer = nullptr;
+
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
     // number of segment filtered by column stat when creating seg iterator
@@ -241,6 +250,11 @@ private:
 
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReader::ReadSource> _read_sources;
+
+    std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
+    std::map<SlotId, size_t> _slot_id_to_index_in_block;
+    // this map is needed for scanner opening.
+    std::map<SlotId, vectorized::DataTypePtr> _slot_id_to_col_type;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
