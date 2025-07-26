@@ -67,13 +67,18 @@ public class ToJson extends ScalarFunction
         super("to_json", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToJson(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ToJson withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1, "ToJson should have exactly one argument");
-        return new ToJson(children.get(0));
+        return new ToJson(getFunctionParams(children));
     }
 
     @Override

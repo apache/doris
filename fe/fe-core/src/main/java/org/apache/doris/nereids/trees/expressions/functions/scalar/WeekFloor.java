@@ -79,6 +79,11 @@ public class WeekFloor extends ScalarFunction
         super("week_floor", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private WeekFloor(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
@@ -87,13 +92,7 @@ public class WeekFloor extends ScalarFunction
         Preconditions.checkArgument(children.size() == 1
                 || children.size() == 2
                 || children.size() == 3);
-        if (children.size() == 1) {
-            return new WeekFloor(children.get(0));
-        } else if (children.size() == 2) {
-            return new WeekFloor(children.get(0), children.get(1));
-        } else {
-            return new WeekFloor(children.get(0), children.get(1), children.get(2));
-        }
+        return new WeekFloor(getFunctionParams(children));
     }
 
     @Override

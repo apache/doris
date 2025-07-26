@@ -51,6 +51,11 @@ public class ArrayMax extends ScalarFunction implements ExplicitlyCastableSignat
         super("array_max", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayMax(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -70,7 +75,7 @@ public class ArrayMax extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public ArrayMax withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayMax(children.get(0));
+        return new ArrayMax(getFunctionParams(children));
     }
 
     @Override

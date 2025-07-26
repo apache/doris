@@ -47,13 +47,18 @@ public class Domain extends ScalarFunction
         super("domain", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Domain(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Domain withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Domain(children.get(0));
+        return new Domain(getFunctionParams(children));
     }
 
     @Override

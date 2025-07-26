@@ -50,6 +50,11 @@ public class ArraySort extends ScalarFunction
         super("array_sort", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArraySort(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -64,7 +69,7 @@ public class ArraySort extends ScalarFunction
     @Override
     public ArraySort withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArraySort(children.get(0));
+        return new ArraySort(getFunctionParams(children));
     }
 
     @Override

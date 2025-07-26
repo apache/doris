@@ -54,6 +54,11 @@ public class ToIso8601 extends ScalarFunction
         super("to_iso8601", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToIso8601(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
@@ -65,7 +70,7 @@ public class ToIso8601 extends ScalarFunction
     @Override
     public ToIso8601 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ToIso8601(children.get(0));
+        return new ToIso8601(getFunctionParams(children));
     }
 
     @Override

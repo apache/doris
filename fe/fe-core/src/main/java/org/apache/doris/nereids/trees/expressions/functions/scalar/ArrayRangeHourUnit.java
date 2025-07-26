@@ -49,13 +49,18 @@ public class ArrayRangeHourUnit extends ScalarFunction
         super("array_range_hour_unit", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayRangeHourUnit(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayRangeHourUnit withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new ArrayRangeHourUnit(children.get(0), children.get(1), children.get(2));
+        return new ArrayRangeHourUnit(getFunctionParams(children));
     }
 
     @Override

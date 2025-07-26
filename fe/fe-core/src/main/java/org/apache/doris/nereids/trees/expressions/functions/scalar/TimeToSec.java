@@ -47,13 +47,18 @@ public class TimeToSec extends ScalarFunction
         super("time_to_sec", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private TimeToSec(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public TimeToSec withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new TimeToSec(children.get(0));
+        return new TimeToSec(getFunctionParams(children));
     }
 
     @Override

@@ -59,17 +59,18 @@ public class Dfloor extends ScalarFunction
         super("dfloor", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Dfloor(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Dfloor withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        if (children.size() == 1) {
-            return new Dfloor(children.get(0));
-        } else {
-            return new Dfloor(children.get(0), children.get(1));
-        }
+        return new Dfloor(getFunctionParams(children));
     }
 
     @Override

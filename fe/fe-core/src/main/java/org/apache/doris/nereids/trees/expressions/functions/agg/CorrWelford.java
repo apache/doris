@@ -57,18 +57,23 @@ public class CorrWelford extends NullableAggregateFunction
         super("corr_welford", distinct, alwaysNullable, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CorrWelford(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public CorrWelford withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new CorrWelford(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new CorrWelford(getFunctionParams(distinct, children));
     }
 
     @Override
     public CorrWelford withAlwaysNullable(boolean alwaysNullable) {
-        return new CorrWelford(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new CorrWelford(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

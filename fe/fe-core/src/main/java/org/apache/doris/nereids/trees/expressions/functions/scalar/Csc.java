@@ -47,13 +47,18 @@ public class Csc extends ScalarFunction
         super("csc", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Csc(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Csc withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Csc(children.get(0));
+        return new Csc(getFunctionParams(children));
     }
 
     @Override

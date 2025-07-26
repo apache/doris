@@ -50,13 +50,18 @@ public class BitmapSubsetLimit extends ScalarFunction
         super("bitmap_subset_limit", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapSubsetLimit(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapSubsetLimit withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new BitmapSubsetLimit(children.get(0), children.get(1), children.get(2));
+        return new BitmapSubsetLimit(getFunctionParams(children));
     }
 
     @Override

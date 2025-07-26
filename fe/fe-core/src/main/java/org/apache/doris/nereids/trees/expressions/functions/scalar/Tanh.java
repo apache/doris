@@ -47,13 +47,18 @@ public class Tanh extends ScalarFunction
         super("tanh", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Tanh(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Tanh withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Tanh(children.get(0));
+        return new Tanh(getFunctionParams(children));
     }
 
     @Override

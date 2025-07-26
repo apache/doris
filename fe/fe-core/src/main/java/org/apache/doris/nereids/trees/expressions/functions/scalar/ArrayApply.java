@@ -56,6 +56,18 @@ public class ArrayApply extends ScalarFunction
      */
     public ArrayApply(Expression arg0, Expression arg1, Expression arg2) {
         super("array_apply", arg0, arg1, arg2);
+        checkArguments(arg0, arg1, arg2);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private ArrayApply(ScalarFunctionParams functionParams) {
+        super(functionParams);
+        checkArguments(
+                functionParams.arguments.get(0), functionParams.arguments.get(1), functionParams.arguments.get(2)
+        );
+    }
+
+    private void checkArguments(Expression arg0, Expression arg1, Expression arg2) {
         if (!(arg1 instanceof StringLikeLiteral)) {
             throw new AnalysisException(
                     "array_apply(arr, op, val): op support const value only.");
@@ -88,7 +100,7 @@ public class ArrayApply extends ScalarFunction
                 "array_apply accept 3 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new ArrayApply(children.get(0), children.get(1), children.get(2));
+        return new ArrayApply(getFunctionParams(children));
     }
 
     @Override

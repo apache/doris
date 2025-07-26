@@ -53,6 +53,11 @@ public class ApproxTopK extends NullableAggregateFunction
         super("approx_top_k", distinct, alwaysNullable, varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ApproxTopK(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (arity() < 3) {
@@ -73,13 +78,13 @@ public class ApproxTopK extends NullableAggregateFunction
 
     @Override
     public ApproxTopK withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new ApproxTopK(distinct, alwaysNullable, children.toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new ApproxTopK(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new ApproxTopK(distinct, alwaysNullable, children.toArray(new Expression[0]));
+        return new ApproxTopK(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

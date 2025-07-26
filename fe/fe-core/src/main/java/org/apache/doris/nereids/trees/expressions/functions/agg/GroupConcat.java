@@ -86,6 +86,12 @@ public class GroupConcat extends NullableAggregateFunction
         this.nonOrderArguments = findOrderExprIndex(children);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private GroupConcat(int nonOrderArguments, NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.nonOrderArguments = nonOrderArguments;
+    }
+
     @Override
     public boolean nullable() {
         return alwaysNullable || children().stream()
@@ -103,7 +109,7 @@ public class GroupConcat extends NullableAggregateFunction
 
     @Override
     public GroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new GroupConcat(distinct, alwaysNullable, isSkew, children);
+        return new GroupConcat(nonOrderArguments, getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     /**
@@ -111,12 +117,12 @@ public class GroupConcat extends NullableAggregateFunction
      */
     @Override
     public GroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new GroupConcat(distinct, alwaysNullable, isSkew, children);
+        return new GroupConcat(nonOrderArguments, getFunctionParams(distinct, children));
     }
 
     @Override
     public Expression withIsSkew(boolean isSkew) {
-        return new GroupConcat(distinct, alwaysNullable, isSkew, children());
+        return new GroupConcat(nonOrderArguments, getFunctionParams(distinct, isSkew, children));
     }
 
     @Override
@@ -165,7 +171,7 @@ public class GroupConcat extends NullableAggregateFunction
     public MultiDistinctGroupConcat convertToMultiDistinct() {
         Preconditions.checkArgument(distinct,
                 "can't convert to multi_distinct_group_concat because there is no distinct args");
-        return new MultiDistinctGroupConcat(alwaysNullable, children);
+        return new MultiDistinctGroupConcat(false, getFunctionParams(children));
     }
 
     @Override

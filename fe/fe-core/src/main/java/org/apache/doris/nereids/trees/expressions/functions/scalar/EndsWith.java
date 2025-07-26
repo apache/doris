@@ -50,13 +50,18 @@ public class EndsWith extends ScalarFunction
         super("ends_with", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private EndsWith(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public EndsWith withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new EndsWith(children.get(0), children.get(1));
+        return new EndsWith(getFunctionParams(children));
     }
 
     @Override

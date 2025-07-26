@@ -68,18 +68,23 @@ public class Variance extends NullableAggregateFunction
         super("variance", distinct, alwaysNullable, child);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Variance(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public Variance withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Variance(distinct, alwaysNullable, children.get(0));
+        return new Variance(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Variance(distinct, alwaysNullable, children.get(0));
+        return new Variance(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

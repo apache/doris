@@ -47,13 +47,18 @@ public class ArrayRepeat extends ScalarFunction
         super("array_repeat", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayRepeat(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ArrayRepeat withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2,
                 "array_repeat accept 2 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new ArrayRepeat(children.get(0), children.get(1));
+        return new ArrayRepeat(getFunctionParams(children));
     }
 
     @Override

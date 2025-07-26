@@ -68,18 +68,23 @@ public class StddevSamp extends NullableAggregateFunction
         super("stddev_samp", distinct, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StddevSamp(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public StddevSamp withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StddevSamp(distinct, alwaysNullable, children.get(0));
+        return new StddevSamp(getFunctionParams(distinct, children));
     }
 
     @Override
     public StddevSamp withAlwaysNullable(boolean alwaysNullable) {
-        return new StddevSamp(distinct, alwaysNullable, children.get(0));
+        return new StddevSamp(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

@@ -53,13 +53,18 @@ public class ToDate extends ScalarFunction
         super("to_date", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToDate(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ToDate withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ToDate(children.get(0));
+        return new ToDate(getFunctionParams(children));
     }
 
     @Override

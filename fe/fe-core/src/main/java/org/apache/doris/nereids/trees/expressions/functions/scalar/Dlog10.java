@@ -48,13 +48,18 @@ public class Dlog10 extends ScalarFunction
         super("dlog10", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Dlog10(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Dlog10 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Dlog10(children.get(0));
+        return new Dlog10(getFunctionParams(children));
     }
 
     @Override

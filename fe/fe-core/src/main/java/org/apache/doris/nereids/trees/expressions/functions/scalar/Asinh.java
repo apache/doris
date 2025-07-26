@@ -46,13 +46,18 @@ public class Asinh extends ScalarFunction
         super("asinh", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Asinh(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Asinh withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Asinh(children.get(0));
+        return new Asinh(getFunctionParams(children));
     }
 
     @Override

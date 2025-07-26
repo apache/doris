@@ -52,13 +52,18 @@ public class Weekday extends ScalarFunction
         super("weekday", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Weekday(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Weekday withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Weekday(children.get(0));
+        return new Weekday(getFunctionParams(children));
     }
 
     @Override

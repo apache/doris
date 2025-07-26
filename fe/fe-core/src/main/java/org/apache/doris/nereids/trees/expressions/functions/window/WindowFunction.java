@@ -38,6 +38,11 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
         super(name, children);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected WindowFunction(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -54,6 +59,11 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
     @Override
     public int computeHashCode() {
         return Objects.hash(getName(), children);
+    }
+
+    @Override
+    protected WindowFunctionParams getFunctionParams(List<Expression> arguments) {
+        return new WindowFunctionParams(this, getName(), arguments, isInferred());
     }
 
     /**

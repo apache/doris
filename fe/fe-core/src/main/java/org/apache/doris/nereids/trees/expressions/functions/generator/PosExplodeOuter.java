@@ -47,13 +47,18 @@ public class PosExplodeOuter extends TableGeneratingFunction implements UnaryExp
         super("posexplode_outer", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private PosExplodeOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public PosExplodeOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PosExplodeOuter(children.get(0));
+        return new PosExplodeOuter(getFunctionParams(children));
     }
 
     @Override

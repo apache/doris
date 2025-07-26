@@ -54,12 +54,17 @@ public class ArrayMap extends ScalarFunction
         super("array_map", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayMap(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayMap withChildren(List<Expression> children) {
-        return new ArrayMap(children);
+        return new ArrayMap(getFunctionParams(children));
     }
 
     @Override

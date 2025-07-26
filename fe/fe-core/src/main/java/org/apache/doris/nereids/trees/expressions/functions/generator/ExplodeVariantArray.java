@@ -50,13 +50,18 @@ public class ExplodeVariantArray extends TableGeneratingFunction implements
         super("explode_variant_array", args);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeVariantArray(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeVariantArray withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new ExplodeVariantArray(children.toArray(new Expression[0]));
+        return new ExplodeVariantArray(getFunctionParams(children));
     }
 
     @Override

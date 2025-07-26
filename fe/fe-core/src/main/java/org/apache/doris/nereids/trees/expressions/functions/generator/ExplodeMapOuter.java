@@ -46,13 +46,17 @@ public class ExplodeMapOuter extends TableGeneratingFunction implements UnaryExp
         super("explode_map_outer", arg);
     }
 
+    private ExplodeMapOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeMapOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeMapOuter(children.get(0));
+        return new ExplodeMapOuter(getFunctionParams(children));
     }
 
     @Override

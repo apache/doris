@@ -53,13 +53,18 @@ public class DateDiff extends ScalarFunction
         super("datediff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DateDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DateDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new DateDiff(children.get(0), children.get(1));
+        return new DateDiff(getFunctionParams(children));
     }
 
     @Override

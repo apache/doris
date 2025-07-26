@@ -77,14 +77,18 @@ public class Least extends ScalarFunction
         super("least", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Least(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Least withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new Least(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        return new Least(getFunctionParams(children));
     }
 
     @Override

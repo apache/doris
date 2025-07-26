@@ -48,13 +48,18 @@ public class JsonbParseErrorToNull extends ScalarFunction
         super("jsonb_parse_error_to_null", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonbParseErrorToNull(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonbParseErrorToNull withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new JsonbParseErrorToNull(children.get(0));
+        return new JsonbParseErrorToNull(getFunctionParams(children));
     }
 
     @Override

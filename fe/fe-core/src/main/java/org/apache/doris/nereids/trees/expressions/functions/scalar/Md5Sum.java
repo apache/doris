@@ -49,14 +49,18 @@ public class Md5Sum extends ScalarFunction
         super("md5sum", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Md5Sum(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Md5Sum withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Md5Sum(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Md5Sum(getFunctionParams(children));
     }
 
     @Override
