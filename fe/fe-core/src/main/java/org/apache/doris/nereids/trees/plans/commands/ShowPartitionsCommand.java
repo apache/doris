@@ -25,8 +25,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -46,6 +46,9 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -74,13 +77,17 @@ import com.google.common.collect.Range;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.partition.Partition;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * show partitions command
@@ -211,7 +218,8 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog)) {
+                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog
+                || catalog instanceof PaimonExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsCommand",
                     catalog.getType()));
         }
@@ -261,9 +269,9 @@ public class ShowPartitionsCommand extends ShowCommand {
         }
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
-        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP,
-                TableIf.TableType.HMS_EXTERNAL_TABLE, TableIf.TableType.MAX_COMPUTE_EXTERNAL_TABLE,
-                TableIf.TableType.ICEBERG_EXTERNAL_TABLE);
+        TableIf table = db.getTableOrMetaException(tblName, TableType.OLAP,
+                TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
+                TableType.ICEBERG_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE);
 
         if (table instanceof HMSExternalTable) {
             if (((HMSExternalTable) table).isView()) {
@@ -285,6 +293,13 @@ public class ShowPartitionsCommand extends ShowCommand {
         if (table instanceof IcebergExternalTable) {
             if (!((IcebergExternalTable) table).isValidRelatedTable()) {
                 throw new AnalysisException("Table " + tblName + " is not a supported partition table");
+            }
+            return;
+        }
+
+        if (table instanceof PaimonExternalTable) {
+            if (((PaimonExternalTable) table).isPartitionInvalid(Optional.empty())) {
+                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
             }
             return;
         }
@@ -348,6 +363,52 @@ public class ShowPartitionsCommand extends ShowCommand {
             row.add(items.upperEndpoint().toString());
             rows.add(row);
         }
+        // sort by partition name
+        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
+            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
+        } else {
+            rows.sort(Comparator.comparing(x -> x.get(0)));
+        }
+
+        rows = applyLimit(limit, offset, rows);
+
+        return new ShowResultSet(getMetaData(), rows);
+    }
+
+    private ShowResultSet handleShowPaimonTablePartitions() throws AnalysisException {
+        PaimonExternalCatalog paimonCatalog = (PaimonExternalCatalog) catalog;
+        String db = ClusterNamespace.getNameFromFullName(tableName.getDb());
+        String tbl = tableName.getTbl();
+
+        PaimonExternalDatabase database = (PaimonExternalDatabase) paimonCatalog.getDb(db)
+                .orElseThrow(() -> new AnalysisException("Paimon database '" + db + "' does not exist"));
+        PaimonExternalTable paimonTable = database.getTable(tbl)
+                .orElseThrow(() -> new AnalysisException("Paimon table '" + db + "." + tbl + "' does not exist"));
+
+        Map<String, Partition> partitionSnapshot = paimonTable.getPartitionSnapshot(Optional.empty());
+        if (partitionSnapshot == null) {
+            partitionSnapshot = Collections.emptyMap();
+        }
+
+        LinkedHashSet<String> partitionColumnNames = paimonTable
+                .getPartitionColumns(Optional.empty())
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        String partitionColumnsStr = String.join(",", partitionColumnNames);
+
+        List<List<String>> rows = partitionSnapshot
+                .entrySet()
+                .stream()
+                .map(entry -> {
+                    List<String> row = new ArrayList<>(5);
+                    row.add(entry.getKey());
+                    row.add(partitionColumnsStr);
+                    row.add(String.valueOf(entry.getValue().recordCount()));
+                    row.add(String.valueOf(entry.getValue().fileSizeInBytes()));
+                    row.add(String.valueOf(entry.getValue().fileCount()));
+                    return row;
+                }).collect(Collectors.toList());
         // sort by partition name
         if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
             rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
@@ -427,6 +488,8 @@ public class ShowPartitionsCommand extends ShowCommand {
             return handleShowMaxComputeTablePartitions();
         } else if (catalog instanceof IcebergExternalCatalog) {
             return handleShowIcebergTablePartitions();
+        } else if (catalog instanceof PaimonExternalCatalog) {
+            return handleShowPaimonTablePartitions();
         } else {
             return handleShowHMSTablePartitions();
         }
@@ -450,6 +513,13 @@ public class ShowPartitionsCommand extends ShowCommand {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
             builder.addColumn(new Column("Lower Bound", ScalarType.createVarchar(100)));
             builder.addColumn(new Column("Upper Bound", ScalarType.createVarchar(100)));
+        } else if (catalog instanceof PaimonExternalCatalog) {
+            builder.addColumn(new Column("Partition", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("PartitionKey", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("RecordCount", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("FileSizeInBytes", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("FileCount", ScalarType.createVarchar(300)));
+
         } else {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
         }
