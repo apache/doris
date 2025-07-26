@@ -119,7 +119,9 @@ void CloudWarmUpManager::handle_jobs() {
                 _cond.wait(lock);
             }
             if (_closed) break;
-            cur_job = _pending_job_metas.front();
+            if (!_pending_job_metas.empty()) {
+                cur_job = _pending_job_metas.front();
+            }
         }
 
         if (!cur_job) {
@@ -213,7 +215,13 @@ void CloudWarmUpManager::handle_jobs() {
         {
             std::unique_lock lock(_mtx);
             _finish_job.push_back(cur_job);
-            _pending_job_metas.pop_front();
+            // _pending_job_metas may be cleared by a CLEAR_JOB request
+            // so we need to check it again.
+            if (!_pending_job_metas.empty()) {
+                // We can not call pop_front before the job is finished,
+                // because GET_CURRENT_JOB_STATE_AND_LEASE is relying on the pending job size.
+                _pending_job_metas.pop_front();
+            }
         }
     }
 #endif
