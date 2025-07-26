@@ -101,6 +101,9 @@ public:
                                      int batch_size, bool* eos);
     void reset(RuntimeState* state);
 
+    int64_t limit() const { return _limit; }
+    int64_t offset() const { return _offset; }
+
 private:
     friend class SortSinkLocalState;
 
