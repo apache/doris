@@ -128,7 +128,7 @@ Status DataTypeTimeV2SerDe::from_int_batch(const IntDataType::ColumnType& int_co
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
-        TimeValue::TimeType val;
+        TimeValue::TimeType val = 0;
         if (CastToTimeV2::from_integer<false>(int_col.get_element(i), val, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
@@ -148,7 +148,7 @@ Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(const IntDataType::Column
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
-        TimeValue::TimeType val;
+        TimeValue::TimeType val = 0;
         CastToTimeV2::from_integer<true>(int_col.get_element(i), val, params);
         RETURN_IF_ERROR(params.status);
 
@@ -167,7 +167,7 @@ Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& fl
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
-        TimeValue::TimeType val;
+        TimeValue::TimeType val = 0;
         if (CastToTimeV2::from_float<false>(float_col.get_data()[i], val, _scale, params))
                 [[likely]] {
             col_data.get_data()[i] = val;
@@ -188,7 +188,7 @@ Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(const FloatDataType::Co
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
-        TimeValue::TimeType val;
+        TimeValue::TimeType val = 0;
         CastToTimeV2::from_float<true>(float_col.get_data()[i], val, _scale, params);
         RETURN_IF_ERROR(params.status);
 
@@ -207,7 +207,7 @@ Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
-        TimeValue::TimeType val;
+        TimeValue::TimeType val = 0;
         if (CastToTimeV2::from_decimal<true>(
                     decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
                     decimal_col.get_scale(), val, _scale, params)) [[likely]] {
@@ -229,7 +229,7 @@ Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
-        TimeValue::TimeType val;
+        TimeValue::TimeType val = 0;
         CastToTimeV2::from_decimal<true>(decimal_col.get_intergral_part(i),
                                          decimal_col.get_fractional_part(i),
                                          decimal_col.get_scale(), val, _scale, params);
