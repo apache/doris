@@ -740,11 +740,7 @@ Status SnapshotHttpDownloader::download() {
 BaseSnapshotLoader::BaseSnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
                                        const TNetworkAddress& broker_addr,
                                        const std::map<std::string, std::string>& prop)
-        : _env(env),
-          _job_id(job_id),
-          _task_id(task_id),
-          _broker_addr(broker_addr),
-          _prop(prop) {}
+        : _env(env), _job_id(job_id), _task_id(task_id), _broker_addr(broker_addr), _prop(prop) {}
 
 Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type) {
