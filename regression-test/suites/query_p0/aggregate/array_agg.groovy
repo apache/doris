@@ -317,8 +317,8 @@ suite("array_agg") {
             s string
         ) DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES("replication_num" = "1");
     """
-    sql """ insert into test_array_agg_ip values(1,123,34141,"0.0.0.123") , (2,3114,318903,"0.0.0.123") , (3,7832131,192837891738927931231,"2001:0DB8:AC10:FE01:FEED:BABE:CAFE:F00D"),(4,null,null,"2001:0DB8:AC10:FE01:FEED:BABE:CAFE:F00D"); """
-
+    sql """ insert into test_array_agg_ip values(1,'0.0.0.123','::855d',"0.0.0.123") , (2,'0.0.12.42','::0.4.221.183',"0.0.0.123") , (3,'0.119.130.67','::a:7429:d0d6:6e08:9f5f',"2001:0DB8:AC10:FE01:FEED:BABE:CAFE:F00D"),(4,null,null,"2001:0DB8:AC10:FE01:FEED:BABE:CAFE:F00D"); """
+        
 
      qt_select """select array_sort(array_agg(k4)),array_sort(array_agg(k6)) from test_array_agg_ip """
 

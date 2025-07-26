@@ -79,7 +79,8 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public boolean nullable() {
         if (ConnectContext.get().getSessionVariable().enableStrictCast()) {
-            if (targetType.isNumericType() || targetType.isDateLikeType() || targetType.isBooleanType()) {
+            if (targetType.isNumericType() || targetType.isDateLikeType() || targetType.isBooleanType()
+                    || targetType.isIPType()) {
                 return child().nullable();
             }
             DataType childDataType = child().getDataType();
