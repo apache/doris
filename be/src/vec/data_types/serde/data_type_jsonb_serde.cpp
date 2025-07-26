@@ -249,6 +249,10 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
         }
         break;
     }
+    case JsonbType::T_Int128: {
+        target.SetUint64(static_cast<uint64_t>(val.unpack<JsonbInt128Val>()->val()));
+        break;
+    }
     default:
         CHECK(false) << "unkown type " << static_cast<int>(val.type);
         break;
