@@ -1043,4 +1043,53 @@ public class StringArithmetic {
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
     }
 
+    @ExecFunction(name = "like")
+    public static Expression like(StringLikeLiteral first, StringLikeLiteral second) {
+        String regex = likeToRegex(second.getValue());
+        if (first.getStringValue().matches(regex)) {
+            return BooleanLiteral.TRUE;
+        }
+        return BooleanLiteral.FALSE;
+    }
+
+    private static String likeToRegex(String likePattern) {
+        if (likePattern == null) {
+            return null;
+        }
+
+        StringBuilder regexPattern = new StringBuilder();
+        boolean escapeMode = false;  // 标记是否处于转义模式
+
+        for (int i = 0; i < likePattern.length(); i++) {
+            char c = likePattern.charAt(i);
+
+            if (escapeMode) {
+                escapeMode = false;
+                regexPattern.append(escapeMetaChar(c));
+            } else if (c == '\\') {
+                escapeMode = true;
+            } else if (c == '%') {
+                regexPattern.append(".*");
+            } else if (c == '_') {
+                regexPattern.append(".");
+            } else {
+                regexPattern.append(escapeMetaChar(c));
+            }
+        }
+
+        if (escapeMode) {
+            regexPattern.append(escapeMetaChar('\\'));
+        }
+
+        return "^" + regexPattern + "$";
+    }
+
+    private static String escapeMetaChar(char c) {
+        final String regexMetaChars = ".^$*+?|{}()[]\\";
+        if (regexMetaChars.indexOf(c) != -1) {
+            return "\\" + c;
+        }
+        return String.valueOf(c);
+    }
+
 }

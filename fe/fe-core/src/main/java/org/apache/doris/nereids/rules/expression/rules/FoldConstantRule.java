@@ -56,9 +56,7 @@ public class FoldConstantRule implements ExpressionPatternRuleFactory {
         try {
             return evaluateOrThrow(expr, ctx);
         } catch (Exception e) {
-            if (ctx.cascadesContext != null
-                    && ctx.cascadesContext.getConnectContext() != null
-                    && ctx.cascadesContext.getConnectContext().getSessionVariable().feDebug) {
+            if (SessionVariable.isFeDebug()) {
                 throw e;
             }
             return expr;
