@@ -636,6 +636,8 @@ public class FunctionSet<T> {
 
     public static final String REGR_SLOPE = "regr_slope";
 
+    public static final String GEOMEAN = "geomean";
+
     public static final String SEQUENCE_MATCH = "sequence_match";
 
     public static final String SEQUENCE_COUNT = "sequence_count";

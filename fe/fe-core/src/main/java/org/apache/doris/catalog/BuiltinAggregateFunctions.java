@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Geomean;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
@@ -116,6 +117,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(BitmapUnionInt.class, "bitmap_union_int"),
             agg(CollectList.class, "collect_list", "group_array"),
             agg(CollectSet.class, "collect_set", "group_uniq_array"),
+            agg(Geomean.class, "geomean"),
             agg(Corr.class, "corr"),
             agg(CorrWelford.class, "corr_welford"),
             agg(Count.class, "count"),

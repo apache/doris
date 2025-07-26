@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Geomean;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
@@ -299,6 +300,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(regrSlope, context);
     }
 
+    default R visitGeomean(Geomean geomean, C context) {
+        return visitAggregateFunction(geomean, context);
+    }
+
     default R visitRetention(Retention retention, C context) {
         return visitNullableAggregateFunction(retention, context);
     }
@@ -378,5 +383,4 @@ public interface AggregateFunctionVisitor<R, C> {
     default R visitApproxTopSum(ApproxTopSum approxTopSum, C context) {
         return visitNullableAggregateFunction(approxTopSum, context);
     }
-
 }
