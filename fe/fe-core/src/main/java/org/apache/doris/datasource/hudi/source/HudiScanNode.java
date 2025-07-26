@@ -307,6 +307,7 @@ public class HudiScanNode extends HiveScanNode {
             }
         }
         tableFormatFileDesc.setHudiParams(fileDesc);
+        rangeDesc.setDataLakePartitionValues(hudiSplit.getHudiPartitionValues());
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -362,7 +363,6 @@ public class HudiScanNode extends HiveScanNode {
                 incrementalRelation.getEndTs())).collect(Collectors.toList());
     }
 
-
     private void getPartitionSplits(HivePartition partition, List<Split> splits) throws IOException {
 
         String partitionName;
@@ -384,6 +384,9 @@ public class HudiScanNode extends HiveScanNode {
                 HudiSplit hudiSplit = new HudiSplit(locationPath, 0, fileSize, fileSize,
                         new String[0], partition.getPartitionValues());
                 hudiSplit.setTableFormatType(TableFormatType.HUDI);
+                if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
+                    hudiSplit.setHudiPartitionValues(HudiUtils.getPartitionInfoMap(hmsTable, partition));
+                }
                 splits.add(hudiSplit);
             });
         } else {
