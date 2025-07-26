@@ -314,12 +314,13 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
         }
         // splitting large values (>90*1000) into multiple KVs
         cloud::blob_put(txn, dict_key, dict_val, 0);
-        LOG(INFO) << "Dictionary saved, key=" << hex(dict_key)
-                  << " txn_id=" << rowset_meta->txn_id() << " Dict size=" << dict.column_dict_size()
-                  << ", index_id=" << rowset_meta->index_id()
-                  << ", Current column ID=" << dict.current_column_dict_id()
-                  << ", Current index ID=" << dict.current_index_dict_id()
-                  << ", Dict bytes=" << dict_val.size();
+        LOG_INFO("Dictionary saved, key=")
+                << hex(dict_key) << " txn_id=" << rowset_meta->txn_id()
+                << " Dict size=" << dict.column_dict_size()
+                << ", index_id=" << rowset_meta->index_id()
+                << ", Current column ID=" << dict.current_column_dict_id()
+                << ", Current index ID=" << dict.current_index_dict_id()
+                << ", Dict bytes=" << dict_val.size();
     }
 }
 
@@ -344,8 +345,8 @@ void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string
         msg = "failed to parse SchemaCloudDictionary";
         return;
     }
-    LOG(INFO) << "Get schema_dict, column size=" << dict.column_dict_size()
-              << ", index size=" << dict.index_dict_size();
+    LOG_INFO("Get schema_dict, column size=")
+            << dict.column_dict_size() << ", index size=" << dict.index_dict_size();
 
     // Return dict, let backend to fill schema with dict info
     if (schema_op == GetRowsetRequest::RETURN_DICT && rsp_dict != nullptr) {

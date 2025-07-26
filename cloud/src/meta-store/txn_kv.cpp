@@ -407,9 +407,9 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     auto err = fdb_future_get_error(fut);
     TEST_SYNC_POINT_CALLBACK("transaction:get:get_err", &err);
     if (err) {
-        LOG(WARNING) << __PRETTY_FUNCTION__
-                     << " failed to fdb_future_get_error err=" << fdb_get_error(err)
-                     << " key=" << hex(key);
+        LOG_WARNING(__PRETTY_FUNCTION__)
+                << " failed to fdb_future_get_error err=" << fdb_get_error(err)
+                << " key=" << hex(key);
         return cast_as_txn_code(err);
     }
 
@@ -420,9 +420,9 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     num_get_keys_++;
 
     if (err) {
-        LOG(WARNING) << __PRETTY_FUNCTION__
-                     << " failed to fdb_future_get_value err=" << fdb_get_error(err)
-                     << " key=" << hex(key);
+        LOG_WARNING(__PRETTY_FUNCTION__)
+                << " failed to fdb_future_get_value err=" << fdb_get_error(err)
+                << " key=" << hex(key);
         return cast_as_txn_code(err);
     }
     get_bytes_ += len + key.size();
@@ -456,7 +456,7 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     auto err = fdb_future_get_error(fut);
     TEST_SYNC_POINT_CALLBACK("transaction:get_range:get_err", &err);
     if (err) {
-        LOG(WARNING) << fdb_get_error(err);
+        LOG_WARNING(fdb_get_error(err));
         return cast_as_txn_code(err);
     }
 
@@ -501,8 +501,8 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
 
 bool Transaction::atomic_set_ver_key(std::string_view key, uint32_t offset, std::string_view val) {
     if (key.size() < 10 || offset + 10 > key.size()) {
-        LOG(WARNING) << "atomic_set_ver_key: invalid key or offset, key=" << hex(key)
-                     << " offset=" << offset << ", key_size=" << key.size();
+        LOG_WARNING("atomic_set_ver_key: invalid key or offset")
+                << ", key=" << hex(key) << " offset=" << offset << ", key_size=" << key.size();
         return false;
     }
 
@@ -604,7 +604,7 @@ TxnErrorCode Transaction::commit() {
     }
 
     if (err) {
-        LOG(WARNING) << "fdb commit error, code=" << err << " msg=" << fdb_get_error(err);
+        LOG_WARNING("fdb commit error") << ", code=" << err << " msg=" << fdb_get_error(err);
         fdb_error_is_txn_conflict(err) ? g_bvar_txn_kv_commit_conflict_counter << 1
                                        : g_bvar_txn_kv_commit_error_counter << 1;
         return cast_as_txn_code(err);
@@ -623,12 +623,12 @@ TxnErrorCode Transaction::get_read_version(int64_t* version) {
     auto err = fdb_future_get_error(fut);
     TEST_SYNC_POINT_CALLBACK("transaction:get_read_version:get_err", &err);
     if (err) {
-        LOG(WARNING) << "get read version: " << fdb_get_error(err);
+        LOG_WARNING("get read version: ") << fdb_get_error(err);
         return cast_as_txn_code(err);
     }
     err = fdb_future_get_int64(fut, version);
     if (err) {
-        LOG(WARNING) << "get read version: " << fdb_get_error(err);
+        LOG_WARNING("get read version: ") << fdb_get_error(err);
         return cast_as_txn_code(err);
     }
     return TxnErrorCode::TXN_OK;
@@ -638,7 +638,7 @@ TxnErrorCode Transaction::get_committed_version(int64_t* version) {
     StopWatch sw;
     auto err = fdb_transaction_get_committed_version(txn_, version);
     if (err) {
-        LOG(WARNING) << "get committed version " << fdb_get_error(err);
+        LOG_WARNING("get committed version ") << fdb_get_error(err);
         g_bvar_txn_kv_get_committed_version << sw.elapsed_us();
         return cast_as_txn_code(err);
     }
@@ -702,9 +702,9 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
             RETURN_IF_ERROR(await_future(future));
             fdb_error_t err = fdb_future_get_error(future);
             if (err) {
-                LOG(WARNING) << __PRETTY_FUNCTION__
-                             << " failed to fdb_future_get_error err=" << fdb_get_error(err)
-                             << " key=" << hex(key);
+                LOG_WARNING(__PRETTY_FUNCTION__)
+                        << " failed to fdb_future_get_error err=" << fdb_get_error(err)
+                        << " key=" << hex(key);
                 return cast_as_txn_code(err);
             }
             fdb_bool_t found;
@@ -713,9 +713,9 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
             err = fdb_future_get_value(future, &found, &ret, &len);
             num_get_keys_++;
             if (err) {
-                LOG(WARNING) << __PRETTY_FUNCTION__
-                             << " failed to fdb_future_get_value err=" << fdb_get_error(err)
-                             << " key=" << hex(key);
+                LOG_WARNING(__PRETTY_FUNCTION__)
+                        << " failed to fdb_future_get_value err=" << fdb_get_error(err)
+                        << " key=" << hex(key);
                 return cast_as_txn_code(err);
             }
             if (!found) {
