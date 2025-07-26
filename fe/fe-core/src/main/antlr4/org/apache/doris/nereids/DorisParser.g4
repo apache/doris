@@ -1192,6 +1192,10 @@ relationHint
     | HINT_START identifier (COMMA identifier)* HINT_END              #commentRelationHint
     ;
 
+expressionWithOrder
+    :  expression ordering = (ASC | DESC)?
+    ;
+
 aggClause
     : GROUP BY groupingElement
     ;
@@ -1200,7 +1204,7 @@ groupingElement
     : ROLLUP LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | CUBE LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | GROUPING SETS LEFT_PAREN groupingSet (COMMA groupingSet)* RIGHT_PAREN
-    | expression (COMMA expression)* (WITH ROLLUP)?
+    | expressionWithOrder (COMMA expressionWithOrder)* (WITH ROLLUP)?
     ;
 
 groupingSet
