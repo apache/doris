@@ -63,6 +63,9 @@ public:
 
     int recycle_drop_partition_log(const DropPartitionLogPB& drop_partition_log);
 
+    int recycle_commit_index_log(const CommitIndexLogPB& commit_index_log);
+    int recycle_drop_index_log(const DropIndexLogPB& drop_index_log);
+
     int commit();
 
 private:
@@ -101,6 +104,33 @@ int OperationLogRecycler::recycle_drop_partition_log(const DropPartitionLogPB& d
 
     if (drop_partition_log.update_table_version()) {
         return recycle_table_version(drop_partition_log.table_id());
+    }
+    return 0;
+}
+
+int OperationLogRecycler::recycle_commit_index_log(const CommitIndexLogPB& commit_index_log) {
+    if (commit_index_log.update_table_version()) {
+        int64_t table_id = commit_index_log.table_id();
+        return recycle_table_version(table_id);
+    }
+    return 0;
+}
+
+int OperationLogRecycler::recycle_drop_index_log(const DropIndexLogPB& drop_index_log) {
+    for (int64_t index_id : drop_index_log.index_ids()) {
+        RecycleIndexPB recycle_index_pb;
+        recycle_index_pb.set_db_id(drop_index_log.db_id());
+        recycle_index_pb.set_table_id(drop_index_log.table_id());
+        recycle_index_pb.set_creation_time(::time(nullptr));
+        recycle_index_pb.set_expiration(drop_index_log.expiration());
+        recycle_index_pb.set_state(RecycleIndexPB::DROPPED);
+        std::string recycle_index_value;
+        if (!recycle_index_pb.SerializeToString(&recycle_index_value)) {
+            LOG_WARNING("failed to serialize RecycleIndexPB").tag("index_id", index_id);
+            return -1;
+        }
+        std::string recycle_key = recycle_index_key({instance_id_, index_id});
+        kvs_.emplace_back(std::move(recycle_key), std::move(recycle_index_value));
     }
     return 0;
 }
@@ -274,6 +304,8 @@ int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
     OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version);
     RECYCLE_OPERATION_LOG(commit_partition, recycle_commit_partition_log)
     RECYCLE_OPERATION_LOG(drop_partition, recycle_drop_partition_log)
+    RECYCLE_OPERATION_LOG(commit_index, recycle_commit_index_log)
+    RECYCLE_OPERATION_LOG(drop_index, recycle_drop_index_log)
 #undef RECYCLE_OPERATION_LOG
 
     return log_recycler.commit();
