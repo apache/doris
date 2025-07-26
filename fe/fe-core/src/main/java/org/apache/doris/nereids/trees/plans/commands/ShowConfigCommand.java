@@ -126,12 +126,13 @@ public class ShowConfigCommand extends Command implements NoForward {
             String host = backend.getHost();
             int httpPort = backend.getHttpPort();
             String urlString = String.format("http://%s:%d/api/show_config", host, httpPort);
+            BufferedReader reader = null;
             try {
                 URL url = new URL(urlString);
                 URLConnection urlConnection = url.openConnection();
                 urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
                 InputStream inputStream = urlConnection.getInputStream();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+                reader = new BufferedReader(new InputStreamReader(inputStream));
                 while (reader.ready()) {
                     // line's format like [["k1","v1"], ["k2","v2"]]
                     String line = reader.readLine();
@@ -155,6 +156,14 @@ public class ShowConfigCommand extends Command implements NoForward {
                 throw new AnalysisException(
                         String.format("Can’t get backend config, backendId: %d, host: %s. error: %s",
                                 beId, host, e.getMessage()), e);
+            } finally {
+                if (reader != null) {
+                    try {
+                        reader.close();
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
             }
         }
         return new ShowResultSet(getMetaData(BE_TITLE_NAMES), results);
