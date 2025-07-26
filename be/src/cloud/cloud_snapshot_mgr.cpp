@@ -156,18 +156,6 @@ Status CloudSnapshotMgr::convert_rowsets(
         rs_version_map[rowset_version] = new_rowset_meta_pb;
     }
 
-    for (auto&& stale_rowset_pb : in.stale_rs_metas()) {
-        Version rowset_version = {stale_rowset_pb.start_version(), stale_rowset_pb.end_version()};
-        auto exist_rs = rs_version_map.find(rowset_version);
-        if (exist_rs != rs_version_map.end()) {
-            continue;
-        }
-        RowsetMetaPB* new_rowset_meta_pb = out->add_stale_rs_metas();
-        RETURN_IF_ERROR(_create_rowset_meta(new_rowset_meta_pb, stale_rowset_pb, tablet_id,
-                                            target_tablet, storage_resource, tablet_schema,
-                                            file_mapping, rowset_id_mapping));
-    }
-
     if (!rowset_id_mapping.empty() && in.has_delete_bitmap()) {
         const auto& old_del_bitmap_pb = in.delete_bitmap();
         DeleteBitmapPB* new_del_bitmap_pb = out->mutable_delete_bitmap();

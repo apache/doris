@@ -81,6 +81,92 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
     }
 }
 
+TEST(TabletMetaTest, SerializeToMemoryWithSmallBuffer) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size() - 1);
+    ASSERT_FALSE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+}
+
+TEST(TabletMetaTest, DeserializeFromMemoryWithOldHeader) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb);
+
+    std::string proto_string;
+    ASSERT_TRUE(tablet_meta_pb.SerializeToString(&proto_string));
+
+    uint32_t protobuf_checksum =
+            olap_adler32(olap_adler32_init(), proto_string.data(), proto_string.size());
+
+    FixedFileHeader old_header;
+    old_header.file_length = sizeof(FixedFileHeader) + sizeof(uint32_t) + proto_string.size();
+    old_header.checksum = 0;
+    old_header.protobuf_length = proto_string.size();
+    old_header.protobuf_checksum = protobuf_checksum;
+
+    std::vector<uint8_t> buffer(old_header.file_length);
+    uint8_t* ptr = buffer.data();
+    memcpy(ptr, &old_header, sizeof(FixedFileHeader));
+    ptr += sizeof(FixedFileHeader);
+
+    uint32_t extra_value = 0; // Assume extra is 0
+    memcpy(ptr, &extra_value, sizeof(uint32_t));
+    ptr += sizeof(uint32_t);
+    memcpy(ptr, proto_string.data(), proto_string.size());
+
+    TabletMeta dst_tablet_meta;
+    ASSERT_TRUE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+    ASSERT_EQ(src_tablet_meta, dst_tablet_meta);
+}
+
+TEST(TabletMetaTest, DeserializeFromMemoryWithInvalidChecksum) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size());
+    ASSERT_TRUE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+
+    FixedFileHeaderV2* header = reinterpret_cast<FixedFileHeaderV2*>(buffer.data());
+    header->protobuf_checksum += 1; // wrong checksum
+
+    TabletMeta dst_tablet_meta;
+    ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+}
+
+TEST(TabletMetaTest, DeserializeFromMemoryWithInvalidProtobuf) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size());
+    ASSERT_TRUE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+
+    buffer[sizeof(FixedFileHeaderV2) + sizeof(uint32_t)] ^= 0xFF;
+
+    TabletMeta dst_tablet_meta;
+    ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+}
+
 TEST(TabletMetaTest, TestReviseMeta) {
     TabletMeta tablet_meta;
     std::vector<RowsetSharedPtr> src_rowsets;
