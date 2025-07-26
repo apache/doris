@@ -169,6 +169,7 @@ class RegressionTest {
 
         loadPlugins(config)
         installDorisCompose(config)
+        installLdapUtil(config)
     }
 
     static List<ScriptSource> findScriptSources(String root, Predicate<String> directoryFilter,
@@ -506,5 +507,37 @@ class RegressionTest {
                  ||  _/ ___ \\ | || |___| |___| |_| |
                  ||_|/_/   \\_\\___|_____|_____|____/
                  |'''.stripMargin())
+    }
+
+    static void installLdapUtil(Config config) {
+
+        def tokens = config.jdbcUrl.split('/')
+        def curIpAndPort = tokens[2].split(':')
+        log.info("curIpAndPort: " + curIpAndPort[0])
+
+        def remoteIP = curIpAndPort[0]
+        def remoteUser = "root"
+        def installCmd = "DEBIAN_FRONTEND=noninteractive apt-get -y update && apt install -y ldap-utils"
+
+        def sshCommand = "ssh -o StrictHostKeyChecking=no ${remoteUser}@${remoteIP} '${installCmd}'"
+
+        log.info("Executing remote command on ${remoteIP}: ${sshCommand}")
+
+        def proc = new ProcessBuilder("/bin/bash", "-c", sshCommand)
+                .redirectErrorStream(true)
+                .start()
+
+        StringBuilder output = new StringBuilder()
+        proc.getInputStream().eachLine { line ->
+            output.append(line).append("\n")
+        }
+
+        int exitCode = proc.waitFor()
+        log.info("exitCode: " + exitCode)
+        if (exitCode != 0) {
+            log.info("Host ${remoteIP} Exec Command ${sshCommand} Error, Code ${exitCode} Output ${proc.text}, and ${output} ")
+            assert false
+        }
+
     }
 }
