@@ -1307,6 +1307,7 @@ int InstanceRecycler::recycle_partitions() {
                 partition_version_keys.push_back(partition_version_key(
                         {instance_id_, part_pb.db_id(), part_pb.table_id(), partition_id}));
             }
+            metrics_context.total_recycled_num = num_recycled;
             metrics_context.report();
         }
         return ret;
@@ -1729,7 +1730,11 @@ int InstanceRecycler::delete_rowset_data(
         const auto& rowset_id = rs.rowset_id_v2();
         int64_t tablet_id = rs.tablet_id();
         int64_t num_segments = rs.num_segments();
-        if (num_segments <= 0) continue;
+        if (num_segments <= 0) {
+            metrics_context.total_recycled_num++;
+            metrics_context.total_recycled_data_size += rs.total_disk_size();
+            continue;
+        }
 
         // Process inverted indexes
         std::vector<std::pair<int64_t, std::string>> index_ids;
@@ -2362,7 +2367,7 @@ int InstanceRecycler::recycle_rowsets() {
 
     int64_t earlest_ts = std::numeric_limits<int64_t>::max();
 
-    auto handle_rowset_kv = [&, this](std::string_view k, std::string_view v) -> int {
+    auto handle_rowset_kv = [&](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         total_rowset_key_size += k.size();
         total_rowset_value_size += v.size();
@@ -2372,13 +2377,13 @@ int InstanceRecycler::recycle_rowsets() {
             return -1;
         }
 
-        int final_expiration = calculate_rowset_expired_time(instance_id_, rowset, &earlest_ts);
+        int64_t current_time = ::time(nullptr);
+        int64_t expiration = calculate_rowset_expired_time(instance_id_, rowset, &earlest_ts);
 
         VLOG_DEBUG << "recycle rowset scan, key=" << hex(k) << " num_scanned=" << num_scanned
-                   << " num_expired=" << num_expired << " expiration=" << final_expiration
+                   << " num_expired=" << num_expired << " expiration=" << expiration
                    << " RecycleRowsetPB=" << rowset.ShortDebugString();
-        int64_t current_time = ::time(nullptr);
-        if (current_time < final_expiration) { // not expired
+        if (current_time < expiration) { // not expired
             return 0;
         }
         ++num_expired;
@@ -2441,9 +2446,8 @@ int InstanceRecycler::recycle_rowsets() {
         } else {
             num_compacted += rowset.type() == RecycleRowsetPB::COMPACT;
             rowset_keys.emplace_back(k);
-            if (rowset_meta->num_segments() > 0) { // Skip empty rowset
-                rowsets.emplace(rowset_meta->rowset_id_v2(), std::move(*rowset_meta));
-            } else {
+            rowsets.emplace(rowset_meta->rowset_id_v2(), std::move(*rowset_meta));
+            if (rowset_meta->num_segments() <= 0) { // Skip empty rowset
                 ++num_empty_rowset;
             }
         }
@@ -2592,9 +2596,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                   << " num_expired=" << num_expired;
 
         tmp_rowset_keys.push_back(k);
-        if (rowset.num_segments() > 0) { // Skip empty rowset
-            tmp_rowsets.emplace(rowset.rowset_id_v2(), std::move(rowset));
-        }
+        tmp_rowsets.emplace(rowset.rowset_id_v2(), std::move(rowset));
         return 0;
     };
 
@@ -3779,15 +3781,10 @@ int InstanceRecycler::scan_and_statistics_rowsets() {
                 return 0;
             }
         }
-        if (rowset.type() != RecycleRowsetPB::PREPARE) {
-            if (rowset_meta->num_segments() > 0) {
-                metrics_context.total_need_recycle_num++;
-                segment_metrics_context_.total_need_recycle_num += rowset_meta->num_segments();
-                segment_metrics_context_.total_need_recycle_data_size +=
-                        rowset_meta->total_disk_size();
-                metrics_context.total_need_recycle_data_size += rowset_meta->total_disk_size();
-            }
-        }
+        metrics_context.total_need_recycle_num++;
+        metrics_context.total_need_recycle_data_size += rowset_meta->total_disk_size();
+        segment_metrics_context_.total_need_recycle_num += rowset_meta->num_segments();
+        segment_metrics_context_.total_need_recycle_data_size += rowset_meta->total_disk_size();
         return 0;
     };
     return scan_and_recycle(recyc_rs_key0, recyc_rs_key1, std::move(handle_rowset_kv),
@@ -3831,16 +3828,13 @@ int InstanceRecycler::scan_and_statistics_tmp_rowsets() {
             if (rowset.num_segments() > 0) [[unlikely]] { // impossible
                 return 0;
             }
-            metrics_context.total_need_recycle_num++;
             return 0;
         }
 
         metrics_context.total_need_recycle_num++;
-        if (rowset.num_segments() > 0) {
-            metrics_context.total_need_recycle_data_size += rowset.total_disk_size();
-            segment_metrics_context_.total_need_recycle_data_size += rowset.total_disk_size();
-            segment_metrics_context_.total_need_recycle_num += rowset.num_segments();
-        }
+        metrics_context.total_need_recycle_data_size += rowset.total_disk_size();
+        segment_metrics_context_.total_need_recycle_data_size += rowset.total_disk_size();
+        segment_metrics_context_.total_need_recycle_num += rowset.num_segments();
         return 0;
     };
     return scan_and_recycle(tmp_rs_key0, tmp_rs_key1, std::move(handle_tmp_rowsets_kv),
