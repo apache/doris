@@ -420,7 +420,10 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     }
     return Status::OK();
 }
-
+// Note that the difference between the strict mode and the non-strict mode here is that in the non-strict mode,
+// if an error occurs, a null value will be inserted.
+// But the problem is that in fact, only some nested complex types need to "inject an error and insert a null value".
+// Maybe it's better to leave this processing to the complex type's own from string processing?
 Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                       const FormatOptions& options) const {
     auto& col = assert_cast<ColumnNullable&>(column);
