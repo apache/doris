@@ -18,9 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
-import org.apache.doris.common.security.authentication.SimpleAuthenticationConfig;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 
 import lombok.Getter;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -43,7 +41,7 @@ public abstract class AbstractHMSProperties extends MetastoreProperties {
      * implementation is sufficient and no replacement is needed.
      */
     @Getter
-    protected HadoopAuthenticator hdfsAuthenticator = new HadoopSimpleAuthenticator(new SimpleAuthenticationConfig());
+    protected ExecutionAuthenticator executionAuthenticator = new ExecutionAuthenticator() {};
 
 
     @Getter

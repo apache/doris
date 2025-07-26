@@ -17,33 +17,36 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.UserException;
-
-import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
-import java.util.function.Function;
 
-public class IcebergPropertiesFactory implements MetastorePropertiesFactory {
+/**
+ * Factory for creating {@link MetastoreProperties} instances for Iceberg catalogs.
+ * <p>
+ * The required property key is "iceberg.catalog.type".
+ * <p>
+ * Supported subtypes include:
+ * - "rest"     -> {@link IcebergRestProperties}
+ * - "glue"     -> {@link IcebergGlueMetaStoreProperties}
+ * - "hms"      -> {@link IcebergHMSMetaStoreProperties}
+ * - "hadoop"   -> {@link IcebergFileSystemMetaStoreProperties}
+ * - "s3tables" -> {@link IcebergS3TablesMetaStoreProperties}
+ * - "dlf"      -> {@link IcebergAliyunDLFMetaStoreProperties}
+ */
+public class IcebergPropertiesFactory extends AbstractMetastorePropertiesFactory {
 
-    private static final Map<String, Function<Map<String, String>, MetastoreProperties>> REGISTERED_SUBTYPES =
-            new HashMap<>();
+    private static final String KEY = "iceberg.catalog.type";
 
-    static {
+    public IcebergPropertiesFactory() {
         register("rest", IcebergRestProperties::new);
-    }
-
-    public static void register(String subType, Function<Map<String, String>, MetastoreProperties> constructor) {
-        REGISTERED_SUBTYPES.put(subType.toLowerCase(Locale.ROOT), constructor);
+        register("glue", IcebergGlueMetaStoreProperties::new);
+        register("hms", IcebergHMSMetaStoreProperties::new);
+        register("hadoop", IcebergFileSystemMetaStoreProperties::new);
+        register("s3tables", IcebergS3TablesMetaStoreProperties::new);
+        register("dlf", IcebergAliyunDLFMetaStoreProperties::new);
     }
 
     @Override
-    public MetastoreProperties create(Map<String, String> props) throws UserException {
-        String subType = props.getOrDefault("iceberg.catalog.type", "rest").toLowerCase(Locale.ROOT);
-        Function<Map<String, String>, MetastoreProperties> constructor =
-                REGISTERED_SUBTYPES.getOrDefault(subType, REGISTERED_SUBTYPES.get("rest"));
-        MetastoreProperties instance = constructor.apply(props);
-        instance.initNormalizeAndCheckProps();
-        return instance;
+    public MetastoreProperties create(Map<String, String> props) {
+        return createInternal(props, KEY, null); // No default, strictly required
     }
 }

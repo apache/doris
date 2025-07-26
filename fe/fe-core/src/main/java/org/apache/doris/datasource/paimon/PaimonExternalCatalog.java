@@ -20,7 +20,7 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -84,9 +84,8 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
 
     @Override
     protected synchronized void initPreExecutionAuthenticator() {
-        if (preExecutionAuthenticator == null) {
-            preExecutionAuthenticator = new PreExecutionAuthenticator();
-            preExecutionAuthenticator.setHadoopAuthenticator(hadoopAuthenticator);
+        if (executionAuthenticator == null) {
+            executionAuthenticator = new HadoopExecutionAuthenticator(hadoopAuthenticator);
         }
     }
 

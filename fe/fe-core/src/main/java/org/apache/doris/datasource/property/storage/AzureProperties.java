@@ -168,4 +168,11 @@ public class AzureProperties extends StorageProperties {
     public String getStorageName() {
         return "Azure";
     }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        // Azure does not require any special Hadoop configuration for S3 compatibility.
+        // The properties are already set in the getBackendConfigProperties method.
+        // This method will be removed in the future when FileIO is fully implemented.
+    }
 }

@@ -88,4 +88,9 @@ public class BrokerProperties extends StorageProperties {
     public String getStorageName() {
         return "BROKER";
     }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        // do nothing
+    }
 }
