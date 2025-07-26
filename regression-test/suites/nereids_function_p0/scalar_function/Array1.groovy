@@ -177,6 +177,11 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_distinct_DateV2 "select array_distinct(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_distinct_DateV2_notnull "select array_distinct(kadtv2) from $not_nullable_tb order by id"
 
+        order_qt_sql_array_distinct_IPv4 "select array_distinct(kaipv4) from $nullable_tb order by id"
+        order_qt_sql_array_distinct_IPv4_notnull "select array_distinct(kaipv4) from $not_nullable_tb order by id"
+        order_qt_sql_array_distinct_IPv6 "select array_distinct(kaipv6) from $nullable_tb order by id"
+        order_qt_sql_array_distinct_IPv6_notnull "select array_distinct(kaipv6) from $not_nullable_tb order by id"
+
         // array_except
         order_qt_sql_array_except_Double "select array_except(kadbl, kadbl) from $nullable_tb order by id"
         order_qt_sql_array_except_Double_notnull "select array_except(kadbl, kadbl) from $not_nullable_tb order by id"
