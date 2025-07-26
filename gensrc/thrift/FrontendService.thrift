@@ -1628,9 +1628,9 @@ struct TEncryptionKey {
     4: optional i32 parent_version
     5: optional TEncryptionKeyType type
     6: optional TEncryptionAlgorithm algorithm
-    7: optional binary ciphertext
+    7: optional string ciphertext
     8: optional binary plaintext
-    9: optional binary iv
+    9: optional string iv
     10: optional i64 crc
     11: optional i64 ctime
     12: optional i64 mtime

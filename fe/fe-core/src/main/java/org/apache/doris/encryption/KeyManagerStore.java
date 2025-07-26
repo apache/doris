@@ -44,6 +44,7 @@ public class KeyManagerStore implements Writable {
 
     @Setter
     @Getter
+    @SerializedName(value = "masterKeyMap")
     private TreeMap<Integer, EncryptionKey> masterKeyMap = new TreeMap<>();
 
     public void writeRootKeyInfo(RootKeyInfo rootKeyInfo) {

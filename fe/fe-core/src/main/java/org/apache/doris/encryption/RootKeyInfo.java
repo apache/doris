@@ -33,6 +33,9 @@ public class RootKeyInfo {
     @SerializedName(value = "region")
     public String region;
 
+    @SerializedName(value = "endpoint")
+    public String endpoint;
+
     @SerializedName(value = "cmkId")
     public String cmkId;
 

@@ -23,8 +23,6 @@ import org.apache.doris.thrift.TEncryptionKeyType;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.util.Base64;
-
 public class EncryptionKey {
     public enum Algorithm {
         AES256, SM4;
@@ -51,12 +49,12 @@ public class EncryptionKey {
     @SerializedName(value = "algorithm")
     public Algorithm algorithm;
     @SerializedName(value = "ciphertext")
-    public byte[] ciphertext;
+    public String ciphertext;
     // Plaintext cannot stored persistently
     public byte[] plaintext;
 
     @SerializedName(value = "iv")
-    public byte[] iv;
+    public String iv;
 
     @SerializedName(value = "crc")
     public long crc;
@@ -73,8 +71,8 @@ public class EncryptionKey {
             + "id='" + id + '\'' + ", version=" + version + ", parentId='" + parentId + '\''
             + ", parentVersion=" + parentVersion
             + ", type=" + type + ", algorithm=" + algorithm
-            + ", ciphertext(Base64)=" + (ciphertext != null ? Base64.getEncoder().encodeToString(ciphertext) : "null")
-            + ", iv(Base64)=" + (iv != null ? Base64.getEncoder().encodeToString(iv) : "null")
+            + ", ciphertext(Base64)=" + (ciphertext != null ? ciphertext : "null")
+            + ", iv(Base64)=" + (iv != null ? iv : "null")
             + ", crc=" + crc
             + ", ctime=" + ctime
             + ", mtime=" + mtime + '}';

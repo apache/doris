@@ -1406,7 +1406,7 @@ public class EditLog {
                 }
                 case OperationType.OP_OPERATE_KEY: {
                     KeyOperationInfo info = (KeyOperationInfo) journal.getData();
-                    env.getKeyManager().replaySetRootKey(info.getRootKeyInfo(), info.getMasterKey());
+                    env.getKeyManager().replayKeyOperation(info);
                     break;
                 }
                 default: {

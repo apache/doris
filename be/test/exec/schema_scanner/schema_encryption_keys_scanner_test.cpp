@@ -15,15 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.encryption;
+#include "exec/schema_scanner/schema_encryption_keys_scanner.h"
+#include "vec/core/block.h"
 
-public interface RootKeyProvider {
+#include <gen_cpp/FrontendService_types.h>
+#include <gtest/gtest.h>
 
-    public void init(RootKeyInfo info);
+namespace doris {
 
-    public void describeKey();
+class ScheamEncryptionKeysScannerTest : public testing::Test {
+    void SetUp() override {}
+    void TearDown() override {}
+};
 
-    public byte[] decrypt(byte[] ciphertext);
 
-    public DataKeyMaterial generateSymmetricDataKey();
+TEST_F(ScheamEncryptionKeysScannerTest, test_get_next_block_internal) {
+    TEncryptionKey t_key;
+    std::vector<TEncryptionKey> keys;
+    keys.push_back(t_key);
+
+    SchemaEncryptionKeysScanner scnanner;
+    scnanner._result.__set_master_keys(keys);
+    
+    auto data_block = vectorized::Block::create_unique();
+    scnanner._init_block(data_block.get());
+
+    auto st = scnanner._fill_block_impl(data_block.get());
+}
+
 }
