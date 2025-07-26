@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -41,6 +42,24 @@ TxnErrorCode MetaReader::get_table_version(Transaction* txn, int64_t table_id,
     std::string table_version_value;
     return versioned_get(txn, table_version_key, snapshot_version_, table_version,
                          &table_version_value, snapshot_);
+}
+
+TxnErrorCode MetaReader::get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
+                                         Versionstamp* versionstamp) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_tablet_meta(txn.get(), tablet_id, tablet_meta, versionstamp);
+}
+
+TxnErrorCode MetaReader::get_tablet_meta(Transaction* txn, int64_t tablet_id,
+                                         TabletMetaCloudPB* tablet_meta,
+                                         Versionstamp* versionstamp) {
+    std::string tablet_meta_key = versioned::meta_tablet_key({instance_id_, tablet_id});
+    return versioned::document_get(txn, tablet_meta_key, snapshot_version_, tablet_meta,
+                                   versionstamp, snapshot_);
 }
 
 } // namespace doris::cloud

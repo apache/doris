@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versionstamp.h"
@@ -50,6 +52,12 @@ public:
     // Get the version of the table_version_key with the given table_id.
     TxnErrorCode get_table_version(int64_t table_id, Versionstamp* table_version);
     TxnErrorCode get_table_version(Transaction* txn, int64_t table_id, Versionstamp* table_version);
+
+    // Get the tablet meta keys.
+    TxnErrorCode get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
+                                 Versionstamp* versionstamp);
+    TxnErrorCode get_tablet_meta(Transaction* txn, int64_t tablet_id,
+                                 TabletMetaCloudPB* tablet_meta, Versionstamp* versionstamp);
 
 private:
     const std::string_view instance_id_;
