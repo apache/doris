@@ -45,7 +45,8 @@ class IColumn;
 
 class NullPredicate : public ColumnPredicate {
 public:
-    NullPredicate(uint32_t column_id, bool is_null, bool opposite = false);
+    NullPredicate(uint32_t column_id, bool is_null, bool opposite = false,
+                  PrimitiveType type = PrimitiveType::INVALID_TYPE);
 
     PredicateType type() const override;
 
@@ -95,8 +96,8 @@ public:
     bool can_do_bloom_filter(bool ngram) const override { return _is_null && !ngram; }
 
     bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        // Always safe to apply is null predicate
-        return true;
+        // type from segment must be same with type from null predicate
+        return input_type == _type;
     }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
@@ -111,6 +112,8 @@ private:
     }
 
     bool _is_null; //true for null, false for not null
+
+    PrimitiveType _type;
 };
 
 } //namespace doris

@@ -57,4 +57,6 @@ suite("test_variant_cast", "p0") {
     qt_sql7 "select cast(var as json) from var_not_null_cast"
     sql """insert into var_not_null_cast values (1, '123')"""
     qt_sql8 "select cast(var as json) from var_not_null_cast"
+    sql """insert into var_not_null_cast values (1, '{"aaa" : "aaa"}')"""
+    qt_sql9 "select * from var_not_null_cast where cast(var['aaa'] as int) is null"
 }
