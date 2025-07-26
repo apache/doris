@@ -375,7 +375,7 @@ build_openssl() {
         CXXFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LIBDIR="lib" \
-        ./Configure --prefix="${TP_INSTALL_DIR}" --with-rand-seed=devrandom -shared "${OPENSSL_PLATFORM}"
+        ./Configure --prefix="${TP_INSTALL_DIR}" --with-rand-seed=devrandom -shared no-tests "${OPENSSL_PLATFORM}"
     # NOTE(amos): Never use '&&' to concat commands as it will eat error code
     # See https://mywiki.wooledge.org/BashFAQ/105 for more detail.
     make -j "${PARALLEL}"
@@ -1547,7 +1547,7 @@ build_jemalloc_doris() {
     # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
     # Maybe can use alias instead of overwrite.
     CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared --disable-tests
 
     make -j "${PARALLEL}"
     make install
@@ -1835,21 +1835,6 @@ build_azure() {
     fi
 }
 
-# dragonbox
-build_dragonbox() {
-    check_if_source_exist "${DRAGONBOX_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-}
-
 # icu
 build_icu() {
     check_if_source_exist "${ICU_SOURCE}"
@@ -1948,6 +1933,8 @@ build_faiss() {
         "-DCMAKE_BUILD_TYPE=Release"
         "-DFAISS_ENABLE_GPU=OFF"
         "-DFAISS_ENABLE_PYTHON=OFF"
+        "-DFAISS_ENABLE_EXTRAS=OFF"
+        "-DBUILD_TESTING=OFF"
     )
 
     echo "Building faiss at $(pwd) with cmake parameters: ${FAISS_CMAKE_OPTIONS[*]}"
@@ -2028,6 +2015,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brotli
         icu
         pugixml
+        openblas
+        faiss
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
