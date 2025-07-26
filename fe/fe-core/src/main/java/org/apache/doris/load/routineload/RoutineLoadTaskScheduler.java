@@ -24,6 +24,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -237,8 +238,11 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             LOG.warn("failed to submit routine load task {} to BE: {}, error: {}",
                     DebugUtil.printId(routineLoadTaskInfo.getId()),
                     routineLoadTaskInfo.getBeId(), e.getMessage());
-            routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).setOtherMsg(e.getMessage());
-            // fall through to set ExecuteStartTime
+            RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
+            routineLoadJob.setOtherMsg(e.getMessage());
+            RoutineLoadTaskInfo newTask = routineLoadJob.unprotectRenewTask(routineLoadTaskInfo);
+            addTaskInQueue(newTask);
+            return;
         }
 
         // set the executeStartTimeMs of task
@@ -273,6 +277,10 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     private void submitTask(long beId, TRoutineLoadTask tTask) throws LoadException {
+        if (DebugPointUtil.isEnable("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED")) {
+            LOG.warn("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED, routine load task submit failed");
+            throw new LoadException("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED");
+        }
         Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
         if (backend == null) {
             throw new LoadException("failed to send tasks to backend " + beId + " because not exist");
