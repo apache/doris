@@ -217,7 +217,7 @@ public:
     virtual bool is_version_read_enabled(std::string_view instance_id) const;
 
     virtual bool is_version_write_enabled(std::string_view instance_id) const;
-    
+
     std::pair<MetaServiceCode, std::string> validate_sub_clusters(
             const std::vector<std::string>& check_clusters,
             const std::vector<ClusterPB>& clusters_in_instance);
