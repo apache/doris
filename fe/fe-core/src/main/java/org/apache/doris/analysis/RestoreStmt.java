@@ -18,17 +18,24 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.backup.Repository;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +52,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
     public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
     public static final String PROP_FORCE_REPLACE = "force_replace";
+    public static final String PROP_STORAGE_VAULT_NAME = "storage_vault_name";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
@@ -60,6 +68,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     private boolean isForceReplace = false;
     private byte[] meta = null;
     private byte[] jobInfo = null;
+    private String storageVaultName = null;
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
             Map<String, String> properties) {
@@ -133,6 +142,10 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
         return isForceReplace;
     }
 
+    public String getStorageVaultName() {
+        return storageVaultName;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         if (repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
@@ -204,6 +217,22 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
                         "Invalid meta version format: " + copiedProperties.get(PROP_META_VERSION));
             }
             copiedProperties.remove(PROP_META_VERSION);
+        }
+
+        // storage vault name
+        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            Pair<String, String> info = PropertyAnalyzer.analyzeStorageVault(copiedProperties,
+                    Env.getCurrentInternalCatalog().getDbOrAnalysisException(labelName.getDbName()));
+            Preconditions.checkArgument(StringUtils.isNumeric(info.second),
+                    "Invalid storage vault id :%s", info.second);
+            // Check if user has storage vault usage privilege
+            ConnectContext context = ConnectContext.get();
+            if (context != null && !Env.getCurrentEnv().getAccessManager()
+                    .checkStorageVaultPriv(context.getCurrentUserIdentity(), info.first, PrivPredicate.USAGE)) {
+                throw new AnalysisException(String.format("USAGE denied to user '%s'@'%s' for storage vault '%s'",
+                        context.getQualifiedUser(), context.getRemoteIP(), info.first));
+            }
+            storageVaultName = info.first;
         }
 
         // is being synced

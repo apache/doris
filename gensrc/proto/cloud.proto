@@ -501,6 +501,23 @@ message RecycleStagePB {
     optional StagePB stage = 3;
 }
 
+message RestoreJobCloudPB {
+    enum State {
+        UNKNOWN = 0;
+        PREPARED = 1;
+        DROPPED = 2;
+    }
+    optional int64 tablet_id = 1;
+    optional int64 creation_time = 2;
+    optional int64 expiration = 3; // expiration timestamp
+    optional doris.TabletMetaCloudPB tablet_meta = 4;
+    optional State state = 5;
+    optional int64 total_rowset_num = 6;
+    optional int64 total_row_num = 7;
+    optional int64 total_segment_num = 8;
+    optional int64 total_disk_size = 9;
+}
+
 message JobRecyclePB {
     enum Status {
         IDLE = 0;
@@ -1089,9 +1106,22 @@ message PartitionRequest {
     optional int64 db_id = 6;
     optional bool need_update_table_version = 7;
     optional string request_ip = 8;
+    repeated int64 partition_versions = 9;
 }
 
 message PartitionResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message RestoreJobRequest {
+    optional string cloud_unique_id = 1;
+    optional int64 tablet_id = 2;
+    optional doris.TabletMetaCloudPB tablet_meta = 3;
+    optional int64 expiration = 4;
+    optional string request_ip = 5;
+}
+
+message RestoreJobResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
@@ -1676,6 +1706,10 @@ service MetaService {
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
     rpc update_tablet_schema(UpdateTabletSchemaRequest) returns (UpdateTabletSchemaResponse);
+
+    rpc prepare_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc commit_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc finish_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
 
     rpc get_tablet(GetTabletRequest) returns (GetTabletResponse);
     rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);

@@ -49,6 +49,7 @@ class CloudFullCompaction;
 class TabletHotspot;
 class CloudWarmUpManager;
 class CloudCompactionStopToken;
+class CloudSnapshotMgr;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
@@ -70,6 +71,8 @@ public:
     cloud::CloudMetaMgr& meta_mgr() const { return *_meta_mgr; }
 
     CloudTabletMgr& tablet_mgr() const { return *_tablet_mgr; }
+
+    CloudSnapshotMgr& cloud_snapshot_mgr() { return *_cloud_snapshot_mgr; }
 
     CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
     SchemaCloudDictionaryCache& get_schema_cloud_dictionary_cache() {
@@ -185,6 +188,7 @@ private:
     std::unique_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
     std::unique_ptr<TabletHotspot> _tablet_hotspot;
     std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+    std::unique_ptr<CloudSnapshotMgr> _cloud_snapshot_mgr;
 
     // FileSystem with latest shared storage info, new data will be written to this fs.
     mutable std::mutex _latest_fs_mtx;

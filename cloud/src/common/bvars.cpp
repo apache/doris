@@ -56,6 +56,9 @@ BvarLatencyRecorderWithTag g_bvar_ms_commit_index("ms", "commit_index");
 BvarLatencyRecorderWithTag g_bvar_ms_prepare_partition("ms", "prepare_partition");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_partition("ms", "commit_partition");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_partition("ms", "drop_partition");
+BvarLatencyRecorderWithTag g_bvar_ms_prepare_restore_job("ms", "prepare_restore_job");
+BvarLatencyRecorderWithTag g_bvar_ms_commit_restore_job("ms", "commit_restore_job");
+BvarLatencyRecorderWithTag g_bvar_ms_finish_restore_job("ms", "finish_restore_job");
 BvarLatencyRecorderWithTag g_bvar_ms_get_tablet_stats("ms", "get_tablet_stats");
 BvarLatencyRecorderWithTag g_bvar_ms_get_obj_store_info("ms", "get_obj_store_info");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_obj_store_info("ms", "alter_obj_store_info");
@@ -103,6 +106,7 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts("recycle
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts("recycler", "recycle_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycler", "recycle_tmp_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
+BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts("recycler", "recycle_restore_job_earlest_ts");
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
 // current concurrency of recycle task
 bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
