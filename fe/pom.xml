@@ -252,7 +252,8 @@ under the License.
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
         <commons-text.version>1.10.0</commons-text.version>
-        <commons-validator.version>1.7</commons-validator.version>
+        <commons-validator.version>1.9.0</commons-validator.version>
+        <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <gson.version>2.10.1</gson.version>
         <guava.version>33.2.1-jre</guava.version>
         <jackson.version>2.16.0</jackson.version>
@@ -274,7 +275,7 @@ under the License.
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.110.Final</netty-all.version>
+        <netty-all.version>4.1.112.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -771,6 +772,11 @@ under the License.
                 <groupId>commons-validator</groupId>
                 <artifactId>commons-validator</artifactId>
                 <version>${commons-validator.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-beanutils</groupId>
+                <artifactId>commons-beanutils</artifactId>
+                <version>${commons-beanutils.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.code.gson/gson -->
             <dependency>
