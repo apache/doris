@@ -627,6 +627,37 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
+Status OlapScanLocalState::open(RuntimeState* state) {
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    for (const auto& pair : p._slot_id_to_slot_desc) {
+        const SlotDescriptor* slot_desc = pair.second;
+        std::shared_ptr<doris::TExpr> virtual_col_expr = slot_desc->get_virtual_column_expr();
+        if (virtual_col_expr) {
+            std::shared_ptr<doris::vectorized::VExprContext> virtual_column_expr_ctx;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*virtual_col_expr,
+                                                                virtual_column_expr_ctx));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.intermediate_row_desc()));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
+
+            _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
+            _slot_id_to_col_type[slot_desc->id()] = slot_desc->get_data_type_ptr();
+            int col_pos = p.intermediate_row_desc().get_column_id(slot_desc->id());
+            if (col_pos < 0) {
+                return Status::InternalError(
+                        "Invalid virtual slot, can not find its information. Slot desc:\n{}\nRow "
+                        "desc:\n{}",
+                        slot_desc->debug_string(), p.row_desc().debug_string());
+            } else {
+                _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
+            }
+        }
+    }
+
+    RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
+
+    return Status::OK();
+}
+
 TOlapScanNode& OlapScanLocalState::olap_scan_node() const {
     return _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 }

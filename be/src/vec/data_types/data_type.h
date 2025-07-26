@@ -35,7 +35,9 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
 #include "vec/core/types.h"
@@ -105,7 +107,8 @@ protected:
 
     template <typename Type>
     Status check_column_non_nested_type(const IColumn& column) const {
-        if (const auto* col = check_and_get_column_with_const<Type>(column)) {
+        if (check_and_get_column_with_const<Type>(column) != nullptr ||
+            check_and_get_column<ColumnNothing>(column) != nullptr) {
             return Status::OK();
         }
         return Status::InternalError("Column type {} is not compatible with data type {}",

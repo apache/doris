@@ -137,7 +137,10 @@ private:
             return tablet_schema->field_index(column.unique_id());
         }
 
-        bool target_is_slot() const { return expr.nodes[0].node_type == TExprNodeType::SLOT_REF; }
+        bool target_is_slot() const {
+            return expr.nodes[0].node_type == TExprNodeType::SLOT_REF &&
+                   expr.nodes[0].slot_ref.is_virtual_slot == false;
+        }
     };
 
     bool _init(PrimitiveType type);

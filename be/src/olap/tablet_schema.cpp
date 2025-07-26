@@ -45,13 +45,12 @@
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/common/hex.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_struct.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -907,6 +906,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _version_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == SKIP_BITMAP_COL)) {
         _skip_bitmap_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX))) {
+        _vir_col_idx_to_unique_id[_num_columns] = column.unique_id();
     }
     _field_uniqueid_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
@@ -920,6 +921,7 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
     }
     _num_columns++;
+    _num_virtual_columns = _vir_col_idx_to_unique_id.size();
 }
 
 void TabletColumn::append_sparse_column(TabletColumn column) {
@@ -1503,13 +1505,21 @@ vectorized::Block TabletSchema::create_block(
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
     vectorized::Block block;
     for (int i = 0; i < return_columns.size(); ++i) {
-        const auto& col = *_cols[return_columns[i]];
+        const ColumnId cid = return_columns[i];
+        const auto& col = *_cols[cid];
         bool is_nullable = (tablet_columns_need_convert_null != nullptr &&
-                            tablet_columns_need_convert_null->find(return_columns[i]) !=
+                            tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
-        auto column = data_type->create_column();
-        block.insert({std::move(column), data_type, col.name()});
+        if (_vir_col_idx_to_unique_id.contains(cid)) {
+            block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
+            VLOG_DEBUG << fmt::format(
+                    "Create block from tablet schema, column cid {} is virtual column, col_name: "
+                    "{}, col_unique_id: {}, type {}",
+                    cid, col.name(), col.unique_id(), data_type->get_name());
+        } else {
+            block.insert({data_type->create_column(), data_type, col.name()});
+        }
     }
     return block;
 }

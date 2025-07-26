@@ -48,6 +48,7 @@
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -381,6 +382,12 @@ Status Block::check_type_and_column() const {
             continue;
         }
         if (!elem.type) {
+            continue;
+        }
+
+        // ColumnNothing is a special column type, it is used to represent a column that
+        // is not materialized, so we don't need to check it.
+        if (check_and_get_column<ColumnNothing>(elem.column.get())) {
             continue;
         }
 
