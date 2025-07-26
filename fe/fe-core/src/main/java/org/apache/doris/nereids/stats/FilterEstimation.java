@@ -145,9 +145,13 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         for (int i = 1; i < children.size(); i++) {
             Expression child = children.get(i);
             Statistics andStats = child.accept(this, new EstimationContext(leftStats));
+            // andStats.row should be less than leftStats.row.
+            // To avoid extreme values in the derivation of statistics, in some cases, we will set a lower limit
+            // for the results of derivation. The lower limit may cause andStats.row > leftStats.row.
+            double andStatsRowCount = Math.min(andStats.getRowCount(), leftStats.getRowCount());
             Statistics rightStats = child.accept(this, context);
             rightStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
-            double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStats.getRowCount();
+            double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStatsRowCount;
             Statistics orStats = context.statistics.withRowCount(rowCount);
 
             Set<Slot> rightInputSlots = child.getInputSlots();
@@ -592,7 +596,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             Statistics childStats = child.accept(this, context);
             childStats.normalizeColumnStatistics();
             outputRowCount = Math.max(childStats.getRowCount() * DEFAULT_ISNULL_SELECTIVITY, outputRowCount);
-            outputRowCount = Math.max(outputRowCount, 1);
+            outputRowCount = Math.max(outputRowCount,
+                    Math.min(1, childStats.getRowCount()));
         }
 
         ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(childColStats);
