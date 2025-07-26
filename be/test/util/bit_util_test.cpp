@@ -24,6 +24,7 @@
 #include <boost/utility/binary.hpp>
 
 #include "gtest/gtest_pred_impl.h"
+#include "vec/common/endian.h"
 
 namespace doris {
 

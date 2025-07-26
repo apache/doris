@@ -29,11 +29,11 @@
 
 #include "absl/strings/substitute.h"
 #include "common/status.h"
-#include "gutil/endian.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
 #include "util/slice.h"
+#include "vec/common/endian.h"
 #include "vec/core/extended_types.h"
 #include "vec/core/types.h"
 

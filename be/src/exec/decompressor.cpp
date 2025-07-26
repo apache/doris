@@ -24,7 +24,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/endian.h"
+#include "vec/common/endian.h"
 
 namespace doris {
 

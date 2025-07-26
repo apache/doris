@@ -37,7 +37,9 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
+namespace doris {
 class SipHash;
+}
 
 namespace doris::vectorized {
 
