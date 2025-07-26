@@ -1526,7 +1526,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
     // Elements in `tablet_keys` has the same lifetime as `it` in `scan_and_recycle`
     std::vector<std::string> tablet_idx_keys;
     std::vector<std::string> init_rs_keys;
-    auto recycle_func = [&, is_empty_tablet, this](std::string_view k, std::string_view v) -> int {
+    auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
         bool use_range_remove = true;
         ++num_scanned;
         doris::TabletMetaCloudPB tablet_meta_pb;
@@ -1543,49 +1543,19 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         }
 
         tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
-        if (!is_empty_tablet) {
-            sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
-                               &metrics_context, k]() mutable -> TabletKeyPair {
-                if (recycle_tablet(tid, metrics_context) != 0) {
-                    LOG_WARNING("failed to recycle tablet")
-                            .tag("instance_id", instance_id_)
-                            .tag("tablet_id", tid);
-                    range_move = false;
-                    return {std::string_view(), range_move};
-                }
-                ++num_recycled;
-                LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
-                return {k, range_move};
-            });
-        } else {
-            // Empty tablet only has a [0-1] init rowset
-            init_rs_keys.push_back(meta_rowset_key({instance_id_, tablet_id, 1}));
-            DCHECK([&]() {
-                std::unique_ptr<Transaction> txn;
-                if (TxnErrorCode err = txn_kv_->create_txn(&txn); err != TxnErrorCode::TXN_OK) {
-                    LOG_ERROR("failed to create txn").tag("err", err);
-                    return false;
-                }
-                auto rs_key_begin = meta_rowset_key({instance_id_, tablet_id, 2});
-                auto rs_key_end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
-                std::unique_ptr<RangeGetIterator> iter;
-                if (TxnErrorCode err = txn->get(rs_key_begin, rs_key_end, &iter, true, 1);
-                    err != TxnErrorCode::TXN_OK) {
-                    LOG_ERROR("failed to get kv").tag("err", err);
-                    return false;
-                }
-                if (iter->has_next()) {
-                    LOG_ERROR("tablet is not empty").tag("tablet_id", tablet_id);
-                    return false;
-                }
-                return true;
-            }());
-            sync_executor.add([k]() mutable -> TabletKeyPair {
-                LOG_INFO("k is {}, is empty {}", k, k.empty());
-                return {k, true};
-            });
+        sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
+                           &metrics_context, k]() mutable -> TabletKeyPair {
+            if (recycle_tablet(tid, metrics_context) != 0) {
+                LOG_WARNING("failed to recycle tablet")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tid);
+                range_move = false;
+                return {std::string_view(), range_move};
+            }
             ++num_recycled;
-        }
+            LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
+            return {k, range_move};
+        });
         return 0;
     };
 
@@ -2288,7 +2258,33 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     std::string delete_bitmap_end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     txn->remove(delete_bitmap_start, delete_bitmap_end);
 
-    TxnErrorCode err = txn->commit();
+    std::string versioned_idx_key = versioned::tablet_index_key({instance_id_, tablet_id});
+    std::string tablet_index_val;
+    TxnErrorCode err = txn->get(versioned_idx_key, &tablet_index_val);
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get tablet index kv")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("err", err);
+        ret = -1;
+    } else if (err == TxnErrorCode::TXN_OK) {
+        // If the tablet index kv exists, we need to delete it
+        TabletIndexPB tablet_index_pb;
+        if (!tablet_index_pb.ParseFromString(tablet_index_val)) {
+            LOG_WARNING("failed to parse tablet index pb")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id);
+            ret = -1;
+        } else {
+            std::string versioned_inverted_idx_key = versioned::tablet_inverted_index_key(
+                    {instance_id_, tablet_index_pb.db_id(), tablet_index_pb.table_id(),
+                     tablet_index_pb.index_id(), tablet_index_pb.partition_id(), tablet_id});
+            txn->remove(versioned_inverted_idx_key);
+            txn->remove(versioned_idx_key);
+        }
+    }
+
+    err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete rowset kv of tablet " << tablet_id << ", err=" << err;
         ret = -1;
