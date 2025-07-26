@@ -157,7 +157,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
         public Tablet pickedTablet;
         public long srcBe;
         public long destBe;
-        public boolean isGlobal;
         public Map<Long, Set<Tablet>> beToTablets;
         public long startTimestamp;
         BalanceType balanceType;
@@ -168,21 +167,22 @@ public class CloudTabletRebalancer extends MasterDaemon {
         public long destBe;
         public long minTabletsNum;
         public long maxTabletsNum;
-        public boolean srcDecommissioned;
     }
 
     public Set<Long> getSnapshotTabletsInPrimaryByBeId(Long beId) {
         Set<Long> tabletIds = Sets.newHashSet();
         Set<Tablet> tablets = beToTabletsGlobal.get(beId);
         if (tablets != null) {
-            for (Tablet tablet : tablets) {
+            //  Create a copy
+            for (Tablet tablet : new HashSet<>(tablets)) {
                 tabletIds.add(tablet.getId());
             }
         }
 
-        tablets = beToColocateTabletsGlobal.get(beId);
-        if (tablets != null) {
-            for (Tablet tablet : tablets) {
+        Set<Tablet> colocateTablets = beToColocateTabletsGlobal.get(beId);
+        if (colocateTablets != null) {
+            //  Create a copy
+            for (Tablet tablet : new HashSet<>(colocateTablets)) {
                 tabletIds.add(tablet.getId());
             }
         }
@@ -194,7 +194,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
         Set<Long> tabletIds = Sets.newHashSet();
         Set<Tablet> tablets = beToTabletsGlobalInSecondary.get(beId);
         if (tablets != null) {
-            for (Tablet tablet : tablets) {
+            //  Create a copy
+            for (Tablet tablet : new HashSet<>(tablets)) {
                 tabletIds.add(tablet.getId());
             }
         }
@@ -212,8 +213,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
         Set<Tablet> tablets = beToTabletsGlobal.get(beId);
         Set<Tablet> colocateTablets = beToColocateTabletsGlobal.get(beId);
 
-        return (tablets == null ? 0 : tablets.size())
-                + (colocateTablets == null ? 0 : colocateTablets.size());
+        int tabletsSize = (tablets == null) ? 0 : tablets.size();
+        int colocateTabletsSize = (colocateTablets == null) ? 0 : colocateTablets.size();
+
+        return tabletsSize + colocateTabletsSize;
     }
 
     // 1 build cluster to backends info
