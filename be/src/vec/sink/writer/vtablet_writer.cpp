@@ -344,6 +344,7 @@ Status IndexChannel::close_wait(
 
     // 2. wait for all node channel to complete as much as possible
     if (!unfinished_node_channel_ids.empty() && need_wait_after_quorum_success) {
+        int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(unfinished_node_channel_ids);
         while (true) {
             RETURN_IF_ERROR(check_each_node_channel_close(&unfinished_node_channel_ids,
@@ -352,18 +353,15 @@ Status IndexChannel::close_wait(
             if (unfinished_node_channel_ids.empty()) {
                 break;
             }
-            int64_t elapsed_ms = UnixMillis() - _start_time;
+            int64_t elapsed_ms = UnixMillis() - arrival_quorum_success_time;
             if (elapsed_ms > max_wait_time_ms ||
                 _parent->_load_channel_timeout_s - elapsed_ms / 1000 <
                         config::quorum_success_remaining_timeout_seconds) {
-                // cancel unfinished node channel
                 std::stringstream unfinished_node_channel_host_str;
                 for (auto& it : unfinished_node_channel_ids) {
                     unfinished_node_channel_host_str << _node_channels[it]->host() << ",";
-                    _node_channels[it]->cancel("timeout");
                 }
                 LOG(WARNING) << "reach max wait time, max_wait_time_ms: " << max_wait_time_ms
-                             << ", cancel unfinished node channel and finish close"
                              << ", load id: " << print_id(_parent->_load_id)
                              << ", txn_id: " << _parent->_txn_id << ", unfinished node channel: "
                              << unfinished_node_channel_host_str.str();
@@ -470,6 +468,7 @@ int64_t IndexChannel::_calc_max_wait_time_ms(
 
     // 3. calculate max wait time
     // introduce quorum_success_min_wait_seconds to avoid jitter of small load
+    max_wait_time_ms -= UnixMillis() - _start_time;
     max_wait_time_ms =
             std::max(static_cast<int64_t>(static_cast<double>(max_wait_time_ms) *
                                           (1.0 + config::quorum_success_max_wait_multiplier)),
