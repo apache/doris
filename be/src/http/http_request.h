@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include <future>
 #include <map>
 #include <memory>
 #include <string>
@@ -31,6 +32,8 @@ struct evhttp_request;
 namespace doris {
 
 class HttpHandler;
+
+enum SendReplyType { REPLY_SYNC = 0, REPLY_ASYNC = 1 };
 
 class HttpRequest {
 public:
@@ -79,7 +82,23 @@ public:
 
     const char* remote_host() const;
 
+    void mark_send_reply(SendReplyType type = REPLY_ASYNC) { _send_reply_type = type; }
+
+    void finish_send_reply() { promise.set_value(true); }
+
+    void wait_finish_send_reply() {
+        if (_send_reply_type == REPLY_SYNC) {
+            return;
+        }
+
+        auto status = _futrue.wait_for(std::chrono::seconds(600));
+        if (status != std::future_status::ready) {
+            LOG(WARNING) << "wait for send reply timeout, " << this->debug_string();
+        }
+    }
+
 private:
+    SendReplyType _send_reply_type = REPLY_SYNC;
     HttpMethod _method;
     std::string _uri;
     std::string _raw_path;
@@ -93,6 +112,10 @@ private:
 
     std::shared_ptr<void> _handler_ctx;
     std::string _request_body;
+
+    // ensure send_reply finished
+    std::promise<bool> promise;
+    std::future<bool> _futrue = promise.get_future();
 };
 
 } // namespace doris
