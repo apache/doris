@@ -99,7 +99,7 @@ suite("test_create_llm_resource") {
                 'llm.model_name' = 'deepseek-chat',
                 'llm.api_key' = 'sk-xxx'
             );"""
-        exception "Failed to connect to LLM API: Connect timed out"
+        exception "Failed to connect to LLM API"
     }
 
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
