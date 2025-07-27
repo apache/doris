@@ -53,10 +53,10 @@ public:
 
     // The llm resource must be literal
     Status init_from_resource(FunctionContext* context, const Block& block,
-                              const ColumnNumbers& arguments, size_t row_num) {
+                              const ColumnNumbers& arguments) {
         // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
-        StringRef resource_name_ref = resource_column.column->get_data_at(row_num);
+        StringRef resource_name_ref = resource_column.column->get_data_at(0);
         std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
 
         const std::map<std::string, TLLMResource>& llm_resources =
@@ -147,10 +147,16 @@ public:
             bool is_null = false;
         };
 
+        if (Status status = const_cast<Derived*>(assert_cast<const Derived*>(this))
+                                    ->init_from_resource(context, block, arguments);
+            !status.ok()) {
+            return status;
+        }
+
         std::vector<RowResult> results(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             Status submit_status =
-                    thread_pool->submit_func([&context, this, i, &block, &arguments, &results]() {
+                    thread_pool->submit_func([this, i, &block, &arguments, &results]() {
                         RowResult& row_result = results[i];
 
                         try {
@@ -158,11 +164,6 @@ public:
                             std::string prompt;
                             Status status = assert_cast<const Derived&>(*this).build_prompt(
                                     block, arguments, i, prompt);
-                            // 2. Init LLM resources and adapters
-                            if (status.ok()) {
-                                status = const_cast<Derived*>(assert_cast<const Derived*>(this))
-                                                 ->init_from_resource(context, block, arguments, i);
-                            }
 
                             if (!status.ok()) {
                                 row_result.status = status;
