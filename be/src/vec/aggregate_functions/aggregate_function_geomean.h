@@ -68,7 +68,7 @@ struct AggregateFunctionGeomeanData {
             has_zero = true;
             return;
         }
-        if (has_zero || (rhs.count_negative + rhs.count_positive) == 0) {
+        if (has_zero || (rhs.count_negative == 0 && rhs.count_positive == 0)) {
             return;
         }
 
@@ -154,7 +154,7 @@ public:
         auto& column = assert_cast<ColumnFloat64&>(to);
         Float64 res;
         auto status = this->data(place).get_geomean(res);
-        if ([[unlikely]]!status.ok()) {
+        if ([[unlikely]] !status.ok()) {
             throw Exception(status);
         }
         column.get_data().push_back(res);
