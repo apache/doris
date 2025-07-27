@@ -108,6 +108,7 @@ Status VTabletWriterV2::_incremental_open_streams(
                         continue;
                     }
                     _indexes_from_node[node].emplace_back(tablet);
+                    _tablets_by_node[node].emplace(tablet_id);
                     known_indexes.insert(index.index_id);
                     VLOG_DEBUG << "incremental open stream (" << partition->id << ", " << tablet_id
                                << ")";
@@ -346,6 +347,7 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
                         continue;
                     }
                     _indexes_from_node[node].emplace_back(tablet);
+                    _tablets_by_node[node].emplace(tablet_id);
                     known_indexes.insert(index.index_id);
                 }
                 _build_tablet_replica_info(tablet_id, partition);
@@ -501,10 +503,6 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // For each tablet, send its input_rows from block to delta writer
     for (const auto& [tablet_id, rows] : rows_for_tablet) {
         RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows));
-        {
-            std::lock_guard<std::mutex> l(_write_tablets_lock);
-            _write_tablets.insert(tablet_id);
-        }
     }
 
     COUNTER_SET(_input_rows_counter, _number_input_rows);
@@ -759,13 +757,24 @@ Status VTabletWriterV2::_close_wait(
     Status status;
     auto streams_for_node = _load_stream_map->get_streams_for_node();
     // 1. first wait for quorum success
+    std::unordered_set<int64_t> need_finish_tablets;
+    auto partition_ids = _tablet_finder->partition_ids();
+    for (const auto& part : _vpartition->get_partitions()) {
+        if (partition_ids.contains(part->id)) {
+            for (const auto& index : part->indexes) {
+                for (const auto& tablet_id : index.tablets) {
+                    need_finish_tablets.insert(tablet_id);
+                }
+            }
+        }
+    }
     while (true) {
         RETURN_IF_ERROR(_check_timeout());
         RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
-        bool quorum_success = _quorum_success(unfinished_streams);
+        bool quorum_success = _quorum_success(unfinished_streams, need_finish_tablets);
         if (quorum_success || unfinished_streams.empty()) {
             LOG(INFO) << "quorum_success: " << quorum_success
-                      << ", is all unfinished: " << unfinished_streams.empty()
+                      << ", is all finished: " << unfinished_streams.empty()
                       << ", txn_id: " << _txn_id << ", load_id: " << print_id(_load_id);
             break;
         }
@@ -805,21 +814,19 @@ Status VTabletWriterV2::_close_wait(
 }
 
 bool VTabletWriterV2::_quorum_success(
-        const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams) {
+        const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams,
+        const std::unordered_set<int64_t>& need_finish_tablets) {
     if (!config::enable_quorum_success_write) {
         return false;
     }
-    {
-        std::lock_guard<std::mutex> l(_write_tablets_lock);
-        if (_write_tablets.empty()) {
-            return false;
-        }
-    }
-    std::unordered_map<int64_t, int64_t> finished_tablets_replica;
     auto streams_for_node = _load_stream_map->get_streams_for_node();
-    std::unordered_set<int64_t> finished_dst_ids;
+    if (need_finish_tablets.empty()) [[unlikely]] {
+        return false;
+    }
 
     // 1. calculate finished tablets replica num
+    std::unordered_set<int64_t> finished_dst_ids;
+    std::unordered_map<int64_t, int64_t> finished_tablets_replica;
     for (const auto& [dst_id, streams] : streams_for_node) {
         bool finished = true;
         for (const auto& stream : streams->streams()) {
@@ -832,24 +839,19 @@ bool VTabletWriterV2::_quorum_success(
             finished_dst_ids.insert(dst_id);
         }
     }
-    for (const auto& [dst_id, streams] : streams_for_node) {
+    for (const auto& [dst_id, _] : streams_for_node) {
         if (!finished_dst_ids.contains(dst_id)) {
             continue;
         }
-        for (const auto& stream : streams->streams()) {
-            for (auto tablet_id : stream->write_tablets()) {
-                finished_tablets_replica[tablet_id]++;
-            }
+        for (const auto& tablet_id : _tablets_by_node[dst_id]) {
+            finished_tablets_replica[tablet_id]++;
         }
     }
 
     // 2. check if quorum success
-    {
-        std::lock_guard<std::mutex> l(_write_tablets_lock);
-        for (const auto& tablet_id : _write_tablets) {
-            if (finished_tablets_replica[tablet_id] < _load_required_replicas_num(tablet_id)) {
-                return false;
-            }
+    for (const auto& tablet_id : need_finish_tablets) {
+        if (finished_tablets_replica[tablet_id] < _load_required_replicas_num(tablet_id)) {
+            return false;
         }
     }
     return true;

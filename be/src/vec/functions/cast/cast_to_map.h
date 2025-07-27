@@ -21,7 +21,7 @@
 #include "vec/data_types/data_type_map.h"
 
 namespace doris::vectorized::CastWrapper {
-
+#include "common/compile_check_begin.h"
 //TODO(Amory) . Need support more cast for key , value for map
 WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                const DataTypeMap& to_type) {
@@ -64,7 +64,7 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
         for (size_t i = 0; i < 2; ++i) {
             ColumnNumbers element_arguments {block.columns()};
             block.insert(columnsWithTypeAndName[i]);
-            size_t element_result = block.columns();
+            auto element_result = block.columns();
             block.insert({to_kv_types[i], ""});
             RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
                                            columnsWithTypeAndName[i].column->size(), null_map));
@@ -76,5 +76,5 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
         return Status::OK();
     };
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::CastWrapper

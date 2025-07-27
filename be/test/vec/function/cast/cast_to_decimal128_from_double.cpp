@@ -37,14 +37,14 @@ TEST_F(FunctionCastToDecimalTest, test_to_decimal128_from_double) {
     if (FLAGS_gen_regression_case) {
         (*ofs_const_case) << "    sql \"set debug_skip_fold_constant = true;\"\n";
     }
-    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3, 38, 0>(
-            table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3>(
+            38, 0, table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
             ofs_const_expected_result);
-    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3, 38, 19>(
-            table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3>(
+            38, 19, table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
             ofs_const_expected_result);
-    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3, 38, 37>(
-            table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3>(
+            38, 37, table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
             ofs_const_expected_result);
     if (FLAGS_gen_regression_case) {
         (*ofs_const_case) << "}";

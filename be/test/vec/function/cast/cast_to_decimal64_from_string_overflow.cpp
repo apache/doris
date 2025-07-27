@@ -46,21 +46,21 @@ void FunctionCastToDecimalTest::from_string_to_decimal64_overflow_test_func() {
     auto* ofs_case = ofs_case_uptr.get();
     auto* ofs_expected_result = ofs_expected_result_uptr.get();
 
-    from_string_overflow_test_func<Decimal64, 18, 0>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal64>(18, 0, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal64, 18, 1>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal64>(18, 1, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal64, 18, 9>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal64>(18, 9, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal64, 18, 18>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal64>(18, 18, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     if (FLAGS_gen_regression_case) {
         (*ofs_const_case) << "}";
         (*ofs_case) << "}";

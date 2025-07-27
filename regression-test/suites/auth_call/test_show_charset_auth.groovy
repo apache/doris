@@ -22,19 +22,20 @@ suite("test_show_no_auth","p0,auth_call") {
     String user1 = 'test_show_charset_auth_user1'
     String pwd = 'C123_567p'
 
+    try_sql("DROP USER ${user}")
+    try_sql("DROP USER ${user1}")
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
+    sql """grant select_priv on regression_test to ${user}"""
+
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user1}""";
     }
-
-    try_sql("DROP USER ${user}")
-    try_sql("DROP USER ${user1}")
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-    sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
-    sql """grant select_priv on regression_test to ${user}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """SHOW CHARSET"""

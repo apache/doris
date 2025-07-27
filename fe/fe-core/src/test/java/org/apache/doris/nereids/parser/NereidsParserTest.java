@@ -22,11 +22,14 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
@@ -844,6 +847,33 @@ public class NereidsParserTest extends ParserTestBase {
                 nereidsParser, LogicalAggregate.class);
         checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b WITH ROLLUP",
                 nereidsParser, LogicalRepeat.class);
+    }
+
+    @Test
+    public void testGroupConcat() {
+        NereidsParser parser = new NereidsParser();
+        List<String> validSql = Lists.newArrayList(
+                "SELECT GROUP_CONCAT(ALL 'x', 'y' ORDER BY 'z' ASC, 'a' DESC, 'b')",
+                "SELECT GROUP_CONCAT(ALL 'x' ORDER BY 'z' ASC, 'a' DESC, 'b' SEPARATOR 'y')"
+        );
+
+        for (String sql : validSql) {
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertEquals(1, ((UnboundOneRowRelation) logicalPlan.child(0)).getProjects().size(), sql);
+            Expression expression = ((UnboundOneRowRelation) logicalPlan.child(0)).getProjects().get(0).child(0);
+            Assertions.assertInstanceOf(UnboundFunction.class, expression);
+            UnboundFunction unboundFunction = (UnboundFunction) expression;
+            Assertions.assertFalse(unboundFunction.isDistinct());
+            Assertions.assertEquals(5, unboundFunction.arity());
+            Assertions.assertEquals("x", ((StringLikeLiteral) unboundFunction.getArgument(0)).getStringValue());
+            Assertions.assertEquals("y", ((StringLikeLiteral) unboundFunction.getArgument(1)).getStringValue());
+            Assertions.assertEquals("z", ((StringLikeLiteral) ((OrderExpression) unboundFunction.getArgument(2)).getOrderKey().getExpr()).getStringValue());
+            Assertions.assertTrue(((OrderExpression) unboundFunction.getArgument(2)).getOrderKey().isAsc());
+            Assertions.assertEquals("a", ((StringLikeLiteral) ((OrderExpression) unboundFunction.getArgument(3)).getOrderKey().getExpr()).getStringValue());
+            Assertions.assertFalse(((OrderExpression) unboundFunction.getArgument(3)).getOrderKey().isAsc());
+            Assertions.assertEquals("b", ((StringLikeLiteral) ((OrderExpression) unboundFunction.getArgument(4)).getOrderKey().getExpr()).getStringValue());
+            Assertions.assertTrue(((OrderExpression) unboundFunction.getArgument(4)).getOrderKey().isAsc());
+        }
     }
 
     @Test

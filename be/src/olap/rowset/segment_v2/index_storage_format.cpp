@@ -17,12 +17,13 @@
 
 #include "index_storage_format.h"
 
+#include "common/cast_set.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-
+#include "common/compile_check_begin.h"
 IndexStorageFormat::IndexStorageFormat(IndexFileWriter* index_file_writer)
         : _index_file_writer(index_file_writer) {}
 
@@ -84,7 +85,7 @@ void IndexStorageFormat::copy_file(const char* fileName, lucene::store::Director
         int64_t chunk = bufferLength;
 
         while (remainder > 0) {
-            int64_t len = std::min({chunk, length, remainder});
+            auto len = cast_set<int32_t>(std::min({chunk, length, remainder}));
             input->readBytes(buffer, len);
             output->writeBytes(buffer, len);
             remainder -= len;
@@ -122,3 +123,4 @@ void IndexStorageFormat::copy_file(const char* fileName, lucene::store::Director
 }
 
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

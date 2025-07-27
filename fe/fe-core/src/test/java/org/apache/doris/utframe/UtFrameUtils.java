@@ -17,7 +17,6 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
@@ -94,7 +93,6 @@ public class UtFrameUtils {
         System.out.println("begin to parse stmt: " + originStmt);
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {
             List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
@@ -108,7 +106,7 @@ public class UtFrameUtils {
                 throw new AnalysisException(errorMessage, e);
             }
         }
-        statementBase.analyze(analyzer);
+        statementBase.analyze();
         statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
         return statementBase;
     }

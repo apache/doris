@@ -464,7 +464,7 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
 
-if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+if [[ -n "${DISABLE_BUILD_AZURE}" || "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     BUILD_AZURE='OFF'
 fi
 

@@ -163,7 +163,7 @@ public:
     //       not supported error in other data model.
     Status lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema, bool with_seq_col,
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
-                          RowLocation* row_location, uint32_t version,
+                          RowLocation* row_location, int64_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
                           std::string* encoded_seq_value = nullptr,

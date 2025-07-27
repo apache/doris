@@ -26,6 +26,7 @@ import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
@@ -71,14 +72,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "glue.access_key",
             "aws.glue.access-key", "client.credentials-provider.glue.access_key"},
             required = false,
-            description = "The access key of S3.")
+            description = "The access key of S3. Optional for anonymous access to public datasets.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "glue.secret_key",
             "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
             required = false,
-            description = "The secret key of S3.")
+            description = "The secret key of S3. Optional for anonymous access to public datasets.")
     protected String secretKey = "";
 
 
@@ -170,8 +171,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (Boolean.parseBoolean(origProps.getOrDefault("iceberg.rest.vended-credentials-enabled", "false"))) {
             return;
         }
+        // Allow anonymous access if both access_key and secret_key are empty
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return;
+        }
         throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
-                + "s3.external_id");
+                + "s3.external_id or omit all for anonymous access to public bucket.");
     }
 
     /**
@@ -273,6 +278,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                             builder.externalId(s3ExternalId);
                         }
                     }).build();
+        }
+        // For anonymous access (no credentials required)
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return AnonymousCredentialsProvider.create();
         }
         return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
                 EnvironmentVariableCredentialsProvider.create(),

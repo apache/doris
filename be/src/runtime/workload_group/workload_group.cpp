@@ -49,9 +49,9 @@ namespace doris {
 
 #include "common/compile_check_begin.h"
 
-const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
+const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "100%";
 const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
-const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
+const static int CPU_HARD_LIMIT_DEFAULT_VALUE = 100;
 
 const static int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 80;
 const static int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 95;

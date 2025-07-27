@@ -38,7 +38,6 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
-import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -492,12 +491,6 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
                         }
                     }
                 }
-            }
-            //should add connectivity test
-            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties())
-                    .connectivityTest(filePaths);
-            if (!connectivityTest) {
-                throw new UserException("Failed to access object storage, message=connectivity test failed");
             }
         }
     }

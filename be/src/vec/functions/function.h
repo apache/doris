@@ -190,13 +190,8 @@ public:
         try {
             return prepare(context, block, arguments, result)
                     ->execute(context, block, arguments, result, input_rows_count, dry_run);
-        } catch (const std::exception& e) {
-            if (const auto* doris_e = dynamic_cast<const doris::Exception*>(&e)) {
-                return doris_e->to_status();
-            } else {
-                return Status::InternalError("Function {} execute failed: {}", get_name(),
-                                             e.what());
-            }
+        } catch (const Exception& e) {
+            return e.to_status();
         }
     }
 

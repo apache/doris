@@ -2685,6 +2685,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 if (committed && isBeingSynced) {
                     olapTbl.setBeingSyncedProperties();
                 }
+                if (committed) {
+                    olapTbl.analyze(db.getName());
+                }
             } finally {
                 tbl.writeUnlock();
             }
