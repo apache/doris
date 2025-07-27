@@ -294,9 +294,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         if (request.__isset.load_job_id) {
             _runtime_state->set_load_job_id(request.load_job_id);
         }
-        if (request.__isset.llm_resources) {
-            _runtime_state->get_query_ctx()->set_llm_resources(request.llm_resources);
-        }
 
         if (request.is_simplified_param) {
             _desc_tbl = _query_ctx->desc_tbl;
