@@ -307,7 +307,7 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
         SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[0])));
         SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
         SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[2])));
-        if (is_numeric_ascii(*ptr)) {
+        if (assert_within_bound(ptr, end, 0) && is_numeric_ascii(*ptr)) {
             // 4 digits year
             SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[3])));
             if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
