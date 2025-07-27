@@ -154,7 +154,7 @@ public:
         auto& column = assert_cast<ColumnFloat64&>(to);
         Float64 res;
         auto status = this->data(place).get_geomean(res);
-        if ([[UNLIKELY]]!status.ok()) {
+        if ([[UNLIKELY]] !status.ok()) {
             throw Exception(status);
         }
         column.get_data().push_back(res);
