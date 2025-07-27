@@ -35,8 +35,6 @@ AggregateFunctionPtr create_aggregate_function_geomean(const std::string& name,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
     switch (argument_types[0]->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        return create_agg_function_geomean<TYPE_BOOLEAN>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_TINYINT:
         return create_agg_function_geomean<TYPE_TINYINT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_SMALLINT:

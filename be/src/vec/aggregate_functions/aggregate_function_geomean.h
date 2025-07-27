@@ -38,8 +38,8 @@ template <PrimitiveType T>
 struct AggregateFunctionGeomeanData {
     using DataType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     bool has_zero = false;
-    Int32 count_negative = 0;
-    Int32 count_positive = 0;
+    UInt32 count_negative = 0;
+    UInt32 count_positive = 0;
     Float64 sum_log_abs = 0.0;
 
     void write(BufferWritable& buf) const {
@@ -64,7 +64,11 @@ struct AggregateFunctionGeomeanData {
     }
 
     void merge(const AggregateFunctionGeomeanData& rhs) {
-        if (has_zero || rhs.has_zero || (rhs.count_negative + rhs.count_positive) == 0) {
+        if (rhs.has_zero) {
+            has_zero = true;
+            return;
+        }
+        if (has_zero || (rhs.count_negative + rhs.count_positive) == 0) {
             return;
         }
 
@@ -91,11 +95,11 @@ struct AggregateFunctionGeomeanData {
     }
 
     Status get_geomean(Float64& res) const {
-        if (has_zero || (count_negative + count_positive) == 0) {
+        if (has_zero || (count_negative == 0 && count_positive == 0)) {
             res = 0.0;
             return Status::OK();
         }
-        if ((count_negative & 1) & (count_positive & 1)) {
+        if ((count_negative % 2 == 1) && (count_positive % 2 == 1)) {
             return Status::InvalidArgument(
                     "Geometric mean is undefined for odd number of negatives with even n");
         }
@@ -150,7 +154,7 @@ public:
         auto& column = assert_cast<ColumnFloat64&>(to);
         Float64 res;
         auto status = this->data(place).get_geomean(res);
-        if (!status.ok()) {
+        if ([[unlikely]]!status.ok()) {
             throw Exception(status);
         }
         column.get_data().push_back(res);
