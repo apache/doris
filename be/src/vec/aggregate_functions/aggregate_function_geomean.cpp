@@ -34,26 +34,13 @@ AggregateFunctionPtr create_aggregate_function_geomean(const std::string& name,
                                                        const DataTypes& argument_types,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
-    switch (argument_types[0]->get_primitive_type()) {
-    case PrimitiveType::TYPE_TINYINT:
-        return create_agg_function_geomean<TYPE_TINYINT>(argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_SMALLINT:
-        return create_agg_function_geomean<TYPE_SMALLINT>(argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_INT:
-        return create_agg_function_geomean<TYPE_INT>(argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_BIGINT:
-        return create_agg_function_geomean<TYPE_BIGINT>(argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_LARGEINT:
-        return create_agg_function_geomean<TYPE_LARGEINT>(argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_FLOAT:
-        return create_agg_function_geomean<TYPE_FLOAT>(argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_DOUBLE:
-        return create_agg_function_geomean<TYPE_DOUBLE>(argument_types, result_is_nullable);
-    default:
+    if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
         LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
                                     argument_types[0]->get_name(), name);
         return nullptr;
     }
+
+    return create_agg_function_geomean<TYPE_DOUBLE>(argument_types, result_is_nullable);
 }
 
 void register_aggregate_function_geomean(AggregateFunctionSimpleFactory& factory) {
