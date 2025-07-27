@@ -1749,10 +1749,10 @@ public:
 };
 
 template <typename ToDataType, typename Name>
-class FunctionConvertFromTimeType : public IFunction {
+class FunctionConvertFromDatelikeType : public IFunction {
 public:
     static constexpr auto name = Name::name;
-    static FunctionPtr create() { return std::make_shared<FunctionConvertFromTimeType>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionConvertFromDatelikeType>(); }
 
     String get_name() const override { return name; }
 
@@ -1850,7 +1850,7 @@ private:
                            check_and_get_data_type<DataTypeDate>(from_type.get()) ||
                            check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
                            check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
-            function = FunctionConvertFromTimeType<DataType, NameCast>::create();
+            function = FunctionConvertFromDatelikeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();
         }

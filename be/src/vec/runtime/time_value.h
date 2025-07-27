@@ -46,9 +46,9 @@ public:
         auto time = (int64_t)value;
         DCHECK(scale <= MICROS_SCALE);
         int64_t factor = common::exp10_i64(6 - scale);
-        int64_t roundedValue = (time >= 0) ? (time + factor / 2) / factor * factor
-                                           : (time - factor / 2) / factor * factor;
-        return roundedValue;
+        int64_t rounded_value = (time >= 0) ? (time + factor / 2) / factor * factor
+                                            : (time - factor / 2) / factor * factor;
+        return rounded_value;
     }
 
     // Construct time based on hour/minute/second/microsecond
