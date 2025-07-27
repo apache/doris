@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
@@ -158,7 +159,10 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                     tmpContext.getSessionVariable().setWorkloadGroup(wgName);
                 }
 
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpContext);
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpContext)
+                        .stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
 
                 if (tWgList.size() != 0) {
                     tExecPlanFragmentParams.setWorkloadGroups(tWgList);

@@ -138,4 +138,22 @@ public class OSSPropertiesTest {
         // not support
         Assertions.assertThrowsExactly(StoragePropertiesException.class, () -> StorageProperties.createPrimary(cosNoEndpointProps), "Property cos.endpoint is required.");
     }
+
+    @Test
+    public void testMissingAccessKey() {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        origProps.put("oss.secret_key", "myOSSSecretKey");
+        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
+                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+    }
+
+    @Test
+    public void testMissingSecretKey() {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        origProps.put("oss.access_key", "myOSSAccessKey");
+        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
+                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+    }
 }
