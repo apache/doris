@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -76,7 +77,8 @@ public class ListPartitionPrunerV2Test {
         new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
             @Mock
             public HMSCachedClient getClient() {
-                return new ThriftHMSCachedClient(new HiveConf(), 2);
+                return new ThriftHMSCachedClient(new HiveConf(), 2, new ExecutionAuthenticator() {
+                });
             }
         };
 
