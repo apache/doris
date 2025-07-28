@@ -102,7 +102,17 @@ TEST(ColumnConstTest, get_and_insert) {
     auto column_const = ColumnConst::create(column_data, 3);
     EXPECT_EQ(column_const->get_data_column().get_int(0), 7);
 
-    auto dummy_column = ColumnHelper::create_column<DataTypeInt64>({1});
+    {
+        auto dummy_column = ColumnHelper::create_column<DataTypeInt64>({6});
+        try {
+            column_const->insert_range_from(*dummy_column, 0, 5);
+            EXPECT_FALSE(true);
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        }
+    }
+
+    auto dummy_column = ColumnConst::create(column_data, 3);
     column_const->insert_range_from(*dummy_column, 0, 5);
     EXPECT_EQ(column_const->size(), 8);
 
