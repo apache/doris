@@ -2172,8 +2172,11 @@ class Suite implements GroovyInterceptable {
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
-                boolean success = !result.contains("${mv_name} chose") && !result.contains("${mv_name} not chose")
+                boolean success = !result.contains(".${mv_name} chose") && !result.contains(".${mv_name} not chose")
                 && !result.contains("${mv_name} fail")
+                if (!success) {
+                    logger.info("mv_not_part_in fail =" + result)
+                }
                 Assert.assertEquals(true, success)
             }
         }
@@ -2187,8 +2190,11 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    success = !result.contains("${mv_name} chose") && !result.contains("${mv_name} not chose")
-                            && !result.contains("${mv_name} fail")
+                    success = !result.contains(".${mv_name} chose") && !result.contains(".${mv_name} not chose")
+                            && !result.contains(".${mv_name} fail")
+                }
+                if (!success) {
+                    logger.info("mv_all_not_part_in fail =" + result)
                 }
                 Assert.assertEquals(true, success)
             }
@@ -2208,7 +2214,7 @@ class Suite implements GroovyInterceptable {
         }
         explain {
             sql(" memo plan ${query_sql}")
-            contains("${mv_name} chose")
+            contains(".${mv_name} chose")
         }
     }
 
@@ -2228,7 +2234,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    def contains = result.contains("${mv_name} chose")
+                    def contains = result.contains(".${mv_name} chose")
                     if (!contains) {
                         logger.info("mv_rewrite_all_success fail =" + result)
                     }
@@ -2254,7 +2260,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = false;
                 for (String mv_name : mv_names) {
-                    success = success || result.contains("${mv_name} chose")
+                    success = success || result.contains(".${mv_name} chose")
                 }
                 if (!success) {
                     logger.info("mv_rewrite_any_success fail =" + result)
@@ -2272,7 +2278,7 @@ class Suite implements GroovyInterceptable {
             check {result ->
                 boolean success = true
                 for (String mv_name : mv_names) {
-                    boolean stepSuccess = result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                    boolean stepSuccess = result.contains(".${mv_name} chose") || result.contains(".${mv_name} not chose")
                     success = success && stepSuccess
                 }
                 if (!success) {
@@ -2291,7 +2297,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = false
                 for (String mv_name : mv_names) {
-                    success = success || result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                    success = success || result.contains(".${mv_name} chose") || result.contains(".${mv_name} not chose")
                 }
                 if (!success) {
                     logger.info("mv_rewrite_any_success_without_check_chosen fail =" + result)
@@ -2307,7 +2313,7 @@ class Suite implements GroovyInterceptable {
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
-                result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                result.contains(".${mv_name} chose") || result.contains(".${mv_name} not chose")
             }
         }
     }
@@ -2317,7 +2323,7 @@ class Suite implements GroovyInterceptable {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
         explain {
             sql(" memo plan ${query_sql}")
-            contains("${mv_name} fail")
+            contains(".${mv_name} fail")
         }
     }
 
@@ -2329,7 +2335,7 @@ class Suite implements GroovyInterceptable {
             check {result ->
                 boolean fail = true
                 for (String mv_name : mv_names) {
-                    boolean stepFail = result.contains("${mv_name} fail")
+                    boolean stepFail = result.contains(".${mv_name} fail")
                     fail = fail && stepFail
                 }
                 if (!fail) {
@@ -2348,7 +2354,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean fail = false
                 for (String mv_name : mv_names) {
-                    fail = fail || result.contains("${mv_name} fail")
+                    fail = fail || result.contains(".${mv_name} fail")
                 }
                 if (!fail) {
                     logger.info("mv_rewrite_any_fail =" + result)
