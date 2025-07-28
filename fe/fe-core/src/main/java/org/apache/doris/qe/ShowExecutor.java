@@ -1030,6 +1030,9 @@ public class ShowExecutor {
             if (matcher != null && !matcher.match(tbl.getName())) {
                 continue;
             }
+            if (tbl.isTemporary()) {
+                continue;
+            }
             // check tbl privs
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), showTableStmt.getCatalog(), db.getFullName(), tbl.getName(),

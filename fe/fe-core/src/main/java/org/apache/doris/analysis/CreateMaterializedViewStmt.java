@@ -331,6 +331,9 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
             throw new AnalysisException("The materialized view only support olap table.");
         }
         OlapTable olapTable = (OlapTable) tableRefList.get(0).getTable();
+        if (olapTable.isTemporary()) {
+            throw new AnalysisException("do not support create materialized view on temporary table");
+        }
         mvKeysType = olapTable.getKeysType();
 
         TableName tableName = tableRefList.get(0).getName();
