@@ -18,12 +18,12 @@
 #include "faiss_vector_index.h"
 
 #include <faiss/index_io.h>
+#include <omp.h>
 
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <omp.h>
 
 #include "CLucene/store/IndexInput.h"
 #include "CLucene/store/IndexOutput.h"
