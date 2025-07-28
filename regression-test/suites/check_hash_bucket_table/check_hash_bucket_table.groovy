@@ -37,16 +37,7 @@ suite("check_hash_bucket_table") {
         def bucketColumns = info["DistributionKey"]
         if (bucketColumns == "RANDOM") {return false}
         def columnsDetail = sql_return_maparray "desc ${tblName} all;"
-
         def bucketCols = bucketColumns.split(",").collect { it.trim() }
-        for (def col: bucketCols) {
-            def colDetail = columnsDetail.find { it.Field == col }
-            if (colDetail.InternalType.toLowerCase().contains("decimal")) {
-                logger.info("===== [check] skip to check table: ${db}.${tblName} because bucket column: ${col} is ${colDetail.InternalType}")
-                return false
-            }
-        }
-
         def bucketColsStr = bucketCols.collect { "`${it}`" }.join(",")
         def partitionName = info["PartitionName"]
         try {
