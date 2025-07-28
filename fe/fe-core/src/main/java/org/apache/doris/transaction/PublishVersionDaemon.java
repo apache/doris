@@ -248,10 +248,11 @@ public class PublishVersionDaemon extends MasterDaemon {
             dbExecutors.get((int) (transactionState.getDbId() % Config.publish_thread_pool_num)).execute(() -> {
                 try {
                     tryFinishTxnSync(transactionState, globalTransactionMgr);
-                    publishingTxnIds.remove(transactionState.getTransactionId());
                 } catch (Throwable e) {
                     LOG.warn("failed to finish dbId: {}, txnId: {}", transactionState.getDbId(),
                             transactionState.getTransactionId(), e);
+                } finally {
+                    publishingTxnIds.remove(transactionState.getTransactionId());
                 }
             });
         } catch (Throwable e) {
@@ -263,6 +264,10 @@ public class PublishVersionDaemon extends MasterDaemon {
     }
 
     private void tryFinishTxnSync(TransactionState transactionState, GlobalTransactionMgrIface globalTransactionMgr) {
+        if (DebugPointUtil.isEnable("PublishVersionDaemon.tryFinishTxnSync.fail")) {
+            throw new RuntimeException("finishTransaction failed for txnId: " + transactionState.getTransactionId());
+        }
+
         try {
             partitionVisibleVersions = Maps.newHashMap();
             backendPartitions = Maps.newHashMap();
