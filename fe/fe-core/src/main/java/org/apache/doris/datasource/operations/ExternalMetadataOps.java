@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
@@ -87,6 +88,19 @@ public interface ExternalMetadataOps {
     void afterDropDb(String dbName);
 
     /**
+     * @param createTableInfo
+     * @return return false means table does not exist and is created this time
+     * @throws UserException
+     */
+    default boolean createTable(CreateTableInfo createTableInfo) throws UserException {
+        boolean res = createTableImpl(createTableInfo);
+        if (!res) {
+            afterCreateTable(createTableInfo.getDbName(), createTableInfo.getTableName());
+        }
+        return res;
+    }
+
+    /**
      *
      * @param stmt
      * @return return false means table does not exist and is created this time
@@ -99,6 +113,8 @@ public interface ExternalMetadataOps {
         }
         return res;
     }
+
+    boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException;
 
     boolean createTableImpl(CreateTableStmt stmt) throws UserException;
 
