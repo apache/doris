@@ -224,7 +224,6 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -998,10 +997,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> slots = oneRowRelation.getLogicalProperties().getOutput();
         TupleDescriptor oneRowTuple = generateTupleDesc(slots, null, context);
 
-        List<Expr> legacyExprs = oneRowRelation.getProjects()
-                .stream()
-                .map(expr -> ExpressionTranslator.translate(expr, context))
-                .collect(Collectors.toList());
+        List<Expr> legacyExprs = Lists.newArrayList();
+        List<Expression> expressionList = Lists.newArrayList();
+        for (NamedExpression namedExpression : oneRowRelation.getProjects()) {
+            legacyExprs.add(ExpressionTranslator.translate(namedExpression, context));
+            expressionList.add(namedExpression);
+        }
 
         for (int i = 0; i < legacyExprs.size(); i++) {
             SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
@@ -1014,8 +1015,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         unionNode.setNereidsId(oneRowRelation.getId());
         context.getNereidsIdToPlanNodeIdMap().put(oneRowRelation.getId(), unionNode.getId());
         unionNode.setCardinality(1L);
-        unionNode.addConstExprList(legacyExprs);
-        unionNode.finalizeForNereids(oneRowTuple.getSlots(), new ArrayList<>());
+        List<List<Expression>> constExpressionList = Lists.newArrayList();
+        constExpressionList.add(expressionList);
+        finalizeForSetOperationNode(unionNode, oneRowTuple.getSlots(), new ArrayList<>(),
+                constExpressionList, new ArrayList<>(), context);
 
         PlanFragment planFragment = createPlanFragment(unionNode, DataPartition.UNPARTITIONED, oneRowRelation);
         context.addPlanFragment(planFragment);
@@ -2285,29 +2288,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new RuntimeException("not support set operation type " + setOperation);
         }
         setOperationNode.setNereidsId(setOperation.getId());
+        List<List<Expression>> resultExpressionLists = Lists.newArrayList();
         context.getNereidsIdToPlanNodeIdMap().put(setOperation.getId(), setOperationNode.getId());
         for (List<SlotReference> regularChildrenOutput : setOperation.getRegularChildrenOutputs()) {
-            Builder<Expr> translateOutputs = ImmutableList.builderWithExpectedSize(regularChildrenOutput.size());
-            for (SlotReference childOutput : regularChildrenOutput) {
-                translateOutputs.add(ExpressionTranslator.translate(childOutput, context));
-            }
-            setOperationNode.addResultExprLists(translateOutputs.build());
+            resultExpressionLists.add(new ArrayList<>(regularChildrenOutput));
         }
 
+        List<List<Expression>> constExpressionLists = Lists.newArrayList();
         if (setOperation instanceof PhysicalUnion) {
             for (List<NamedExpression> unionConsts : ((PhysicalUnion) setOperation).getConstantExprsList()) {
-                Builder<Expr> translateConsts = ImmutableList.builderWithExpectedSize(unionConsts.size());
-                for (NamedExpression unionConst : unionConsts) {
-                    translateConsts.add(ExpressionTranslator.translate(unionConst, context));
-                }
-                setOperationNode.addConstExprList(translateConsts.build());
+                constExpressionLists.add(new ArrayList<>(unionConsts));
             }
         }
 
         for (PlanFragment childFragment : childrenFragments) {
             setOperationNode.addChild(childFragment.getPlanRoot());
         }
-        setOperationNode.finalizeForNereids(outputSlotDescs, outputSlotDescs);
+        finalizeForSetOperationNode(setOperationNode, outputSlotDescs, outputSlotDescs,
+                constExpressionLists, resultExpressionLists, context);
 
         PlanFragment setOperationFragment;
         if (childrenFragments.isEmpty()) {
@@ -3180,6 +3178,47 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return partitionExprs;
         }
         return Lists.newArrayList();
+    }
+
+    private void finalizeForSetOperationNode(SetOperationNode node,
+                                                List<SlotDescriptor> constExprSlots,
+                                                List<SlotDescriptor> resultExprSlots,
+                                                List<List<Expression>> constExpressionLists,
+                                                List<List<Expression>> resultExpressionLists,
+                                                PlanTranslatorContext context) {
+        if (node == null || constExprSlots == null || resultExprSlots == null
+                || constExpressionLists == null || resultExpressionLists == null || context == null) {
+            return;
+        }
+
+        List<List<Expr>> materializedConstExprLists = Lists.newArrayList();
+        for (List<Expression> constExpressionList : constExpressionLists) {
+            Preconditions.checkState(constExpressionList.size() == constExprSlots.size());
+            List<Expr> exprList = Lists.newArrayList();
+            for (Expression expression : constExpressionList) {
+                exprList.add(ExpressionTranslator.translate(expression, context));
+            }
+            materializedConstExprLists.add(exprList);
+        }
+        node.setMaterializedConstExprLists(materializedConstExprLists);
+
+        List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
+        for (int i = 0; i < resultExpressionLists.size(); ++i) {
+            List<Expression> resultExpressionList = resultExpressionLists.get(i);
+            List<Expr> exprList = Lists.newArrayList();
+            Preconditions.checkState(resultExpressionList.size() == resultExprSlots.size());
+            for (int j = 0; j < resultExpressionList.size(); ++j) {
+                if (resultExprSlots.get(j).isMaterialized()) {
+                    exprList.add(ExpressionTranslator.translate(resultExpressionList.get(j), context));
+                    // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
+                    resultExprSlots.get(j)
+                            .setIsNullable(resultExprSlots.get(j).getIsNullable() || exprList.get(j).isNullable());
+                }
+            }
+            materializedResultExprLists.add(exprList);
+        }
+        node.setMaterializedResultExprLists(materializedResultExprLists);
+        Preconditions.checkState(node.getMaterializedResultExprLists().size() == node.getChildren().size());
     }
 
     // matching the simple query:
