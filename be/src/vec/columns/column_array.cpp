@@ -1143,38 +1143,6 @@ ColumnArrayDataOffsets column_array_replicate_dispatch(const IColumn::Offsets& r
     return replicate_generic(replicate_offsets, data, offsets);
 }
 
-ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
-    if (replicate_offsets.empty()) {
-        return clone_empty();
-    }
-
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*data)) {
-        const auto& null_nested_column = nullable->get_nested_column_ptr();
-        const auto& null_null_map = nullable->get_null_map_column_ptr();
-        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
-        auto array_of_nested =
-                column_array_replicate_dispatch(replicate_offsets, null_nested_column, src_offsets);
-        auto array_of_null_map =
-                column_array_replicate_dispatch(replicate_offsets, null_null_map, src_offsets);
-        /// TODO:
-        //  In order to facilitate the writing of code, we use the same interface.
-        //  In fact, for array_of_null_map, we don't need to calculate offset.
-
-        DCHECK_EQ(array_of_nested.offsets->size(), array_of_null_map.offsets->size())
-                << "The size of offsets in array_of_nested and array_of_null_map should be equal.";
-        return ColumnArray::create(
-                ColumnNullable::create(array_of_nested.data, array_of_null_map.data),
-                array_of_nested.offsets);
-    }
-
-    else {
-        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
-        auto array_of_nested =
-                column_array_replicate_dispatch(replicate_offsets, data, src_offsets);
-        return ColumnArray::create(array_of_nested.data, std::move(array_of_nested.offsets));
-    }
-}
-
 MutableColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
     size_t size = offsets->size();
     if (limit == 0) {

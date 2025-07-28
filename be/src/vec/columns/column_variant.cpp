@@ -1051,16 +1051,6 @@ void ColumnVariant::insert_range_from(const IColumn& src, size_t start, size_t l
 #endif
 }
 
-ColumnPtr ColumnVariant::replicate(const Offsets& offsets) const {
-    if (num_rows == 0 || subcolumns.empty()) {
-        // Add an emtpy column with offsets.back rows
-        auto res = ColumnVariant::create(true, false);
-        res->set_num_rows(offsets.back());
-    }
-    return apply_for_subcolumns(
-            [&](const auto& subcolumn) { return subcolumn.replicate(offsets); });
-}
-
 MutableColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {
     if (num_rows == 0 || subcolumns.empty()) {
         if (limit == 0) {

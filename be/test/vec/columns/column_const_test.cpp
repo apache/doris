@@ -62,15 +62,6 @@ TEST(ColumnConstTest, TestFilter) {
     }
 }
 
-TEST(ColumnConstTest, TestReplicate) {
-    auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
-    auto column_const = ColumnConst::create(column_data, 3);
-    IColumn::Offsets offsets = {1, 2, 3};
-    auto res = column_const->replicate(offsets);
-    EXPECT_EQ(res->size(), 3);
-    EXPECT_EQ(assert_cast<const ColumnConst&>(*res).get_data_column_ptr()->get_int(0), 7);
-}
-
 TEST(ColumnConstTest, TestPermutation) {
     {
         auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});

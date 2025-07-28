@@ -474,12 +474,6 @@ public:
                                "get_permutation for " + get_name());
     }
 
-    /** Copies each element according offsets parameter.
-      * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
-      * It is necessary in ARRAY JOIN operation.
-      */
-    virtual Ptr replicate(const Offsets& offsets) const = 0;
-
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
       * For default implementation, see column_impl.h
