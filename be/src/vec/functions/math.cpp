@@ -396,16 +396,14 @@ struct BinImpl {
 using FunctionBin = FunctionUnaryToType<BinImpl, NameBin>;
 
 struct PowImpl {
-    static constexpr PrimitiveType return_type = TYPE_DOUBLE;
-    static constexpr PrimitiveType parameter_type = TYPE_DOUBLE;
+    static constexpr PrimitiveType type = TYPE_DOUBLE;
     static constexpr auto name = "pow";
     static constexpr bool need_replace_null_data_to_default = true;
     static constexpr bool is_nullable = false;
     static inline double apply(double a, double b) { return std::pow(a, b); }
 };
 struct LogImpl {
-    static constexpr PrimitiveType return_type = TYPE_DOUBLE;
-    static constexpr PrimitiveType parameter_type = TYPE_DOUBLE;
+    static constexpr PrimitiveType type = TYPE_DOUBLE;
     static constexpr auto name = "log";
     static constexpr bool need_replace_null_data_to_default = false;
     static constexpr bool is_nullable = true;
@@ -416,8 +414,7 @@ struct LogImpl {
     }
 };
 struct Atan2Impl {
-    static constexpr PrimitiveType return_type = TYPE_DOUBLE;
-    static constexpr PrimitiveType parameter_type = TYPE_DOUBLE;
+    static constexpr PrimitiveType type = TYPE_DOUBLE;
     static constexpr auto name = "atan2";
     static constexpr bool need_replace_null_data_to_default = false;
     static constexpr bool is_nullable = false;
@@ -427,9 +424,9 @@ struct Atan2Impl {
 template <typename Impl>
 class FunctionMathBinary : public IFunction {
 public:
-    using result_column_type = typename PrimitiveTypeTraits<Impl::return_type>::ColumnType;
-    using parameter_cpp_type = typename PrimitiveTypeTraits<Impl::parameter_type>::CppType;
-    using parameter_column_type = typename PrimitiveTypeTraits<Impl::parameter_type>::ColumnType;
+    using result_column_type = typename PrimitiveTypeTraits<Impl::type>::ColumnType;
+    using parameter_cpp_type = typename PrimitiveTypeTraits<Impl::type>::CppType;
+    using parameter_column_type = typename PrimitiveTypeTraits<Impl::type>::ColumnType;
 
     static constexpr auto name = Impl::name;
     static constexpr bool has_variadic_argument =
@@ -449,7 +446,7 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        auto res = std::make_shared<DataTypeNumber<Impl::return_type>>();
+        auto res = std::make_shared<DataTypeNumber<Impl::type>>();
         return Impl::is_nullable ? make_nullable(res) : res;
     }
     bool need_replace_null_data_to_default() const override {
@@ -693,11 +690,9 @@ using FunctionEven = FunctionMathUnary<UnaryFunctionPlain<NameEven, EvenImpl>>;
 
 template <PrimitiveType A>
 struct GcdImpl {
-    using parameter_cpp_type = typename PrimitiveTypeTraits<A>::CppType;
+    using cpp_type = typename PrimitiveTypeTraits<A>::CppType;
 
-    static constexpr PrimitiveType return_type = A;
-    static constexpr PrimitiveType parameter_type = A;
-
+    static constexpr PrimitiveType type = A;
     static constexpr auto name = "gcd";
     static constexpr bool need_replace_null_data_to_default = false;
     static constexpr bool is_nullable = false;
@@ -707,19 +702,16 @@ struct GcdImpl {
         return {std::make_shared<datatype>(), std::make_shared<datatype>()};
     }
 
-    static inline typename PrimitiveTypeTraits<return_type>::CppType apply(parameter_cpp_type a,
-                                                                           parameter_cpp_type b) {
-        return static_cast<typename PrimitiveTypeTraits<return_type>::CppType>(std::gcd(a, b));
+    static inline cpp_type apply(cpp_type a, cpp_type b) {
+        return static_cast<cpp_type>(std::gcd(a, b));
     }
 };
 
 template <PrimitiveType A>
 struct LcmImpl {
-    using parameter_cpp_type = typename PrimitiveTypeTraits<A>::CppType;
+    using cpp_type = typename PrimitiveTypeTraits<A>::CppType;
 
-    static constexpr PrimitiveType return_type = A;
-    static constexpr PrimitiveType parameter_type = A;
-
+    static constexpr PrimitiveType type = A;
     static constexpr auto name = "lcm";
     static constexpr bool need_replace_null_data_to_default = false;
     static constexpr bool is_nullable = false;
@@ -729,9 +721,8 @@ struct LcmImpl {
         return {std::make_shared<datatype>(), std::make_shared<datatype>()};
     }
 
-    static inline typename PrimitiveTypeTraits<return_type>::CppType apply(parameter_cpp_type a,
-                                                                           parameter_cpp_type b) {
-        return static_cast<typename PrimitiveTypeTraits<return_type>::CppType>(std::lcm(a, b));
+    static inline cpp_type apply(cpp_type a, cpp_type b) {
+        return static_cast<cpp_type>(std::lcm(a, b));
     }
 };
 
