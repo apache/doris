@@ -86,6 +86,11 @@ public class VariantType extends ScalarType {
     @Override
     public boolean supportSubType(Type subType) {
         for (Type supportedType : Type.getVariantSubTypes()) {
+            // Only one level of array is supported
+            if (subType.getPrimitiveType() == PrimitiveType.ARRAY
+                    && ((ArrayType) subType).getItemType().getPrimitiveType() != PrimitiveType.ARRAY) {
+                return supportSubType(((ArrayType) subType).getItemType());
+            }
             if (subType.getPrimitiveType() == supportedType.getPrimitiveType()) {
                 return true;
             }

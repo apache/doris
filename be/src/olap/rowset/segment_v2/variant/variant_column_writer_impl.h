@@ -68,7 +68,7 @@ private:
                                int& column_id);
     // prepare a column for finalize
     doris::vectorized::MutableColumnPtr _column;
-    doris::vectorized::MutableColumnPtr _null_column;
+    doris::vectorized::ColumnUInt8 _null_column;
     ColumnWriterOptions _opts;
     const TabletColumn* _tablet_column = nullptr;
     bool _is_finalized = false;
