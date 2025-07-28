@@ -514,7 +514,7 @@ private:
         } else if (is_ip(right_type->get_primitive_type()) &&
                    is_ip(left_element_type->get_primitive_type())) {
             if (left_element_type->get_primitive_type() == TYPE_IPV4) {
-            return_column = _execute_number_expanded<ColumnIPv4>(
+                return_column = _execute_number_expanded<ColumnIPv4>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             } else if (left_element_type->get_primitive_type() == TYPE_IPV6) {
