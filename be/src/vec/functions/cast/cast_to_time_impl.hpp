@@ -83,9 +83,31 @@ template <bool IsStrict>
  * `params.status`: set error code ONLY IN STRICT MODE.
  */
 struct CastToTimeV2 {
+    // may be slow
+    template <typename T>
+    static inline bool from_integer(T int_val, TimeValue::TimeType& val, CastParameters& params) {
+        if (params.is_strict) {
+            return from_integer<true>(int_val, val, params);
+        } else {
+            return from_integer<false>(int_val, val, params);
+        }
+    }
+
     // same behaviour in both strict and non-strict mode
     template <bool IsStrict, typename T>
     static inline bool from_integer(T int_val, TimeValue::TimeType& val, CastParameters& params);
+
+    // may be slow
+    template <typename T>
+        requires std::is_floating_point_v<T>
+    static inline bool from_float(T float_value, TimeValue::TimeType& val, uint32_t to_scale,
+                                  CastParameters& params) {
+        if (params.is_strict) {
+            return from_float<true>(float_value, val, to_scale, params);
+        } else {
+            return from_float<false>(float_value, val, to_scale, params);
+        }
+    }
 
     template <bool IsStrict, typename T>
         requires std::is_floating_point_v<T>
@@ -109,6 +131,18 @@ struct CastToTimeV2 {
         return true;
     }
 
+    // may be slow
+    template <typename T>
+    static inline bool from_decimal(const T& int_part, const T& frac_part,
+                                    const int64_t& decimal_scale, TimeValue::TimeType& res,
+                                    uint32_t to_scale, CastParameters& params) {
+        if (params.is_strict) {
+            return from_decimal<true>(int_part, frac_part, decimal_scale, res, to_scale, params);
+        } else {
+            return from_decimal<false>(int_part, frac_part, decimal_scale, res, to_scale, params);
+        }
+    }
+
     template <bool IsStrict, typename T>
     static inline bool from_decimal(const T& int_part, const T& frac_part,
                                     const int64_t& decimal_scale, TimeValue::TimeType& res,
@@ -129,15 +163,37 @@ struct CastToTimeV2 {
         return true;
     }
 
+    // may be slow
+    static inline bool from_string(const StringRef& str, TimeValue::TimeType& res,
+                                   const cctz::time_zone* local_time_zone, uint32_t to_scale,
+                                   CastParameters& params) {
+        if (params.is_strict) {
+            return from_string_strict_mode<true>(str, res, local_time_zone, to_scale, params);
+        } else {
+            return from_string_non_strict_mode(str, res, local_time_zone, to_scale, params);
+        }
+    }
+
     // this code follow rules of strict mode, but whether it RUNNING IN strict mode or not depends on the `IsStrict`
     // parameter. if it's false, we dont set error code for performance and we dont need.
     template <bool IsStrict>
     static inline bool from_string_strict_mode(const StringRef& str, TimeValue::TimeType& res,
                                                const cctz::time_zone* local_time_zone,
                                                uint32_t to_scale, CastParameters& params);
+
     static inline bool from_string_non_strict_mode(const StringRef& str, TimeValue::TimeType& res,
                                                    const cctz::time_zone* local_time_zone,
-                                                   uint32_t to_scale, CastParameters& params);
+                                                   uint32_t to_scale, CastParameters& params) {
+        return CastToTimeV2::from_string_strict_mode<false>(str, res, local_time_zone, to_scale,
+                                                            params) ||
+               CastToTimeV2::from_string_non_strict_mode_impl(str, res, local_time_zone, to_scale,
+                                                              params);
+    }
+
+    static inline bool from_string_non_strict_mode_impl(const StringRef& str,
+                                                        TimeValue::TimeType& res,
+                                                        const cctz::time_zone* local_time_zone,
+                                                        uint32_t to_scale, CastParameters& params);
 };
 
 template <bool IsStrict, typename T>
@@ -444,10 +500,11 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
 
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 */
-inline bool CastToTimeV2::from_string_non_strict_mode(const StringRef& str,
-                                                      TimeValue::TimeType& res,
-                                                      const cctz::time_zone* local_time_zone,
-                                                      uint32_t to_scale, CastParameters& params) {
+inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
+                                                           TimeValue::TimeType& res,
+                                                           const cctz::time_zone* local_time_zone,
+                                                           uint32_t to_scale,
+                                                           CastParameters& params) {
     constexpr bool IsStrict = false;
     const char* ptr = str.data;
     const char* end = ptr + str.size;

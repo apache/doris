@@ -30,7 +30,7 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/cast/cast_base.h"
-#include "vec/functions/cast/cast_to_datetimev2_impl.tpp"
+#include "vec/functions/cast/cast_to_datetimev2_impl.hpp"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -63,9 +63,7 @@ Status DataTypeDateTimeV2SerDe::from_string_batch(const ColumnString& col_str,
         // then we rely on return value to check success.
         // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
         // Exception!
-        if (!CastToDatetimeV2::from_string_strict_mode<false>(str, res, options.timezone, _scale,
-                                                              params) &&
-            !CastToDatetimeV2::from_string_non_strict_mode(str, res, options.timezone, _scale,
+        if (!CastToDatetimeV2::from_string_non_strict_mode(str, res, options.timezone, _scale,
                                                            params)) [[unlikely]] {
             col_nullmap.get_data()[i] = true;
             //TODO: we should set `for` functions who need it then skip to set default value for null rows.

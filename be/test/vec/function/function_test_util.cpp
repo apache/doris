@@ -49,7 +49,7 @@
 #include "vec/data_types/data_type_time.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/cast/cast_base.h"
-#include "vec/functions/cast/cast_to_time_impl.tpp"
+#include "vec/functions/cast/cast_to_time_impl.hpp"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 

@@ -34,6 +34,40 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
+
+template <bool IsStrict>
+[[nodiscard]] inline static bool init_microsecond(int64_t frac_input, uint32_t frac_length,
+                                                  DateV2Value<DateTimeV2ValueType>& val,
+                                                  uint32_t target_scale, CastParameters& params) {
+    if (frac_length > 0) {
+        // align to `target_scale` digits
+        auto in_scale_part =
+                (frac_length > target_scale)
+                        ? (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale))
+                        : (uint32_t)(frac_input * common::exp10_i64(target_scale - frac_length));
+
+        if (frac_length > target_scale) { // _scale is up to 6
+            // round off to at most `_scale` digits
+            auto digit_next =
+                    (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale - 1)) % 10;
+            if (digit_next >= 5) {
+                in_scale_part++;
+                DCHECK(in_scale_part <= 1000000);
+                if (in_scale_part == common::exp10_i32(target_scale)) {
+                    // overflow, round up to next second
+                    SET_PARAMS_RET_FALSE_IFN(val.date_add_interval<TimeUnit::SECOND>(
+                                                     TimeInterval {TimeUnit::SECOND, 1, false}),
+                                             "datetime overflow when rounding up to next second");
+                    in_scale_part = 0;
+                }
+            }
+        }
+        val.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
+                in_scale_part * common::exp10_i32(6 - (int)target_scale));
+    }
+    return true;
+}
+
 /**
  * For the functions:
  * function name `strict_mode` or `non_strict_mode`: follow the RULES of which mode
@@ -41,61 +75,132 @@ namespace doris::vectorized {
  * return value: whether the cast is successful or not.
  * `params.status`: set error code ONLY IN STRICT MODE.
  */
-struct CastToDateV2 {
+struct CastToDatetimeV2 {
+    // may be slow
+    template <typename T>
+    static inline bool from_integer(T int_val, DateV2Value<DateTimeV2ValueType>& val,
+                                    CastParameters& params) {
+        if (params.is_strict) {
+            return from_integer<true>(int_val, val, params);
+        } else {
+            return from_integer<false>(int_val, val, params);
+        }
+    }
+
     // same behaviour in both strict and non-strict mode
     template <bool IsStrict, typename T>
-    static inline bool from_integer(T int_val, DateV2Value<DateV2ValueType>& val,
+    static inline bool from_integer(T int_val, DateV2Value<DateTimeV2ValueType>& val,
                                     CastParameters& params);
+
+    // may be slow
+    template <typename T>
+        requires std::is_floating_point_v<T>
+    static inline bool from_float(T float_value, DateV2Value<DateTimeV2ValueType>& val,
+                                  uint32_t to_scale, CastParameters& params) {
+        if (params.is_strict) {
+            return from_float<true>(float_value, val, to_scale, params);
+        } else {
+            return from_float<false>(float_value, val, to_scale, params);
+        }
+    }
 
     template <bool IsStrict, typename T>
         requires std::is_floating_point_v<T>
-    static inline bool from_float(T float_value, DateV2Value<DateV2ValueType>& val,
-                                  CastParameters& params) {
+    static inline bool from_float(T float_value, DateV2Value<DateTimeV2ValueType>& val,
+                                  uint32_t to_scale, CastParameters& params) {
         SET_PARAMS_RET_FALSE_IFN(float_value > 0 && !std::isnan(float_value) &&
                                          !std::isinf(float_value) &&
                                          float_value < (double)std::numeric_limits<int64_t>::max(),
-                                 "invalid float value for datev2: {}", float_value);
+                                 "invalid float value for datetimev2: {}", float_value);
 
         auto int_part = static_cast<int64_t>(float_value);
         if (!from_integer<IsStrict>(int_part, val, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
+
+        int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+        if (!init_microsecond<IsStrict>(ms_part_7, 7, val, to_scale, params)) {
+            return false; // status set in init_microsecond
+        }
         return true;
     }
 
+    // may be slow
+    template <typename T>
+    static inline bool from_decimal(const T& int_part, const T& frac_part,
+                                    const int64_t& decimal_scale,
+                                    DateV2Value<DateTimeV2ValueType>& res, uint32_t to_scale,
+                                    CastParameters& params) {
+        if (params.is_strict) {
+            return from_decimal<true>(int_part, frac_part, decimal_scale, res, to_scale, params);
+        } else {
+            return from_decimal<false>(int_part, frac_part, decimal_scale, res, to_scale, params);
+        }
+    }
+
     template <bool IsStrict, typename T>
-    static inline bool from_decimal(const T& int_part, const int64_t& decimal_scale,
-                                    DateV2Value<DateV2ValueType>& res, CastParameters& params) {
+    static inline bool from_decimal(const T& int_part, const T& frac_part,
+                                    const int64_t& decimal_scale,
+                                    DateV2Value<DateTimeV2ValueType>& res, uint32_t to_scale,
+                                    CastParameters& params) {
         SET_PARAMS_RET_FALSE_IFN(int_part <= std::numeric_limits<int64_t>::max() && int_part >= 1,
-                                 "invalid decimal value for datev2: {}.xxx", int_part);
+                                 "invalid decimal value for datetimev2: {}.{}", int_part,
+                                 frac_part);
 
         if (!from_integer<IsStrict>(int_part, res, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
+
+        if (!init_microsecond<IsStrict>((int64_t)frac_part, (uint32_t)decimal_scale, res, to_scale,
+                                        params)) {
+            return false; // status set in init_microsecond
+        }
         return true;
+    }
+
+    // may be slow
+    static inline bool from_string(const StringRef& str, DateV2Value<DateTimeV2ValueType>& res,
+                                   const cctz::time_zone* local_time_zone, uint32_t to_scale,
+                                   CastParameters& params) {
+        if (params.is_strict) {
+            return from_string_strict_mode<true>(str, res, local_time_zone, to_scale, params);
+        } else {
+            return from_string_non_strict_mode(str, res, local_time_zone, to_scale, params);
+        }
     }
 
     // this code follow rules of strict mode, but whether it RUNNING IN strict mode or not depends on the `IsStrict`
     // parameter. if it's false, we dont set error code for performance and we dont need.
     template <bool IsStrict>
     static inline bool from_string_strict_mode(const StringRef& str,
-                                               DateV2Value<DateV2ValueType>& res,
+                                               DateV2Value<DateTimeV2ValueType>& res,
                                                const cctz::time_zone* local_time_zone,
-                                               CastParameters& params);
+                                               uint32_t to_scale, CastParameters& params);
+
     static inline bool from_string_non_strict_mode(const StringRef& str,
-                                                   DateV2Value<DateV2ValueType>& res,
+                                                   DateV2Value<DateTimeV2ValueType>& res,
                                                    const cctz::time_zone* local_time_zone,
-                                                   CastParameters& params);
+                                                   uint32_t to_scale, CastParameters& params) {
+        return CastToDatetimeV2::from_string_strict_mode<false>(str, res, local_time_zone, to_scale,
+                                                                params) ||
+               CastToDatetimeV2::from_string_non_strict_mode_impl(str, res, local_time_zone,
+                                                                  to_scale, params);
+    }
+
+    static inline bool from_string_non_strict_mode_impl(const StringRef& str,
+                                                        DateV2Value<DateTimeV2ValueType>& res,
+                                                        const cctz::time_zone* local_time_zone,
+                                                        uint32_t to_scale, CastParameters& params);
 };
 
 template <bool IsStrict, typename T>
-inline bool CastToDateV2::from_integer(T input, DateV2Value<DateV2ValueType>& val,
-                                       CastParameters& params) {
+inline bool CastToDatetimeV2::from_integer(T input, DateV2Value<DateTimeV2ValueType>& val,
+                                           CastParameters& params) {
     // T maybe int128 then bigger than int64_t. so we must check before cast
     SET_PARAMS_RET_FALSE_IFN(input <= std::numeric_limits<int64_t>::max() && input > 0,
-                             "invalid int value for datev2: {}", input);
+                             "invalid int value for datetimev2: {}", input);
     auto int_val = static_cast<int64_t>(input);
     int length = common::count_digits_fast(int_val);
 
@@ -141,10 +246,19 @@ inline bool CastToDateV2::from_integer(T input, DateV2Value<DateV2ValueType>& va
         SET_PARAMS_RET_FALSE_IFN(
                 val.set_time_unit<TimeUnit::DAY>((int_val / common::exp10_i32(6)) % 100),
                 "invalid day {}", (int_val / common::exp10_i32(6)) % 100);
+        SET_PARAMS_RET_FALSE_IFN(
+                val.set_time_unit<TimeUnit::HOUR>((int_val / common::exp10_i32(4)) % 100),
+                "invalid hour {}", (int_val / common::exp10_i32(4)) % 100);
+        SET_PARAMS_RET_FALSE_IFN(
+                val.set_time_unit<TimeUnit::MINUTE>((int_val / common::exp10_i32(2)) % 100),
+                "invalid minute {}", (int_val / common::exp10_i32(2)) % 100);
+        SET_PARAMS_RET_FALSE_IFN(val.set_time_unit<TimeUnit::SECOND>(int_val % 100),
+                                 "invalid second {}", int_val % 100);
     } else [[unlikely]] {
         if constexpr (IsStrict) {
-            params.status = Status::InvalidArgument("invalid digits for datev2: {}", int_val);
+            params.status = Status::InvalidArgument("invalid digits for datetimev2: {}", int_val);
         }
+        return false;
     }
     return true;
 }
@@ -202,10 +316,10 @@ inline bool CastToDateV2::from_integer(T input, DateV2Value<DateV2ValueType>& va
 <whitespace>     ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
 */
 template <bool IsStrict>
-inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
-                                                  DateV2Value<DateV2ValueType>& res,
-                                                  const cctz::time_zone* local_time_zone,
-                                                  CastParameters& params) {
+inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
+                                                      DateV2Value<DateTimeV2ValueType>& res,
+                                                      const cctz::time_zone* local_time_zone,
+                                                      uint32_t to_scale, CastParameters& params) {
     const char* ptr = str.data;
     const char* end = ptr + str.size;
 
@@ -215,9 +329,9 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
     // special `date` and `time` part format: 14-length digits string. parse it as YYYYMMDDHHMMSS
     if (assert_within_bound(ptr, end, 13) && is_digit_range(ptr, ptr + 14)) {
         // if the string is all digits, treat it as a date in YYYYMMDD format.
-        RETURN_IF_ERROR((consume_digit<UInt32, 4>(ptr, end, part[0])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 4>(ptr, end, part[0])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[2])));
         if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
             SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(part[0]), "invalid year {}",
                                      part[0]);
@@ -227,14 +341,14 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
                                      part[2]);
         }
 
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
-        SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
                                  part[0]);
-        SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(part[1]), "invalid minute {}",
+        SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::MINUTE>(part[1]), "invalid minute {}",
                                  part[1]);
-        SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::SECOND>(part[2]), "invalid second {}",
+        SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::SECOND>(part[2]), "invalid second {}",
                                  part[2]);
         has_second = true;
         if (ptr == end) {
@@ -245,15 +359,15 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
     }
 
     // date part
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 5));
+    SET_PARAMS_RET_FALSE_IF_ERR(assert_within_bound(ptr, end, 5));
     if (is_digit_range(ptr, ptr + 5)) {
         // no delimiter here.
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[2])));
         if (assert_within_bound(ptr, end, 0) && is_numeric_ascii(*ptr)) {
             // 4 digits year
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[3])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[3])));
             if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
                 SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
                                          "invalid year {}", part[0] * 100 + part[1]);
@@ -275,14 +389,14 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
         }
     } else {
         // has delimiter here.
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-        RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        SET_PARAMS_RET_FALSE_IF_ERR(assert_within_bound(ptr, end, 0));
         if (*ptr == '-') {
             // 2 digits year
             ++ptr; // consume one bar
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
-            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_one_bar(ptr, end)));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
 
             if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
                 SET_PARAMS_RET_FALSE_IFN(
@@ -295,11 +409,11 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
             }
         } else {
             // 4 digits year
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
-            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[3])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_one_bar(ptr, end)));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_one_bar(ptr, end)));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[3])));
 
             if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
                 SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
@@ -314,40 +428,49 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
 
     if (ptr == end) {
         // no time part, just return.
+        res.unchecked_set_time_unit<TimeUnit::HOUR>(0);
+        res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
+        res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
+        res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
         return true;
     }
 
-    RETURN_IF_ERROR(consume_one_delimiter(ptr, end));
+    SET_PARAMS_RET_FALSE_IF_ERR(consume_one_delimiter(ptr, end));
 
     // time part.
     // hour
-    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
-    SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
+    SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
+    SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
                              part[0]);
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+    SET_PARAMS_RET_FALSE_IF_ERR(assert_within_bound(ptr, end, 0));
     if (*ptr == ':') {
         // with hour:minute:second
         if (consume_one_colon(ptr, end)) { // minute
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
-            SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(part[1]),
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
+            SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::MINUTE>(part[1]),
                                      "invalid minute {}", part[1]);
             if (consume_one_colon(ptr, end)) { // second
                 has_second = true;
-                RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
-                SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::SECOND>(part[2]),
+                SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+                SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::SECOND>(part[2]),
                                          "invalid second {}", part[2]);
+            } else {
+                res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
             }
+        } else {
+            res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
+            res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
         }
     } else {
         // no ':'
         if (consume_digit<UInt32, 2>(ptr, end, part[1])) {
             // has minute
-            SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(part[1]),
+            SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::MINUTE>(part[1]),
                                      "invalid minute {}", part[1]);
             if (consume_digit<UInt32, 2>(ptr, end, part[2])) {
                 // has second
                 has_second = true;
-                SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::SECOND>(part[2]),
+                SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::SECOND>(part[2]),
                                          "invalid second {}", part[2]);
             }
         }
@@ -357,7 +480,42 @@ FRAC:
     // fractional part
     if (has_second && assert_within_bound(ptr, end, 0).ok() && *ptr == '.') {
         ++ptr;
+
+        const auto* start = ptr;
         static_cast<void>(skip_any_digit(ptr, end));
+        auto length = ptr - start;
+
+        if (length > 0) {
+            StringParser::ParseResult success;
+            auto frac_literal = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                    start, std::min<int>((int)length, to_scale), &success);
+            SET_PARAMS_RET_FALSE_IFN(success == StringParser::PARSE_SUCCESS,
+                                     "invalid fractional part in datetime string '{}'",
+                                     std::string {start, ptr});
+
+            if (length > to_scale) { // to_scale is up to 6
+                // round off to at most `to_scale` digits
+                if (*(start + to_scale) - '0' >= 5) {
+                    frac_literal++;
+                    DCHECK(frac_literal <= 1000000);
+                    if (frac_literal == common::exp10_i32(to_scale)) {
+                        // overflow, round up to next second
+                        SET_PARAMS_RET_FALSE_IFN(
+                                res.date_add_interval<TimeUnit::SECOND>(
+                                        TimeInterval {TimeUnit::SECOND, 1, false}),
+                                "datetime overflow when rounding up to next second");
+                        frac_literal = 0;
+                    }
+                }
+                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
+                        (int32_t)frac_literal * common::exp10_i32(6 - (int)to_scale));
+            } else { // length <= to_scale
+                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
+                        (int32_t)frac_literal * common::exp10_i32(6 - (int)length));
+            }
+        }
+    } else {
+        res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
     }
     static_cast<void>(skip_any_digit(ptr, end));
 
@@ -375,9 +533,9 @@ FRAC:
             uint32_t length = count_digits(ptr, end);
             // hour
             if (length == 1 || length == 3) {
-                RETURN_IF_ERROR((consume_digit<UInt32, 1>(ptr, end, part[0])));
+                SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1>(ptr, end, part[0])));
             } else {
-                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+                SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[0])));
             }
             SET_PARAMS_RET_FALSE_IFN(part[0] <= 14, "invalid hour offset {}", part[0]);
             if (assert_within_bound(ptr, end, 0).ok()) {
@@ -385,7 +543,7 @@ FRAC:
                     ++ptr;
                 }
                 // minute
-                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+                SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
                 SET_PARAMS_RET_FALSE_IFN((part[1] == 0 || part[1] == 30 || part[1] == 45),
                                          "invalid minute offset {}", part[1]);
             }
@@ -400,16 +558,28 @@ FRAC:
             // timezone name
             const auto* start = ptr;
             // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
-            RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
+            SET_PARAMS_RET_FALSE_IF_ERR(skip_tz_name_part(ptr, end));
 
             SET_PARAMS_RET_FALSE_IFN(
                     TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
                     "invalid timezone name '{}'", std::string {start, ptr});
         }
+        // convert tz
+        cctz::civil_second cs {res.year(), res.month(),  res.day(),
+                               res.hour(), res.minute(), res.second()};
+
+        auto given = cctz::convert(cs, parsed_tz);
+        auto local = cctz::convert(given, *local_time_zone);
+        res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
+        res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
+        res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
+        res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
+        res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
+        res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
 
         static_cast<void>(skip_any_whitespace(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr == end,
-                                 "invalid date string '{}', extra characters after timezone",
+                                 "invalid datetime string '{}', extra characters after timezone",
                                  std::string {ptr, end});
     }
     return true;
@@ -457,17 +627,16 @@ FRAC:
 
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 */
-inline bool CastToDateV2::from_string_non_strict_mode(const StringRef& str,
-                                                      DateV2Value<DateV2ValueType>& res,
-                                                      const cctz::time_zone* local_time_zone,
-                                                      CastParameters& params) {
+inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
+        const StringRef& str, DateV2Value<DateTimeV2ValueType>& res,
+        const cctz::time_zone* local_time_zone, uint32_t to_scale, CastParameters& params) {
     constexpr bool IsStrict = false;
     const char* ptr = str.data;
     const char* end = ptr + str.size;
 
     // skip leading whitespace
     static_cast<void>(skip_any_whitespace(ptr, end));
-    SET_PARAMS_RET_FALSE_IFN(ptr != end, "empty date string");
+    SET_PARAMS_RET_FALSE_IFN(ptr != end, "empty datetime string");
 
     // date part
     uint32_t year, month, day;
@@ -508,6 +677,10 @@ inline bool CastToDateV2::from_string_non_strict_mode(const StringRef& str,
 
     if (ptr == end) {
         // no time part, just return.
+        res.unchecked_set_time_unit<TimeUnit::HOUR>(0);
+        res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
+        res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
+        res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
         return true;
     }
 
@@ -518,14 +691,14 @@ inline bool CastToDateV2::from_string_non_strict_mode(const StringRef& str,
 
     // hour
     SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, hour)));
-    SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::HOUR>(hour), "invalid hour {}", hour);
+    SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::HOUR>(hour), "invalid hour {}", hour);
 
     // check for separator
     SET_PARAMS_RET_FALSE_IF_ERR(skip_one_non_alnum(ptr, end));
 
     // minute
     SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, minute)));
-    SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(minute), "invalid minute {}",
+    SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::MINUTE>(minute), "invalid minute {}",
                              minute);
 
     // check for separator
@@ -533,13 +706,50 @@ inline bool CastToDateV2::from_string_non_strict_mode(const StringRef& str,
 
     // second
     SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, second)));
-    SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::SECOND>(second), "invalid second {}",
+    SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::SECOND>(second), "invalid second {}",
                              second);
 
     // fractional part
     if (assert_within_bound(ptr, end, 0).ok() && *ptr == '.') {
         ++ptr;
+
+        const auto* start = ptr;
         static_cast<void>(skip_any_digit(ptr, end));
+        auto length = ptr - start;
+
+        if (length > 0) {
+            StringParser::ParseResult success;
+            auto frac_literal = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                    start, std::min<int>((int)length, to_scale), &success);
+            SET_PARAMS_RET_FALSE_IFN(success == StringParser::PARSE_SUCCESS,
+                                     "invalid fractional part in datetime string '{}'",
+                                     std::string {start, ptr});
+
+            if (length > to_scale) { // to_scale is up to 6
+                // round off to at most `to_scale` digits
+                if (*(start + to_scale) - '0' >= 5) {
+                    frac_literal++;
+                    DCHECK(frac_literal <= 1000000);
+                    if (frac_literal == common::exp10_i32(to_scale)) {
+                        // overflow, round up to next second
+                        SET_PARAMS_RET_FALSE_IFN(
+                                res.date_add_interval<TimeUnit::SECOND>(
+                                        TimeInterval {TimeUnit::SECOND, 1, false}),
+                                "datetime overflow when rounding up to next second");
+                        frac_literal = 0;
+                    }
+                }
+                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
+                        (int32_t)frac_literal * common::exp10_i32(6 - (int)to_scale));
+            } else { // length <= to_scale
+                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
+                        (int32_t)frac_literal * common::exp10_i32(6 - (int)length));
+            }
+        } else {
+            res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
+        }
+    } else {
+        res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
     }
 
     // skip any whitespace after time
@@ -591,11 +801,25 @@ inline bool CastToDateV2::from_string_non_strict_mode(const StringRef& str,
                     TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
                     "invalid timezone name '{}'", std::string {start, ptr});
         }
+
+        // convert tz
+        cctz::civil_second cs {res.year(), res.month(),  res.day(),
+                               res.hour(), res.minute(), res.second()};
+
+        auto given = cctz::convert(cs, parsed_tz);
+        auto local = cctz::convert(given, *local_time_zone);
+        res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
+        res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
+        res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
+        res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
+        res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
+        res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
     }
 
     // skip trailing whitespace
     static_cast<void>(skip_any_whitespace(ptr, end));
-    SET_PARAMS_RET_FALSE_IFN(ptr == end, "invalid date string '{}', extra characters after parsing",
+    SET_PARAMS_RET_FALSE_IFN(ptr == end,
+                             "invalid datetime string '{}', extra characters after parsing",
                              std::string {ptr, end});
 
     return true;

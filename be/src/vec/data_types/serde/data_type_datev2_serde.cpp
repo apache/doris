@@ -27,7 +27,7 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/cast/cast_base.h"
-#include "vec/functions/cast/cast_to_datev2_impl.tpp"
+#include "vec/functions/cast/cast_to_datev2_impl.hpp"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -226,8 +226,7 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
         // then we rely on return value to check success.
         // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
         // Exception!
-        if (!CastToDateV2::from_string_strict_mode<false>(str, res, options.timezone, params) &&
-            !CastToDateV2::from_string_non_strict_mode(str, res, options.timezone, params))
+        if (!CastToDateV2::from_string_non_strict_mode(str, res, options.timezone, params))
                 [[unlikely]] {
             col_nullmap.get_data()[i] = true;
             col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(MIN_DATE_V2);

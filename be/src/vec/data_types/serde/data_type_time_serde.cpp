@@ -21,7 +21,7 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/cast/cast_base.h"
-#include "vec/functions/cast/cast_to_time_impl.tpp"
+#include "vec/functions/cast/cast_to_time_impl.hpp"
 #include "vec/runtime/time_value.h"
 
 namespace doris::vectorized {
@@ -81,9 +81,7 @@ Status DataTypeTimeV2SerDe::from_string_batch(const ColumnString& col_str, Colum
         // then we rely on return value to check success.
         // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
         // Exception!
-        if (!CastToTimeV2::from_string_strict_mode<false>(str, res, options.timezone, _scale,
-                                                          params) &&
-            !CastToTimeV2::from_string_non_strict_mode(str, res, options.timezone, _scale, params))
+        if (!CastToTimeV2::from_string_non_strict_mode(str, res, options.timezone, _scale, params))
                 [[unlikely]] {
             col_nullmap.get_data()[i] = true;
             col_data.get_data()[i] = 0;
