@@ -596,7 +596,7 @@ private:
     };
     std::unordered_map<IndexKey, int32_t, IndexKeyHash> _col_id_suffix_to_index;
 
-    size_t _num_columns = 0;
+    int32_t _num_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_virtual_columns = 0;
     size_t _num_key_columns = 0;

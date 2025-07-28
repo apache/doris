@@ -87,7 +87,7 @@ public:
         EXPECT_TRUE(sorter->append_block(&block).ok());
     }
 
-    void prepare_for_read() { EXPECT_TRUE(sorter->prepare_for_read().ok()); }
+    void prepare_for_read() { EXPECT_TRUE(sorter->prepare_for_read(false).ok()); }
 
     void check_sort_column(ColumnPtr column) {
         MutableBlock sorted_block(VectorizedUtils::create_columns_with_type_and_name(*row_desc));
