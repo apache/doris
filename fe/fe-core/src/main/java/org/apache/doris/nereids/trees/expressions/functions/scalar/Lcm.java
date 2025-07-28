@@ -49,6 +49,8 @@ public class Lcm extends ScalarFunction
             FunctionSignature.ret(LargeIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE, LargeIntType.INSTANCE));
 
+    private FunctionSignature processedSignature;
+
     /**
      * constructor with 2 arguments.
      */
@@ -59,15 +61,21 @@ public class Lcm extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
-        DataType argType0 = getArgumentType(0);
-        // It is not possible to promote a bigint to a largeint, so a special judgment
-        // is required.
-        if (argType0.isBigIntType()) {
-            argType0 = LargeIntType.INSTANCE;
-        } else {
-            argType0 = argType0.promotion();
+        // match tinyint here, promote to smallint. and so on.
+        DataType targetArgType = signature.getArgType(0);
+
+        if (!targetArgType.acceptsType(signature.getArgType(1))) {
+            throw new RuntimeException(String.format("Lcm: arg1 != arg2, arg1 is %s, arg2 is %s",
+                    targetArgType.toSql(), signature.getArgType(1).toSql()));
         }
-        return signature.withArgumentTypes(false, Arrays.asList(argType0, argType0));
+
+        // promotion() dont cast bigint to largeint, so a special judgment is required.
+        if (targetArgType.isBigIntType()) {
+            targetArgType = LargeIntType.INSTANCE;
+        } else {
+            targetArgType = targetArgType.promotion();
+        }
+        return signature.withArgumentTypes(false, Arrays.asList(targetArgType, targetArgType));
     }
 
     /**
@@ -76,7 +84,9 @@ public class Lcm extends ScalarFunction
     @Override
     public Lcm withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Lcm(children.get(0), children.get(1));
+        Lcm newLcm = new Lcm(children.get(0), children.get(1));
+        newLcm.processedSignature = this.processedSignature;
+        return newLcm;
     }
 
     @Override
@@ -85,7 +95,17 @@ public class Lcm extends ScalarFunction
     }
 
     @Override
+    public FunctionSignature getSignature() {
+        if (processedSignature == null) {
+            // pass the completed search and get of boundFunction
+            processedSignature = super.getSignature();
+        }
+        return processedSignature;
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitLcm(this, context);
     }
+
 }

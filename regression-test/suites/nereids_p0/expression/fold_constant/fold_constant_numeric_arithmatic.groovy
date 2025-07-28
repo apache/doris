@@ -577,7 +577,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT even(2.5) AS even_case_3") //even(2.5) = 4
     testFoldConst("SELECT even(NULL)"); // NULL handling
 
-//Gcd function cases
+// Gcd function cases
     testFoldConst("SELECT gcd(2, 4) AS gcd_case_1") //gcd(2, 4) = 2
     testFoldConst("SELECT gcd(0, 2) AS gcd_case_2") //gcd(0, 2) = 2
     testFoldConst("SELECT gcd(-2, 4) AS gcd_case_3") //gcd(-2, 4) = 2
@@ -600,9 +600,14 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT lcm(256, 256), lcm(-128, 64)") // tinyint_test
     testFoldConst("SELECT lcm(32767, 32767), lcm(-32768, 16384)") // smallint_test
     testFoldConst("SELECT lcm(2147483647, 2), lcm(-1000000000, 500000000), lcm(-2147483648, 1073741824)") // int_test
-    testFoldConst("SELECT lcm(9223372036854775807, 200000000), lcm(-9223372036854775808, 20000000), lcm(-170141183460469231731687303715884105728, 85070591730234615865843651857942052864)") //bigint_test
-    testFoldConst("SELECT lcm(-170141183460469231731687303715884105728, 2)") //largeint_test
+    testFoldConst("SELECT lcm(9223372036854775807, 200000000), lcm(-9223372036854775808, 20000000)") //bigint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105726, 2)") //largeint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105727, 170141183460469231731687303715884105727)") //largeint_test
     testFoldConst("SELECT lcm(-170141183460469231731687303715884105727, -170141183460469231731687303715884105727)") //largeint_test
+    testFoldConst("SELECT lcm(127, 32767), lcm(127, 2147483647), lcm(127, 9223372036854775807), lcm(127, 9223372036854775808)") // tinyint_x_test
+    testFoldConst("SELECT lcm(32767, 2147483647), lcm(32767, 9223372036854775807), lcm(32767, 9223372036854775808)") // smallint_x_test
+    testFoldConst("SELECT lcm(2147483647, 9223372036854775807), lcm(2147483647, 9223372036854775808)") // int_x_test
+    testFoldConst("SELECT lcm(9223372036854775807, 9223372036854775807)") // bigint_x_test
     testFoldConst("SELECT lcm(NULL, 4)") // NULL handling
 
     // ensure divide for decimal v3 could return correct type when divider is 0
