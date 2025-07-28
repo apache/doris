@@ -30,6 +30,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -147,7 +148,13 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                     // so even if the metastore is not enabled in the Hudi table
                     //     (for example, if the Metastore is false for a Hudi table created with Flink),
                     // we can still obtain the partition information through the HMS API.
-                    partitionNames = catalog.getClient().listPartitionNames(table.getDbName(), table.getName());
+                    partitionNames = catalog.getClient()
+                            .listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
+                    // HMS stored Hudi partition paths may have double encoding issue (e.g., %3A
+                    // becomes %253A), need to unescape first here.
+                    partitionNames = partitionNames.stream()
+                            .map(FileUtils::unescapePathName)
+                            .collect(Collectors.toList());
                     if (partitionNames.size() == 0) {
                         LOG.warn("Failed to get partitions from hms api, switch it from hudi api.");
                         partitionNames = getAllPartitionNames(tableMetaClient);
