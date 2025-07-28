@@ -18,8 +18,7 @@
 
 suite("nereids_scalar_fn_concat_ws_and_log") {
 
-    sql 'use regression_test_nereids_function_p0_scalar_function'
-    sql 'set enable_fold_constant_by_be=false'
+    sql 'set enable_fold_constant_by_be=true'
     qt_concat_ws_ArrayWithNullElement "select concat_ws('-',['a','b'],['css',null,'d'],['g','f'],['s'])"
 
 

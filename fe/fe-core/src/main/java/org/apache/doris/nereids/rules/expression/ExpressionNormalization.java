@@ -65,9 +65,9 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
                 JsonFunctionRewrite.INSTANCE,
-                CheckCast.INSTANCE,
                 LogToLn.INSTANCE,
-                ConcatWsMultiArrayToOne.INSTANCE
+                ConcatWsMultiArrayToOne.INSTANCE,
+                CheckCast.INSTANCE
             )
     );
 
