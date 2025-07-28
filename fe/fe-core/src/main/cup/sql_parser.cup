@@ -4035,10 +4035,6 @@ set_stmt ::=
     {:
         RESULT = new SetUserPropertyStmt(user, property_list);
     :}
-    | KW_SET ident:vaultName KW_AS KW_DEFAULT KW_STORAGE KW_VAULT
-    {:
-        RESULT = new SetDefaultStorageVaultStmt(vaultName);
-    :}
     ;
 
 // Unset variable statement
