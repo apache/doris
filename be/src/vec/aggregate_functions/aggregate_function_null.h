@@ -59,9 +59,7 @@ protected:
 
     static void init(AggregateDataPtr __restrict place) noexcept {
         init_flag(place);
-        if constexpr (is_window_function) {
-            init_null_count(place);
-        }
+        init_null_count(place);
     }
 
     static void init_flag(AggregateDataPtr __restrict place) noexcept {
@@ -81,13 +79,13 @@ protected:
     }
 
     static void init_null_count(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (result_is_nullable) {
+        if constexpr (is_window_function && result_is_nullable) {
             unaligned_store<int32_t>(place + 1, 0);
         }
     }
 
     static void update_null_count(AggregateDataPtr __restrict place, bool incremental) noexcept {
-        if constexpr (result_is_nullable) {
+        if constexpr (is_window_function && result_is_nullable) {
             auto null_count = unaligned_load<int32_t>(place + 1);
             incremental ? null_count++ : null_count--;
             unaligned_store<int32_t>(place + 1, null_count);
@@ -95,7 +93,11 @@ protected:
     }
 
     static int32_t get_null_count(ConstAggregateDataPtr __restrict place) noexcept {
-        return result_is_nullable ? unaligned_load<int32_t>(place + 1) : 0;
+        int32_t num = 0;
+        if constexpr (is_window_function && result_is_nullable) {
+            num = unaligned_load<int32_t>(place + 1);
+        }
+        return num;
     }
 
 public:
@@ -250,9 +252,7 @@ public:
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add(this->nested_place(place), &nested_column, row_num, arena);
         } else {
-            if constexpr (is_window_function && result_is_nullable) {
-                this->update_null_count(place, true);
-            }
+            this->update_null_count(place, true);
         }
     }
 
@@ -424,8 +424,8 @@ public:
                     partition_start, partition_end, frame_start, frame_end,
                     this->nested_place(place), columns_tmp, arena, is_previous_frame_start_null,
                     is_current_frame_end_null, true, use_null_result, could_use_previous_result);
+            DCHECK_EQ(result_is_nullable, true);
             if (current_frame_end - current_frame_start != this->get_null_count(place)) {
-                DCHECK_EQ(result_is_nullable, true);
                 this->set_flag(place);
             }
         } else {
