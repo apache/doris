@@ -17,6 +17,8 @@
 
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.clients.admin.AdminClient
+import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load_jsonpath_dollar", "p0") {
     def tableName = "test_routine_load_jsonpath_dollar"
