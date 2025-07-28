@@ -76,7 +76,6 @@ public:
     }
 
     std::string get_name() const override;
-    MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
 

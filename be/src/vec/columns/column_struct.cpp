@@ -90,15 +90,6 @@ ColumnStruct::MutablePtr ColumnStruct::create(const TupleColumns& tuple_columns)
     return column_struct;
 }
 
-MutableColumnPtr ColumnStruct::clone_empty() const {
-    const size_t tuple_size = columns.size();
-    MutableColumns new_columns(tuple_size);
-    for (size_t i = 0; i < tuple_size; ++i) {
-        new_columns[i] = columns[i]->clone_empty();
-    }
-    return ColumnStruct::create(std::move(new_columns));
-}
-
 MutableColumnPtr ColumnStruct::clone_resized(size_t new_size) const {
     const size_t tuple_size = columns.size();
     MutableColumns new_columns(tuple_size);
