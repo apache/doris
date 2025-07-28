@@ -3575,19 +3575,6 @@ show_param ::=
     {:
         RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames, cached);
     :}
-    /* show analyze job */
-    | KW_ANALYZE opt_table_name:tbl opt_wild_where
-    {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, false);
-    :}
-    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where
-    {:
-        RESULT = new ShowAnalyzeStmt(jobId, parser.where);
-    :}
-    | KW_AUTO KW_ANALYZE opt_table_name:tbl opt_wild_where
-    {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
-    :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
