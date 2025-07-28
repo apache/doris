@@ -85,9 +85,27 @@ jobs:
                 echo "COMMENT_USER_ID ${COMMENT_USER_ID} is not allowed to skip buildall."
                 exit
             fi
+        elif [[ "${COMMENT_BODY}" == *'skip check_coverage'* ]] && 
+             [[ "${COMMENT_USER_ID}" == '37901441' || 
+              "${COMMENT_USER_ID}" == '27881198' ||
+              "${COMMENT_USER_ID}" == '9208457' ||
+              "${COMMENT_USER_ID}" == '10553413' ||
+              "${COMMENT_USER_ID}" == '1736049' ||
+              "${COMMENT_USER_ID}" == '64513324' ||
+              "${COMMENT_USER_ID}" == '2274896' ||
+              "${COMMENT_USER_ID}" == '98214048' ||
+              "${COMMENT_USER_ID}" == '19986811' ||
+              "${COMMENT_USER_ID}" == '48427519' ||
+              "${COMMENT_USER_ID}" == '6919662' ||
+              "${COMMENT_USER_ID}" == '101034200' ||
+              "${COMMENT_USER_ID}" == '2899462' ]]; then
+            echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
+            echo "comment_skip=false" | tee -a "$GITHUB_OUTPUT"
+            echo "comment_skip_coverage=true" | tee -a "$GITHUB_OUTPUT"
         else
             echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
             echo "comment_skip=false" | tee -a "$GITHUB_OUTPUT"
+            echo "comment_skip_coverage=false" | tee -a "$GITHUB_OUTPUT"
             echo "find no keyword in comment body, skip this action."
             exit
         fi
@@ -187,6 +205,13 @@ jobs:
     # - name: "Setup tmate session"
     #   if: ${{ failure() }}
     #   uses: mxschmitt/action-tmate@v3
+
+    - name: "skip check coverage"
+      if: ${{ fromJSON(steps.parse.outputs.comment_skip_coverage) }}
+      run: |
+        source ./regression-test/pipeline/common/teamcity-utils.sh
+        set -x
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" check_coverage
 
     - name: "Trigger or Skip feut"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["feut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
