@@ -834,6 +834,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 // Table does not exist or atomic restore
                 if (localTbl == null || isAtomicRestore) {
                     OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
+                    remoteOlapTbl.writeLock();
                     // Retain only expected restore partitions in this table;
                     Set<String> allPartNames = remoteOlapTbl.getPartitionNames();
                     for (String partName : allPartNames) {
@@ -874,6 +875,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         LOG.debug("put remote table {} to restoredTbls", remoteOlapTbl.getName());
                     }
                     stagingRestoreTables.add(remoteOlapTbl);
+                    remoteOlapTbl.writeUnlock();
                 }
             } // end of all restore olap tables
 
@@ -996,7 +998,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         .getType() == TableType.VIEW) && isAtomicRestore) {
                     tableName = tableAliasWithAtomicRestore(tableName);
                 }
+                restoreTbl.writeLock();
                 restoreTbl.setName(tableName);
+                restoreTbl.writeUnlock();
                 restoredTbls.add(restoreTbl);
             }
 

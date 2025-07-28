@@ -2791,8 +2791,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         int schemaHash = Util.generateSchemaHash();
+        olapTable.writeLock();
         olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash, shortKeyColumnCount,
                 baseIndexStorageType, keysType, olapTable.getIndexes());
+        olapTable.writeUnlock();
 
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
             if (olapTable.isDuplicateWithoutKey()) {
@@ -2817,8 +2819,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     true/*isKeysRequired*/);
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
+            olapTable.writeLock();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
                     rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
+            olapTable.writeUnlock();
         }
 
         // analyse sequence map column
@@ -2870,7 +2874,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         olapTable.initSchemaColumnUniqueId();
         olapTable.initAutoIncrementGenerator(db.getId());
+        olapTable.writeLock();
         olapTable.rebuildFullSchema();
+        olapTable.writeUnlock();
 
         // analyze version info
         Long versionInfo = null;
