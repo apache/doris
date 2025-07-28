@@ -424,9 +424,8 @@ struct Atan2Impl {
 template <typename Impl>
 class FunctionMathBinary : public IFunction {
 public:
-    using result_column_type = typename PrimitiveTypeTraits<Impl::type>::ColumnType;
-    using parameter_cpp_type = typename PrimitiveTypeTraits<Impl::type>::CppType;
-    using parameter_column_type = typename PrimitiveTypeTraits<Impl::type>::ColumnType;
+    using cpp_type = typename PrimitiveTypeTraits<Impl::type>::CppType;
+    using column_type = typename PrimitiveTypeTraits<Impl::type>::ColumnType;
 
     static constexpr auto name = Impl::name;
     static constexpr bool has_variadic_argument =
@@ -483,18 +482,16 @@ private:
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
         ColumnPtr column_result = nullptr;
 
-        auto res = result_column_type::create(1);
+        auto res = column_type::create(1);
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(1, 0);
-            res->get_element(0) =
-                    Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
-                                column_right_ptr->template get_value<parameter_cpp_type>(),
-                                null_map->get_element(0));
+            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<cpp_type>(),
+                                              column_right_ptr->template get_value<cpp_type>(),
+                                              null_map->get_element(0));
             column_result = ColumnNullable::create(std::move(res), std::move(null_map));
         } else {
-            res->get_element(0) =
-                    Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(),
-                                column_right_ptr->template get_value<parameter_cpp_type>());
+            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<cpp_type>(),
+                                              column_right_ptr->template get_value<cpp_type>());
             column_result = std::move(res);
         }
 
@@ -503,8 +500,8 @@ private:
 
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
-        const auto* column_left_ptr = assert_cast<const parameter_column_type*>(column_left.get());
-        auto column_result = result_column_type::create(column_left->size());
+        const auto* column_left_ptr = assert_cast<const column_type*>(column_left.get());
+        auto column_result = column_type::create(column_left->size());
 
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_left->size(), 0);
@@ -513,8 +510,7 @@ private:
             auto& n = null_map->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<parameter_cpp_type>(),
-                                   n[i]);
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<cpp_type>(), n[i]);
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
@@ -522,8 +518,7 @@ private:
             auto& c = column_result->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(a[i],
-                                   column_right_ptr->template get_value<parameter_cpp_type>());
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<cpp_type>());
             }
             return column_result;
         }
@@ -532,9 +527,8 @@ private:
     ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
 
-        const auto* column_right_ptr =
-                assert_cast<const parameter_column_type*>(column_right.get());
-        auto column_result = result_column_type::create(column_right->size());
+        const auto* column_right_ptr = assert_cast<const column_type*>(column_right.get());
+        auto column_result = column_type::create(column_right->size());
 
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_right->size(), 0);
@@ -543,8 +537,7 @@ private:
             auto& n = null_map->get_data();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(), b[i],
-                                   n[i]);
+                c[i] = Impl::apply(column_left_ptr->template get_value<cpp_type>(), b[i], n[i]);
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
@@ -552,19 +545,18 @@ private:
             auto& c = column_result->get_data();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(column_left_ptr->template get_value<parameter_cpp_type>(), b[i]);
+                c[i] = Impl::apply(column_left_ptr->template get_value<cpp_type>(), b[i]);
             }
             return column_result;
         }
     }
 
     ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
-        const auto* column_left_ptr =
-                assert_cast<const parameter_column_type*>(column_left->get_ptr().get());
+        const auto* column_left_ptr = assert_cast<const column_type*>(column_left->get_ptr().get());
         const auto* column_right_ptr =
-                assert_cast<const parameter_column_type*>(column_right->get_ptr().get());
+                assert_cast<const column_type*>(column_right->get_ptr().get());
 
-        auto column_result = result_column_type::create(column_left->size());
+        auto column_result = column_type::create(column_left->size());
 
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_result->size(), 0);
