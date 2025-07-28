@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -52,10 +53,18 @@ public class AvgDistinctToSumDivCount extends OneRewriteRuleFactory {
                             .filter(function -> function instanceof Avg && function.isDistinct())
                             .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
                                 Sum sum = (Sum) TypeCoercionUtils.processBoundFunction(
-                                        new Sum(true, ((Avg) function).isAlwaysNullable(), ((Avg) function).child()));
+                                        new Sum(true, ((Avg) function).isAlwaysNullable(), false,
+                                                ((Avg) function).child()));
                                 Count count = (Count) TypeCoercionUtils.processBoundFunction(
                                         new Count(true, ((Avg) function).child()));
-                                return TypeCoercionUtils.processDivide(new Divide(sum, count));
+                                Expression divide = TypeCoercionUtils.processDivide(new Divide(sum, count));
+                                if (!function.nullable() && divide.nullable()) {
+                                    // add NonNullable to ensure the result of divide is not nullable,
+                                    // otherwise AdjustNullable rule will throw exception
+                                    return new NonNullable(divide);
+                                } else {
+                                    return divide;
+                                }
                             }));
                     if (!avgToSumDivCount.isEmpty()) {
                         List<NamedExpression> newOutput = agg.getOutputExpressions().stream()

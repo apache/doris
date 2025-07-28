@@ -29,6 +29,13 @@ suite("group_concat") {
 
     test {
         sql """select
+                 group_concat(cast(number as string) order by number separator ',')
+               from numbers('number'='10')"""
+        result([["0,1,2,3,4,5,6,7,8,9"]])
+    }
+
+    test {
+        sql """select
                  group_concat(cast(number as string), ',' order by number)
                from numbers('number'='10')"""
         result([["0,1,2,3,4,5,6,7,8,9"]])
@@ -41,6 +48,11 @@ suite("group_concat") {
 
     test {
         sql "select group_concat(cast(number as string), ' : ') from numbers('number'='10')"
+        result([["0 : 1 : 2 : 3 : 4 : 5 : 6 : 7 : 8 : 9"]])
+    }
+
+    test {
+        sql "select group_concat(cast(number as string) separator ' : ') from numbers('number'='10')"
         result([["0 : 1 : 2 : 3 : 4 : 5 : 6 : 7 : 8 : 9"]])
     }
 
@@ -90,5 +102,21 @@ suite("group_concat") {
              LEFT OUTER JOIN test_group_concat_distinct_tbl3 tbl3 ON tbl3.tbl3_id2 = tbl2.tbl2_id2
              GROUP BY tbl1.tbl1_id1
            """
+
+        sql "set use_one_phase_agg_for_group_concat_with_order=true"
+
+        explain {
+            sql "select group_concat(tbl3_name, ',' order by tbl3_id2) FROM test_group_concat_distinct_tbl3"
+            check { explainStr ->
+                assertFalse(explainStr.contains("partial_group_concat"))
+            }
+        }
+
+        explain {
+            sql "select group_concat(tbl3_name, ',' order by tbl3_id2) FROM test_group_concat_distinct_tbl3 group by tbl3_name"
+            check { explainStr ->
+                assertFalse(explainStr.contains("partial_group_concat"))
+            }
+        }
     }()
 }

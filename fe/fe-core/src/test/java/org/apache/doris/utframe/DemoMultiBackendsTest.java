@@ -18,7 +18,6 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
@@ -33,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
@@ -161,8 +161,7 @@ public class DemoMultiBackendsTest {
         }
         // 5. process a schema change job
         String alterStmtStr = "alter table db1.tbl1 add column k2 int default '1'";
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, ctx);
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        alterTable(alterStmtStr, ctx);
         // 6. check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         Assert.assertEquals(1, alterJobs.size());
@@ -206,13 +205,22 @@ public class DemoMultiBackendsTest {
         ProcResult result = dir.fetchResult();
         Assert.assertEquals(BackendsProcDir.TITLE_NAMES.size(), result.getColumnNames().size());
         Assert.assertEquals("{\"location\" : \"default\"}",
-                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 8));
+                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 9));
         Assert.assertEquals(
                 "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,"
                         + "\"isLoadDisabled\":false,\"isActive\":true,\"currentFragmentNum\":0,\"lastFragmentUpdateTime\":0}",
-                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 5));
-        Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 4));
-        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 3));
+                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 6));
+        Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 5));
+        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 4));
+    }
+
+    protected void alterTable(String sql, ConnectContext connectContext) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void updateReplicaPathHash() {

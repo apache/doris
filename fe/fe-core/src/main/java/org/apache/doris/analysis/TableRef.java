@@ -26,9 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hudi.HudiUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -41,7 +38,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.StringJoiner;
-import java.util.regex.Matcher;
 
 /**
  * Superclass of all table references, including references to views, base tables
@@ -234,7 +230,7 @@ public class TableRef implements ParseNode {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze() throws AnalysisException, UserException {
         ErrorReport.reportAnalysisException(ErrorCode.ERR_UNRESOLVED_TABLE_REF, tableRefToSql());
     }
 
@@ -264,7 +260,7 @@ public class TableRef implements ParseNode {
      * returned tuple descriptor must have its source table set via descTbl.setTable()).
      * This method is called from the analyzer when registering this table reference.
      */
-    public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
+    public TupleDescriptor createTupleDescriptor() throws AnalysisException {
         ErrorReport.reportAnalysisException(ErrorCode.ERR_UNRESOLVED_TABLE_REF, tableRefToSql());
         return null;
     }
@@ -458,127 +454,6 @@ public class TableRef implements ParseNode {
 
     public void setLateralViewRefs(ArrayList<LateralViewRef> lateralViewRefs) {
         this.lateralViewRefs = lateralViewRefs;
-    }
-
-    protected void analyzeLateralViewRef(Analyzer analyzer) throws UserException {
-        if (lateralViewRefs == null) {
-            return;
-        }
-        for (LateralViewRef lateralViewRef : lateralViewRefs) {
-            lateralViewRef.setRelatedTable(this);
-            lateralViewRef.analyze(analyzer);
-        }
-    }
-
-    protected void analyzeSortHints() throws AnalysisException {
-        if (sortHints == null) {
-            return;
-        }
-        for (String hint : sortHints) {
-            sortColumn = hint;
-        }
-    }
-
-    protected void analyzeSample() throws AnalysisException {
-        if ((sampleTabletIds != null || tableSample != null)
-                && desc.getTable().getType() != TableIf.TableType.OLAP
-                && desc.getTable().getType() != TableIf.TableType.HMS_EXTERNAL_TABLE) {
-            throw new AnalysisException("Sample table " + desc.getTable().getName()
-                + " type " + desc.getTable().getType() + " is not supported");
-        }
-    }
-
-    /**
-     * Parse hints.
-     */
-    private void analyzeJoinHints() throws AnalysisException {
-        if (joinHints == null) {
-            return;
-        }
-        for (String hint : joinHints) {
-            if (hint.toUpperCase().equals("BROADCAST")) {
-                if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
-                        || joinOp == JoinOperator.FULL_OUTER_JOIN
-                        || joinOp == JoinOperator.RIGHT_SEMI_JOIN
-                        || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
-                    throw new AnalysisException(
-                            joinOp.toString() + " does not support BROADCAST.");
-                }
-                if (isPartitionJoin) {
-                    throw new AnalysisException("Conflicting JOIN hint: " + hint);
-                }
-                isBroadcastJoin = true;
-            } else if (hint.toUpperCase().equals("SHUFFLE")) {
-                if (joinOp == JoinOperator.CROSS_JOIN) {
-                    throw new AnalysisException("CROSS JOIN does not support SHUFFLE.");
-                }
-                if (isBroadcastJoin) {
-                    throw new AnalysisException("Conflicting JOIN hint: " + hint);
-                }
-                isPartitionJoin = true;
-            } else {
-                throw new AnalysisException("JOIN hint not recognized: " + hint);
-            }
-        }
-    }
-
-    /**
-     * Parse PreAgg hints.
-     */
-    protected void analyzeHints() throws AnalysisException {
-        if (commonHints == null || commonHints.isEmpty()) {
-            return;
-        }
-        // Currently only 'PREAGGOPEN' is supported
-        for (String hint : commonHints) {
-            if (hint.toUpperCase().equals("PREAGGOPEN")) {
-                isForcePreAggOpened = true;
-                break;
-            }
-        }
-    }
-
-    protected void analyzeTableSnapshot(Analyzer analyzer) throws AnalysisException {
-        if (tableSnapshot == null) {
-            return;
-        }
-        TableIf.TableType tableType = this.getTable().getType();
-        if (tableType == TableIf.TableType.HMS_EXTERNAL_TABLE) {
-            HMSExternalTable extTable = (HMSExternalTable) this.getTable();
-            switch (extTable.getDlaType()) {
-                case ICEBERG:
-                    if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
-                        String asOfTime = tableSnapshot.getValue();
-                        Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
-                        if (!matcher.matches()) {
-                            throw new AnalysisException("Invalid datetime string: " + asOfTime);
-                        }
-                    }
-                    break;
-                case HUDI:
-                    if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
-                        throw new AnalysisException("Hudi table only supports timestamp as snapshot ID");
-                    }
-                    try {
-                        tableSnapshot.setValue(HudiUtils.formatQueryInstant(tableSnapshot.getValue()));
-                    } catch (Exception e) {
-                        throw new AnalysisException("Failed to parse hudi timestamp: " + e.getMessage(), e);
-                    }
-                    break;
-                default:
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
-            }
-        } else if (tableType == TableIf.TableType.ICEBERG_EXTERNAL_TABLE) {
-            if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
-                String asOfTime = tableSnapshot.getValue();
-                Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
-                if (!matcher.matches()) {
-                    throw new AnalysisException("Invalid datetime string: " + asOfTime);
-                }
-            }
-        } else {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
-        }
     }
 
     private String joinOpToSql() {

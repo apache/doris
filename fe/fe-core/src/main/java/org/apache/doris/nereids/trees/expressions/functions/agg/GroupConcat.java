@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -60,7 +61,7 @@ public class GroupConcat extends NullableAggregateFunction
      * constructor with 1 argument.
      */
     public GroupConcat(boolean distinct, boolean alwaysNullable, Expression arg, Expression... others) {
-        this(distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg, others));
+        this(distinct, alwaysNullable, false, ExpressionUtils.mergeArguments(arg, others));
     }
 
     /**
@@ -80,8 +81,8 @@ public class GroupConcat extends NullableAggregateFunction
     /**
      * constructor for always nullable.
      */
-    public GroupConcat(boolean distinct, boolean alwaysNullable, List<Expression> args) {
-        super("group_concat", distinct, alwaysNullable, args);
+    public GroupConcat(boolean distinct, boolean alwaysNullable, boolean isSkew, List<Expression> args) {
+        super("group_concat", distinct, alwaysNullable, isSkew, args);
         this.nonOrderArguments = findOrderExprIndex(children);
     }
 
@@ -102,7 +103,7 @@ public class GroupConcat extends NullableAggregateFunction
 
     @Override
     public GroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new GroupConcat(distinct, alwaysNullable, children);
+        return new GroupConcat(distinct, alwaysNullable, isSkew, children);
     }
 
     /**
@@ -110,7 +111,12 @@ public class GroupConcat extends NullableAggregateFunction
      */
     @Override
     public GroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new GroupConcat(distinct, alwaysNullable, children);
+        return new GroupConcat(distinct, alwaysNullable, isSkew, children);
+    }
+
+    @Override
+    public Expression withIsSkew(boolean isSkew) {
+        return new GroupConcat(distinct, alwaysNullable, isSkew, children());
     }
 
     @Override
@@ -131,6 +137,28 @@ public class GroupConcat extends NullableAggregateFunction
             }
             return ONE_ARG;
         }
+    }
+
+    @Override
+    public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().useOnePhaseAggForGroupConcatWithOrder
+                && children.stream().anyMatch(OrderExpression.class::isInstance)
+                && aggregatePhase != AggregatePhase.ONE) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public boolean forceSkipRegulator(AggregatePhase aggregatePhase) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().useOnePhaseAggForGroupConcatWithOrder
+                && children.stream().anyMatch(OrderExpression.class::isInstance)
+                && aggregatePhase == AggregatePhase.ONE) {
+            return true;
+        }
+        return false;
     }
 
     @Override

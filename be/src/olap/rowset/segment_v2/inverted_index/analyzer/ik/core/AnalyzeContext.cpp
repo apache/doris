@@ -18,8 +18,9 @@
 #include "AnalyzeContext.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
-AnalyzeContext::AnalyzeContext(IKMemoryPool<Cell>& pool, std::shared_ptr<Configuration> config)
+AnalyzeContext::AnalyzeContext(vectorized::Arena& arena, std::shared_ptr<Configuration> config)
         : segment_buff_(),
           typed_runes_(),
           buffer_offset_(0),
@@ -27,7 +28,7 @@ AnalyzeContext::AnalyzeContext(IKMemoryPool<Cell>& pool, std::shared_ptr<Configu
           available_(0),
           last_useless_char_num_(0),
           buffer_locker_(0),
-          org_lexemes_(pool),
+          org_lexemes_(arena),
           path_map_(),
           results_(),
           config_(config) {
@@ -76,8 +77,8 @@ size_t AnalyzeContext::fillBuffer(lucene::util::Reader* reader) {
                 std::memmove(segment_buff_.data(),
                              segment_buff_.data() + typed_runes_[cursor_].getNextBytePosition(),
                              offset);
-                readCount = std::max(
-                        0, reader->readCopy(segment_buff_.data() + offset, 0, BUFF_SIZE - offset));
+                readCount = std::max(0, reader->readCopy(segment_buff_.data() + offset, 0,
+                                                         static_cast<int32_t>(BUFF_SIZE - offset)));
                 readCount += offset;
             } else {
                 readCount = std::max(0, reader->readCopy(segment_buff_.data(), 0, BUFF_SIZE));
@@ -293,4 +294,6 @@ void AnalyzeContext::outputSingleCJK(size_t index) {
                          index, index);
     }
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

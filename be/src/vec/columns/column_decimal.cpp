@@ -59,15 +59,13 @@ int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) c
 template <PrimitiveType T>
 StringRef ColumnDecimal<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                        char const*& begin) const {
-    auto pos = arena.alloc_continue(sizeof(value_type), begin);
-    memcpy(pos, &data[n], sizeof(value_type));
-    return StringRef(pos, sizeof(value_type));
+    auto* pos = arena.alloc_continue(sizeof(value_type), begin);
+    return {pos, serialize_impl(pos, n)};
 }
 
 template <PrimitiveType T>
 const char* ColumnDecimal<T>::deserialize_and_insert_from_arena(const char* pos) {
-    data.push_back(unaligned_load<value_type>(pos));
-    return pos + sizeof(value_type);
+    return pos + deserialize_impl(pos);
 }
 
 template <PrimitiveType T>
@@ -76,59 +74,31 @@ size_t ColumnDecimal<T>::get_max_row_byte_size() const {
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::serialize_vec(StringRef* keys, size_t num_rows,
-                                     size_t max_row_byte_size) const {
+void ColumnDecimal<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy_fixed<value_type>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
-        keys[i].size += sizeof(value_type);
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                                   const UInt8* null_map) const {
-    DCHECK(null_map != nullptr);
-    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
-            // serialize null first
-            memcpy(dest, null_map + i, sizeof(UInt8));
-            if (null_map[i] == 0) {
-                memcpy_fixed<value_type>(dest + 1, (char*)&data[i]);
-            }
-
-            keys[i].size += sizeof(UInt8) + (1 - null_map[i]) * sizeof(value_type);
-        }
-    } else {
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
-            memset(dest, 0, 1);
-            memcpy_fixed<value_type>(dest + 1, (char*)&data[i]);
-            keys[i].size += sizeof(value_type) + sizeof(UInt8);
-        }
-    }
+size_t ColumnDecimal<T>::serialize_impl(char* pos, const size_t row) const {
+    memcpy_fixed<value_type>(pos, (char*)&data[row]);
+    return sizeof(value_type);
 }
 
 template <PrimitiveType T>
 void ColumnDecimal<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i < num_rows; ++i) {
-        keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
-        keys[i].size -= sizeof(value_type);
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
     }
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                                     const uint8_t* null_map) {
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 0) {
-            keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
-            keys[i].size -= sizeof(value_type);
-        } else {
-            insert_default();
-        }
-    }
+size_t ColumnDecimal<T>::deserialize_impl(const char* pos) {
+    data.push_back(unaligned_load<value_type>(pos));
+    return sizeof(value_type);
 }
 
 template <PrimitiveType T>
@@ -430,7 +400,7 @@ size_t ColumnDecimal<T>::filter(const IColumn::Filter& filter) {
     }
 
     const auto result_size = result_data - data.data();
-    data.set_end_ptr(result_data);
+    data.resize(result_size);
 
     return result_size;
 }

@@ -807,8 +807,9 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         order_qt_sql49 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 120 > 110) l
                             JOIN (SELECT *, COUNT(1) OVER (PARTITION BY id ORDER BY id) FROM ${exMysqlTable}) o ON l.k8 = o.id """
         order_qt_sql50 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 as a LEFT OUTER JOIN ${exMysqlTable} as b ON a.k8 = b.id AND a.k8 > 111 WHERE a.k8 < 114 """
-        order_qt_sql51 """ SELECT count(*) > 0 FROM $jdbcMysql57Table1 JOIN ${exMysqlTable} ON (cast(1.2 AS FLOAT) = CAST(1.2 AS decimal(2,1))) """
-        order_qt_sql52 """ SELECT count(*) > 0 FROM $jdbcMysql57Table1 JOIN ${exMysqlTable} ON CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1)) """
+        // float/double compare is not accurate, should not depend on it
+        // order_qt_sql51 """ SELECT count(*) > 0 FROM $jdbcMysql57Table1 JOIN ${exMysqlTable} ON (cast(1.2 AS FLOAT) = CAST(1.2 AS decimal(2,1))) """
+        // order_qt_sql52 """ SELECT count(*) > 0 FROM $jdbcMysql57Table1 JOIN ${exMysqlTable} ON CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1)) """
         order_qt_sql53 """ SELECT SUM(k8) FROM $jdbcMysql57Table1 as a JOIN ${exMysqlTable} as b ON a.k8 = CASE WHEN b.id % 2 = 0 and b.name = 'abc' THEN b.id ELSE NULL END """
         order_qt_sql54 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 a JOIN ${exMysqlTable} b on not (a.k8 <> b.id) """
         order_qt_sql55 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 a JOIN ${exMysqlTable} b on not not not (a.k8 = b.id)  """

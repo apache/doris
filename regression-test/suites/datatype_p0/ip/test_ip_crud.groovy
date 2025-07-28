@@ -46,10 +46,11 @@ suite("test_ip_crud") {
     qt_sql4 "select * from test_unique_ip_crud where ip_v4='119.36.22.147' and ip_v6='2001:4888:1f:e891:161:26::'"
 
     // Only unique table could be updated
-    sql "update test_unique_ip_crud set ip_v4=0, ip_v6='2804:64:0:25::1' where id=3"
+    sql "update test_unique_ip_crud set ip_v4='0.0.0.0', ip_v6='2804:64:0:25::1' where id=3"
     qt_sql5 "select * from test_unique_ip_crud order by id"
 
     // test ip datatype in aggregate table
+    sql "DROP TABLE IF EXISTS test_agg_ip_crud;"
     sql """
         CREATE TABLE test_agg_ip_crud (
           `id` int,

@@ -25,6 +25,7 @@
 #include "util/jsonb_writer.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_ip.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -76,14 +77,13 @@ void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbVal
 }
 
 void DataTypeIPv6SerDe::write_one_cell_to_jsonb(const IColumn& column,
-                                                JsonbWriterT<JsonbOutStream>& result,
-                                                Arena* mem_pool, int col_id,
-                                                int64_t row_num) const {
+                                                JsonbWriterT<JsonbOutStream>& result, Arena& arena,
+                                                int col_id, int64_t row_num) const {
     // we make ipv6 as BinaryValue in jsonb
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
-    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    StringRef value = column.serialize_value_into_arena(row_num, arena, begin);
     result.writeStartBinary();
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();
@@ -248,6 +248,45 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
     }
 
     cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
+Status DataTypeIPv6SerDe::from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                            const FormatOptions& options) const {
+    const auto size = str.size();
+    column.resize(size);
+
+    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    auto& vec_to = column_to.get_data();
+    auto& null_map = column.get_null_map_data();
+
+    CastParameters params;
+    params.is_strict = false;
+    for (size_t i = 0; i < size; ++i) {
+        null_map[i] = !CastToIPv6::from_string(str.get_data_at(i), vec_to[i], params);
+    }
+    return Status::OK();
+}
+
+Status DataTypeIPv6SerDe::from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
+                                                        const FormatOptions& options,
+                                                        const NullMap::value_type* null_map) const {
+    const auto size = str.size();
+    column.resize(size);
+
+    auto& column_to = assert_cast<ColumnType&>(column);
+    auto& vec_to = column_to.get_data();
+    CastParameters params;
+    params.is_strict = true;
+    for (size_t i = 0; i < size; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
+        if (!CastToIPv6::from_string(str.get_data_at(i), vec_to[i], params)) {
+            return Status::InvalidArgument("parse ipv6 fail, string: '{}'",
+                                           str.get_data_at(i).to_string());
+        }
+    }
     return Status::OK();
 }
 

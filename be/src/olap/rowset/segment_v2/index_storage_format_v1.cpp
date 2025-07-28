@@ -17,12 +17,14 @@
 
 #include "index_storage_format_v1.h"
 
+#include "common/cast_set.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 IndexStorageFormatV1::IndexStorageFormatV1(IndexFileWriter* index_file_writer)
         : IndexStorageFormat(index_file_writer) {}
@@ -94,7 +96,7 @@ std::pair<int64_t, int32_t> IndexStorageFormatV1::calculate_header_length(
         _CLTHROWA(CL_ERR_IO, "Create RAMDirectory output error");
     }
     std::unique_ptr<lucene::store::IndexOutput> ram_output(out_idx);
-    int32_t file_count = sorted_files.size();
+    auto file_count = cast_set<int32_t>(sorted_files.size());
     ram_output->writeVInt(file_count);
 
     int64_t header_file_length = 0;
@@ -128,19 +130,18 @@ IndexStorageFormatV1::create_output_stream(int64_t index_id, const std::string& 
     auto idx_path = cfs_path.parent_path();
     std::string idx_name = cfs_path.filename();
 
-    auto* out_dir =
-            DorisFSDirectoryFactory::getDirectory(_index_file_writer->_fs, idx_path.c_str());
-    out_dir->set_file_writer_opts(_index_file_writer->_opts);
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
+    std::unique_ptr<DorisFSDirectory, DirectoryDeleter> out_dir_ptr(
+            DorisFSDirectoryFactory::getDirectory(_index_file_writer->_fs, idx_path.c_str()));
+    out_dir_ptr->set_file_writer_opts(_index_file_writer->_opts);
 
-    auto* out = out_dir->createOutput(idx_name.c_str());
-    DBUG_EXECUTE_IF("IndexFileWriter::write_v1_out_dir_createOutput_nullptr", { out = nullptr; });
-    if (out == nullptr) {
+    std::unique_ptr<lucene::store::IndexOutput> output(out_dir_ptr->createOutput(idx_name.c_str()));
+    DBUG_EXECUTE_IF("IndexFileWriter::write_v1_out_dir_createOutput_nullptr",
+                    { output = nullptr; });
+    if (output == nullptr) {
         LOG(WARNING) << "IndexFileWriter::create_output_stream_v1 error: CompoundDirectory "
                         "output is nullptr.";
         _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
     }
-    std::unique_ptr<lucene::store::IndexOutput> output(out);
 
     return {std::move(out_dir_ptr), std::move(output)};
 }
@@ -149,7 +150,7 @@ void IndexStorageFormatV1::write_header_and_data(lucene::store::IndexOutput* out
                                                  const std::vector<FileInfo>& sorted_files,
                                                  lucene::store::Directory* directory,
                                                  int64_t header_length, int32_t header_file_count) {
-    output->writeVInt(sorted_files.size());
+    output->writeVInt(cast_set<int32_t>(sorted_files.size()));
     int64_t data_offset = header_length;
     const int64_t buffer_length = 16384;
     uint8_t buffer[buffer_length];
@@ -190,3 +191,4 @@ void IndexStorageFormatV1::add_index_info(int64_t index_id, const std::string& i
 }
 
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

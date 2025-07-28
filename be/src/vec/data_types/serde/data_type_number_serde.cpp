@@ -21,11 +21,13 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
+#include "util/to_string.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_boolean.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -175,7 +177,7 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     } else if constexpr (T == TYPE_FLOAT) {
         // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
         char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, buf);
+        int len = to_buffer(data, MAX_FLOAT_STR_LENGTH + 2, buf);
         bw.write(buf, len);
     } else if constexpr (is_int_or_bool(T) ||
                          std::numeric_limits<
@@ -368,13 +370,10 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     } else if constexpr (T == TYPE_LARGEINT) {
         buf_ret = result.push_largeint(data[col_index]);
     } else if constexpr (T == TYPE_FLOAT) {
-        if (std::isnan(data[col_index])) {
-            // Handle NaN for float, we should push null value
-            buf_ret = result.push_null();
-        } else {
-            buf_ret = result.push_float(data[col_index]);
-        }
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+        buf_ret = result.push_float(data[col_index]);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        buf_ret = result.push_double(data[col_index]);
+    } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
         if (std::isnan(data[col_index])) {
             // Handle NaN for double, we should push null value
             buf_ret = result.push_null();
@@ -510,7 +509,7 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
 template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
                                                      JsonbWriterT<JsonbOutStream>& result,
-                                                     Arena* mem_pool, int32_t col_id,
+                                                     Arena& mem_pool, int32_t col_id,
                                                      int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     StringRef data_ref = column.get_data_at(row_num);
@@ -572,6 +571,88 @@ Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
     return Status::OK();
 }
 
+template <PrimitiveType PT, bool is_strict_mode>
+bool read_number_text_impl(StringRef& str, typename PrimitiveTypeTraits<PT>::ColumnItemType& val) {
+    if constexpr (PT == TYPE_BOOLEAN) {
+        return try_read_bool_text(val, str);
+    }
+    // else if constexpr (){
+
+    // }
+
+    DCHECK(false);
+    return false;
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                           const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
+    if (!read_number_text_impl<T, false>(str, val)) {
+        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
+    }
+    column_data.insert_value(val);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                       const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
+    if (!read_number_text_impl<T, true>(str, val)) {
+        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
+    }
+    column_data.insert_value(val);
+    return Status::OK();
+}
+
+template <PrimitiveType PT, bool enable_strict_cast>
+bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x, ReadBuffer& rb,
+                    CastParameters& params) {
+    /// TODO: change the ReadBuffer arg to StringRef.
+    if constexpr (is_float_or_double(PT)) {
+        return try_read_float_text(x, rb);
+    } else if constexpr (PT == TYPE_BOOLEAN) {
+        StringRef str {rb.position(), rb.count()};
+        return CastToBool::from_string(str, x, params);
+    } else if constexpr (is_int(PT)) {
+        return try_read_int_text<typename PrimitiveTypeTraits<PT>::ColumnItemType,
+                                 enable_strict_cast>(x, rb);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "try_parse_impl not implemented for type: {}", type_to_string(PT));
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                                 const FormatOptions& options) const {
+    const auto size = str.size();
+    column.resize(size);
+
+    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    auto& vec_to = column_to.get_data();
+    auto& null_map = column.get_null_map_data();
+
+    size_t current_offset = 0;
+    const ColumnString::Chars* chars = &str.get_chars();
+    const IColumn::Offsets* offsets = &str.get_offsets();
+
+    CastParameters params;
+    params.is_strict = false;
+    for (size_t i = 0; i < size; ++i) {
+        size_t next_offset = (*offsets)[i];
+        size_t string_size = next_offset - current_offset;
+
+        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+        null_map[i] = !try_parse_impl<T, false>(vec_to[i], read_buffer, params);
+        current_offset = next_offset;
+    }
+    return Status::OK();
+}
+
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
                                                        const rapidjson::Value& value) const {
@@ -601,6 +682,39 @@ Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
     default:
         col.insert_default();
         break;
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
+        const ColumnString& str, IColumn& column, const FormatOptions& options,
+        const NullMap::value_type* null_map) const {
+    const auto size = str.size();
+    column.resize(size);
+
+    size_t current_offset = 0;
+    const ColumnString::Chars* chars = &str.get_chars();
+    const IColumn::Offsets* offsets = &str.get_offsets();
+
+    auto& column_to = assert_cast<ColumnType&>(column);
+    auto& vec_to = column_to.get_data();
+    CastParameters params;
+    params.is_strict = true;
+    for (size_t i = 0; i < size; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
+        size_t next_offset = (*offsets)[i];
+        size_t string_size = next_offset - current_offset;
+
+        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+        if (!try_parse_impl<T, true>(vec_to[i], read_buffer, params)) {
+            return Status::InvalidArgument(
+                    "parse number fail, string: '{}'",
+                    std::string((char*)&(*chars)[current_offset], string_size));
+        }
+        current_offset = next_offset;
     }
     return Status::OK();
 }

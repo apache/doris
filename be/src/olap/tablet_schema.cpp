@@ -45,13 +45,12 @@
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/common/hex.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_struct.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -526,6 +525,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     _is_key = column.is_key();
     _is_nullable = column.is_nullable();
     _is_auto_increment = column.is_auto_increment();
+    if (column.has_is_on_update_current_timestamp()) {
+        _is_on_update_current_timestamp = column.is_on_update_current_timestamp();
+    }
 
     _has_default_value = column.has_default_value();
     if (_has_default_value) {
@@ -580,7 +582,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
                          << column.children_columns_size();
         }
     }
-    for (size_t i = 0; i < column.children_columns_size(); i++) {
+    for (int i = 0; i < column.children_columns_size(); i++) {
         TabletColumn child_column;
         child_column.init_from_pb(column.children_columns(i));
         add_sub_column(child_column);
@@ -595,9 +597,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
     }
     for (const auto& column_pb : column.sparse_columns()) {
-        TabletColumn column;
-        column.init_from_pb(column_pb);
-        _sparse_cols.emplace_back(std::make_shared<TabletColumn>(std::move(column)));
+        TabletColumn new_column;
+        new_column.init_from_pb(column_pb);
+        _sparse_cols.emplace_back(std::make_shared<TabletColumn>(std::move(new_column)));
         _num_sparse_columns++;
     }
 }
@@ -622,6 +624,8 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_type(get_string_by_field_type(_type));
     column->set_is_key(_is_key);
     column->set_is_nullable(_is_nullable);
+    column->set_is_auto_increment(_is_auto_increment);
+    column->set_is_on_update_current_timestamp(_is_on_update_current_timestamp);
     if (_has_default_value) {
         column->set_default_value(_default_value);
     }
@@ -902,6 +906,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _version_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == SKIP_BITMAP_COL)) {
         _skip_bitmap_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX))) {
+        _vir_col_idx_to_unique_id[_num_columns] = column.unique_id();
     }
     _field_uniqueid_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
@@ -915,6 +921,7 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
     }
     _num_columns++;
+    _num_virtual_columns = _vir_col_idx_to_unique_id.size();
 }
 
 void TabletColumn::append_sparse_column(TabletColumn column) {
@@ -1078,6 +1085,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _compression_type = schema.compression_type();
     _row_store_page_size = schema.row_store_page_size();
     _storage_page_size = schema.storage_page_size();
+    _storage_dict_page_size = schema.storage_dict_page_size();
     _schema_version = schema.schema_version();
     // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
     if (!schema.has_inverted_index_storage_format()) {
@@ -1154,6 +1162,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sort_col_num = ori_tablet_schema.sort_col_num();
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
     _storage_page_size = ori_tablet_schema.storage_page_size();
+    _storage_dict_page_size = ori_tablet_schema.storage_dict_page_size();
     _enable_variant_flatten_nested = ori_tablet_schema.variant_flatten_nested();
 
     // copy from table_schema_param
@@ -1319,6 +1328,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_row_store_page_size(_row_store_page_size);
     tablet_schema_pb->set_storage_page_size(_storage_page_size);
+    tablet_schema_pb->set_storage_dict_page_size(_storage_dict_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
@@ -1495,13 +1505,21 @@ vectorized::Block TabletSchema::create_block(
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
     vectorized::Block block;
     for (int i = 0; i < return_columns.size(); ++i) {
-        const auto& col = *_cols[return_columns[i]];
+        const ColumnId cid = return_columns[i];
+        const auto& col = *_cols[cid];
         bool is_nullable = (tablet_columns_need_convert_null != nullptr &&
-                            tablet_columns_need_convert_null->find(return_columns[i]) !=
+                            tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
-        auto column = data_type->create_column();
-        block.insert({std::move(column), data_type, col.name()});
+        if (_vir_col_idx_to_unique_id.contains(cid)) {
+            block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
+            VLOG_DEBUG << fmt::format(
+                    "Create block from tablet schema, column cid {} is virtual column, col_name: "
+                    "{}, col_unique_id: {}, type {}",
+                    cid, col.name(), col.unique_id(), data_type->get_name());
+        } else {
+            block.insert({data_type->create_column(), data_type, col.name()});
+        }
     }
     return block;
 }
@@ -1584,6 +1602,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
     if (a._storage_page_size != b._storage_page_size) return false;
+    if (a._storage_dict_page_size != b._storage_dict_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
     return true;

@@ -80,7 +80,7 @@
 // 0x03 "version" ${instance_id} "table" ${table_id} ${timestamp}           -> ${empty_value}
 //
 // 0x03 "index" ${instance_id} "partition" ${partition_id}                                                  -> PartitionIndexPB
-// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${index_id} ${partition}           -> ${empty_value}
+// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition}                       -> ${empty_value}
 // 0x03 "index" ${instance_id} "tablet" ${tablet_id}                                                        -> TabletIndexPB
 // 0x03 "index" ${instance_id} "tablet_inverted" ${db_id} ${table_id} ${index_id} ${partition} ${tablet}    -> ${empty_value}
 // 0x03 "index" ${instance_id} "index" ${index_id}                                                          -> IndexIndexPB
@@ -227,8 +227,8 @@ using MowTabletJobInfo = BasicKeyInfo<29 , std::tuple<std::string, int64_t, int6
 
 namespace versioned {
 
-// Note: Key info definitions in this namespace do not include timestamp and subsequent attributes.
-// The timestamp and other attributes are implemented as parameters in the key creation functions.
+// ATTN: Key info definitions in this namespace do not include timestamp and subsequent attributes.
+// The timestamp and other attributes are implemented as parameters in the txn put/get functions.
 
 // 0x03 "version" ${instance_id} "partition" ${partition_id} ${timestamp}   -> VersionPB
 //                                                      0:instance_id  1:partition_id
@@ -242,9 +242,9 @@ using TableVersionKeyInfo = BasicKeyInfo<31, std::tuple<std::string, int64_t>>;
 //                                                      0:instance_id  1:partition_id
 using PartitionIndexKeyInfo = BasicKeyInfo<32, std::tuple<std::string, int64_t>>;
 
-// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${index_id} ${partition} -> ${empty_value}
-//                                                      0:instance_id  1:db_id  2:table_id  3:index_id  4:partition_id
-using PartitionInvertedIndexKeyInfo = BasicKeyInfo<33, std::tuple<std::string, int64_t, int64_t, int64_t, int64_t>>;
+// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition} -> ${empty_value}
+//                                                      0:instance_id  1:db_id  2:table_id  3:partition_id
+using PartitionInvertedIndexKeyInfo = BasicKeyInfo<33, std::tuple<std::string, int64_t, int64_t, int64_t>>;
 
 // 0x03 "index" ${instance_id} "tablet" ${tablet_id}                        -> TabletIndexPB
 //                                                      0:instance_id  1:tablet_id
@@ -419,24 +419,12 @@ std::string system_meta_service_encryption_key_info_key();
 
 namespace versioned {
 
-// ATTN: if the versionstamp is NOT provided, the Versionstamp::min() will be used.
-
 // clang-format off
-void partition_version_key_prefix(const PartitionVersionKeyInfo& in, std::string* out);
-static inline std::string partition_version_key_prefix(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key_prefix(in, &s); return s; }
+void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
+static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }
 
-void partition_version_key(const PartitionVersionKeyInfo& in, Versionstamp v, std::string* out);
-static inline void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out) { return partition_version_key(in, Versionstamp::min(), out); }
-static inline std::string partition_version_key(const PartitionVersionKeyInfo& in, Versionstamp v) { std::string s; partition_version_key(in, v, &s); return s; }
-static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { return partition_version_key(in, Versionstamp::min()); }
-
-void table_version_key_prefix(const TableVersionKeyInfo& in, std::string* out);
-static inline std::string table_version_key_prefix(const TableVersionKeyInfo& in) { std::string s; table_version_key_prefix(in, &s); return s; }
-
-void table_version_key(const TableVersionKeyInfo& in, Versionstamp v, std::string* out);
-static inline void table_version_key(const TableVersionKeyInfo& in, std::string* out) { return table_version_key(in, Versionstamp::min(), out); }
-static inline std::string table_version_key(const TableVersionKeyInfo& in, Versionstamp v) { std::string s; table_version_key(in, v, &s); return s; }
-static inline std::string table_version_key(const TableVersionKeyInfo& in) { return table_version_key(in, Versionstamp::min()); }
+void table_version_key(const TableVersionKeyInfo& in, std::string* out);
+static inline std::string table_version_key(const TableVersionKeyInfo& in) { std::string s; table_version_key(in, &s); return s; }
 
 void partition_index_key(const PartitionIndexKeyInfo& in, std::string* out);
 static inline std::string partition_index_key(const PartitionIndexKeyInfo& in) { std::string s; partition_index_key(in, &s); return s; }
@@ -456,86 +444,41 @@ static inline std::string index_index_key(const IndexIndexKeyInfo& in) { std::st
 void index_inverted_key(const IndexInvertedKeyInfo& in, std::string* out);
 static inline std::string index_inverted_key(const IndexInvertedKeyInfo& in) { std::string s; index_inverted_key(in, &s); return s; }
 
-void tablet_load_stats_key_prefix(const TabletLoadStatsKeyInfo& in, std::string* out);
-static inline std::string tablet_load_stats_key_prefix(const TabletLoadStatsKeyInfo& in) { std::string s; tablet_load_stats_key_prefix(in, &s); return s; }
+void tablet_load_stats_key(const TabletLoadStatsKeyInfo& in, std::string* out);
+static inline std::string tablet_load_stats_key(const TabletLoadStatsKeyInfo& in) { std::string s; tablet_load_stats_key(in, &s); return s; }
 
-void tablet_load_stats_key(const TabletLoadStatsKeyInfo& in, Versionstamp v, std::string* out);
-static inline void tablet_load_stats_key(const TabletLoadStatsKeyInfo& in, std::string* out) { return tablet_load_stats_key(in, Versionstamp::min(), out); }
-static inline std::string tablet_load_stats_key(const TabletLoadStatsKeyInfo& in, Versionstamp v) { std::string s; tablet_load_stats_key(in, v, &s); return s; }
-static inline std::string tablet_load_stats_key(const TabletLoadStatsKeyInfo& in) { return tablet_load_stats_key(in, Versionstamp::min()); }
+void tablet_compact_stats_key(const TabletCompactStatsKeyInfo& in, std::string* out);
+static inline std::string tablet_compact_stats_key(const TabletCompactStatsKeyInfo& in) { std::string s; tablet_compact_stats_key(in, &s); return s; }
 
-void tablet_compact_stats_key_prefix(const TabletCompactStatsKeyInfo& in, std::string* out);
-static inline std::string tablet_compact_stats_key_prefix(const TabletCompactStatsKeyInfo& in) { std::string s; tablet_compact_stats_key_prefix(in, &s); return s; }
+void meta_partition_key(const MetaPartitionKeyInfo& in, std::string* out);
+static inline std::string meta_partition_key(const MetaPartitionKeyInfo& in) { std::string s; meta_partition_key(in, &s); return s; }
 
-void tablet_compact_stats_key(const TabletCompactStatsKeyInfo& in, Versionstamp v, std::string* out);
-static inline void tablet_compact_stats_key(const TabletCompactStatsKeyInfo& in, std::string* out) { return tablet_compact_stats_key(in, Versionstamp::min(), out); }
-static inline std::string tablet_compact_stats_key(const TabletCompactStatsKeyInfo& in, Versionstamp v) { std::string s; tablet_compact_stats_key(in, v, &s); return s; }
-static inline std::string tablet_compact_stats_key(const TabletCompactStatsKeyInfo& in) { return tablet_compact_stats_key(in, Versionstamp::min()); }
+void meta_index_key(const MetaIndexKeyInfo& in, std::string* out);
+static inline std::string meta_index_key(const MetaIndexKeyInfo& in) { std::string s; meta_index_key(in, &s); return s; }
 
-void meta_partition_key_prefix(const MetaPartitionKeyInfo& in, std::string* out);
-static inline std::string meta_partition_key_prefix(const MetaPartitionKeyInfo& in) { std::string s; meta_partition_key_prefix(in, &s); return s; }
-
-void meta_partition_key(const MetaPartitionKeyInfo& in, Versionstamp v, std::string* out);
-static inline void meta_partition_key(const MetaPartitionKeyInfo& in, std::string* out) { return meta_partition_key(in, Versionstamp::min(), out); }
-static inline std::string meta_partition_key(const MetaPartitionKeyInfo& in, Versionstamp v) { std::string s; meta_partition_key(in, v, &s); return s; }
-static inline std::string meta_partition_key(const MetaPartitionKeyInfo& in) { return meta_partition_key(in, Versionstamp::min()); }
-
-void meta_index_key_prefix(const MetaIndexKeyInfo& in, std::string* out);
-static inline std::string meta_index_key_prefix(const MetaIndexKeyInfo& in) { std::string s; meta_index_key_prefix(in, &s); return s; }
-
-void meta_index_key(const MetaIndexKeyInfo& in, Versionstamp v, std::string* out);
-static inline void meta_index_key(const MetaIndexKeyInfo& in, std::string* out) { return meta_index_key(in, Versionstamp::min(), out); }
-static inline std::string meta_index_key(const MetaIndexKeyInfo& in, Versionstamp v) { std::string s; meta_index_key(in, v, &s); return s; }
-static inline std::string meta_index_key(const MetaIndexKeyInfo& in) { return meta_index_key(in, Versionstamp::min()); }
-
-void meta_tablet_key_prefix(const versioned::MetaTabletKeyInfo& in, std::string* out);
-static inline std::string meta_tablet_key_prefix(const versioned::MetaTabletKeyInfo& in) { std::string s; meta_tablet_key_prefix(in, &s); return s; }
-
-void meta_tablet_key(const versioned::MetaTabletKeyInfo& in, Versionstamp v, std::string* out);
-static inline void meta_tablet_key(const versioned::MetaTabletKeyInfo& in, std::string* out) { return meta_tablet_key(in, Versionstamp::min(), out); }
-static inline std::string meta_tablet_key(const versioned::MetaTabletKeyInfo& in, Versionstamp v) { std::string s; meta_tablet_key(in, v, &s); return s; }
-static inline std::string meta_tablet_key(const versioned::MetaTabletKeyInfo& in) { return meta_tablet_key(in, Versionstamp::min()); }
+void meta_tablet_key(const versioned::MetaTabletKeyInfo& in, std::string* out);
+static inline std::string meta_tablet_key(const versioned::MetaTabletKeyInfo& in) { std::string s; meta_tablet_key(in, &s); return s; }
 
 void meta_schema_key(const versioned::MetaSchemaKeyInfo& in, std::string* out);
 static inline std::string meta_schema_key(const versioned::MetaSchemaKeyInfo& in) { std::string s; meta_schema_key(in, &s); return s; }
 
-void meta_rowset_load_key_prefix(const MetaRowsetLoadKeyInfo& in, std::string* out);
-static inline std::string meta_rowset_load_key_prefix(const MetaRowsetLoadKeyInfo& in) { std::string s; meta_rowset_load_key_prefix(in, &s); return s; }
+void meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in, std::string* out);
+static inline std::string meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in) { std::string s; meta_rowset_load_key(in, &s); return s; }
 
-void meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in, Versionstamp v, std::string* out);
-static inline void meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in, std::string* out) { return meta_rowset_load_key(in, Versionstamp::min(), out); }
-static inline std::string meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in, Versionstamp v) { std::string s; meta_rowset_load_key(in, v, &s); return s; }
-static inline std::string meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in) { return meta_rowset_load_key(in, Versionstamp::min()); }
-
-void meta_rowset_compact_key_prefix(const MetaRowsetCompactKeyInfo& in, std::string* out);
-static inline std::string meta_rowset_compact_key_prefix(const MetaRowsetCompactKeyInfo& in) { std::string s; meta_rowset_compact_key_prefix(in, &s); return s; }
-
-void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, Versionstamp v, std::string* out);
-static inline void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, std::string* out) { return meta_rowset_compact_key(in, Versionstamp::min(), out); }
-static inline std::string meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, Versionstamp v) { std::string s; meta_rowset_compact_key(in, v, &s); return s; }
-static inline std::string meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in) { return meta_rowset_compact_key(in, Versionstamp::min()); }
+void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, std::string* out);
+static inline std::string meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in) { std::string s; meta_rowset_compact_key(in, &s); return s; }
 
 void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string* out);
 static inline std::string data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in) { std::string s; data_rowset_ref_count_key(in, &s); return s; }
 
-void snapshot_full_key_prefix(const SnapshotFullKeyInfo& in, std::string* out);
-static inline std::string snapshot_full_key_prefix(const SnapshotFullKeyInfo& in) { std::string s; snapshot_full_key_prefix(in, &s); return s; }
-
-void snapshot_full_key(const SnapshotFullKeyInfo& in, Versionstamp v, std::string* out);
-static inline void snapshot_full_key(const SnapshotFullKeyInfo& in, std::string* out) { return snapshot_full_key(in, Versionstamp::min(), out); }
-static inline std::string snapshot_full_key(const SnapshotFullKeyInfo& in, Versionstamp v) { std::string s; snapshot_full_key(in, v, &s); return s; }
-static inline std::string snapshot_full_key(const SnapshotFullKeyInfo& in) { return snapshot_full_key(in, Versionstamp::min()); }
+void snapshot_full_key(const SnapshotFullKeyInfo& in, std::string* out);
+static inline std::string snapshot_full_key(const SnapshotFullKeyInfo& in) { std::string s; snapshot_full_key(in, &s); return s; }
 
 void snapshot_reference_key(const SnapshotReferenceKeyInfo& in, std::string* out);
 static inline std::string snapshot_reference_key(const SnapshotReferenceKeyInfo& in) { std::string s; snapshot_reference_key(in, &s); return s; }
 
-void log_key_prefix(const LogKeyInfo& in, std::string* out);
-static inline std::string log_key_prefix(const LogKeyInfo& in) { std::string s; log_key_prefix(in, &s); return s; }
-
-void log_key(const LogKeyInfo& in, Versionstamp v, std::string* out);
-static inline void log_key(const LogKeyInfo& in, std::string* out) { return log_key(in, Versionstamp::min(), out); }
-static inline std::string log_key(const LogKeyInfo& in, Versionstamp v) { std::string s; log_key(in, v, &s); return s; }
-static inline std::string log_key(const LogKeyInfo& in) { return log_key(in, Versionstamp::min()); }
+void log_key(const LogKeyInfo& in, std::string* out);
+static inline std::string log_key(const LogKeyInfo& in) { std::string s; log_key(in, &s); return s; }
 
 // clang-format on
 

@@ -53,7 +53,7 @@ struct std::equal_to<doris::uint24_t> {
 };
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 /**
  * Use HybridSetType can avoid virtual function call in the loop.
  * @tparam Type
@@ -66,8 +66,8 @@ public:
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     template <typename ConditionType, typename ConvertFunc>
     InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
-                        const ConvertFunc& convert, bool is_opposite = false,
-                        const TabletColumn* col = nullptr, vectorized::Arena* arena = nullptr)
+                        const ConvertFunc& convert, bool is_opposite, const TabletColumn* col,
+                        vectorized::Arena& arena)
             : ColumnPredicate(column_id, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
@@ -326,7 +326,7 @@ public:
                     }
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
                     const T* value = (const T*)(iter->get_value());
-                    uint24_t date_value(value->to_olap_date());
+                    uint24_t date_value(uint32_t(value->to_olap_date()));
                     if (bf->test_bytes(
                                 const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
                                 sizeof(uint24_t))) {
@@ -367,7 +367,7 @@ public:
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override {
-        int64_t new_size = 0;
+        int16_t new_size = 0;
 
         if (column.is_nullable()) {
             const auto* nullable_col =
@@ -576,9 +576,8 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc,
           size_t N = 0>
 ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
-                                           const ConvertFunc& convert, bool is_opposite = false,
-                                           const TabletColumn* col = nullptr,
-                                           vectorized::Arena* arena = nullptr) {
+                                           const ConvertFunc& convert, bool is_opposite,
+                                           const TabletColumn* col, vectorized::Arena& arena) {
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         using Set = std::conditional_t<
@@ -599,9 +598,8 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionTy
 
 template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc>
 ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
-                                          const ConvertFunc& convert, bool is_opposite = false,
-                                          const TabletColumn* col = nullptr,
-                                          vectorized::Arena* arena = nullptr) {
+                                          const ConvertFunc& convert, bool is_opposite,
+                                          const TabletColumn* col, vectorized::Arena& arena) {
     if (conditions.size() == 1) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 1>(
                 column_id, conditions, convert, is_opposite, col, arena);
@@ -678,5 +676,5 @@ ColumnPredicate* create_in_list_predicate(uint32_t column_id,
         return _create_in_list_predicate<Type, PT>(column_id, hybrid_set, char_length);
     }
 }
-
+#include "common/compile_check_end.h"
 } //namespace doris

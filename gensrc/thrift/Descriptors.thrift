@@ -50,6 +50,7 @@ struct TColumn {
     20: optional i32 be_exec_version = -1
     21: optional TPatternType pattern_type
     22: optional bool variant_enable_typed_paths_to_sparse = false
+    23: optional bool is_on_update_current_timestamp = false
 }
 
 struct TSlotDescriptor {
@@ -73,6 +74,7 @@ struct TSlotDescriptor {
   15: optional list<string> column_paths
   16: optional string col_default_value
   17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
+  18: optional Exprs.TExpr virtual_column_expr
 }
 
 struct TTupleDescriptor {

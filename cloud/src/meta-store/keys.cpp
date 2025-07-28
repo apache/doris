@@ -17,6 +17,8 @@
 
 #include "meta-store/keys.h"
 
+#include <set>
+
 #include "meta-store/codec.h"
 
 namespace doris::cloud {
@@ -537,7 +539,7 @@ namespace versioned {
 //==============================================================================
 // Version keys
 //==============================================================================
-void partition_version_key_prefix(const PartitionVersionKeyInfo& in, std::string* out) {
+void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(VERSION_KEY_PREFIX, out);          // "version"
     encode_bytes(std::get<0>(in), out);             // instance_id
@@ -545,24 +547,12 @@ void partition_version_key_prefix(const PartitionVersionKeyInfo& in, std::string
     encode_int64(std::get<1>(in), out);             // partition_id
 }
 
-void partition_version_key(const PartitionVersionKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "version" ${instance_id} "partition" ${partition_id}
-    partition_version_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
-}
-
-void table_version_key_prefix(const TableVersionKeyInfo& in, std::string* out) {
+void table_version_key(const TableVersionKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(VERSION_KEY_PREFIX, out);      // "version"
     encode_bytes(std::get<0>(in), out);         // instance_id
     encode_bytes(TABLE_VERSION_KEY_INFIX, out); // "table"
     encode_int64(std::get<1>(in), out);         // table_id
-}
-
-void table_version_key(const TableVersionKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "version" ${instance_id} "table" ${table_id}
-    table_version_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
 }
 
 //==============================================================================
@@ -583,8 +573,7 @@ void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::
     encode_bytes(PARTITION_INVERTED_INDEX_KEY_INFIX, out); // "partition_inverted"
     encode_int64(std::get<1>(in), out);                    // db_id
     encode_int64(std::get<2>(in), out);                    // table_id
-    encode_int64(std::get<3>(in), out);                    // index_id
-    encode_int64(std::get<4>(in), out);                    // partition_id
+    encode_int64(std::get<3>(in), out);                    // partition_id
 }
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out) {
@@ -628,7 +617,7 @@ void index_inverted_key(const IndexInvertedKeyInfo& in, std::string* out) {
 //==============================================================================
 // Stats keys
 //==============================================================================
-void tablet_load_stats_key_prefix(const TabletLoadStatsKeyInfo& in, std::string* out) {
+void tablet_load_stats_key(const TabletLoadStatsKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(STATS_KEY_PREFIX, out);            // "stats"
     encode_bytes(std::get<0>(in), out);             // instance_id
@@ -636,13 +625,7 @@ void tablet_load_stats_key_prefix(const TabletLoadStatsKeyInfo& in, std::string*
     encode_int64(std::get<1>(in), out);             // tablet_id
 }
 
-void tablet_load_stats_key(const TabletLoadStatsKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "stats" ${instance_id} "tablet_load" ${tablet_id}
-    tablet_load_stats_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
-}
-
-void tablet_compact_stats_key_prefix(const TabletCompactStatsKeyInfo& in, std::string* out) {
+void tablet_compact_stats_key(const TabletCompactStatsKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(STATS_KEY_PREFIX, out);               // "stats"
     encode_bytes(std::get<0>(in), out);                // instance_id
@@ -650,17 +633,10 @@ void tablet_compact_stats_key_prefix(const TabletCompactStatsKeyInfo& in, std::s
     encode_int64(std::get<1>(in), out);                // tablet_id
 }
 
-void tablet_compact_stats_key(const TabletCompactStatsKeyInfo& in, Versionstamp v,
-                              std::string* out) {
-    // 0x03 "stats" ${instance_id} "tablet_compact" ${tablet_id}
-    tablet_compact_stats_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
-}
-
 //==============================================================================
 // Meta keys
 //==============================================================================
-void meta_partition_key_prefix(const MetaPartitionKeyInfo& in, std::string* out) {
+void meta_partition_key(const MetaPartitionKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(META_KEY_PREFIX, out);          // "meta"
     encode_bytes(std::get<0>(in), out);          // instance_id
@@ -668,13 +644,7 @@ void meta_partition_key_prefix(const MetaPartitionKeyInfo& in, std::string* out)
     encode_int64(std::get<1>(in), out);          // partition_id
 }
 
-void meta_partition_key(const MetaPartitionKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "meta" ${instance_id} "partition" ${partition_id}
-    meta_partition_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
-}
-
-void meta_index_key_prefix(const MetaIndexKeyInfo& in, std::string* out) {
+void meta_index_key(const MetaIndexKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(META_KEY_PREFIX, out);      // "meta"
     encode_bytes(std::get<0>(in), out);      // instance_id
@@ -682,24 +652,12 @@ void meta_index_key_prefix(const MetaIndexKeyInfo& in, std::string* out) {
     encode_int64(std::get<1>(in), out);      // index_id
 }
 
-void meta_index_key(const MetaIndexKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "meta" ${instance_id} "index" ${index_id}
-    meta_index_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
-}
-
-void meta_tablet_key_prefix(const versioned::MetaTabletKeyInfo& in, std::string* out) {
+void meta_tablet_key(const versioned::MetaTabletKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(META_KEY_PREFIX, out);       // "meta"
     encode_bytes(std::get<0>(in), out);       // instance_id
     encode_bytes(META_KEY_INFIX_TABLET, out); // "tablet"
     encode_int64(std::get<1>(in), out);       // tablet_id
-}
-
-void meta_tablet_key(const versioned::MetaTabletKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "meta" ${instance_id} "tablet" ${tablet_id}
-    meta_tablet_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
 }
 
 void meta_schema_key(const versioned::MetaSchemaKeyInfo& in, std::string* out) {
@@ -711,7 +669,7 @@ void meta_schema_key(const versioned::MetaSchemaKeyInfo& in, std::string* out) {
     encode_int64(std::get<2>(in), out);       // schema_version
 }
 
-void meta_rowset_load_key_prefix(const MetaRowsetLoadKeyInfo& in, std::string* out) {
+void meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(META_KEY_PREFIX, out);            // "meta"
     encode_bytes(std::get<0>(in), out);            // instance_id
@@ -720,25 +678,13 @@ void meta_rowset_load_key_prefix(const MetaRowsetLoadKeyInfo& in, std::string* o
     encode_int64(std::get<2>(in), out);            // version
 }
 
-void meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "meta" ${instance_id} "rowset_load" ${tablet_id} ${version}
-    meta_rowset_load_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
-}
-
-void meta_rowset_compact_key_prefix(const MetaRowsetCompactKeyInfo& in, std::string* out) {
+void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(META_KEY_PREFIX, out);               // "meta"
     encode_bytes(std::get<0>(in), out);               // instance_id
     encode_bytes(META_ROWSET_COMPACT_KEY_INFIX, out); // "rowset_compact"
     encode_int64(std::get<1>(in), out);               // tablet_id
     encode_int64(std::get<2>(in), out);               // version
-}
-
-void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "meta" ${instance_id} "rowset_compact" ${tablet_id} ${version}
-    meta_rowset_compact_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
 }
 
 //==============================================================================
@@ -756,17 +702,11 @@ void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string*
 //==============================================================================
 // Snapshot keys
 //==============================================================================
-void snapshot_full_key_prefix(const SnapshotFullKeyInfo& in, std::string* out) {
+void snapshot_full_key(const SnapshotFullKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(SNAPSHOT_KEY_PREFIX, out);     // "snapshot"
     encode_bytes(std::get<0>(in), out);         // instance_id
     encode_bytes(SNAPSHOT_FULL_KEY_INFIX, out); // "full"
-}
-
-void snapshot_full_key(const SnapshotFullKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "snapshot" ${instance_id} "full"
-    snapshot_full_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
 }
 
 void snapshot_reference_key(const SnapshotReferenceKeyInfo& in, std::string* out) {
@@ -781,16 +721,10 @@ void snapshot_reference_key(const SnapshotReferenceKeyInfo& in, std::string* out
 //==============================================================================
 // Log keys
 //==============================================================================
-void log_key_prefix(const LogKeyInfo& in, std::string* out) {
+void log_key(const LogKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(LOG_KEY_PREFIX, out);  // "log"
     encode_bytes(std::get<0>(in), out); // instance_id
-}
-
-void log_key(const LogKeyInfo& in, Versionstamp v, std::string* out) {
-    // 0x03 "log" ${instance_id}
-    log_key_prefix(in, out);
-    encode_versionstamp(v, out); // versionstamp
 }
 
 } // namespace versioned
@@ -824,5 +758,20 @@ int decode_key(std::string_view* in,
     }
     return 0;
 }
-
+//==================================================================================
+// Key Prefix Map
+//==================================================================================
+std::set<std::string> get_key_prefix_contants() {
+    std::set<std::string> key_prefix_set;
+    key_prefix_set.insert(INSTANCE_KEY_PREFIX);
+    key_prefix_set.insert(TXN_KEY_PREFIX);
+    key_prefix_set.insert(VERSION_KEY_PREFIX);
+    key_prefix_set.insert(META_KEY_PREFIX);
+    key_prefix_set.insert(RECYCLE_KEY_PREFIX);
+    key_prefix_set.insert(STATS_KEY_PREFIX);
+    key_prefix_set.insert(JOB_KEY_PREFIX);
+    key_prefix_set.insert(COPY_KEY_PREFIX);
+    key_prefix_set.insert(VAULT_KEY_PREFIX);
+    return key_prefix_set;
+}
 } // namespace doris::cloud
