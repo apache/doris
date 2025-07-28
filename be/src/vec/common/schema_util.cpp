@@ -315,9 +315,6 @@ Status check_variant_has_no_ambiguous_paths(const PathsInData& tuple_paths) {
         path_groups[tuple_paths[i].get_path()].push_back(i);
         // print part of tuple_paths[i]
         VLOG_DEBUG << "tuple_paths[i]: " << tuple_paths[i].get_path();
-        for (const auto& part : tuple_paths[i].get_parts()) {
-            VLOG_DEBUG << "part: " << part.key << ", is_nested: " << part.is_nested;
-        }
     }
 
     // Only compare paths within the same group
@@ -344,10 +341,10 @@ Status check_variant_has_no_ambiguous_paths(const PathsInData& tuple_paths) {
 }
 
 Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
-                                  TabletSchemaSPtr& common_schema, bool update_sparse_column,
-                                  int32_t variant_col_unique_id,
-                                  const std::map<std::string, TabletColumnPtr>& typed_columns,
-                                  std::set<PathInData>* path_set) {
+                                    TabletSchemaSPtr& common_schema, bool update_sparse_column,
+                                    int32_t variant_col_unique_id,
+                                    const std::map<std::string, TabletColumnPtr>& typed_columns,
+                                    std::set<PathInData>* path_set) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
     CHECK(common_schema.use_count() == 1);
@@ -412,8 +409,8 @@ Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subco
 }
 
 Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                std::set<PathInData>* path_set) {
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  std::set<PathInData>* path_set) {
     std::map<std::string, TabletColumnPtr> typed_columns;
     for (const TabletColumnPtr& col :
          common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
@@ -457,13 +454,13 @@ Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
             }
         }
     }
-    return update_least_schema_internal(subcolumns_types, common_schema, false, variant_col_unique_id,
-                                 typed_columns, path_set);
+    return update_least_schema_internal(subcolumns_types, common_schema, false,
+                                        variant_col_unique_id, typed_columns, path_set);
 }
 
 Status update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                const std::set<PathInData>& path_set) {
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  const std::set<PathInData>& path_set) {
     std::map<std::string, TabletColumnPtr> typed_columns;
     for (const TabletColumnPtr& col :
          common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
@@ -487,8 +484,8 @@ Status update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
             }
         }
     }
-    return update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id,
-                                 typed_columns);
+    return update_least_schema_internal(subcolumns_types, common_schema, true,
+                                        variant_col_unique_id, typed_columns);
 }
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,

@@ -26,14 +26,19 @@
 #include "testutil/variant_util.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_object.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/schema_util.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time_v2.h"
+#include "vec/json/json_parser.h"
 
 using namespace doris::vectorized;
 
@@ -2157,4 +2162,38 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
         // This should succeed since the paths are the same and we're just checking for structure conflicts
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
+}
+
+TEST_F(SchemaUtilTest, parse_variant_columns_ambiguous_paths) {
+    using namespace doris::vectorized;
+    // Prepare the string column with two rows
+    auto string_col = ColumnString::create();
+    string_col->insert(doris::vectorized::Field::create_field<TYPE_STRING>(
+            String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}")));
+    string_col->insert(doris::vectorized::Field::create_field<TYPE_STRING>(
+            String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}")));
+    auto string_type = std::make_shared<DataTypeString>();
+
+    // Prepare the variant column with the string column as root
+    vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
+    dynamic_subcolumns.create_root(
+            vectorized::ColumnObject::Subcolumn(string_col->assume_mutable(), string_type, true));
+
+    auto variant_col = ColumnObject::create(std::move(dynamic_subcolumns), true);
+    auto variant_type = std::make_shared<DataTypeObject>();
+
+    // Construct the block
+    Block block;
+    block.insert(
+            vectorized::ColumnWithTypeAndName(variant_col->assume_mutable(), variant_type, "v"));
+
+    // The variant column is at index 0
+    std::vector<int> variant_pos = {0};
+    ParseConfig config;
+    config.enable_flatten_nested = true;
+
+    // Should throw due to ambiguous paths
+    Status st = schema_util::parse_variant_columns(block, variant_pos, config);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("Ambiguous paths") != std::string::npos);
 }
