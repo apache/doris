@@ -244,8 +244,19 @@ public class HyperGraphComparator {
     }
 
     private boolean compareNodeWithExpr(StructInfoNode query, StructInfoNode view) {
-        List<Set<Expression>> queryExprSetList = query.getExprSetList();
-        List<Set<Expression>> viewExprSetList = view.getExprSetList();
+        Pair<List<Set<Expression>>, List<Set<Expression>>> queryExprSetList = query.getExprSetList();
+        Pair<List<Set<Expression>>, List<Set<Expression>>> viewExprSetList = view.getExprSetList();
+        if (queryExprSetList == null || viewExprSetList == null) {
+            return false;
+        }
+        return compareNodeWithExpr(query, ExpressionPosition.NODE_COULD_MOVE,
+                queryExprSetList.key(), viewExprSetList.key())
+                && compareNodeWithExpr(query, ExpressionPosition.NODE_COULD_NOT_MOVE,
+                queryExprSetList.value(), viewExprSetList.value());
+    }
+
+    private boolean compareNodeWithExpr(StructInfoNode query, ExpressionPosition expressionPosition,
+            List<Set<Expression>> queryExprSetList, List<Set<Expression>> viewExprSetList) {
         if (queryExprSetList == null || viewExprSetList == null
                 || queryExprSetList.size() != viewExprSetList.size()) {
             return false;
@@ -256,8 +267,7 @@ public class HyperGraphComparator {
             Set<Expression> mappingQueryExprSet = new HashSet<>();
             for (Expression queryExpression : queryExpressions) {
                 Optional<Expression> mappingViewExprByQueryExpr = getMappingViewExprByQueryExpr(queryExpression, query,
-                        this.logicalCompatibilityContext,
-                        ExpressionPosition.NODE);
+                        this.logicalCompatibilityContext, expressionPosition);
                 if (!mappingViewExprByQueryExpr.isPresent()) {
                     return false;
                 }
@@ -619,9 +629,12 @@ public class HyperGraphComparator {
         } else if (ExpressionPosition.FILTER_EDGE.equals(expressionPosition)) {
             queryShuttledExpr = context.getQueryFilterShuttledExpr(queryExpression);
             viewExpressions = context.getViewFilterExprFromQuery(queryShuttledExpr);
+        } else if (ExpressionPosition.NODE_COULD_MOVE.equals(expressionPosition)) {
+            queryShuttledExpr = context.getQueryNodeShuttledCouldMoveExpr(queryExpression);
+            viewExpressions = context.getViewNodeCouldMoveExprFromQuery(queryShuttledExpr);
         } else {
-            queryShuttledExpr = context.getQueryNodeShuttledExpr(queryExpression);
-            viewExpressions = context.getViewNodeExprFromQuery(queryShuttledExpr);
+            queryShuttledExpr = context.getQueryNodeShuttledCouldNotMoveExpr(queryExpression);
+            viewExpressions = context.getViewNodeCouldNotMoveExprFromQuery(queryShuttledExpr);
         }
         if (viewExpressions.size() == 1) {
             return Optional.of(viewExpressions.iterator().next().key());

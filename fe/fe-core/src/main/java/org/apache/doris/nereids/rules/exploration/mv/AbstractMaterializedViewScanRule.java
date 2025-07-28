@@ -81,6 +81,6 @@ public abstract class AbstractMaterializedViewScanRule extends AbstractMateriali
     protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(ImmutableSet.of());
         return structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, checkContext)
-                && !checkContext.isContainsTopAggregate();
+                && !checkContext.isContainsTopAggregate() && !checkContext.isContainsTopWindow();
     }
 }
