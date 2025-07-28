@@ -294,7 +294,7 @@ PhysicalResultSink
 -- !subquery_9_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalExcept RFV2: RF0[k->cast(x as BIGINT)]
+----PhysicalExcept RFV2: RF0[b->y]
 ------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
 --------filter(((cast(a as BIGINT) * 10) = 10))
 ----------PhysicalOlapScan[t1]
@@ -311,13 +311,13 @@ PhysicalResultSink
 -- !subquery_10_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalIntersect RFV2: RF0[k->(cast(a as BIGINT) * 10)]
-------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
---------filter((t2.x = 10))
-----------PhysicalOlapScan[t2]
+----PhysicalIntersect RFV2: RF0[b->y]
 ------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
 --------filter(((cast(a as BIGINT) * 10) = 10))
-----------PhysicalOlapScan[t1] RFV2: RF0
+----------PhysicalOlapScan[t1]
+------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
+--------filter((t2.x = 10))
+----------PhysicalOlapScan[t2] RFV2: RF0
 ----PhysicalProject[t3.a]
 ------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 2))
 --------PhysicalOlapScan[t3]

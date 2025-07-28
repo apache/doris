@@ -1039,7 +1039,6 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("rewrittenProjectList: ").append(
                     getExplainString(rewrittenProjectList)).append("\n");
         }
-        output.append(prefix).append("desc: ").append(desc.getId().asInt()).append("\n");
         return output.toString();
     }
 
@@ -1106,6 +1105,16 @@ public class OlapScanNode extends ScanNode {
                 columnsDesc.add(tColumn);
             }
         }
+
+        // Add virtual column to ColumnsDesc so that backend could
+        // get correct table_schema.
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getVirtualColumn() != null) {
+                TColumn tColumn = slot.getColumn().toThrift();
+                columnsDesc.add(tColumn);
+            }
+        }
+
         for (Index index : olapTable.getIndexes()) {
             TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(olapTable.getBaseSchema()));
             indexDesc.add(tIndex);
@@ -1274,6 +1283,19 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
+        // Update SlotDescriptor before construction of thrift message.
+        int virtualColumnIdx = 0;
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getVirtualColumn() != null) {
+                virtualColumnIdx++;
+                // Set the name of virtual column to be unique.
+                Column column = new Column("__DORIS_VIRTUAL_COL__" + virtualColumnIdx, slot.getType());
+                // Just make sure the unique id is not conflict with other columns.
+                column.setUniqueId(Integer.MAX_VALUE - virtualColumnIdx);
+                column.setIsAllowNull(slot.getIsNullable());
+                slot.setColumn(column);
+            }
+        }
     }
 
     private void computeStatsForNereids() {
@@ -1303,6 +1325,24 @@ public class OlapScanNode extends ScanNode {
         for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
             if (requiredByProjectSlotIdSet.contains(slot.getId()) && slot.getColumn() != null) {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+            }
+        }
+        for (SlotDescriptor virtualSlot : context.getTupleDesc(this.getTupleId()).getSlots()) {
+            Expr virtualColumn = virtualSlot.getVirtualColumn();
+            if (virtualColumn == null) {
+                continue;
+            }
+            Set<Expr> slotRefs = Sets.newHashSet();
+            virtualColumn.collect(e -> e instanceof SlotRef, slotRefs);
+            Set<SlotId> virtualColumnInputSlotIds = slotRefs.stream()
+                    .filter(s -> s instanceof SlotRef)
+                    .map(s -> (SlotRef) s)
+                    .map(SlotRef::getSlotId)
+                    .collect(Collectors.toSet());
+            for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
+                if (virtualColumnInputSlotIds.contains(slot.getId()) && slot.getColumn() != null) {
+                    outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+                }
             }
         }
     }

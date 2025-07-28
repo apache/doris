@@ -88,7 +88,7 @@ public class CreateEncryptKeyTest {
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
         UnionNode unionNode =  (UnionNode) fragment.getPlanRoot();
-        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
+        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "materializedConstExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);

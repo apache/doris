@@ -136,6 +136,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
+import org.apache.doris.nereids.rules.rewrite.PushDownVirtualColumnsIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
@@ -532,6 +533,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new MergeProjectable()
                 )),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
+                topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topic("topn optimize",
                         topDown(new DeferMaterializeTopNResult())
                 ),
