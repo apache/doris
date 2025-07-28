@@ -56,7 +56,7 @@ import java.util.Set;
 /** SqlCacheContext */
 public class SqlCacheContext {
     private final UserIdentity userIdentity;
-    private final TUniqueId queryId;
+    private volatile TUniqueId queryId;
     // if contains udf/udaf/tableValuesFunction we can not process it and skip use sql cache
     private volatile boolean cannotProcessExpression;
     private volatile String originSql;
@@ -95,9 +95,8 @@ public class SqlCacheContext {
 
     private volatile CacheKeyType cacheKeyType = CacheKeyType.SQL;
 
-    public SqlCacheContext(UserIdentity userIdentity, TUniqueId queryId) {
+    public SqlCacheContext(UserIdentity userIdentity) {
         this.userIdentity = Objects.requireNonNull(userIdentity, "userIdentity cannot be null");
-        this.queryId = Objects.requireNonNull(queryId, "queryId cannot be null");
     }
 
     public String getPhysicalPlan() {
@@ -420,6 +419,10 @@ public class SqlCacheContext {
 
     public void setCacheKeyType(CacheKeyType cacheKeyType) {
         this.cacheKeyType = cacheKeyType;
+    }
+
+    public void setQueryId(TUniqueId queryId) {
+        this.queryId = queryId;
     }
 
     /** FullTableName */

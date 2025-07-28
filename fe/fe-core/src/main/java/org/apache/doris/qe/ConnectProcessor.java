@@ -225,6 +225,7 @@ public abstract class ConnectProcessor {
 
     // only throw an exception when there is a problem interacting with the requesting client
     protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) throws ConnectionException {
+        ctx.resetQueryId();
         try {
             executeQuery(mysqlCommand, originStmt);
         } catch (ConnectionException exception) {
