@@ -190,6 +190,7 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
     ptr->ensure_root_node_type(expected_root_type);
 
     DCHECK_EQ(ptr->get_root()->get_ptr()->size(), num_rows);
+    converter->add_column_data_convertor(*_tablet_column);
     const uint8_t* nullmap = nullptr;
     auto& nullable_column =
             assert_cast<vectorized::ColumnNullable&>(*ptr->get_root()->assume_mutable());
@@ -217,7 +218,7 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
     ++column_id;
 
     _opts.meta->set_num_rows(num_rows);
-    return Status::OK(); 
+    return Status::OK();
 }
 
 Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* ptr,
