@@ -196,8 +196,6 @@ TEST_F(SortTest, test_sorter) {
 
     sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
-    sort_exec_exprs._need_convert_to_nullable_flags = {true, false};
-
     sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
                                        *row_desc, nullptr, nullptr);
 

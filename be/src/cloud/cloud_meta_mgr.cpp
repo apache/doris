@@ -574,7 +574,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 std::uniform_int_distribution<uint32_t> u(20, 200);
                 std::uniform_int_distribution<uint32_t> u1(500, 1000);
                 uint32_t duration_ms = tried >= 100 ? u(rng) : u1(rng);
-                std::this_thread::sleep_for(milliseconds(duration_ms));
+                bthread_usleep(duration_ms * 1000);
                 LOG_INFO("failed to get rowset meta")
                         .tag("reason", cntl.ErrorText())
                         .tag("tablet_id", tablet_id)

@@ -164,6 +164,7 @@ import org.apache.doris.master.PartitionInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVPartitionExprFactory;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
@@ -191,8 +192,10 @@ import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
+import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
@@ -200,6 +203,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -1974,7 +1978,6 @@ public class Env {
 
         dnsCache.start();
 
-        workloadGroupMgr.start();
         workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
         admissionControl.start();
@@ -3479,6 +3482,35 @@ public class Env {
      * @return if CreateTableStmt.isIfNotExists is true, return true if table already exists
      * otherwise return false
      */
+    public boolean createTable(CreateTableCommand command) throws UserException {
+        org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo createTableInfo =
+                command.getCreateTableInfo();
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(createTableInfo.getCtlName(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        return catalogIf.createTable(command);
+    }
+
+    /**
+     * Following is the step to create an olap table:
+     * 1. create columns
+     * 2. create partition info
+     * 3. create distribution info
+     * 4. set table id and base index id
+     * 5. set bloom filter columns
+     * 6. set and build TableProperty includes:
+     * 6.1. dynamicProperty
+     * 6.2. replicationNum
+     * 6.3. inMemory
+     * 6.4. storageFormat
+     * 6.5. compressionType
+     * 7. set index meta
+     * 8. check colocation properties
+     * 9. create tablet in BE
+     * 10. add this table to FE's meta
+     * 11. add this table to ColocateGroup if necessary
+     * @return if CreateTableStmt.isIfNotExists is true, return true if table already exists
+     * otherwise return false
+     */
     public boolean createTable(CreateTableStmt stmt) throws UserException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
@@ -3595,7 +3627,7 @@ public class Env {
         }
     }
 
-    private static void addMTMVPartitionInfo(MTMV mtmv, StringBuilder sb) {
+    private static void addMTMVPartitionInfo(MTMV mtmv, StringBuilder sb) throws AnalysisException {
         MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return;
@@ -3604,7 +3636,7 @@ public class Env {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
             sb.append("`" + mvPartitionInfo.getPartitionCol() + "`");
         } else {
-            sb.append(mvPartitionInfo.getExpr().toSql());
+            sb.append(MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr()).toSql(mvPartitionInfo));
         }
         sb.append(")");
     }
@@ -4342,6 +4374,15 @@ public class Env {
     }
 
     // Drop table
+    public void dropTable(DropMTMVCommand command) throws DdlException {
+        if (command == null) {
+            throw new DdlException("DropMTMVCommand is null");
+        }
+        DropMTMVInfo dropMTMVInfo = command.getDropMTMVInfo();
+        dropTable(dropMTMVInfo.getCatalogName(), dropMTMVInfo.getDbName(), dropMTMVInfo.getTableName(), false,
+                true, dropMTMVInfo.isIfExists(), true);
+    }
+
     public void dropTable(DropTableStmt stmt) throws DdlException {
         if (stmt == null) {
             throw new DdlException("DropTableStmt is null");

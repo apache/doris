@@ -326,7 +326,7 @@ public class DescribeCommand extends ShowCommand {
                                     "",
                                     "",
                                     column.getName(),
-                                    column.getOriginType().toString(),
+                                    column.getOriginType().hideVersionForVersionColumn(true),
                                     column.getOriginType().toString(),
                                     column.isAllowNull() ? "Yes" : "No",
                                     ((Boolean) column.isKey()).toString(),
@@ -337,28 +337,6 @@ public class DescribeCommand extends ShowCommand {
                                     ((Boolean) column.isVisible()).toString(),
                                     defineExprStr,
                                     "");
-
-                            if (column.getOriginType().isDatetimeV2()) {
-                                StringBuilder typeStr = new StringBuilder("DATETIME");
-                                if (((ScalarType) column.getOriginType()).getScalarScale() > 0) {
-                                    typeStr.append("(").append(((ScalarType) column.getOriginType()).getScalarScale())
-                                        .append(")");
-                                }
-                                row.set(3, typeStr.toString());
-                            } else if (column.getOriginType().isDateV2()) {
-                                row.set(3, "DATE");
-                            } else if (column.getOriginType().isDecimalV3()) {
-                                StringBuilder typeStr = new StringBuilder("DECIMAL");
-                                ScalarType sType = (ScalarType) column.getOriginType();
-                                int scale = sType.getScalarScale();
-                                int precision = sType.getScalarPrecision();
-                                // not default
-                                if (scale > 0 && precision != 9) {
-                                    typeStr.append("(").append(precision).append(", ").append(scale)
-                                        .append(")");
-                                }
-                                row.set(3, typeStr.toString());
-                            }
 
                             if (j == 0) {
                                 row.set(0, indexName);

@@ -22,7 +22,6 @@ import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMTMVStmt;
@@ -111,8 +110,6 @@ public class ShowExecutor {
             handleShowIndexPolicy();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
-        } else if (stmt instanceof ShowAnalyzeTaskStatus) {
-            handleShowAnalyzeTaskStatus();
         } else {
             handleEmtpy();
         }
@@ -477,32 +474,6 @@ public class ShowExecutor {
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
-    }
-
-    private void handleShowAnalyzeTaskStatus() {
-        ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
-        AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(showStmt.getJobId());
-        TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(showStmt.getJobId());
-        List<List<String>> rows = new ArrayList<>();
-        for (AnalysisInfo analysisInfo : analysisInfos) {
-            List<String> row = new ArrayList<>();
-            row.add(String.valueOf(analysisInfo.taskId));
-            row.add(analysisInfo.colName);
-            if (table instanceof OlapTable && analysisInfo.indexId != -1) {
-                row.add(((OlapTable) table).getIndexNameById(analysisInfo.indexId));
-            } else {
-                row.add(table.getName());
-            }
-            row.add(analysisInfo.message);
-            row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
-                            ZoneId.systemDefault())));
-            row.add(String.valueOf(analysisInfo.timeCostInMs));
-            row.add(analysisInfo.state.toString());
-            rows.add(row);
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void checkStmtSupported() throws AnalysisException {

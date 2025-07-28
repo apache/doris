@@ -212,6 +212,7 @@ import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.FunctionArgumentsContext;
 import org.apache.doris.nereids.DorisParser.FunctionIdentifierContext;
+import org.apache.doris.nereids.DorisParser.GroupConcatContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
@@ -3030,50 +3031,69 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Expression visitGroupConcat(GroupConcatContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            boolean isDistinct = ctx.DISTINCT() != null;
+            List<Expression> params = Lists.newArrayList();
+            params.addAll(visit(ctx.expression(), Expression.class));
+            List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
+            params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
+            return processUnboundFunction(ctx, null, "group_concat", isDistinct, params,
+                    ctx.windowSpec(), ctx.identifier());
+        });
+    }
+
+    @Override
     public Expression visitFunctionCallExpression(DorisParser.FunctionCallExpressionContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
+            String dbName = null;
+            if (ctx.functionIdentifier().dbName != null) {
+                dbName = ctx.functionIdentifier().dbName.getText();
+            }
             String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = Lists.newArrayList();
             params.addAll(visit(ctx.expression(), Expression.class));
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
-            boolean isSkew = ctx.identifier() != null && ctx.identifier().getText().equalsIgnoreCase("skew");
-
-            List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
-            if (!unboundStars.isEmpty()) {
-                if (ctx.functionIdentifier().dbName == null && functionName.equalsIgnoreCase("count")) {
-                    if (unboundStars.size() > 1) {
-                        throw new ParseException(
-                                "'*' can only be used once in conjunction with COUNT: " + functionName, ctx);
-                    }
-                    if (!unboundStars.get(0).getQualifier().isEmpty()) {
-                        throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
-                    }
-                    if (ctx.windowSpec() != null) {
-                        return withWindowSpec(ctx.windowSpec(), new Count());
-                    }
-                    return new Count();
-                }
-                throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
-            } else {
-                String dbName = null;
-                if (ctx.functionIdentifier().dbName != null) {
-                    dbName = ctx.functionIdentifier().dbName.getText();
-                }
-                UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params, isSkew);
-                if (ctx.windowSpec() != null) {
-                    if (isDistinct
-                            && !("count".equalsIgnoreCase(functionName))
-                            && !("sum".equalsIgnoreCase(functionName))
-                            && !("group_concat".equalsIgnoreCase(functionName))) {
-                        throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
-                    }
-                    return withWindowSpec(ctx.windowSpec(), function);
-                }
-                return function;
-            }
+            return processUnboundFunction(ctx, dbName, functionName, isDistinct, params,
+                    ctx.windowSpec(), ctx.identifier());
         });
+    }
+
+    private Expression processUnboundFunction(ParserRuleContext ctx, String dbName, String functionName,
+            boolean isDistinct, List<Expression> params,
+            WindowSpecContext windowContext, IdentifierContext hintContext) {
+        List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
+        if (!unboundStars.isEmpty()) {
+            if (dbName == null && functionName.equalsIgnoreCase("count")) {
+                if (unboundStars.size() > 1) {
+                    throw new ParseException(
+                            "'*' can only be used once in conjunction with COUNT: " + functionName, ctx);
+                }
+                if (!unboundStars.get(0).getQualifier().isEmpty()) {
+                    throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
+                }
+                if (windowContext != null) {
+                    return withWindowSpec(windowContext, new Count());
+                }
+                return new Count();
+            }
+            throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
+        } else {
+            boolean isSkew = hintContext != null && hintContext.getText().equalsIgnoreCase("skew");
+            UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params, isSkew);
+            if (windowContext != null) {
+                if (isDistinct
+                        && !("count".equalsIgnoreCase(functionName))
+                        && !("sum".equalsIgnoreCase(functionName))
+                        && !("group_concat".equalsIgnoreCase(functionName))) {
+                    throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
+                }
+                return withWindowSpec(windowContext, function);
+            }
+            return function;
+        }
     }
 
     /**
