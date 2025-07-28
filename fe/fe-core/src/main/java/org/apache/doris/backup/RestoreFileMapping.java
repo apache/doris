@@ -36,7 +36,7 @@ import java.util.Map;
 public class RestoreFileMapping implements Writable {
 
     public static class IdChain {
-        // tblId, partId, idxId, tabletId, replicaId
+        // tblId, partId, idxId, tabletId, replicaId, (refTabletId)
         @SerializedName("c")
         private Long[] chain;
 

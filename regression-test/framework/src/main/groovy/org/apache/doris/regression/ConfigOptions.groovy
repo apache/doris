@@ -77,6 +77,7 @@ class ConfigOptions {
     static Option withOutLoadDataOpt
     static Option runNonConcurrentOpt
     static Option caseNamePrefixOpt
+    static Option validateBackupPrefixOpt
     static Option dryRunOpt
     static Option isSmokeTestOpt
     static Option multiClusterBesOpt
@@ -499,6 +500,13 @@ class ConfigOptions {
                 .longOpt("caseNamePrefix")
                 .desc("add prefix to each case name")
                 .build()
+        validateBackupPrefixOpt = Option.builder("vbp")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("validateBackupPrefix")
+                .desc("prefix of validate backup path")
+                .build()
         dryRunOpt = Option.builder("dryRun")
                 .required(false)
                 .hasArg(false)
@@ -650,6 +658,7 @@ class ConfigOptions {
                 .addOption(withOutLoadDataOpt)
                 .addOption(runNonConcurrentOpt)
                 .addOption(caseNamePrefixOpt)
+                .addOption(validateBackupPrefixOpt)
                 .addOption(dryRunOpt)
                 .addOption(isSmokeTestOpt)
                 .addOption(multiClusterBesOpt)

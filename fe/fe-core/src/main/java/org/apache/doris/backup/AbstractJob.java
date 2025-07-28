@@ -86,6 +86,8 @@ public abstract class AbstractJob implements Writable {
     // task signature -> <finished num / total num>
     protected Map<Long, Pair<Integer, Integer>> taskProgress = Maps.newConcurrentMap();
 
+    protected Map<Long, Long> unfinishedSignatureToId = Maps.newConcurrentMap();
+
     protected boolean isTypeRead = false;
 
     // save err msg of tasks
