@@ -81,6 +81,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     protected String jdbcDriverVersion;
     private static final Map<URL, ClassLoader> classLoaderMap = Maps.newConcurrentMap();
 
+    // col name(lowercase) -> index in resultSetMetaData
+    private Map<String, Integer> resultSetColumnMap = null;
+
     public BaseJdbcExecutor(byte[] thriftParams) throws Exception {
         setJdbcDriverSystemProperties();
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -218,27 +221,19 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             int outputColumnCount = outputTable.getColumns().length;
             initializeBlock(outputColumnCount, replaceStringList, batchSize, outputTable);
 
-            Map<String, Integer> resultSetColumnMap = new HashMap<>();
-            int resultSetColumnCount = resultSetMetaData.getColumnCount();
-            for (int i = 1; i <= resultSetColumnCount; i++) {
-                String columnName = resultSetMetaData.getColumnName(i).trim().toLowerCase();
-                resultSetColumnMap.put(columnName, i);
-            }
-
-            Map<String, Integer> columnIndexMap = new HashMap<>();
-            for (int j = 0; j < outputColumnCount; j++) {
-                String outputColumnName = outputTable.getFields()[j].trim().toLowerCase();
-                Integer resultSetIndex = resultSetColumnMap.get(outputColumnName);
-                if (resultSetIndex == null) {
-                    throw new RuntimeException("Column not found: " + outputColumnName);
+            if (this.resultSetColumnMap == null) {
+                this.resultSetColumnMap = new HashMap<>();
+                int resultSetColumnCount = resultSetMetaData.getColumnCount();
+                for (int i = 1; i <= resultSetColumnCount; i++) {
+                    String columnName = resultSetMetaData.getColumnName(i).trim().toLowerCase();
+                    resultSetColumnMap.put(columnName, i);
                 }
-                columnIndexMap.put(outputColumnName, resultSetIndex - 1);
             }
 
             do {
                 for (int j = 0; j < outputColumnCount; ++j) {
                     String outputColumnName = outputTable.getFields()[j];
-                    Integer columnIndex = columnIndexMap.get(outputColumnName.toLowerCase());
+                    Integer columnIndex = resultSetColumnMap.get(outputColumnName.toLowerCase());
 
                     if (columnIndex != null) {
                         ColumnType type = convertTypeIfNecessary(j, outputTable.getColumnType(j), replaceStringList);
@@ -252,7 +247,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
             for (int j = 0; j < outputColumnCount; ++j) {
                 String outputColumnName = outputTable.getFields()[j];
-                Integer columnIndex = columnIndexMap.get(outputColumnName.toLowerCase());
+                Integer columnIndex = resultSetColumnMap.get(outputColumnName.toLowerCase());
 
                 if (columnIndex != null) {
                     ColumnType type = outputTable.getColumnType(j);
@@ -717,4 +712,5 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return hexString.toString();
     }
 }
+
 
