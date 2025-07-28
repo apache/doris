@@ -182,6 +182,7 @@ public:
         }
 
         CastParameters params;
+        params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
         for (size_t i = 0; i < size; i++) {
             if (!CastToInt::from_decimal<typename FromDataType::FieldType,

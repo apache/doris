@@ -65,6 +65,7 @@ public:
         auto* vec_to_data = vec_to.data();
 
         CastParameters params;
+        params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
         for (size_t i = 0; i < size; ++i) {
             CastToFloat::from_decimal(vec_from_data[i], from_scale, vec_to_data[i], params);

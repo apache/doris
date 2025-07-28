@@ -86,9 +86,7 @@ struct CastToDecimal {
 
         auto from_max_int_digit_count = from_precision - from_scale;
         auto to_max_int_digit_count = to_precision - to_scale;
-        bool narrow_integral =
-                (to_max_int_digit_count < from_max_int_digit_count) ||
-                (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
+        bool narrow_integral = (to_max_int_digit_count < from_max_int_digit_count);
         bool multiply_may_overflow = false;
         if (to_scale > from_scale) {
             multiply_may_overflow = (from_precision + to_scale - from_scale) >= to_max_digits;
@@ -122,9 +120,7 @@ struct CastToDecimal {
 
         auto from_max_int_digit_count = from_precision - from_scale;
         auto to_max_int_digit_count = to_precision - to_scale;
-        bool narrow_integral =
-                (to_max_int_digit_count < from_max_int_digit_count) ||
-                (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
+        bool narrow_integral = (to_max_int_digit_count < from_max_int_digit_count);
         bool multiply_may_overflow = false;
         if (to_scale > from_scale) {
             multiply_may_overflow = (from_precision + to_scale - from_scale) >= to_max_digits;
@@ -433,8 +429,8 @@ struct CastToDecimal {
                                  const typename ToCppT::NativeType& min_result,
                                  const typename ToCppT::NativeType& max_result,
                                  CastParameters& params) {
+        MaxNativeType tmp;
         if constexpr (multiply_may_overflow) {
-            MaxNativeType tmp;
             if (common::mul_overflow(static_cast<MaxNativeType>(from), scale_multiplier, tmp)) {
                 if (params.is_strict) {
                     params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, int_type_name<FromCppT>,
@@ -453,10 +449,9 @@ struct CastToDecimal {
             }
             to.value = static_cast<typename ToCppT::NativeType>(tmp);
         } else {
-            to.value = static_cast<typename ToCppT::NativeType>(
-                    scale_multiplier * static_cast<typename ToCppT::NativeType>(from));
+            tmp = scale_multiplier * from;
             if constexpr (narrow_integral) {
-                if (to.value < min_result || to.value > max_result) {
+                if (tmp < min_result || tmp > max_result) {
                     if (params.is_strict) {
                         params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
                                 from, int_type_name<FromCppT>, precision, scale);
@@ -464,6 +459,7 @@ struct CastToDecimal {
                     return false;
                 }
             }
+            to.value = static_cast<typename ToCppT::NativeType>(tmp);
         }
 
         return true;
@@ -537,9 +533,7 @@ public:
 
         auto from_max_int_digit_count = from_precision - from_scale;
         auto to_max_int_digit_count = to_precision - to_scale;
-        bool narrow_integral =
-                (to_max_int_digit_count < from_max_int_digit_count) ||
-                (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
+        bool narrow_integral = (to_max_int_digit_count < from_max_int_digit_count);
         bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
 
         ColumnUInt8::MutablePtr col_null_map_to;
@@ -556,6 +550,7 @@ public:
         auto* vec_to_data = vec_to.data();
 
         CastParameters params;
+        params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
         for (size_t i = 0; i < size; i++) {
             if constexpr (IsDataTypeBool<FromDataType>) {
@@ -639,6 +634,7 @@ public:
         auto* vec_to_data = vec_to.data();
 
         CastParameters params;
+        params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
         for (size_t i = 0; i < size; i++) {
             if (!CastToDecimal::from_float<typename FromDataType::FieldType,
@@ -722,6 +718,7 @@ public:
             null_map_data = col_null_map_to->get_data().data();
         }
         CastParameters params;
+        params.is_strict = (CastMode == CastModeType::StrictMode);
         auto col_to = ToDataType::ColumnType::create(size, to_scale);
         const auto& vec_from = col_from->get_data();
         const auto* vec_from_data = vec_from.data();
@@ -791,6 +788,7 @@ public:
             null_map_data = col_null_map_to->get_data().data();
         }
         CastParameters params;
+        params.is_strict = (CastMode == CastModeType::StrictMode);
         auto col_to = ToDataType::ColumnType::create(size, to_scale);
         const auto& vec_from = col_from->get_data();
         const auto* vec_from_data = vec_from.data();

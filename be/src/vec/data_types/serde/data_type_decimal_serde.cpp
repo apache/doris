@@ -53,6 +53,7 @@ Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, Colum
     auto arg_precision = static_cast<UInt32>(precision);
     auto arg_scale = static_cast<UInt32>(scale);
     CastParameters params;
+    params.is_strict = false;
     for (size_t i = 0; i < row; ++i) {
         size_t next_offset = (*offsets)[i];
         size_t string_size = next_offset - current_offset;
@@ -80,6 +81,7 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
     auto arg_precision = static_cast<UInt32>(precision);
     auto arg_scale = static_cast<UInt32>(scale);
     CastParameters params;
+    params.is_strict = true;
     for (size_t i = 0; i < row; ++i) {
         if (null_map && null_map[i]) {
             continue;
