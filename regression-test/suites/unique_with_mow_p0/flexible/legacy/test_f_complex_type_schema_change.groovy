@@ -106,7 +106,7 @@ suite("test_f_partial_update_complex_type_schema_change", "p0") {
 
             // add new map column
             doSchemaChange """ALTER TABLE ${tableName} ADD COLUMN c_map MAP<string,int> NULL;"""
-            sql """ insert into ${tableName} values(2, "doris3", '{"jsonk3": 333, "jsonk4": 444}', [300, 400], '{"a": 100, "b"}');"""
+            sql """ insert into ${tableName} values(2, "doris3", '{"jsonk3": 333, "jsonk4": 444}', [300, 400], '{"a": 100}');"""
             // update varchar column
             streamLoad {
                 table "${tableName}"
@@ -135,7 +135,7 @@ suite("test_f_partial_update_complex_type_schema_change", "p0") {
 
             // add new struct column
             doSchemaChange """ALTER TABLE ${tableName} ADD COLUMN c_struct STRUCT<a:INT, b:INT> NULL;"""
-            sql """insert into ${tableName} values(2, "doris3", '{"jsonk3": 333, "jsonk4": 444}', [300, 400], '{"a": 100, "b"}', {3, 4})"""
+            sql """insert into ${tableName} values(2, "doris3", '{"jsonk3": 333, "jsonk4": 444}', [300, 400], '{"a": 100}', {3, 4})"""
             // update varchar column
             streamLoad {
                 table "${tableName}"
