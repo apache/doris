@@ -84,6 +84,11 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
     }
 
     @Override
+    public String toSql(MTMVPartitionInfo mvPartitionInfo) {
+        return String.format("date_trunc(`%s`, '%s')", mvPartitionInfo.getPartitionCol(), timeUnit);
+    }
+
+    @Override
     public String getRollUpIdentity(PartitionKeyDesc partitionKeyDesc, Map<String, String> mvProperties)
             throws AnalysisException {
         String res = null;
