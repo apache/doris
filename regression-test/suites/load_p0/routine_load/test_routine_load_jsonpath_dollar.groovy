@@ -27,6 +27,7 @@ suite("test_routine_load_jsonpath_dollar", "p0") {
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
     String kafka_port = context.config.otherConfigs.get("kafka_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    def kafka_broker = "${externalEnvIp}:${kafka_port}"
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         // Send test data to Kafka
