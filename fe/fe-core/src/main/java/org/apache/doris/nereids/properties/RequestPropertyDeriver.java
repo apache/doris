@@ -428,7 +428,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         } else if (agg.getAggPhase().isGlobal()) {
-            if (agg.getPartitionExpressions().isPresent()) {
+            if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
                 addRequestPropertyToChildren(
                         PhysicalProperties.createHash(agg.getPartitionExpressions().get(), ShuffleType.REQUIRE));
                 return null;

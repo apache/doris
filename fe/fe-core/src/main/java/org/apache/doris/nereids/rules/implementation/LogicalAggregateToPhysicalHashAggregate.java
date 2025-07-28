@@ -26,7 +26,9 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Optional;
@@ -37,11 +39,12 @@ import java.util.Optional;
 public class LogicalAggregateToPhysicalHashAggregate extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalAggregate().then(this::implement)
+        return logicalAggregate()
+                .thenApply(ctx -> implement(ctx.root, ctx.connectContext))
                 .toRule(RuleType.LOGICAL_AGGREGATE_TO_PHYSICAL_HASH_AGGREGATE);
     }
 
-    private Plan implement(LogicalAggregate<GroupPlan> logicalAgg) {
+    private Plan implement(LogicalAggregate<GroupPlan> logicalAgg, ConnectContext connectContext) {
         // 这个地方可以控制是否要有一阶段的AGG
         if (!logicalAgg.getAggregateParam().isSplit) {
             if (logicalAgg.isAggregateDistinct()) {
@@ -62,7 +65,8 @@ public class LogicalAggregateToPhysicalHashAggregate extends OneImplementationRu
         }
         // 这个maybeUsingStream看下从logical agg中删除掉,然后在这里直接设置到physical agg上
         return new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), logicalAgg.getOutputExpressions(),
-                logicalAgg.getPartitionExpressions(), logicalAgg.getAggregateParam(), logicalAgg.maybeUsingStream(),
+                logicalAgg.getPartitionExpressions(), logicalAgg.getAggregateParam(),
+                AggregateUtils.maybeUsingStreamAgg(connectContext, logicalAgg),
                 Optional.empty(), logicalAgg.getLogicalProperties(), null,
                 logicalAgg.child());
     }

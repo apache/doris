@@ -72,6 +72,7 @@ public class AggregateUtils {
     public static boolean maybeUsingStreamAgg(
             ConnectContext connectContext, LogicalAggregate<? extends Plan> logicalAggregate) {
         return !connectContext.getSessionVariable().disableStreamPreaggregations
-                && !logicalAggregate.getGroupByExpressions().isEmpty();
+                && !logicalAggregate.getGroupByExpressions().isEmpty()
+                && logicalAggregate.getAggregateParam().aggPhase.isLocal();
     }
 }
