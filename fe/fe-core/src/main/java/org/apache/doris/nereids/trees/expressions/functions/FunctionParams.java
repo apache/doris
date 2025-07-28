@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import java.util.List;
 import java.util.Optional;
@@ -45,7 +46,8 @@ public class FunctionParams {
     public FunctionParams(
             @Nullable BoundFunction originFunction, String functionName,
             List<Expression> arguments, boolean inferred) {
-        this.originFunction = Optional.ofNullable(originFunction);
+        this.originFunction = MoreFieldsThread.isKeepFunctionSignature()
+                ? Optional.ofNullable(originFunction) : Optional.empty();
         this.functionName = functionName;
         this.arguments = arguments;
         this.inferred = inferred;
