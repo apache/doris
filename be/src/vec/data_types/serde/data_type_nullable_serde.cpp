@@ -111,6 +111,27 @@ Status DataTypeNullableSerDe::serialize_column_to_jsonb(const IColumn& from_colu
     return Status::OK();
 }
 
+Status DataTypeNullableSerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                            const JsonbValue* jsonb_value) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (jsonb_value->isNull()) {
+        null_column.insert_default();
+        return Status::OK();
+    } else {
+        // 这里需要讨论一下，我个人看来，用户在使用json的时候，是不希望有报错出现的，所以这里会把错误都填充为null
+        Status st = nested_serde->deserialize_column_from_jsonb(null_column.get_nested_column(),
+                                                                jsonb_value);
+        if (!st.ok()) {
+            // fill null if fail
+            null_column.insert_default();
+            return Status::OK();
+        }
+        // fill not null if success
+        null_column.get_null_map_data().push_back(0);
+    }
+    return Status::OK();
+}
+
 Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(
         IColumn& column, Slice& slice, const FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
