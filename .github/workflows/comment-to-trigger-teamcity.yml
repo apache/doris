@@ -65,6 +65,7 @@ jobs:
             echo "comment_skip=false" | tee -a "$GITHUB_OUTPUT"
             echo "comment_skip_coverage=false" | tee -a "$GITHUB_OUTPUT"
         elif [[ "${COMMENT_BODY}" == *'skip buildall'* ]]; then
+            echo "comment_skip_coverage=false" | tee -a "$GITHUB_OUTPUT"
             if [[ "${COMMENT_USER_ID}" == '27881198' ||
                   "${COMMENT_USER_ID}" == '37901441' ]]; then
                 echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
