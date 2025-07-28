@@ -36,6 +36,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -147,27 +148,30 @@ public abstract class AbstractBatchJobExecutor {
      * execute.
      */
     public void execute() {
-        List<RewriteJob> jobs = Lists.newArrayList(getJobs());
-        for (int i = 0; i < jobs.size(); i++) {
-            JobContext jobContext = cascadesContext.getCurrentJobContext();
-            RewriteJob currentJob = jobs.get(i);
+        MoreFieldsThread.keepFunctionSignature(() -> {
+            List<RewriteJob> jobs = Lists.newArrayList(getJobs());
+            for (int i = 0; i < jobs.size(); i++) {
+                JobContext jobContext = cascadesContext.getCurrentJobContext();
+                RewriteJob currentJob = jobs.get(i);
 
-            if (currentJob instanceof TopicRewriteJob) {
-                TopicRewriteJob topicRewriteJob = (TopicRewriteJob) currentJob;
-                Optional<Predicate<CascadesContext>> condition = topicRewriteJob.condition;
-                if (!condition.isPresent() || condition.get().test(jobContext.getCascadesContext())) {
-                    jobs.addAll(i + 1, topicRewriteJob.jobs);
+                if (currentJob instanceof TopicRewriteJob) {
+                    TopicRewriteJob topicRewriteJob = (TopicRewriteJob) currentJob;
+                    Optional<Predicate<CascadesContext>> condition = topicRewriteJob.condition;
+                    if (!condition.isPresent() || condition.get().test(jobContext.getCascadesContext())) {
+                        jobs.addAll(i + 1, topicRewriteJob.jobs);
+                    }
+                    continue;
                 }
-                continue;
-            }
 
-            if (shouldRun(currentJob, jobContext, jobs, i)) {
-                do {
-                    jobContext.setRewritten(false);
-                    currentJob.execute(jobContext);
-                } while (!currentJob.isOnce() && jobContext.isRewritten());
+                if (shouldRun(currentJob, jobContext, jobs, i)) {
+                    do {
+                        jobContext.setRewritten(false);
+                        currentJob.execute(jobContext);
+                    } while (!currentJob.isOnce() && jobContext.isRewritten());
+                }
             }
-        }
+            return null;
+        });
     }
 
     public abstract List<RewriteJob> getJobs();
