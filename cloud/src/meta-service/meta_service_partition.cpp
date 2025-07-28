@@ -604,6 +604,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         pb.SerializeToString(&to_save_val);
     }
     bool need_commit = false;
+    bool is_versioned_write = is_version_write_enabled(instance_id);
     DropPartitionLogPB drop_partition_log;
     drop_partition_log.set_db_id(request->db_id());
     drop_partition_log.set_table_id(request->table_id());
@@ -615,9 +616,12 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
-            LOG_INFO("put recycle partition").tag("key", hex(key));
-            txn->put(key, to_save_val);
-            drop_partition_log.add_partition_ids(part_id);
+            if (is_versioned_write) {
+                drop_partition_log.add_partition_ids(part_id);
+            } else {
+                LOG_INFO("put recycle partition").tag("key", hex(key));
+                txn->put(key, to_save_val);
+            }
             need_commit = true;
             continue;
         }
@@ -661,7 +665,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
 
     if ((drop_partition_log.update_table_version() ||
          drop_partition_log.partition_ids_size() > 0) &&
-        is_version_write_enabled(instance_id)) {
+        is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
@@ -673,6 +677,10 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
             return;
         }
         versioned_put(txn.get(), operation_log_key, operation_log_value);
+        LOG(INFO) << "put drop partition operation log"
+                  << " instance_id=" << instance_id << " table_id=" << request->table_id()
+                  << " partition_ids=" << drop_partition_log.partition_ids_size()
+                  << " log_size=" << operation_log_value.size();
     }
 
     err = txn->commit();
