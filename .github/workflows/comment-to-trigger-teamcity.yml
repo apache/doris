@@ -30,7 +30,7 @@ jobs:
   check-comment-if-need-to-trigger-teamcity:
 
     # This job only runs for pull request comments, and comment body contains 'run'
-    if: ${{ github.event.issue.pull_request && (contains(github.event.comment.body, 'run') || contains(github.event.comment.body, 'skip buildall')) }}
+    if: ${{ github.event.issue.pull_request && (contains(github.event.comment.body, 'run') || contains(github.event.comment.body, 'skip buildall') || contains(github.event.comment.body, 'skip check_coverage')) }}
 
     runs-on: ubuntu-latest
     env:
@@ -63,7 +63,9 @@ jobs:
             "${COMMENT_BODY}" == *'run performance'* ]]; then
             echo "comment_trigger=true" | tee -a "$GITHUB_OUTPUT"
             echo "comment_skip=false" | tee -a "$GITHUB_OUTPUT"
+            echo "comment_skip_coverage=false" | tee -a "$GITHUB_OUTPUT"
         elif [[ "${COMMENT_BODY}" == *'skip buildall'* ]]; then
+            echo "comment_skip_coverage=false" | tee -a "$GITHUB_OUTPUT"
             if [[ "${COMMENT_USER_ID}" == '27881198' ||
                   "${COMMENT_USER_ID}" == '37901441' ]]; then
                 echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
