@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -36,7 +37,7 @@ import java.util.List;
  * for debug only, compute crc32 hash value as the same way in `VOlapTablePartitionParam::find_tablets()`
  */
 public class Crc32Internal extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable, ComputePrecision {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
@@ -62,6 +63,11 @@ public class Crc32Internal extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
     }
 
     @Override
