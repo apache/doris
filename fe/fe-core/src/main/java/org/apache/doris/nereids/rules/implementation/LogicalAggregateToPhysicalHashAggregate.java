@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -27,8 +28,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.util.AggregateUtils;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -45,26 +47,24 @@ public class LogicalAggregateToPhysicalHashAggregate extends OneImplementationRu
     }
 
     private Plan implement(LogicalAggregate<GroupPlan> logicalAgg, ConnectContext connectContext) {
-        // 这个地方可以控制是否要有一阶段的AGG
-        if (!logicalAgg.getAggregateParam().isSplit) {
-            if (logicalAgg.isAggregateDistinct()) {
-                return null;
-            }
-            // 如果是没有经过splitagg的原始agg,那么需要将输出中的aggfunc加上AggregateExpression
-            List<NamedExpression> aggOutput = ExpressionUtils.rewriteDownShortCircuit(
-                    logicalAgg.getOutputExpressions(), expr -> {
-                        if (expr instanceof AggregateFunction) {
-                            return new AggregateExpression((AggregateFunction) expr, logicalAgg.getAggregateParam());
-                        }
-                        return expr;
-                    });
-            return new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), aggOutput,
-                    logicalAgg.getPartitionExpressions(), logicalAgg.getAggregateParam(), false,
-                     logicalAgg.getLogicalProperties(), null,
-                    logicalAgg.child());
+        if (logicalAgg.hasDistinctFunc()) {
+            return null;
         }
-        // 这个maybeUsingStream看下从logical agg中删除掉,然后在这里直接设置到physical agg上
-        return new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), logicalAgg.getOutputExpressions(),
+        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
+        boolean changed = false;
+        for (NamedExpression expr : logicalAgg.getOutputExpressions()) {
+            if (expr instanceof Alias && expr.child(0) instanceof AggregateFunction) {
+                Alias alias = (Alias) expr;
+                AggregateExpression aggExpr = new AggregateExpression((AggregateFunction) expr.child(0),
+                        logicalAgg.getAggregateParam());
+                builder.add(alias.withChildren(ImmutableList.of(aggExpr)));
+                changed = true;
+            } else {
+                builder.add(expr);
+            }
+        }
+        List<NamedExpression> aggOutput = changed ? builder.build() : logicalAgg.getOutputExpressions();
+        return new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), aggOutput,
                 logicalAgg.getPartitionExpressions(), logicalAgg.getAggregateParam(),
                 AggregateUtils.maybeUsingStreamAgg(connectContext, logicalAgg),
                 Optional.empty(), logicalAgg.getLogicalProperties(), null,

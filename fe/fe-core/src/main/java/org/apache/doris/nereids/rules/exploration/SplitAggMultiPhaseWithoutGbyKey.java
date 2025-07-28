@@ -60,7 +60,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
         return ImmutableList.of(
             logicalAggregate()
                     .when(agg -> agg.getGroupByExpressions().isEmpty())
-                    .when(Aggregate::isAggregateDistinct)
+                    .when(Aggregate::hasDistinctFunc)
                     .thenApplyMulti(ctx -> rewrite(ctx.root))
                     .toRule(RuleType.SPLIT_AGG_MULTI_PHASE_WITHOUT_GBY_KEY)
         );
@@ -76,17 +76,17 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
 
     Plan splitToFourPhase(LogicalAggregate<? extends Plan> aggregate) {
         Map<AggregateFunction, Alias> localAggFuncToAlias = new LinkedHashMap<>();
-        LogicalAggregate<? extends Plan> secondAgg = splitLocalTwoPhase(aggregate, localAggFuncToAlias,
+        LogicalAggregate<? extends Plan> secondAgg = splitDeduplicateTwoPhase(aggregate, localAggFuncToAlias,
                 Utils.fastToImmutableList(aggregate.getDistinctArguments()), (Set) aggregate.getDistinctArguments());
         return splitDistinctTwoPhase(aggregate, localAggFuncToAlias, secondAgg);
     }
 
     Plan splitToThreePhase(LogicalAggregate<? extends Plan> aggregate) {
         //防止被拆分
-        AggregateParam inputToResult = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER, true);
+        AggregateParam inputToResult = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER);
         Map<AggregateFunction, Alias> localAggFuncToAlias = new LinkedHashMap<>();
         Set<NamedExpression> keySet = getAllKeySet(aggregate);
-        LogicalAggregate<? extends Plan> localAgg = splitDeduplicateAgg(aggregate, keySet, inputToResult,
+        LogicalAggregate<? extends Plan> localAgg = splitDeduplicateOnePhase(aggregate, keySet, inputToResult,
                 localAggFuncToAlias, aggregate.child(), Utils.fastToImmutableList(keySet));
         return splitDistinctTwoPhase(aggregate, localAggFuncToAlias, localAgg);
     }
@@ -95,7 +95,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
     private LogicalAggregate<? extends Plan> twoPhaseAggregateWithFinalMultiDistinct(
             LogicalAggregate<? extends Plan> logicalAgg) {
         Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
-        AggregateParam inputToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, true);
+        AggregateParam inputToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
 
         Map<AggregateFunction, Alias> originFuncToAliasPhase1 = new HashMap<>();
         for (AggregateFunction function : aggregateFunctions) {
@@ -111,7 +111,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
                 logicalAgg.getGroupByExpressions(), inputToResultParam, null,
                 Utils.fastToImmutableList(logicalAgg.getDistinctArguments()), logicalAgg.child());
 
-        AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, true);
+        AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
         // 如果是普通聚合函数，那么就正常处理
         // 如果是distinct聚合函数，count_distinct -> 上层变成sum0; sum_distinct -> 上层还是sum;
         // group_concat_distinct -> 上层还是group_concat 。
