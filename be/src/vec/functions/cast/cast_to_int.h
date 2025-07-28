@@ -183,25 +183,17 @@ public:
 
         CastParameters params;
         size_t size = vec_from.size();
-        RETURN_IF_ERROR(std::visit(
-                [&](auto narrow_integral, auto result_is_nullable) {
-                    auto multiplier = FromDataType::get_scale_multiplier(from_scale);
-                    for (size_t i = 0; i < size; i++) {
-                        if (!CastToInt::from_decimal<typename FromDataType::FieldType,
-                                                     typename ToDataType::FieldType,
-                                                     narrow_integral>(vec_from_data[i], from_scale,
-                                                                      multiplier, vec_to_data[i],
-                                                                      params)) {
-                            if constexpr (result_is_nullable) {
-                                null_map_data[i] = 1;
-                            } else {
-                                return params.status;
-                            }
-                        }
-                    }
-                    return Status::OK();
-                },
-                make_bool_variant(may_overflow), make_bool_variant(result_is_nullable)));
+        for (size_t i = 0; i < size; i++) {
+            if (!CastToInt::from_decimal<typename FromDataType::FieldType,
+                                         typename ToDataType::FieldType>(
+                        vec_from_data[i], from_precision, from_scale, vec_to_data[i], params)) {
+                if (result_is_nullable) {
+                    null_map_data[i] = 1;
+                } else {
+                    return params.status;
+                }
+            }
+        }
 
         if (result_is_nullable) {
             block.get_by_position(result).column =

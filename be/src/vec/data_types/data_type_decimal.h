@@ -253,7 +253,7 @@ public:
     [[nodiscard]] UInt32 get_format_scale() const {
         return UINT32_MAX == original_scale ? scale : original_scale;
     }
-    FieldType get_scale_multiplier() const { return get_scale_multiplier(scale); }
+    FieldType::NativeType get_scale_multiplier() const { return get_scale_multiplier(scale); }
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         scalar_type->set_precision(precision);
         scalar_type->set_scale(scale);
@@ -261,7 +261,7 @@ public:
 
     /// @returns multiplier for U to become T with correct scale
     template <PrimitiveType U>
-    FieldType scale_factor_for(const DataTypeDecimal<U>& x) const {
+    FieldType::NativeType scale_factor_for(const DataTypeDecimal<U>& x) const {
         if (get_scale() < x.get_scale()) {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "Decimal result's scale is less then argument's one");
@@ -271,9 +271,9 @@ public:
         return get_scale_multiplier(scale_delta);
     }
 
-    static FieldType get_scale_multiplier(UInt32 scale);
+    static constexpr FieldType::NativeType get_scale_multiplier(UInt32 scale);
 
-    static FieldType get_max_digits_number(UInt32 digit_count);
+    static constexpr FieldType::NativeType get_max_digits_number(UInt32 digit_count);
 
     bool parse_from_string(const std::string& str, FieldType* res) const;
 
@@ -312,6 +312,62 @@ using DataTypeDecimal64 = DataTypeDecimal<TYPE_DECIMAL64>;
 using DataTypeDecimalV2 = DataTypeDecimal<TYPE_DECIMALV2>;
 using DataTypeDecimal128 = DataTypeDecimal<TYPE_DECIMAL128I>;
 using DataTypeDecimal256 = DataTypeDecimal<TYPE_DECIMAL256>;
+
+template <>
+constexpr Decimal32::NativeType DataTypeDecimal<TYPE_DECIMAL32>::get_scale_multiplier(
+        UInt32 scale) {
+    return common::exp10_i32(scale);
+}
+
+template <>
+constexpr Decimal64::NativeType DataTypeDecimal<TYPE_DECIMAL64>::get_scale_multiplier(
+        UInt32 scale) {
+    return common::exp10_i64(scale);
+}
+
+template <>
+constexpr Decimal128V2::NativeType DataTypeDecimal<TYPE_DECIMALV2>::get_scale_multiplier(
+        UInt32 scale) {
+    return common::exp10_i128(scale);
+}
+
+template <>
+constexpr Decimal128V3::NativeType DataTypeDecimal<TYPE_DECIMAL128I>::get_scale_multiplier(
+        UInt32 scale) {
+    return common::exp10_i128(scale);
+}
+
+template <>
+constexpr Decimal256::NativeType DataTypeDecimal<TYPE_DECIMAL256>::get_scale_multiplier(
+        UInt32 scale) {
+    return common::exp10_i256(scale);
+}
+
+template <>
+constexpr Decimal32::NativeType DataTypeDecimal<TYPE_DECIMAL32>::get_max_digits_number(
+        UInt32 digit_count) {
+    return common::max_i32(digit_count);
+}
+template <>
+constexpr Decimal64::NativeType DataTypeDecimal<TYPE_DECIMAL64>::get_max_digits_number(
+        UInt32 digit_count) {
+    return common::max_i64(digit_count);
+}
+template <>
+constexpr Decimal128V2::NativeType DataTypeDecimal<TYPE_DECIMALV2>::get_max_digits_number(
+        UInt32 digit_count) {
+    return common::max_i128(digit_count);
+}
+template <>
+constexpr Decimal128V3::NativeType DataTypeDecimal<TYPE_DECIMAL128I>::get_max_digits_number(
+        UInt32 digit_count) {
+    return common::max_i128(digit_count);
+}
+template <>
+constexpr Decimal256::NativeType DataTypeDecimal<TYPE_DECIMAL256>::get_max_digits_number(
+        UInt32 digit_count) {
+    return common::max_i256(digit_count);
+}
 
 template <PrimitiveType T, PrimitiveType U>
 DataTypePtr decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty,
@@ -419,8 +475,7 @@ template <PrimitiveType T>
 typename PrimitiveTypeTraits<T>::CppNativeType max_decimal_value(UInt32 precision) {
     return type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::max().value /
            DataTypeDecimal<T>::get_scale_multiplier(
-                   (UInt32)(max_decimal_precision<T>() - precision))
-                   .value;
+                   (UInt32)(max_decimal_precision<T>() - precision));
 }
 
 template <PrimitiveType T>
@@ -428,8 +483,7 @@ template <PrimitiveType T>
 typename PrimitiveTypeTraits<T>::CppNativeType min_decimal_value(UInt32 precision) {
     return type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::min().value /
            DataTypeDecimal<T>::get_scale_multiplier(
-                   (UInt32)(max_decimal_precision<T>() - precision))
-                   .value;
+                   (UInt32)(max_decimal_precision<T>() - precision));
 }
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

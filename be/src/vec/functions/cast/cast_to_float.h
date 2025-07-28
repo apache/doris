@@ -66,9 +66,8 @@ public:
 
         CastParameters params;
         size_t size = vec_from.size();
-        auto multiplier = FromDataType::get_scale_multiplier(from_scale);
         for (size_t i = 0; i < size; ++i) {
-            CastToFloat::from_decimal(vec_from_data[i], vec_to_data[i], multiplier.value, params);
+            CastToFloat::from_decimal(vec_from_data[i], from_scale, vec_to_data[i], params);
         }
 
         block.get_by_position(result).column = std::move(col_to);

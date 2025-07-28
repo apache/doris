@@ -129,21 +129,16 @@ struct CastToInt {
     static inline bool from_int(FromCppT from, ToCppT& to, CastParameters& params) {
         constexpr auto min_to_value = std::numeric_limits<ToCppT>::min();
         constexpr auto max_to_value = std::numeric_limits<ToCppT>::max();
-        return std::visit(
-                [&](auto is_strict_cast) {
-                    if (from < min_to_value || from > max_to_value) {
-                        // overflow
-                        if constexpr (is_strict_cast) {
-                            params.status = Status::InternalError(
-                                    fmt::format("Value {} out of range for type {}", from,
-                                                int_type_name<ToCppT>));
-                        }
-                        return false;
-                    }
-                    CastUtil::static_cast_set(to, from);
-                    return true;
-                },
-                make_bool_variant(params.is_strict));
+        if (from < min_to_value || from > max_to_value) {
+            // overflow
+            if (params.is_strict) {
+                params.status = Status::InternalError(fmt::format(
+                        "Value {} out of range for type {}", from, int_type_name<ToCppT>));
+            }
+            return false;
+        }
+        CastUtil::static_cast_set(to, from);
+        return true;
     }
 
     // from narrower int to wider int, no overflow
@@ -161,43 +156,40 @@ struct CastToInt {
     static inline bool from_float(FromCppT from, ToCppT& to, CastParameters& params) {
         constexpr auto min_to_value = std::numeric_limits<ToCppT>::min();
         constexpr auto max_to_value = std::numeric_limits<ToCppT>::max();
-        return std::visit(
-                [&](auto is_strict_cast) {
-                    if (std::isinf(from) || std::isnan(from)) {
-                        if constexpr (is_strict_cast) {
-                            params.status = Status::InternalError(
-                                    fmt::format("Value {} out of range for type {}", from,
-                                                int_type_name<ToCppT>));
-                        }
-                        return false;
-                    }
-                    auto truncated_value = std::trunc(from);
-                    if (truncated_value < min_to_value ||
-                        truncated_value > static_cast<double>(max_to_value)) {
-                        // overflow
-                        if constexpr (is_strict_cast) {
-                            params.status = Status::InternalError(
-                                    fmt::format("Value {} out of range for type {}", from,
-                                                int_type_name<ToCppT>));
-                        }
-                        return false;
-                    }
-                    CastUtil::static_cast_set(to, from);
-                    return true;
-                },
-                make_bool_variant(params.is_strict));
+        if (std::isinf(from) || std::isnan(from)) {
+            if (params.is_strict) {
+                params.status = Status::InternalError(fmt::format(
+                        "Value {} out of range for type {}", from, int_type_name<ToCppT>));
+            }
+            return false;
+        }
+        auto truncated_value = std::trunc(from);
+        if (truncated_value < min_to_value || truncated_value > static_cast<double>(max_to_value)) {
+            // overflow
+            if (params.is_strict) {
+                params.status = Status::InternalError(fmt::format(
+                        "Value {} out of range for type {}", from, int_type_name<ToCppT>));
+            }
+            return false;
+        }
+        CastUtil::static_cast_set(to, from);
+        return true;
     }
 
     // from decimal to int, may overflow
-    template <typename FromCppT, typename ToCppT, bool narrow_integral>
+    template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT>)
-    static inline bool from_decimal(FromCppT from, UInt32 from_scale,
-                                    const FromCppT::NativeType& scale_multiplier, ToCppT& to,
-                                    CastParameters& params) {
+    static inline bool from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
+                                    ToCppT& to, CastParameters& params) {
+        constexpr UInt32 to_max_digits = NumberTraits::max_ascii_len<ToCppT>();
+        bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
+
+        typename FromCppT::NativeType scale_multiplier =
+                DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
         constexpr auto min_result = std::numeric_limits<ToCppT>::lowest();
         constexpr auto max_result = std::numeric_limits<ToCppT>::max();
         auto tmp = from.value / scale_multiplier;
-        if constexpr (narrow_integral) {
+        if (narrow_integral) {
             if (tmp < min_result || tmp > max_result) {
                 params.status = Status::Error(
                         ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
@@ -238,21 +230,15 @@ struct CastToInt {
     static inline bool from_time(FromCppT from, ToCppT& to, CastParameters& params) {
         constexpr auto min_to_value = std::numeric_limits<ToCppT>::min();
         constexpr auto max_to_value = std::numeric_limits<ToCppT>::max();
-        return std::visit(
-                [&](auto is_strict_cast) {
-                    if (from < min_to_value || from > max_to_value) {
-                        // overflow
-                        if constexpr (is_strict_cast) {
-                            params.status = Status::InternalError(
-                                    fmt::format("Value {} out of range for type {}", from,
-                                                int_type_name<ToCppT>));
-                        }
-                        return false;
-                    }
-                    CastUtil::static_cast_set(to, from);
-                    return true;
-                },
-                make_bool_variant(params.is_strict));
+        if (from < min_to_value || from > max_to_value) {
+            // overflow
+            if (params.is_strict) {
+                params.status = Status::InternalError(fmt::format(
+                        "Value {} out of range for type {}", from, int_type_name<ToCppT>));
+            }
+            return false;
+        }
+        CastUtil::static_cast_set(to, from);
         return true;
     }
 };
@@ -261,15 +247,7 @@ struct CastToFloat {
     template <typename ToCppT>
         requires(IsCppTypeFloat<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
-        return std::visit(
-                [&](auto is_strict_mode) {
-                    if constexpr (is_strict_mode) {
-                        return try_read_float_text(to, from);
-                    } else {
-                        return try_read_float_text(to, from);
-                    }
-                },
-                vectorized::make_bool_variant(params.is_strict));
+        return try_read_float_text(to, from);
     }
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT> &&
@@ -292,12 +270,13 @@ struct CastToFloat {
     }
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT> && IsDecimalNumber<FromCppT>)
-    static inline bool from_decimal(const FromCppT& from, ToCppT& to,
-                                    const FromCppT::NativeType& scale_multiplier,
+    static inline bool from_decimal(const FromCppT& from, UInt32 from_scale, ToCppT& to,
                                     CastParameters& params) {
         if constexpr (IsDecimalV2<FromCppT>) {
             to = binary_cast<int128_t, DecimalV2Value>(from);
         } else {
+            typename FromCppT::NativeType scale_multiplier =
+                    DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
             if constexpr (IsDecimal256<FromCppT>) {
                 to = static_cast<ToCppT>(static_cast<long double>(from.value) /
                                          static_cast<long double>(scale_multiplier));
