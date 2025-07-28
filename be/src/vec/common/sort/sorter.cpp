@@ -262,7 +262,12 @@ Status FullSorter::append_block(Block* block) {
     return Status::OK();
 }
 
-Status FullSorter::prepare_for_read() {
+Status FullSorter::prepare_for_read(bool is_spill) {
+    if (is_spill) {
+        _limit += _offset;
+        _offset = 0;
+        _state->ignore_offset();
+    }
     if (_state->unsorted_block()->rows() > 0) {
         RETURN_IF_ERROR(_do_sort());
     }
