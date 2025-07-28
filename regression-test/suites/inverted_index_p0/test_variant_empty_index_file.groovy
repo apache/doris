@@ -35,8 +35,9 @@ suite("test_variant_empty_index_file", "p0") {
     """
 
     sql """ set enable_memtable_on_sink_node = true """
-    sql """ insert into ${tableName} values (1, 'abcd') """
-
+    sql """ insert into ${tableName} values (1, NULL) """
+    qt_sql9 "select * from ${tableName}"
+    sql "sync"
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
     def backendId_to_backendIP = [:]
@@ -47,12 +48,10 @@ suite("test_variant_empty_index_file", "p0") {
     String backend_id = tablets[0].BackendId
     String ip = backendId_to_backendIP.get(backend_id)
     String port = backendId_to_backendHttpPort.get(backend_id)
-    if (!isCloudMode()) {
-        def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
-        logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals("E-6004", parseJson(out.trim()).status)
-        assertTrue(out.contains(" is empty"))
-    }
+    def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
+    logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
+    assertEquals("E-6004", parseJson(out.trim()).status)
+    assertTrue(out.contains(" is empty"))
 
     try {
         sql """ select /*+ SET_VAR(enable_match_without_inverted_index = 0) */  * from ${tableName} where v match 'abcd';  """

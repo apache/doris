@@ -40,7 +40,6 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -73,8 +72,6 @@ public class SortNode extends PlanNode {
     private long fullSortMaxBufferedBytes = -1;
 
     private boolean isUnusedExprRemoved = false;
-
-    private ArrayList<Boolean> nullabilityChangedFlags = Lists.newArrayList();
 
     // topn filter target: ScanNode id + slot desc
     private List<Pair<Integer, Integer>> topnFilterTargets;
@@ -227,7 +224,6 @@ public class SortNode extends PlanNode {
                 for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
                     if (!slotDescriptorList.get(i).isMaterialized()) {
                         resolvedTupleExprs.remove(i);
-                        nullabilityChangedFlags.remove(i);
                     }
                 }
             }
@@ -244,9 +240,6 @@ public class SortNode extends PlanNode {
         removeUnusedExprs();
         if (resolvedTupleExprs != null) {
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
-            // FIXME this is a bottom line solution for wrong nullability of resolvedTupleExprs
-            // remove the following line after nereids online
-            sortInfo.setSlotExprsNullabilityChangedFlags(nullabilityChangedFlags);
         }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 

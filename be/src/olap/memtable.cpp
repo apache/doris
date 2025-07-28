@@ -654,8 +654,9 @@ bool MemTable::need_flush() const {
     auto max_size = config::write_buffer_size;
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;
+        auto min_buffer_size = config::min_write_buffer_size_for_partial_update;
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
-        max_size = max_size > 1048576 ? max_size : 1048576;
+        max_size = max_size > min_buffer_size ? max_size : min_buffer_size;
     }
     return memory_usage() >= max_size;
 }

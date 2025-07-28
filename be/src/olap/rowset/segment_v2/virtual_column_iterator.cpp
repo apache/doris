@@ -89,7 +89,7 @@ void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr col
 }
 
 Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
-    if (_size < 0 ||
+    if (_size == 0 ||
         vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
         // _materialized_column is not set. do nothing.
         return Status::OK();

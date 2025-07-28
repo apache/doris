@@ -34,7 +34,10 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <cstdint>
 #include <sstream>
+
+#include "common/cast_set.h"
 
 #ifdef __APPLE__
 #ifndef HOST_NAME_MAX
@@ -43,7 +46,7 @@
 #endif
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 InetAddress::InetAddress(std::string ip, sa_family_t family, bool is_loopback)
         : _ip_addr(ip), _family(family), _is_loopback(is_loopback) {}
 
@@ -113,7 +116,7 @@ bool parse_endpoint(const std::string& endpoint, std::string* host, uint16_t* po
         return false;
     }
     *host = endpoint.substr(i, p - i);
-    *port = value;
+    *port = cast_set<uint16_t>(value);
     return true;
 }
 
@@ -291,5 +294,5 @@ std::string get_brpc_http_url(const std::string& host, int port) {
         return fmt::format("http://{}:{}", host, port);
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -400,7 +400,7 @@ size_t ColumnDecimal<T>::filter(const IColumn::Filter& filter) {
     }
 
     const auto result_size = result_data - data.data();
-    data.set_end_ptr(result_data);
+    data.resize(result_size);
 
     return result_size;
 }

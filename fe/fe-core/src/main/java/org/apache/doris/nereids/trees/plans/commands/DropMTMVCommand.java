@@ -41,7 +41,7 @@ public class DropMTMVCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         dropMTMVInfo.analyze(ctx);
-        Env.getCurrentEnv().dropTable(dropMTMVInfo.translateToLegacyStmt());
+        Env.getCurrentEnv().dropTable(this);
     }
 
     @Override
@@ -52,5 +52,9 @@ public class DropMTMVCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.DROP;
+    }
+
+    public DropMTMVInfo getDropMTMVInfo() {
+        return dropMTMVInfo;
     }
 }

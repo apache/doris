@@ -29,7 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
@@ -37,6 +37,7 @@ import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -66,13 +67,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private static final int MIN_CLIENT_POOL_SIZE = 8;
     private final HMSCachedClient client;
     private final HMSExternalCatalog catalog;
-    private HadoopAuthenticator hadoopAuthenticator;
 
     public HiveMetadataOps(HiveConf hiveConf, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
-                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size)));
-        hadoopAuthenticator = catalog.getPreExecutionAuthenticator().getHadoopAuthenticator();
-        client.setHadoopAuthenticator(hadoopAuthenticator);
+                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
+                catalog.getExecutionAuthenticator()));
     }
 
     @VisibleForTesting
@@ -89,9 +88,10 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
-    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize) {
+    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
+                                                      ExecutionAuthenticator executionAuthenticator) {
         Preconditions.checkNotNull(hiveConf, "HiveConf cannot be null");
-        return  new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
+        return  new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize, executionAuthenticator);
     }
 
     @Override
@@ -169,6 +169,121 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     @Override
     public void afterDropDb(String dbName) {
         catalog.unregisterDatabase(dbName);
+    }
+
+    @Override
+    public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
+        String dbName = createTableInfo.getDbName();
+        String tblName = createTableInfo.getTableName();
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+        }
+        if (tableExist(db.getRemoteName(), tblName)) {
+            if (createTableInfo.isIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tblName);
+                return true;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tblName);
+            }
+        }
+        try {
+            Map<String, String> props = createTableInfo.getProperties();
+            // set default owner
+            if (!props.containsKey("owner")) {
+                if (ConnectContext.get() != null) {
+                    props.put("owner", ConnectContext.get().getCurrentUserIdentity().getUser());
+                }
+            }
+
+            if (props.containsKey("transactional") && props.get("transactional").equalsIgnoreCase("true")) {
+                throw new UserException("Not support create hive transactional table.");
+                /*
+                    CREATE TABLE trans6(
+                      `col1` int,
+                      `col2` int
+                    )  ENGINE=hive
+                    PROPERTIES (
+                      'file_format'='orc',
+                      'compression'='zlib',
+                      'bucketing_version'='2',
+                      'transactional'='true',
+                      'transactional_properties'='default'
+                    );
+                    In hive, this table only can insert not update(not report error,but not actually updated).
+                 */
+            }
+
+            String fileFormat = props.getOrDefault(FILE_FORMAT_KEY, Config.hive_default_file_format);
+            Map<String, String> ddlProps = new HashMap<>();
+            for (Map.Entry<String, String> entry : props.entrySet()) {
+                String key = entry.getKey().toLowerCase();
+                if (DORIS_HIVE_KEYS.contains(entry.getKey().toLowerCase())) {
+                    ddlProps.put("doris." + key, entry.getValue());
+                } else {
+                    ddlProps.put(key, entry.getValue());
+                }
+            }
+            List<String> partitionColNames = new ArrayList<>();
+            PartitionDesc partitionDesc = createTableInfo.getPartitionDesc();
+            if (partitionDesc != null) {
+                if (partitionDesc.getType() == PartitionType.RANGE) {
+                    throw new UserException("Only support 'LIST' partition type in hive catalog.");
+                }
+                partitionColNames.addAll(partitionDesc.getPartitionColNames());
+                if (!partitionDesc.getSinglePartitionDescs().isEmpty()) {
+                    throw new UserException("Partition values expressions is not supported in hive catalog.");
+                }
+
+            }
+            Map<String, String> properties = catalog.getProperties();
+            if (properties.containsKey(HMSProperties.HIVE_METASTORE_TYPE)
+                    && properties.get(HMSProperties.HIVE_METASTORE_TYPE).equals(HMSProperties.DLF_TYPE)) {
+                for (Column column : createTableInfo.getColumns()) {
+                    if (column.hasDefaultValue()) {
+                        throw new UserException("Default values are not supported with `DLF` catalog.");
+                    }
+                }
+            }
+            String comment = createTableInfo.getComment();
+            Optional<String> location = Optional.ofNullable(props.getOrDefault(LOCATION_URI_KEY, null));
+            HiveTableMetadata hiveTableMeta;
+            DistributionDesc bucketInfo = createTableInfo.getDistributionDesc();
+            if (bucketInfo != null) {
+                if (Config.enable_create_hive_bucket_table) {
+                    if (bucketInfo instanceof HashDistributionDesc) {
+                        hiveTableMeta = HiveTableMetadata.of(db.getRemoteName(),
+                            tblName,
+                            location,
+                            createTableInfo.getColumns(),
+                            partitionColNames,
+                            bucketInfo.getDistributionColumnNames(),
+                            bucketInfo.getBuckets(),
+                            ddlProps,
+                            fileFormat,
+                            comment);
+                    } else {
+                        throw new UserException("External hive table only supports hash bucketing");
+                    }
+                } else {
+                    throw new UserException("Create hive bucket table need"
+                        + " set enable_create_hive_bucket_table to true");
+                }
+            } else {
+                hiveTableMeta = HiveTableMetadata.of(db.getRemoteName(),
+                    tblName,
+                    location,
+                    createTableInfo.getColumns(),
+                    partitionColNames,
+                    ddlProps,
+                    fileFormat,
+                    comment);
+            }
+            client.createTable(hiveTableMeta, createTableInfo.isIfNotExists());
+            return false;
+        } catch (Exception e) {
+            throw new UserException(e.getMessage(), e);
+        }
     }
 
     @Override

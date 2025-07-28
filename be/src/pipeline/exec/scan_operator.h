@@ -132,7 +132,6 @@ class ScanLocalState : public ScanLocalStateBase {
     ScanLocalState(RuntimeState* state, OperatorXBase* parent)
             : ScanLocalStateBase(state, parent) {}
     ~ScanLocalState() override = default;
-
     virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
 
     virtual Status open(RuntimeState* state) override;

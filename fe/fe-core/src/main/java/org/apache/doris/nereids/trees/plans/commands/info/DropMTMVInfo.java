@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -64,13 +62,19 @@ public class DropMTMVInfo {
         return mvName;
     }
 
-    /**
-     * translate to catalog DropTableStmt
-     */
-    public DropTableStmt translateToLegacyStmt() {
-        TableName tableName = mvName.transferToTableName();
-        DropTableStmt dropTableStmt = new DropTableStmt(ifExists, tableName, true);
-        dropTableStmt.setMaterializedView(true);
-        return dropTableStmt;
+    public String getCatalogName() {
+        return mvName.getCtl();
+    }
+
+    public String getDbName() {
+        return mvName.getDb();
+    }
+
+    public String getTableName() {
+        return mvName.getTbl();
+    }
+
+    public boolean isIfExists() {
+        return ifExists;
     }
 }

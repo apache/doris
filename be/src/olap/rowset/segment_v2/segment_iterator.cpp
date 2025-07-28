@@ -1964,6 +1964,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
                 }
             })
         }
+
         if (is_continuous) {
             size_t rows_read = nrows_read;
             _opts.stats->predicate_column_read_seek_num += 1;

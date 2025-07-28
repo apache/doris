@@ -227,6 +227,8 @@ public:
         } else if (_connection_group != "") {
             options.connection_group = _connection_group;
         }
+        // Add random connection id to connection_group to make sure use new socket
+        options.connection_group += std::to_string(_connection_id.fetch_add(1));
         options.connect_timeout_ms = 2000;
         options.timeout_ms = 2000;
         options.max_retry = 10;
@@ -310,6 +312,9 @@ private:
     const std::string _protocol;
     const std::string _connection_type;
     const std::string _connection_group;
+    // use to generate unique connection id for each connection
+    // to prevent the connection problem of brpc: https://github.com/apache/brpc/issues/2146
+    std::atomic<int64_t> _connection_id {0};
 };
 
 using InternalServiceClientCache = BrpcClientCache<PBackendService_Stub>;

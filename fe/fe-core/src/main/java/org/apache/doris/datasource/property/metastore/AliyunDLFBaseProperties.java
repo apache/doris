@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.ParamRules;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
 
@@ -69,6 +70,19 @@ public class AliyunDLFBaseProperties {
         AliyunDLFBaseProperties propertiesObj = new AliyunDLFBaseProperties();
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
         return propertiesObj;
+    }
+
+
+    private ParamRules buildRules() {
+
+        return new ParamRules()
+                .require(dlfAccessKey, "dlf.access_key is required")
+                .require(dlfSecretKey, "dlf.secret_key is required")
+                .require(dlfEndpoint, "dlf.endpoint is required");
+    }
+
+    public void checkAndInit() {
+        buildRules().validate();
     }
 
 }

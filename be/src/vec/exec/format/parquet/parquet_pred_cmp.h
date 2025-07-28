@@ -23,9 +23,9 @@
 
 #include "cctz/time_zone.h"
 #include "exec/olap_common.h"
-#include "gutil/endian.h"
 #include "parquet_common.h"
 #include "util/timezone_utils.h"
+#include "vec/common/endian.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/schema_desc.h"
