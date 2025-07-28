@@ -93,7 +93,6 @@ public class StringArithmeticTest {
         Assertions.assertTrue(likeTest("a%c", "a%%c"), "Adjacent wildcards");
     }
 
-
     private boolean likeTest(String input, String pattern) {
         Expression result = StringArithmetic.like(new StringLiteral(input), new StringLiteral(pattern));
         Assertions.assertInstanceOf(BooleanLiteral.class, result);

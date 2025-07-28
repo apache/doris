@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
@@ -1355,16 +1356,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
-        double factor = childStats.getRowCount() / rowCount;
         for (NamedExpression outputExpression : outputExpressions) {
             ColumnStatistic columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
-            ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
-            builder.setMinValue(columnStat.minValue / factor);
-            builder.setMaxValue(columnStat.maxValue / factor);
-            if (columnStat.ndv > rowCount) {
-                builder.setNdv(rowCount);
+            if (columnStat.getHotValues() != null) {
+                ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
+                builder.setHotValues(null);
+                columnStat = builder.build();
             }
-            builder.setDataSize(rowCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         Statistics aggOutputStats = new Statistics(rowCount, 1, slotToColumnStats);
@@ -1442,12 +1440,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     public Statistics computeUnion(Union union, List<Statistics> childStats) {
         // TODO: refactor this for one row relation
-        List<SlotReference> head;
-        Statistics headStats;
-        List<List<SlotReference>> childOutputs = Lists.newArrayList(union.getRegularChildrenOutputs());
+        List<List<SlotReference>> regularChildrenOutputs = Lists.newArrayList(union.getRegularChildrenOutputs());
 
         if (!union.getConstantExprsList().isEmpty()) {
-            childOutputs.addAll(union.getConstantExprsList().stream()
+            regularChildrenOutputs.addAll(union.getConstantExprsList().stream()
                     .map(l -> l.stream().map(NamedExpression::toSlot)
                             .map(SlotReference.class::cast)
                             .collect(Collectors.toList()))
@@ -1457,27 +1453,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     .collect(Collectors.toList()));
         }
 
-        head = childOutputs.get(0);
-        headStats = childStats.get(0);
-
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
         List<NamedExpression> unionOutput = union.getOutputs();
-        for (int i = 0; i < head.size(); i++) {
-            double leftRowCount = headStats.getRowCount();
-            Slot headSlot = head.get(i);
-            for (int j = 1; j < childOutputs.size(); j++) {
-                Slot slot = childOutputs.get(j).get(i);
-                ColumnStatistic rightStatistic = childStats.get(j).findColumnStatistics(slot);
-                double rightRowCount = childStats.get(j).getRowCount();
-                ColumnStatistic estimatedColumnStatistics
-                        = unionColumn(headStats.findColumnStatistics(headSlot),
-                        headStats.getRowCount(), rightStatistic, rightRowCount, headSlot.getDataType());
-                headStats.addColumnStats(headSlot, estimatedColumnStatistics);
-                leftRowCount += childStats.get(j).getRowCount();
+        double unionRowCount = childStats.stream().mapToDouble(Statistics::getRowCount).sum();
+        for (int colIdx = 0; colIdx < union.getOutputs().size(); colIdx++) {
+            List<ColumnStatistic> colStatsList = new ArrayList<>();
+            DataType dataType = unionOutput.get(colIdx).getDataType();
+            for (int childIdx = 0; childIdx < regularChildrenOutputs.size(); childIdx++) {
+                Slot slot = regularChildrenOutputs.get(childIdx).get(colIdx);
+                ColumnStatistic childStatistic = childStats.get(childIdx).findColumnStatistics(slot);
+                colStatsList.add(childStatistic);
             }
-            statisticsBuilder.setRowCount(leftRowCount);
-            statisticsBuilder.putColumnStatistics(unionOutput.get(i), headStats.findColumnStatistics(headSlot));
+            statisticsBuilder.putColumnStatistics(unionOutput.get(colIdx),
+                    unionColumnStats(colStatsList, dataType));
         }
+        statisticsBuilder.setRowCount(unionRowCount);
         return statisticsBuilder.setWidthInJoinCluster(1).build();
     }
 
@@ -1488,9 +1478,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         List<NamedExpression> operatorOutput = setOperation.getOutputs();
         List<SlotReference> childSlots = setOperation.getRegularChildOutput(0);
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
-        for (int i = 0; i < operatorOutput.size(); i++) {
-            ColumnStatistic columnStatistic = leftStats.findColumnStatistics(childSlots.get(i));
-            statisticsBuilder.putColumnStatistics(operatorOutput.get(i), columnStatistic);
+        if (setOperation.getQualifier() == Qualifier.DISTINCT) {
+            for (int i = 0; i < operatorOutput.size(); i++) {
+                ColumnStatistic columnStatistic = leftStats.findColumnStatistics(childSlots.get(i));
+                ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+                columnStatisticBuilder.setHotValues(null);
+                statisticsBuilder.putColumnStatistics(operatorOutput.get(i), columnStatisticBuilder.build());
+            }
+        } else {
+            for (int i = 0; i < operatorOutput.size(); i++) {
+                ColumnStatistic columnStatistic = leftStats.findColumnStatistics(childSlots.get(i));
+                statisticsBuilder.putColumnStatistics(operatorOutput.get(i), columnStatistic);
+            }
         }
         statisticsBuilder.setRowCount(leftStats.getRowCount());
         return statisticsBuilder.setWidthInJoinCluster(1).build();
@@ -1619,6 +1618,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }).collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         columnStatisticMap.putAll(childColumnStats);
         return new Statistics(childStats.getRowCount(), 1, columnStatisticMap);
+    }
+
+    private ColumnStatistic unionColumnStats(List<ColumnStatistic> childrenColStats, DataType dataType) {
+        if (childrenColStats.stream().anyMatch(ColumnStatistic::isUnKnown) || childrenColStats.isEmpty()) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
+        StatisticRange range = StatisticRange.from(childrenColStats.get(0), dataType);
+        for (ColumnStatistic childColStats : childrenColStats) {
+            range.union(StatisticRange.from(childColStats, dataType));
+        }
+        columnStatisticBuilder.setMinValue(range.getLow());
+        columnStatisticBuilder.setMinExpr(range.getLowExpr());
+        columnStatisticBuilder.setMaxValue(range.getHigh());
+        columnStatisticBuilder.setMaxExpr(range.getHighExpr());
+        columnStatisticBuilder.setNdv(range.getDistinctValues());
+        columnStatisticBuilder.setAvgSizeByte(childrenColStats.get(0).avgSizeByte);
+        columnStatisticBuilder.setNumNulls(childrenColStats.stream()
+                .mapToDouble(colStats -> colStats.numNulls).sum());
+        return columnStatisticBuilder.build();
     }
 
     private ColumnStatistic unionColumn(ColumnStatistic leftStats, double leftRowCount, ColumnStatistic rightStats,
