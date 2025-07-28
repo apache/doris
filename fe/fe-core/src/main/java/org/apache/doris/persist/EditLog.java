@@ -230,6 +230,10 @@ public class EditLog {
                 }
             }
 
+            if (DebugPointUtil.isEnable("EditLog.flushEditLog.exception")) {
+                // For debug purpose, throw an exception to test the edit log flush
+                throw new RuntimeException("EditLog.flushEditLog.exception");
+            }
         } catch (Throwable t) {
             // Throwable contains all Exception and Error, such as IOException and
             // OutOfMemoryError
