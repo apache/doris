@@ -205,7 +205,8 @@ Status Compaction::merge_input_rowsets() {
             }
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                                  input_rs_readers, _output_rs_writer.get(),
-                                                 cast_set<uint32_t>(get_avg_segment_rows()), way_num, &_stats);
+                                                 cast_set<uint32_t>(get_avg_segment_rows()),
+                                                 way_num, &_stats);
         } else {
             if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
                 return Status::InternalError(
@@ -543,7 +544,8 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
               << ", merged_row_num=" << _stats.merged_rows
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy=" << cumu_policy->name()
-              << ", compact_row_per_second=" << cast_set<double>(_input_row_num) / watch.get_elapse_second();
+              << ", compact_row_per_second="
+              << cast_set<double>(_input_row_num) / watch.get_elapse_second();
 
     _state = CompactionState::SUCCESS;
 
