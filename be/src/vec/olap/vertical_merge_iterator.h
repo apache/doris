@@ -39,6 +39,7 @@
 #pragma once
 
 namespace doris {
+#include "common/compile_check_begin.h"
 enum KeysType : int;
 
 namespace vectorized {
@@ -100,7 +101,7 @@ public:
         DCHECK(_buf_idx < _buffer.size());
         return RowSource(_buffer[_buf_idx]);
     }
-    void advance(int32_t step = 1) {
+    void advance(int64_t step = 1) {
         DCHECK(_buf_idx + step <= _buffer.size());
         _buf_idx += step;
     }
@@ -230,7 +231,7 @@ private:
     mutable bool _is_same = false;
     int32_t _index_in_block = -1;
     size_t _block_row_max = 0;
-    int _num_key_columns;
+    int64_t _num_key_columns;
     const std::vector<uint32_t> _key_group_cluster_key_idxes;
     size_t _cur_batch_num = 0;
 
@@ -278,7 +279,7 @@ public:
     }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
+    int64_t _get_size(Block* block) { return block->rows(); }
 
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
@@ -344,7 +345,7 @@ public:
     }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
+    int64_t _get_size(Block* block) { return block->rows(); }
 
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
@@ -392,7 +393,7 @@ public:
     uint64_t merged_rows() const override { return _filtered_rows; }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
+    int64_t _get_size(Block* block) { return block->rows(); }
 
     Status check_all_iter_finished();
 
@@ -428,4 +429,5 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         RowSourcesBuffer* row_sources_buf);
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris
