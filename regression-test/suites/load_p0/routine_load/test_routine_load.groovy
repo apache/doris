@@ -19,22 +19,11 @@ import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
-import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_routine_load","p0") {
 
-    def forComputeGroupStr = "";
-
-    //cloud-mode
-    if (isCloudMode()) {
-        def clusters = sql " SHOW CLUSTERS; "
-        assertTrue(!clusters.isEmpty())
-        def validCluster = clusters[0][0]
-        forComputeGroupStr = " for  $validCluster "
-    }
-
-    sql "create workload group if not exists create_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
-    sql "create workload group if not exists alter_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
+    sql "create workload group if not exists create_routine_load_group properties ( 'cpu_share'='123');"
+    sql "create workload group if not exists alter_routine_load_group properties ( 'cpu_share'='123');"
     Thread.sleep(5000) // wait publish workload group to be
 
     def tables = [
@@ -193,33 +182,8 @@ suite("test_routine_load","p0") {
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-        // add timeout config
-        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")  
-        props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
-
-        // check conenction
-        def verifyKafkaConnection = { prod ->
-            try {
-                logger.info("=====try to connect Kafka========")
-                def partitions = prod.partitionsFor("__connection_verification_topic")
-                return partitions != null
-            } catch (Exception e) {
-                throw new Exception("Kafka connect fail: ${e.message}".toString())
-            }
-        }
         // Create kafka producer
         def producer = new KafkaProducer<>(props)
-        try {
-            logger.info("Kafka connecting: ${kafka_broker}")
-            if (!verifyKafkaConnection(producer)) {
-                throw new Exception("can't get any kafka info")
-            }
-        } catch (Exception e) {
-            logger.error("FATAL: " + e.getMessage())
-            producer.close()
-            throw e  
-        }
-        logger.info("Kafka connect success")
 
         for (String kafkaCsvTopic in kafkaCsvTpoics) {
             def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
@@ -284,7 +248,7 @@ suite("test_routine_load","p0") {
                         continue;
                     }
                     log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals("RUNNING", res[0][8].toString())
+                    assertEquals(res[0][8].toString(), "RUNNING")
                     break;
                 }
 
@@ -1327,7 +1291,7 @@ suite("test_routine_load","p0") {
                     sql "sync"
                 }catch (Exception e) {
                     log.info("create routine load failed: ${e.getMessage()}")
-                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = format:test is not supported.")
+                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = Format type is invalid. format=`test`")
                 }
                 i++
             }
@@ -1632,25 +1596,12 @@ suite("test_routine_load","p0") {
                         if (res[0][0] > 0) {
                             break
                         }
-
-                        def tablets = sql_return_maparray """ show tablets from ${tableName1} """
-                        for (def tablet_info : tablets) {
-                            logger.info("tablet: $tablet_info")
-                            def compact_url = tablet_info.get("CompactionStatus")
-                            String command = "curl ${compact_url}"
-                            Process process = command.execute()
-                            def code = process.waitFor()
-                            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-                            def out = process.getText()
-                            logger.info("code=" + code + ", out=" + out + ", err=" + err)
-                        }
-
                         if (count >= 120) {
                             log.error("routine load can not visible for long time")
                             assertEquals(20, res[0][0])
                             break
                         }
-                        sleep(1000)
+                        sleep(5000)
                         count++
                     }
 
