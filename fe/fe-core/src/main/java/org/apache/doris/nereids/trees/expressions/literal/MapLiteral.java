@@ -73,9 +73,9 @@ public class MapLiteral extends Literal {
                     map.entrySet().stream()
                             .collect(ImmutableMap.toImmutableMap(
                                     entry -> (Literal) entry.getKey().uncheckedCastWithFallback(((MapType) targetType)
-                                                .getKeyType()),
-                                    entry -> (Literal) entry.getValue().uncheckedCastTo(((MapType) targetType)
-                                                .getValueType())
+                                            .getKeyType()),
+                                    entry -> (Literal) entry.getValue()
+                                            .uncheckedCastWithFallback(((MapType) targetType).getValueType())
                             )),
                     targetType
             );
