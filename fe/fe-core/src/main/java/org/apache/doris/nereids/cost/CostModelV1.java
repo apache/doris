@@ -493,9 +493,24 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
+        /*
+         * nljPenalty:
+         * The row count estimation for nested loop join (NLJ) results often has significant errors.
+         * When the estimated row count is higher than the actual value, the cost benefits of subsequent
+         * operators (e.g., aggregation) may be overestimated. This can lead the optimizer to choose a
+         * plan where a small table joins a large table, severely impacting the overall SQL execution efficiency.
+         *
+         * For example, if the subsequent operator is an aggregation (AGG) and the GROUP BY key aligns with
+         * the distribution key of the small table, the optimizer might prioritize avoiding shuffling the NLJ
+         * results by choosing to join the small table to the large table, even if this is suboptimal.
+         */
+        double nljPenalty = 1.0;
+        if (leftStatistics.getRowCount() < 10 * rightStatistics.getRowCount()) {
+            nljPenalty = Math.min(leftStatistics.getRowCount(), rightStatistics.getRowCount());
+        }
         return CostV1.of(context.getSessionVariable(),
                 leftStatistics.getRowCount() * rightStatistics.getRowCount(),
-                rightStatistics.getRowCount(),
+                rightStatistics.getRowCount() * nljPenalty,
                 0);
     }
 
