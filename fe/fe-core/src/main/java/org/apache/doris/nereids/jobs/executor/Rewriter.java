@@ -695,7 +695,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
     @Override
     public void execute() {
         MoreFieldsThread.keepFunctionSignature(() -> {
-            execute();
+            super.execute();
             return null;
         });
     }
