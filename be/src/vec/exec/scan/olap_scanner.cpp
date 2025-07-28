@@ -580,17 +580,22 @@ void OlapScanner::update_realtime_counters() {
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(stats.raw_rows_read);
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
             stats.uncompressed_bytes_read);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-            stats.file_cache_stats.bytes_read_from_local);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
-            stats.file_cache_stats.bytes_read_from_remote);
 
     // In case of no cache, we still need to update the IO stats. uncompressed bytes read == local + remote
     if (stats.file_cache_stats.bytes_read_from_local == 0 &&
         stats.file_cache_stats.bytes_read_from_remote == 0) {
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+                stats.compressed_bytes_read);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.compressed_bytes_read);
     } else {
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+                stats.file_cache_stats.bytes_read_from_local);
+        _state->get_query_ctx()
+                ->resource_ctx()
+                ->io_context()
+                ->update_scan_bytes_from_remote_storage(
+                        stats.file_cache_stats.bytes_read_from_remote);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
