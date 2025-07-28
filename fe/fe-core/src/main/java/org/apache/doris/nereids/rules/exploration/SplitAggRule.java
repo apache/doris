@@ -27,10 +27,8 @@ import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -39,14 +37,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**SplitAggRule*/
 public abstract class SplitAggRule {
     protected LogicalAggregate<? extends Plan> splitDeduplicateAgg(LogicalAggregate<? extends Plan> aggregate,
-            Set<NamedExpression> localAggGroupBySet, AggregateParam inputToBufferParam, ConnectContext connectContext,
+            Set<NamedExpression> localAggGroupBySet, AggregateParam inputToBufferParam,
             Map<AggregateFunction, Alias> localAggFunctionToAlias, Plan child, List<Expression> partitionExpressions) {
         aggregate.getAggregateFunctions().stream()
                 .filter(aggFunc -> !aggFunc.isDistinct())
@@ -56,8 +53,8 @@ public abstract class SplitAggRule {
                             AggregateExpression localAggExpr = new AggregateExpression(expr, inputToBufferParam);
                             return new Alias(localAggExpr);
                         },
-                        (existing, replacement) -> existing,  // 如果有重复键，保留旧值
-                        () -> localAggFunctionToAlias  // 直接收集到目标 Map
+                        (existing, replacement) -> existing,
+                        () -> localAggFunctionToAlias
                 ));
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(localAggGroupBySet)
@@ -66,24 +63,23 @@ public abstract class SplitAggRule {
         List<Expression> localAggGroupBy = Utils.fastToImmutableList(localAggGroupBySet);
 
         return aggregate.withAggParam(localAggOutput, localAggGroupBy,
-                AggregateUtils.maybeUsingStreamAgg(connectContext, aggregate), inputToBufferParam,
-                null, Optional.of(partitionExpressions), child);
+                inputToBufferParam, null, partitionExpressions, child);
     }
 
     protected LogicalAggregate<? extends Plan> splitLocalTwoPhase(LogicalAggregate<? extends Plan> aggregate,
             Map<AggregateFunction, Alias> middleAggFunctionToAlias, List<Expression> partitionExpressions,
-            Set<NamedExpression> localAggGroupBySet, ConnectContext connectContext) {
+            Set<NamedExpression> localAggGroupBySet) {
         // first phase
         AggregateParam inputToBufferParam = AggregateParam.LOCAL_BUFFER;
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
         LogicalAggregate<? extends Plan> localAgg = splitDeduplicateAgg(aggregate, localAggGroupBySet,
-                inputToBufferParam, connectContext, localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
+                inputToBufferParam, localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
 
         // second phase
         AggregateParam bufferToBufferParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_BUFFER);
         localAggFunctionToAlias.entrySet()
                 .stream()
-                .collect(Collectors.toMap(entry -> entry.getKey(),
+                .collect(Collectors.toMap(Entry::getKey,
                         kv -> {
                             AggregateExpression middleAggExpr = new AggregateExpression(kv.getKey(),
                                     bufferToBufferParam, kv.getValue().toSlot());
@@ -96,8 +92,8 @@ public abstract class SplitAggRule {
                 .addAll(middleAggFunctionToAlias.values())
                 .build();
         return aggregate.withAggParam(middleAggOutput, localAgg.getGroupByExpressions(),
-                false, bufferToBufferParam, null,
-                Optional.of(partitionExpressions), localAgg);
+                bufferToBufferParam, null,
+                partitionExpressions, localAgg);
     }
 
     protected Set<NamedExpression> getAllKeySet(LogicalAggregate<? extends Plan> aggregate) {
@@ -121,7 +117,6 @@ public abstract class SplitAggRule {
                         () -> aggFuncToAliasThird
                 )
         );
-        //然后把distinct函数再加一下
         for (AggregateFunction func : aggregate.getAggregateFunctions()) {
             if (!func.isDistinct()) {
                 continue;
@@ -134,8 +129,7 @@ public abstract class SplitAggRule {
                 .addAll(aggFuncToAliasThird.values())
                 .build();
         LogicalAggregate<? extends Plan> thirdAgg = aggregate.withAggParam(thirdAggOutput,
-                aggregate.getGroupByExpressions(), false, thirdParam, null,
-                Optional.empty(), child);
+                aggregate.getGroupByExpressions(), thirdParam, null, null, child);
 
         // fourth phase
         AggregateParam fourthParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT, false);
@@ -146,7 +140,8 @@ public abstract class SplitAggRule {
                         if (aggFunc.isDistinct()) {
                             Alias alias = aggFuncToAliasThird.get(aggFunc);
                             return new AggregateExpression(
-                                    aggFunc.withDistinctAndChildren(false, aggFunc.children()), fourthParam, alias.toSlot());
+                                    aggFunc.withDistinctAndChildren(false, aggFunc.children()),
+                                    fourthParam, alias.toSlot());
                         } else {
                             return new AggregateExpression(aggFunc,
                                     new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT),
@@ -157,7 +152,6 @@ public abstract class SplitAggRule {
                 }
         );
         return aggregate.withAggParam(globalOutput, aggregate.getGroupByExpressions(),
-                false, fourthParam, aggregate.getLogicalProperties(),
-                Optional.of(aggregate.getGroupByExpressions()), thirdAgg);
+                fourthParam, aggregate.getLogicalProperties(), aggregate.getGroupByExpressions(), thirdAgg);
     }
 }

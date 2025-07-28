@@ -31,14 +31,12 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**SplitAggMultiPhase
@@ -54,39 +52,38 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
                         .whenNot(agg -> agg.getAggregateParam().isSplit)
                         .when(Aggregate::isAggregateDistinct)
                         .when(agg -> !agg.getGroupByExpressions().isEmpty())
-                        .thenApplyMulti(ctx -> rewrite(ctx.root, ctx.connectContext))
+                        .thenApplyMulti(ctx -> rewrite(ctx.root))
                         .toRule(RuleType.SPLIT_AGG_MULTI_PHASE)
         );
     }
 
-    private List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate, ConnectContext connectContext) {
+    private List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
         return ImmutableList.<Plan>builder()
-                .add(splitToThreePhase(aggregate, connectContext))
-                .add(splitToThreePhaseChildSatisfyGroupByKey(aggregate, connectContext))
-                .add(splitToFourPhase(aggregate, connectContext))
-                .add(splitToOnePlusTwoPhase(aggregate, connectContext))
+                .add(splitToThreePhase(aggregate))
+                .add(splitToThreePhaseChildSatisfyGroupByKey(aggregate))
+                .add(splitToFourPhase(aggregate))
+                .add(splitToOnePlusTwoPhase(aggregate))
                 .build();
     }
 
-    private Plan splitToThreePhase(LogicalAggregate<? extends Plan> aggregate, ConnectContext connectContext) {
+    private Plan splitToThreePhase(LogicalAggregate<? extends Plan> aggregate) {
         Set<NamedExpression> localAggGroupBySet = getAllKeySet(aggregate);
         Map<AggregateFunction, Alias> middleAggFunctionToAlias = new LinkedHashMap<>();
         Plan middleAgg = splitLocalTwoPhase(aggregate, middleAggFunctionToAlias, aggregate.getGroupByExpressions(),
-                localAggGroupBySet, connectContext);
+                localAggGroupBySet);
 
         // third phase
         AggregateParam inputToResultParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT, true);
         return splitDistinctGlobalAgg(aggregate, inputToResultParam, middleAggFunctionToAlias, middleAgg);
     }
 
-    private Plan splitToThreePhaseChildSatisfyGroupByKey(LogicalAggregate<? extends Plan> aggregate,
-            ConnectContext connectContext) {
+    private Plan splitToThreePhaseChildSatisfyGroupByKey(LogicalAggregate<? extends Plan> aggregate) {
         Set<NamedExpression> localAggGroupBySet = getAllKeySet(aggregate);
         // first phase
         // isSplit设置为true,防止被拆分开
         AggregateParam inputToResultParamFirst = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER, true);
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
-        Plan localAgg = splitDeduplicateAgg(aggregate, localAggGroupBySet, inputToResultParamFirst, connectContext,
+        Plan localAgg = splitDeduplicateAgg(aggregate, localAggGroupBySet, inputToResultParamFirst,
                 localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
 
         // second phase
@@ -95,22 +92,22 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
         return splitDistinctGlobalAgg(aggregate, inputToResultParamSecond, localAggFunctionToAlias, localAgg);
     }
 
-    private Plan splitToFourPhase(LogicalAggregate<? extends Plan> aggregate, ConnectContext connectContext) {
+    private Plan splitToFourPhase(LogicalAggregate<? extends Plan> aggregate) {
         Set<NamedExpression> localAggGroupBySet = getAllKeySet(aggregate);
         Map<AggregateFunction, Alias> middleAggFunctionToAlias = new LinkedHashMap<>();
         Plan middleAgg = splitLocalTwoPhase(aggregate, middleAggFunctionToAlias,
-                Utils.fastToImmutableList(localAggGroupBySet), localAggGroupBySet, connectContext);
+                Utils.fastToImmutableList(localAggGroupBySet), localAggGroupBySet);
 
         return splitDistinctTwoPhase(aggregate, middleAggFunctionToAlias, middleAgg);
     }
 
-    private Plan splitToOnePlusTwoPhase(LogicalAggregate<? extends Plan> aggregate, ConnectContext connectContext) {
+    private Plan splitToOnePlusTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
         Set<NamedExpression> localAggGroupBySet = getAllKeySet(aggregate);
         // first phase
         // isSplit设置为true,防止被拆分开
         AggregateParam inputToResultParamFirst = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER, true);
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
-        Plan localAgg = splitDeduplicateAgg(aggregate, localAggGroupBySet, inputToResultParamFirst, connectContext,
+        Plan localAgg = splitDeduplicateAgg(aggregate, localAggGroupBySet, inputToResultParamFirst,
                 localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
         return splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, localAgg);
     }
@@ -135,8 +132,8 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
                     return expr;
                 });
         return aggregate.withAggParam(globalOutput, aggregate.getGroupByExpressions(),
-                false, inputToResultParamSecond, aggregate.getLogicalProperties(),
-                Optional.of(aggregate.getGroupByExpressions()), child);
+                inputToResultParamSecond, aggregate.getLogicalProperties(),
+                aggregate.getGroupByExpressions(), child);
     }
 
 }

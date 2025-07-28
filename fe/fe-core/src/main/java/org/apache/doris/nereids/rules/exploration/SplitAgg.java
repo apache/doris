@@ -29,16 +29,13 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**SplitAgg
  * only process agg without distinct function, split Agg into 2 phase: local agg and global agg
@@ -51,11 +48,11 @@ public class SplitAgg extends OneExplorationRuleFactory {
         return logicalAggregate()
                 .whenNot(agg -> agg.getAggregateParam().isSplit)
                 .whenNot(Aggregate::isAggregateDistinct)
-                .thenApply(ctx -> rewrite(ctx.root, ctx.connectContext))
+                .thenApply(ctx -> rewrite(ctx.root))
                 .toRule(RuleType.SPLIT_AGG);
     }
 
-    private Plan rewrite(LogicalAggregate<? extends Plan> aggregate, ConnectContext connectContext) {
+    private Plan rewrite(LogicalAggregate<? extends Plan> aggregate) {
         // 如果认为什么条件下不需要拆分,使用一阶段AGG更快,那么可以在这里进行判断.
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
         Map<AggregateFunction, Alias> aggFunctionToAlias = aggregate.getAggregateFunctions().stream()
@@ -69,9 +66,7 @@ public class SplitAgg extends OneExplorationRuleFactory {
                 .build();
 
         LogicalAggregate<? extends Plan> localAgg = aggregate.withAggParam(localAggOutput,
-                aggregate.getGroupByExpressions(),
-                AggregateUtils.maybeUsingStreamAgg(connectContext, aggregate),
-                inputToBufferParam, null, Optional.empty(), aggregate.child());
+                aggregate.getGroupByExpressions(), inputToBufferParam, null, null, aggregate.child());
 
         //global agg做final聚合
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
@@ -88,7 +83,6 @@ public class SplitAgg extends OneExplorationRuleFactory {
                     return new AggregateExpression(aggFunc, bufferToResultParam, alias.toSlot());
                 });
         return aggregate.withAggParam(globalAggOutput, aggregate.getGroupByExpressions(),
-                false, bufferToResultParam,
-                aggregate.getLogicalProperties(), Optional.empty(), localAgg);
+                bufferToResultParam, aggregate.getLogicalProperties(), null, localAgg);
     }
 }

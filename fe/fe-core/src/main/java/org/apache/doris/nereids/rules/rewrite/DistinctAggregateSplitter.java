@@ -75,6 +75,7 @@ public class DistinctAggregateSplitter extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate()
+                .whenNot(agg -> agg.getGroupByExpressions().isEmpty())
                 .then(this::apply).toRule(RuleType.DISTINCT_AGGREGATE_SPLIT);
     }
 
