@@ -462,10 +462,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemoryFailed) {
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
     {
-        WorkloadGroupInfo wg_info {.id = 1,
-                                   .memory_limit = 2048,
-                                   .enable_memory_overcommit = false,
-                                   .memory_high_watermark = 100};
+        WorkloadGroupInfo wg_info {.id = 1, .memory_limit = 2048, .memory_high_watermark = 100};
         auto wg = _wg_manager->get_or_create_workload_group(wg_info);
         rc->set_workload_group(wg);
         thread_context->attach_task(rc);
@@ -511,7 +508,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemoryFailed) {
     }
 
     {
-        WorkloadGroupInfo wg_info {.id = 2, .memory_limit = 1024, .enable_memory_overcommit = true};
+        WorkloadGroupInfo wg_info {.id = 2, .memory_limit = 1024};
         auto wg = _wg_manager->get_or_create_workload_group(wg_info);
         rc->set_workload_group(wg);
         thread_context->attach_task(rc);
