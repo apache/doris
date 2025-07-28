@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
 
 /**SplitAggRule*/
 public abstract class SplitAggRule {
-    protected LogicalAggregate<? extends Plan> splitDeduplicateAgg(LogicalAggregate<? extends Plan> aggregate,
+    protected LogicalAggregate<? extends Plan> splitDeduplicateOnePhase(LogicalAggregate<? extends Plan> aggregate,
             Set<NamedExpression> localAggGroupBySet, AggregateParam inputToBufferParam,
             Map<AggregateFunction, Alias> localAggFunctionToAlias, Plan child, List<Expression> partitionExpressions) {
         aggregate.getAggregateFunctions().stream()
@@ -66,13 +66,13 @@ public abstract class SplitAggRule {
                 inputToBufferParam, null, partitionExpressions, child);
     }
 
-    protected LogicalAggregate<? extends Plan> splitLocalTwoPhase(LogicalAggregate<? extends Plan> aggregate,
+    protected LogicalAggregate<? extends Plan> splitDeduplicateTwoPhase(LogicalAggregate<? extends Plan> aggregate,
             Map<AggregateFunction, Alias> middleAggFunctionToAlias, List<Expression> partitionExpressions,
             Set<NamedExpression> localAggGroupBySet) {
         // first phase
         AggregateParam inputToBufferParam = AggregateParam.LOCAL_BUFFER;
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
-        LogicalAggregate<? extends Plan> localAgg = splitDeduplicateAgg(aggregate, localAggGroupBySet,
+        LogicalAggregate<? extends Plan> localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet,
                 inputToBufferParam, localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
 
         // second phase
@@ -92,8 +92,7 @@ public abstract class SplitAggRule {
                 .addAll(middleAggFunctionToAlias.values())
                 .build();
         return aggregate.withAggParam(middleAggOutput, localAgg.getGroupByExpressions(),
-                bufferToBufferParam, null,
-                partitionExpressions, localAgg);
+                bufferToBufferParam, null, partitionExpressions, localAgg);
     }
 
     protected Set<NamedExpression> getAllKeySet(LogicalAggregate<? extends Plan> aggregate) {
@@ -106,7 +105,7 @@ public abstract class SplitAggRule {
 
     protected LogicalAggregate<? extends Plan> splitDistinctTwoPhase(LogicalAggregate<? extends Plan> aggregate,
             Map<AggregateFunction, Alias> middleAggFunctionToAlias, Plan child) {
-        AggregateParam thirdParam = new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_BUFFER, false);
+        AggregateParam thirdParam = new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_BUFFER);
         Map<AggregateFunction, Alias> aggFuncToAliasThird = new LinkedHashMap<>();
         middleAggFunctionToAlias.entrySet().stream().collect(
                 Collectors.toMap(Entry::getKey,
@@ -132,7 +131,7 @@ public abstract class SplitAggRule {
                 aggregate.getGroupByExpressions(), thirdParam, null, null, child);
 
         // fourth phase
-        AggregateParam fourthParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT, false);
+        AggregateParam fourthParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT);
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
                 aggregate.getOutputExpressions(), expr -> {
                     if (expr instanceof AggregateFunction) {

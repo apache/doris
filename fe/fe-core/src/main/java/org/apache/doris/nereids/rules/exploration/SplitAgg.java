@@ -46,8 +46,8 @@ public class SplitAgg extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate()
-                .whenNot(agg -> agg.getAggregateParam().isSplit)
-                .whenNot(Aggregate::isAggregateDistinct)
+                .when(agg -> agg.getAggregateParam().needSplit)
+                .whenNot(Aggregate::hasDistinctFunc)
                 .thenApply(ctx -> rewrite(ctx.root))
                 .toRule(RuleType.SPLIT_AGG);
     }

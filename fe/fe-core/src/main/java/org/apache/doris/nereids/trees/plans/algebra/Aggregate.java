@@ -116,7 +116,7 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
      * isAggregateDistinct
      * @return true if there is at least one distinct aggregate function
      */
-    default boolean isAggregateDistinct() {
+    default boolean hasDistinctFunc() {
         for (AggregateFunction aggFunc : getAggregateFunctions()) {
             if (aggFunc.isDistinct()) {
                 return true;
