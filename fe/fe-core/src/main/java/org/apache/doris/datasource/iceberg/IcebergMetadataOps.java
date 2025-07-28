@@ -257,7 +257,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
         try {
-            return preExecutionAuthenticator.execute(() -> performCreateTable(createTableInfo));
+            return executionAuthenticator.execute(() -> performCreateTable(createTableInfo));
         } catch (Exception e) {
             throw new DdlException(
                 "Failed to create table: " + createTableInfo.getTableName() + ", error message is:" + e.getMessage(),
