@@ -81,12 +81,12 @@ public class MoreFieldsThread extends Thread {
         }
     }
 
-    public static <T> T withKeepFunctionSignature(Supplier<T> callback) {
-        return withKeepFunctionSignature(true, callback);
+    public static <T> T keepFunctionSignature(Supplier<T> callback) {
+        return keepFunctionSignature(true, callback);
     }
 
     /** when keepFunctionSignature is true, we will use the origin function signature for the rewritten expression */
-    public static <T> T withKeepFunctionSignature(boolean keepFunctionSignature, Supplier<T> callback) {
+    public static <T> T keepFunctionSignature(boolean keepFunctionSignature, Supplier<T> callback) {
         Thread thread = Thread.currentThread();
         if (thread instanceof MoreFieldsThread) {
             MoreFieldsThread moreFieldsThread = (MoreFieldsThread) thread;
