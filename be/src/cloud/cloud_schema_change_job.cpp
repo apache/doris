@@ -556,7 +556,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     return Status::OK();
 }
 
-void CloudSchemaChangeJob::clean_up_on_failed() {
+void CloudSchemaChangeJob::clean_up_on_failure() {
     if (_new_tablet == nullptr) {
         return;
     }
