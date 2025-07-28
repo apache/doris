@@ -49,6 +49,12 @@ public class ShowDataCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static final TableNameInfo tableNameInfo =
             new TableNameInfo(internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
+    private static final OlapTable olapTable = new OlapTable(CatalogMocker.TEST_TBL_ID,
+            CatalogMocker.TEST_TBL_NAME,
+            CatalogMocker.TEST_TBL_BASE_SCHEMA,
+            KeysType.AGG_KEYS,
+            new SinglePartitionInfo(),
+            new RandomDistributionInfo(32));
     @Mocked
     private Env env;
     @Mocked
@@ -59,13 +65,6 @@ public class ShowDataCommandTest {
     private ConnectContext connectContext;
     @Mocked
     private Database database;
-
-    private static OlapTable olapTable = new OlapTable(CatalogMocker.TEST_TBL_ID,
-            CatalogMocker.TEST_TBL_NAME,
-            CatalogMocker.TEST_TBL_BASE_SCHEMA,
-            KeysType.AGG_KEYS,
-            new SinglePartitionInfo(),
-            new RandomDistributionInfo(32));
 
     @Test
     public void testValidateNormal() throws Exception {
