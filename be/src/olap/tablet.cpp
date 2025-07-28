@@ -917,7 +917,6 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
     Status status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
     if (!status.ok() && !quiet) {
-        LOG_WARNING("lyk debug").tag("st", status.msg());
         Versions missed_versions = get_missed_versions_unlocked(spec_version.second);
         if (missed_versions.empty()) {
             // if version_path is null, it may be a compaction check logic.

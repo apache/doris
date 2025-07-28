@@ -580,7 +580,6 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
 
     int64_t cur_idx = -1;
     for (size_t i = 0; i < _version_graph.size(); i++) {
-        LOG_INFO("lyk_debug").tag("i", i).tag("version", _version_graph[i].value);
         if (_version_graph[i].value == spec_version.first) {
             cur_idx = i;
             break;
