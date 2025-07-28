@@ -111,7 +111,7 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
         EXPECT_EQ(value, real);
     }
 
-    EXPECT_TRUE(sorter->prepare_for_read());
+    EXPECT_TRUE(sorter->prepare_for_read(false));
 
     {
         Block block;
