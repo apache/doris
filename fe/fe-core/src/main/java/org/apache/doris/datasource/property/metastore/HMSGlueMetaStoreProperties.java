@@ -86,7 +86,7 @@ public class HMSGlueMetaStoreProperties extends AbstractHMSProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         baseProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
-        baseProperties.check();
+        baseProperties.checkAndInit();
         initHiveConf();
     }
 
