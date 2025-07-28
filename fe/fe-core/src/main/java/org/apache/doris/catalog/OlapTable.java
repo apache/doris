@@ -3183,7 +3183,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     // for light schema change
     public void initSchemaColumnUniqueId() {
-        readLock();
+        writeLock();
         try {
             if (!getEnableLightSchemaChange()) {
                 return;
@@ -3193,7 +3193,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 indexMeta.initSchemaColumnUniqueId();
             }
         } finally {
-            readUnlock();
+            writeUnlock();
         }
     }
 
