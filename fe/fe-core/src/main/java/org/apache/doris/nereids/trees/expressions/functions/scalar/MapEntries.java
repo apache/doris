@@ -72,7 +72,7 @@ public class MapEntries extends ScalarFunction
                     ImmutableList.of(
                             new StructField("key", NullType.INSTANCE, true, ""),
                             new StructField("value", NullType.INSTANCE, true, "")));
-            return FunctionSignature.ret(ArrayType.of(structType, false)).args(inputType);
+            return FunctionSignature.ret(ArrayType.of(structType)).args(inputType);
         } else if (inputType.isMapType()) {
             MapType mapType = (MapType) inputType;
             DataType keyType = mapType.getKeyType();
@@ -82,7 +82,7 @@ public class MapEntries extends ScalarFunction
                     ImmutableList.of(
                             new StructField("key", keyType, true, ""),
                             new StructField("value", valueType, true, "")));
-            return FunctionSignature.ret(ArrayType.of(structType, false)).args(inputType);
+            return FunctionSignature.ret(ArrayType.of(structType)).args(inputType);
         } else {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null; // unreachable
