@@ -19,12 +19,12 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.ViewIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import java.io.DataOutput;
@@ -74,6 +74,11 @@ public class ExternalView implements ViewIf {
     @Override
     public List<Column> getBaseSchema() {
         return externalTable.getBaseSchema();
+    }
+
+    @Override
+    public List<Column> getSchemaAllIndexes(boolean full) {
+        return externalTable.getSchemaAllIndexes(full);
     }
 
     @Override
@@ -142,11 +147,6 @@ public class ExternalView implements ViewIf {
     }
 
     @Override
-    public long getIndexLength() {
-        return externalTable.getIndexLength();
-    }
-
-    @Override
     public long getLastCheckTime() {
         return externalTable.getLastCheckTime();
     }
@@ -177,7 +177,12 @@ public class ExternalView implements ViewIf {
     }
 
     @Override
-    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        return false;
+    }
+
+    @Override
+    public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
         return externalTable.getColumnIndexPairs(columns);
     }
 
@@ -194,11 +199,6 @@ public class ExternalView implements ViewIf {
     @Override
     public boolean autoAnalyzeEnabled() {
         return externalTable.autoAnalyzeEnabled();
-    }
-
-    @Override
-    public TableIndexes getTableIndexes() {
-        return externalTable.getTableIndexes();
     }
 
 }

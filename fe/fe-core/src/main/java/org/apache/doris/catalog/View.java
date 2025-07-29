@@ -49,11 +49,7 @@ import java.util.List;
  * Refreshing or invalidating a view will reload the view's definition but will not
  * affect the metadata of the underlying tables (if any).
  */
-<<<<<<< HEAD
-public class View extends Table {
-=======
-public class View extends Table implements GsonPostProcessable, ViewIf {
->>>>>>> d9623e0928... [fix](auth)Fix the issue of incorrectly checking base table permissions when querying external views (#53786)
+public class View extends Table implements ViewIf {
     private static final Logger LOG = LogManager.getLogger(View.class);
 
     // The original SQL-string given as view definition. Set during analysis.
