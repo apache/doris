@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.credentials.CloudCredential;
 
 import com.google.common.base.Strings;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -143,6 +144,11 @@ public class S3Util {
                             builder.externalId(externalId);
                         }
                     }).build();
+        }
+
+        // For anonymous access (no credentials required)
+        if (Strings.isNullOrEmpty(accessKey) && Strings.isNullOrEmpty(secretKey)) {
+            return AnonymousCredentialsProvider.create();
         }
         return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
                     EnvironmentVariableCredentialsProvider.create(),
