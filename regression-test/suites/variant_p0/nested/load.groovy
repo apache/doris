@@ -103,7 +103,7 @@ suite("variant_nested_type_load", "p0"){
         sql """
                 CREATE TABLE IF NOT EXISTS ${table_name_1} (
                     k bigint,
-                    v variant
+                    v variant<properties("variant_max_subcolumns_count" = "0")>
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
@@ -152,7 +152,7 @@ suite("variant_nested_type_load", "p0"){
 
         // drop table
         sql """ drop table ${table_name_1} """
-        sql """ create table ${table_name_1} (k bigint, v variant) duplicate key(k) distributed by hash(k) buckets 1 properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true") """
+        sql """ create table ${table_name_1} (k bigint, v variant<properties("variant_max_subcolumns_count" = "0")>) duplicate key(k) distributed by hash(k) buckets 1 properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true") """
         // insert scalar data first then insert structure conflict in one row
         sql """
             insert into ${table_name_1} values (1, '{"nested": {"a": 2.5, "b": "123.1"}}');

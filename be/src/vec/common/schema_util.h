@@ -200,10 +200,10 @@ void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
 size_t get_size_of_interger(TypeIndex type);
 
 Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
-                                  TabletSchemaSPtr& common_schema, bool update_sparse_column,
-                                  int32_t variant_col_unique_id,
-                                  const std::map<std::string, TabletColumnPtr>& typed_columns,
-                                  std::set<PathInData>* path_set = nullptr);
+                                    TabletSchemaSPtr& common_schema, bool update_sparse_column,
+                                    int32_t variant_col_unique_id,
+                                    const std::map<std::string, TabletColumnPtr>& typed_columns,
+                                    std::set<PathInData>* path_set = nullptr);
 
 Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
                                     const std::unordered_set<std::string>& typed_paths,
