@@ -64,14 +64,14 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
     private List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
         if (shouldUseThreePhase(aggregate)) {
             return ImmutableList.<Plan>builder()
-                    // .add(splitToTwoPlusOnePhase(aggregate))
-                    // .add(splitToOnePlusOnePhase(aggregate))
+                    .add(splitToTwoPlusOnePhase(aggregate))
+                    .add(splitToOnePlusOnePhase(aggregate))
                     .add(splitToOnePlusTwoPhase(aggregate))
                     .build();
         } else {
             return ImmutableList.<Plan>builder()
-                    // .add(splitToOnePlusOnePhase(aggregate))
-                    // .add(splitToTwoPlusTwoPhase(aggregate))
+                    .add(splitToOnePlusOnePhase(aggregate))
+                    .add(splitToTwoPlusTwoPhase(aggregate))
                     .add(splitToOnePlusTwoPhase(aggregate))
                     .build();
         }
