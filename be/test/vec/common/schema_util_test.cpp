@@ -30,6 +30,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -1056,7 +1057,9 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSchemaInternal) {
     subcolumns_types[single_path] = {std::make_shared<DataTypeString>()};
 
     std::map<std::string, TabletColumnPtr> typed_columns;
-    schema_util::update_least_schema_internal(subcolumns_types, schema, false, 1, typed_columns);
+    auto status = schema_util::update_least_schema_internal(subcolumns_types, schema, false, 1,
+                                                            typed_columns);
+    EXPECT_TRUE(status.ok());
 
     // Check results
     EXPECT_EQ(schema->num_columns(), 4); // base + 3 subcolumns
@@ -1108,7 +1111,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema) {
     result_schema->append_column(variant_col);
 
     std::set<PathInData> path_set;
-    schema_util::update_least_common_schema(schemas, result_schema, 1, &path_set);
+    auto status = schema_util::update_least_common_schema(schemas, result_schema, 1, &path_set);
+    EXPECT_TRUE(status.ok());
 
     // Check results
     EXPECT_EQ(result_schema->num_columns(), 2); // variant + subcolumn
@@ -1192,7 +1196,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema2) {
     // 1. schema->field_index(variant_col_unique_id) == -1 branch (via schema1)
     // 2. The for loop over sparse_columns() (via schema2)
     // 3. subcolumns_types.find(*col->path_info_ptr()) != subcolumns_types.end() branch
-    schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+    auto status = schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+    EXPECT_TRUE(status.ok());
 
     // Verify results
     const auto& result_variant = common_schema->column_by_uid(1);
@@ -1293,7 +1298,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema3) {
     // 1. schema->field_index(variant_col_unique_id) == -1 branch (via schema1)
     // 2. The for loop over sparse_columns() (via schema2)
     // 3. path_set.find(*col->path_info_ptr()) == path_set.end() branch (via sparse_col4)
-    schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+    auto status = schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+    EXPECT_TRUE(status.ok());
 
     // Verify that only sparse columns not in path_set are kept
     const auto& result_variant = common_schema->column_by_uid(1);
@@ -1352,7 +1358,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn) {
     std::set<PathInData> path_set;
     path_set.insert(PathInData("test_variant.other_path")); // This path should be excluded
 
-    schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    auto status = schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    EXPECT_TRUE(status.ok());
 
     // Check results : why 0?
     EXPECT_EQ(result_schema->column_by_uid(1).sparse_columns().size(), 0);
@@ -1387,7 +1394,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn2) {
     result_schema->append_column(variant2);
 
     // This should handle the case where sparse_columns is empty
-    schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    auto status = schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    EXPECT_TRUE(status.ok());
     EXPECT_EQ(result_schema->column_by_uid(1).sparse_columns().size(), 0);
 
     // Test case 3: schema has variant column with sparse columns but empty path_set
@@ -1401,7 +1409,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn2) {
     // dropped Variant Col
 
     std::set<PathInData> empty_path_set;
-    schema_util::update_least_sparse_column(schemas, result_schema, 1, empty_path_set);
+    status = schema_util::update_least_sparse_column(schemas, result_schema, 1, empty_path_set);
+    EXPECT_TRUE(status.ok());
     EXPECT_EQ(result_schema->column_by_uid(1).sparse_columns().size(), 0);
 }
 
@@ -1476,7 +1485,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn3) {
     // 1. schema->field_index(variant_col_unique_id) == -1 branch (via schema1)
     // 2. The for loop over sparse_columns() (via schema2)
     // 3. path_set.find(*col->path_info_ptr()) == path_set.end() branch (via sparse_col4)
-    schema_util::update_least_sparse_column(schemas, common_schema, 1, path_set);
+    auto status = schema_util::update_least_sparse_column(schemas, common_schema, 1, path_set);
+    EXPECT_TRUE(status.ok());
 
     // Verify that only sparse columns not in path_set are kept
     const auto& result_variant = common_schema->column_by_uid(1);
@@ -2168,10 +2178,10 @@ TEST_F(SchemaUtilTest, parse_variant_columns_ambiguous_paths) {
     using namespace doris::vectorized;
     // Prepare the string column with two rows
     auto string_col = ColumnString::create();
-    string_col->insert(doris::vectorized::Field::create_field<TYPE_STRING>(
-            String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}")));
-    string_col->insert(doris::vectorized::Field::create_field<TYPE_STRING>(
-            String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}")));
+    auto field1 = vectorized::Field(String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}"));
+    auto field2 = vectorized::Field(String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}"));
+    string_col->insert(field1);
+    string_col->insert(field2);
     auto string_type = std::make_shared<DataTypeString>();
 
     // Prepare the variant column with the string column as root
@@ -2179,7 +2189,7 @@ TEST_F(SchemaUtilTest, parse_variant_columns_ambiguous_paths) {
     dynamic_subcolumns.create_root(
             vectorized::ColumnObject::Subcolumn(string_col->assume_mutable(), string_type, true));
 
-    auto variant_col = ColumnObject::create(std::move(dynamic_subcolumns), true);
+    auto variant_col = ColumnObject::create(0, std::move(dynamic_subcolumns));
     auto variant_type = std::make_shared<DataTypeObject>();
 
     // Construct the block
