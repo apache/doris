@@ -149,8 +149,8 @@ Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fna
                                         FileHandleCache::Accessor* accessor, bool* cache_hit) {
     DCHECK_GE(mtime, 0);
     // Hash the key and get appropriate partition
-    int index = HashUtil::hash(fname.data(), static_cast<int>(fname.size()), 0) %
-                _cache_partitions.size();
+    int index =
+            HashUtil::hash(fname.data(), cast_set<int>(fname.size()), 0) % _cache_partitions.size();
     FileHandleCachePartition& p = _cache_partitions[index];
 
     auto cache_key = std::make_pair(fname, mtime);

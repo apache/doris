@@ -219,7 +219,7 @@ int MergeRangeFileReader::_search_read_range(size_t start_offset, size_t end_off
     if (_random_access_ranges.empty()) {
         return -1;
     }
-    int left = 0, right = static_cast<int>(_random_access_ranges.size()) - 1;
+    int left = 0, right = cast_set<int>(_random_access_ranges.size()) - 1;
     do {
         int mid = left + (right - left) / 2;
         const PrefetchRange& range = _random_access_ranges[mid];
@@ -338,7 +338,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         filled_boxes.emplace_back(fill_box_ref, box_usage, copy_start, copy_start + copy_size);
         copy_start += copy_size;
         _last_box_ref = fill_box_ref;
-        _last_box_usage = box_usage + static_cast<int>(copy_size);
+        _last_box_usage = box_usage + cast_set<int>(copy_size);
         _box_ref[fill_box_ref]++;
         if (box_usage == 0) {
             _remaining -= BOX_SIZE;
@@ -374,7 +374,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         while (copy_start < range_copy_end && _boxes.size() < NUM_BOX) {
             _boxes.emplace_back(BOX_SIZE);
             _box_ref.emplace_back(0);
-            fill_box(static_cast<int16_t>(_boxes.size()) - 1, 0, range_copy_end);
+            fill_box(cast_set<int16_t>(_boxes.size()) - 1, 0, range_copy_end);
         }
         DCHECK_EQ(copy_start, range_copy_end);
 
@@ -497,7 +497,7 @@ int PrefetchBuffer::search_read_range(size_t off) const {
         return -1;
     }
     const std::vector<PrefetchRange>& random_access_ranges = *_random_access_ranges;
-    int left = 0, right = static_cast<int>(random_access_ranges.size()) - 1;
+    int left = 0, right = cast_set<int>(random_access_ranges.size()) - 1;
     do {
         int mid = left + (right - left) / 2;
         const PrefetchRange& range = random_access_ranges[mid];
@@ -641,10 +641,9 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     _size = _reader->size();
     _whole_pre_buffer_size = buffer_size;
     _file_range.end_offset = std::min(_file_range.end_offset, _size);
-    int buffer_num =
-            buffer_size > s_max_pre_buffer_size
-                    ? static_cast<int>(buffer_size) / static_cast<int>(s_max_pre_buffer_size)
-                    : 1;
+    int buffer_num = buffer_size > s_max_pre_buffer_size
+                             ? cast_set<int>(buffer_size) / cast_set<int>(s_max_pre_buffer_size)
+                             : 1;
     std::function<void(PrefetchBuffer&)> sync_buffer = nullptr;
     if (profile != nullptr) {
         const char* prefetch_buffered_reader = "PrefetchBufferedReader";

@@ -38,6 +38,7 @@
 #include <mutex>
 #include <ranges>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -1400,7 +1401,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                                           cell->file_block->get_hash_value(),
                                           cell->file_block->offset(), cell->size());
     }
-    *_queue_evict_size_metrics[static_cast<int>(file_block->cache_type())]
+    *_queue_evict_size_metrics[cast_set<int>(file_block->cache_type())]
             << file_block->range().size();
     *_total_evict_size_metrics << file_block->range().size();
     if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
@@ -1680,7 +1681,7 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
 
     unsigned long long inode_free = stat.f_ffree;
     unsigned long long inode_total = stat.f_files;
-    int inode_percentage = static_cast<int>((inode_free / inode_total) * 100);
+    int inode_percentage = cast_set<int>((inode_free / inode_total) * 100);
     percent->first = capacity_percentage;
     percent->second = 100 - inode_percentage;
 
@@ -1744,7 +1745,7 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
     }
     auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - adjust_start_time);
     LOG(INFO) << "Finish tag deleted block. path=" << _cache_base_path
-              << " use_time=" << static_cast<int64_t>(use_time.count());
+              << " use_time=" << cast_set<int64_t>(use_time.count());
     ss << " old_capacity=" << old_capacity << " new_capacity=" << new_capacity;
     LOG(INFO) << ss.str();
     return ss.str();
