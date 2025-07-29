@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -32,6 +32,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -57,12 +58,14 @@ public:
     static constexpr auto name = Transform::name;
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
+    using ColumnType = typename PrimitiveTypeTraits<Transform::FromPType>::ColumnType;
+    constexpr static bool IsDecimal = is_decimal(Transform::FromPType);
 
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeStringToString>(); }
 
     String get_name() const override { return name; }
 
-    bool is_variadic() const override { return true; }
+    bool is_variadic() const override { return true; } // because of format string is optional
     size_t get_number_of_arguments() const override { return 0; }
     DataTypes get_variadic_argument_types_impl() const override {
         if constexpr (has_variadic_argument) {
@@ -134,7 +137,7 @@ public:
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
 
         const auto* nullable_column = check_and_get_column<ColumnNullable>(source_col.get());
-        const auto* sources = assert_cast<const ColumnVector<Transform::FromPType>*>(
+        const ColumnType* sources = assert_cast<const ColumnType*>(
                 nullable_column ? nullable_column->get_nested_column_ptr().get()
                                 : source_col.get());
 
@@ -143,7 +146,8 @@ public:
         col_null_map_to = ColumnUInt8::create();
         auto& vec_null_map_to = col_null_map_to->get_data();
 
-        RETURN_IF_ERROR(vector_constant(context, sources->get_data(), col_res->get_chars(),
+        // in open we have checked the second argument is constant,
+        RETURN_IF_ERROR(vector_constant(context, sources, col_res->get_chars(),
                                         col_res->get_offsets(), vec_null_map_to));
 
         if (nullable_column) {
@@ -160,8 +164,7 @@ public:
         return Status::OK();
     }
 
-    Status vector_constant(FunctionContext* context,
-                           const PaddedPODArray<typename Transform::FromType>& ts,
+    Status vector_constant(FunctionContext* context, const ColumnType* col,
                            ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
                            PaddedPODArray<UInt8>& null_map) const {
         auto* format_state = reinterpret_cast<FormatState*>(
@@ -173,7 +176,8 @@ public:
 
         StringRef format(format_state->format_str);
 
-        const auto len = ts.size();
+        const auto& pod_array = col->get_data();
+        const auto len = pod_array.size();
 
         if (!format_state->is_valid) {
             res_offsets.resize_fill(len, 0);
@@ -189,8 +193,15 @@ public:
                     using Impl = decltype(type);
                     size_t offset = 0;
                     for (int i = 0; i < len; ++i) {
-                        null_map[i] = Transform::template execute<Impl>(
-                                ts[i], format, res_data, offset, context->state()->timezone_obj());
+                        if constexpr (IsDecimal) {
+                            null_map[i] = Transform::template execute_decimal<Impl>(
+                                    col->get_intergral_part(i), col->get_fractional_part(i), format,
+                                    res_data, offset, context->state()->timezone_obj());
+                        } else {
+                            null_map[i] = Transform::template execute<Impl>(
+                                    pod_array[i], format, res_data, offset,
+                                    context->state()->timezone_obj());
+                        }
                         res_offsets[i] = cast_set<uint32_t>(offset);
                     }
                     res_data.resize(offset);
