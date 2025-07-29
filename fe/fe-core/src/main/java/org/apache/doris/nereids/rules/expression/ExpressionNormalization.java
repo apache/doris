@@ -47,6 +47,8 @@ import java.util.List;
 public class ExpressionNormalization extends ExpressionRewrite {
     // we should run supportJavaDateFormatter before foldConstantRule or be will fold
     // from_unixtime(timestamp, 'yyyyMMdd') to 'yyyyMMdd'
+    // specically note: LogToLn and ConcatWsMultiArrayToOne must  before FoldConstantRule,otherwise log will core when
+    // input single argument like log(100),and concat_ws will retuen a wrong result when input multi array
     public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> NORMALIZE_REWRITE_RULES
                 = ImmutableList.of(
             bottomUp(
