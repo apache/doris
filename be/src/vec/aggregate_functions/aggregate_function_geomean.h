@@ -77,7 +77,6 @@ struct AggregateFunctionGeomeanData {
         sum_log_abs += rhs.sum_log_abs;
     }
 
-    // the caller makes sure `value_x` is not NULL
     void add(const DataType& value_x) {
         double value = double(value_x); // the conversion is safe here
         if (has_zero || value == 0) {
@@ -129,9 +128,7 @@ public:
              Arena&) const override {
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        if (!column.is_null_at(row_num)) {
-            this->data(place).add(column.get_data()[row_num]);
-        }
+        this->data(place).add(column.get_data()[row_num]);
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
