@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
@@ -41,6 +40,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartit
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -183,10 +183,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 return null;
             }
         };
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, new DbName("hive", mockedDbName), dbProps);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        CreateDatabaseCommand command = new CreateDatabaseCommand(true, new DbName("hive", mockedDbName), dbProps);
+        Env.getCurrentEnv().createDb(command);
         // checkout ifNotExists
-        Env.getCurrentEnv().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(command);
         useDatabase(mockedDbName);
 
         // un-partitioned table

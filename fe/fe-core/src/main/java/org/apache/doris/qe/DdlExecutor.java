@@ -31,7 +31,6 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateIndexPolicyStmt;
@@ -95,9 +94,7 @@ public class DdlExecutor {
      **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
         checkDdlStmtSupported(ddlStmt);
-        if (ddlStmt instanceof CreateDbStmt) {
-            env.createDb((CreateDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropDbStmt) {
+        if (ddlStmt instanceof DropDbStmt) {
             env.dropDb((DropDbStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFunctionStmt) {
             env.createFunction((CreateFunctionStmt) ddlStmt);

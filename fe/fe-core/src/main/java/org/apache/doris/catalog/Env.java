@@ -30,7 +30,6 @@ import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
@@ -3343,17 +3342,6 @@ public class Env {
             }
         }
         return null;
-    }
-
-    // The interface which DdlExecutor needs.
-    public void createDb(CreateDbStmt stmt) throws DdlException {
-        CatalogIf<?> catalogIf;
-        if (StringUtils.isEmpty(stmt.getCtlName())) {
-            catalogIf = getCurrentCatalog();
-        } else {
-            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
-        }
-        catalogIf.createDb(stmt.getFullDbName(), stmt.isSetIfNotExists(), stmt.getProperties());
     }
 
     // The interface which DdlExecutor needs.

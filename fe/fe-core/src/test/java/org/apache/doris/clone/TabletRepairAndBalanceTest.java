@@ -18,7 +18,6 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.analysis.BackendClause;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -43,6 +42,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
@@ -133,8 +133,12 @@ public class TabletRepairAndBalanceTest {
 
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         // must set disk info, or the tablet scheduler won't work
         backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
