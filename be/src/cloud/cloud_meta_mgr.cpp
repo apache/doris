@@ -627,10 +627,13 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DeleteBitmapPtr delete_bitmap_backup;
-            bool check_delete_bitmap = config::delete_bitmap_store_version == 2 &&
-                                       config::enable_delete_bitmap_store_v2_check_correctness &&
-                                       !resp.rowset_meta().empty();
-            if (check_delete_bitmap) {
+            bool check_delete_bitmap_v2 = config::delete_bitmap_store_version >= 2 &&
+                                          config::enable_delete_bitmap_store_v2_check_correctness &&
+                                          !resp.rowset_meta().empty();
+            bool check_delete_bitmap_v1 = config::delete_bitmap_store_version == 3 &&
+                                          config::enable_delete_bitmap_store_v2_check_correctness &&
+                                          !resp.rowset_meta().empty();
+            if (check_delete_bitmap_v1) {
                 delete_bitmap_backup =
                         std::make_shared<DeleteBitmap>(tablet->tablet_meta()->delete_bitmap());
             }
@@ -720,7 +723,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         .tag("new_rowsets(rowset,count,cardinality)",
                              fmt::format("[{}]", fmt::join(new_rowset_msgs, ", ")));
             }
-            if (check_delete_bitmap) {
+            if (check_delete_bitmap_v2) {
                 int64_t new_max_version =
                         std::max(old_max_version, resp.rowset_meta().rbegin()->end_version());
                 // rowset_id, num_segments
@@ -772,30 +775,35 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 };
 
                 // check v2 delete bitmap in ms
-                DeleteBitmap full_delete_bitmap(tablet_id);
-                auto status = sync_tablet_delete_bitmap_v2(
-                        tablet, -1, resp.rowset_meta(), resp.stats(), req.idx(),
-                        &full_delete_bitmap, false, nullptr, rowset_to_resource, true);
-                if (!status.ok()) {
-                    LOG_WARNING("failed to check delete bitmap correctness by v2")
-                            .tag("tablet", tablet->tablet_id())
-                            .error(status);
-                } else {
-                    compare_delete_bitmap(&full_delete_bitmap, 2);
+                if (check_delete_bitmap_v2) {
+                    DeleteBitmap full_delete_bitmap(tablet_id);
+                    auto status = sync_tablet_delete_bitmap_v2(
+                            tablet, -1, resp.rowset_meta(), resp.stats(), req.idx(),
+                            &full_delete_bitmap, false, nullptr, rowset_to_resource, true);
+                    if (!status.ok()) {
+                        LOG_WARNING("failed to check delete bitmap correctness by v2")
+                                .tag("tablet", tablet->tablet_id())
+                                .error(status);
+                    } else {
+                        compare_delete_bitmap(&full_delete_bitmap, 2);
+                    }
                 }
 
-                // get v1 delete bitmap
-                DeleteBitmap v1_delete_bitmap(tablet_id);
-                status = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
-                                                   resp.stats(), req.idx(), &v1_delete_bitmap,
-                                                   false, nullptr, 1);
-                if (!status.ok()) {
-                    LOG_WARNING("failed to check delete bitmap correctness by v1")
-                            .tag("tablet", tablet->tablet_id())
-                            .error(status);
-                } else {
-                    delete_bitmap_backup->merge(v1_delete_bitmap);
-                    compare_delete_bitmap(delete_bitmap_backup.get(), 1);
+                if (check_delete_bitmap_v1) {
+                    DCHECK(delete_bitmap_backup != nullptr);
+                    // get v1 delete bitmap
+                    DeleteBitmap v1_delete_bitmap(tablet_id);
+                    auto status = sync_tablet_delete_bitmap(
+                            tablet, old_max_version, resp.rowset_meta(), resp.stats(), req.idx(),
+                            &v1_delete_bitmap, false, nullptr, 1);
+                    if (!status.ok()) {
+                        LOG_WARNING("failed to check delete bitmap correctness by v1")
+                                .tag("tablet", tablet->tablet_id())
+                                .error(status);
+                    } else {
+                        delete_bitmap_backup->merge(v1_delete_bitmap);
+                        compare_delete_bitmap(delete_bitmap_backup.get(), 1);
+                    }
                 }
             }
         }
@@ -967,7 +975,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         return Status::OK();
     }
 
-    if (version == 2) {
+    if (version == 2 || version == 3) {
         return sync_tablet_delete_bitmap_v2(tablet, old_max_version, rs_metas, stats, idx,
                                             delete_bitmap, full_sync, sync_stats);
     }
@@ -1663,21 +1671,25 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
         req.set_next_visible_version(next_visible_version);
     }
 
+    bool write_v1 =
+            config::delete_bitmap_store_version == 1 || config::delete_bitmap_store_version == 3;
+    bool write_v2 = config::delete_bitmap_store_version >= 2;
     // write v1 kvs
-    for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
-        req.add_rowset_ids(std::get<0>(key).to_string());
-        req.add_segment_ids(std::get<1>(key));
-        req.add_versions(std::get<2>(key));
-        // To save space, convert array and bitmap containers to run containers
-        bitmap.runOptimize();
-        std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
-        bitmap.write(bitmap_data.data());
-        *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+    if (write_v1) {
+        for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
+            req.add_rowset_ids(std::get<0>(key).to_string());
+            req.add_segment_ids(std::get<1>(key));
+            req.add_versions(std::get<2>(key));
+            // To save space, convert array and bitmap containers to run containers
+            bitmap.runOptimize();
+            std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+            bitmap.write(bitmap_data.data());
+            *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+        }
     }
 
     // write v2 kvs
-    bool is_version_write_enabled = true;
-    if (is_version_write_enabled) {
+    if (write_v2) {
         // TODO skip update if delete bitmap is empty
         //  it's ok for compaction and schema change, but for load, ms check partition version
         auto add_delete_bitmap = [](DeleteBitmapPB& delete_bitmap_pb,
