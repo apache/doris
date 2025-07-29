@@ -40,8 +40,7 @@ public class S3ClientBEProperties {
                 properties.put(MinioProperties.REGION, MinioProperties.DEFAULT_REGION);
             }
             return getBeAWSPropertiesFromS3(S3Properties.prefixToS3(properties));
-        } else if (properties.containsKey(S3Properties.ENDPOINT)
-                || properties.containsKey(S3Properties.Env.ENDPOINT)) {
+        } else if (properties.containsKey(S3Properties.ENDPOINT)) {
             // s3,oss,cos,obs use this.
             return getBeAWSPropertiesFromS3(properties);
         } else if (properties.containsKey(ObsProperties.ENDPOINT)
@@ -49,6 +48,13 @@ public class S3ClientBEProperties {
                 || properties.containsKey(GCSProperties.ENDPOINT)
                 || properties.containsKey(CosProperties.ENDPOINT)) {
             return getBeAWSPropertiesFromS3(S3Properties.prefixToS3(properties));
+        } else if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
+            if (!properties.containsKey(S3Properties.Env.REGION)) {
+                String endpoint = properties.get(S3Properties.Env.ENDPOINT);
+                String region = PropertyConverter.checkRegion(endpoint, properties.get(S3Properties.Env.REGION),
+                        S3Properties.Env.REGION);
+                properties.put(S3Properties.Env.REGION, region);
+            }
         }
         return properties;
     }
@@ -62,12 +68,7 @@ public class S3ClientBEProperties {
         } else {
             beProperties.put(Env.NEED_OVERRIDE_ENDPOINT, "true");
         }
-        String endpoint;
-        if (properties.containsKey(S3Properties.ENDPOINT)) {
-            endpoint = properties.get(S3Properties.ENDPOINT);
-        } else {
-            endpoint = properties.get(S3Properties.Env.ENDPOINT);
-        }
+        String endpoint = properties.get(S3Properties.ENDPOINT);
         beProperties.put(S3Properties.Env.ENDPOINT, endpoint);
         String region = PropertyConverter.checkRegion(endpoint, properties.get(S3Properties.Env.REGION),
                 S3Properties.Env.REGION);
