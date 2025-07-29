@@ -98,6 +98,7 @@ protected:
         column_1.set_unique_id(1);
         column_1.set_name("k1");
         column_1.set_is_key(true);
+        column_1.set_index_length(4);
         tablet_schema->append_column(column_1);
 
         // Create the second key column
@@ -1094,6 +1095,7 @@ TEST_F(IndexBuilderTest, RenameColumnIndexTest) {
     column_1.set_unique_id(1);
     column_1.set_name("k1");
     column_1.set_is_key(true);
+    column_1.set_index_length(4);
     schema->append_column(column_1);
 
     // Create the second key column
@@ -2088,6 +2090,7 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
     column_1.set_unique_id(1);
     column_1.set_is_key(true);
     column_1.set_name("k1");
+    column_1.set_index_length(4);
     tablet_schema->append_column(column_1);
 
     // Array type column

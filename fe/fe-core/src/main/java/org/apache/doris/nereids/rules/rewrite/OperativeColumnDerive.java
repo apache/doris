@@ -151,6 +151,11 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
                 }
             }
         }
+        for (NamedExpression virtualColumn : olapScan.getVirtualColumns()) {
+            intersectSlots.add(virtualColumn.toSlot());
+            intersectSlots.addAll(virtualColumn.getInputSlots());
+        }
+
         return olapScan.withOperativeSlots(intersectSlots);
     }
 
@@ -161,6 +166,10 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
             if (context.operativeSlotIds.contains(slot.getExprId().asInt())) {
                 operandSlots.add(slot);
             }
+        }
+        for (NamedExpression virtualColumn : relation.getVirtualColumns()) {
+            operandSlots.add(virtualColumn.toSlot());
+            operandSlots.addAll(virtualColumn.getInputSlots());
         }
         return relation.withOperativeSlots(operandSlots.build());
     }

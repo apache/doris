@@ -18,6 +18,7 @@
 #include "cast_base.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/cast/cast_to_string.h"
@@ -207,14 +208,14 @@ template <PrimitiveType type, typename ColumnType, typename ToDataType>
 struct ConvertImplFromJsonb {
     template <PrimitiveType PT, bool enable_strict_cast>
     static bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x,
-                               ReadBuffer& rb) {
+                               const StringRef& str_ref) {
         if constexpr (is_float_or_double(PT)) {
-            return try_read_float_text(x, rb);
+            return try_read_float_text(x, str_ref);
         } else if constexpr (PT == TYPE_BOOLEAN) {
-            return try_read_bool_text(x, rb);
+            return try_read_bool_text(x, str_ref);
         } else if constexpr (is_int(PT)) {
             return try_read_int_text<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                                     enable_strict_cast>(x, rb);
+                                     enable_strict_cast>(x, str_ref);
         } else {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "try_parse_impl not implemented for type: {}",
@@ -273,12 +274,12 @@ struct ConvertImplFromJsonb {
                     const auto* blob = value->unpack<JsonbBinaryVal>();
                     const auto& data = blob->getBlob();
                     size_t len = blob->getBlobLen();
-                    ReadBuffer rb((char*)(data), len);
+                    StringRef str_ref((char*)(data), len);
                     bool enable_strict_cast = context->enable_strict_mode();
                     std::visit(
                             [&](auto enable_strict_cast) {
                                 bool parsed = try_parse_impl<ToDataType::PType, enable_strict_cast>(
-                                        res[i], rb);
+                                        res[i], str_ref);
                                 null_map[i] = !parsed;
                             },
                             vectorized::make_bool_variant(enable_strict_cast));
@@ -354,10 +355,25 @@ struct ConvertImplFromJsonb {
     }
 };
 
+inline bool can_cast_json_type(PrimitiveType pt) {
+    return is_int_or_bool(pt) || is_float_or_double(pt) || is_string_type(pt) || is_decimal(pt) ||
+           pt == TYPE_ARRAY || pt == TYPE_STRUCT;
+}
+
 // check jsonb value type and get to_type value
 WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
                                            const DataTypePtr& to_type,
                                            bool jsonb_string_as_string) {
+    if (!can_cast_json_type(to_type->get_primitive_type())) {
+        return create_unsupport_wrapper(
+                fmt::format("CAST AS JSONB can only be performed between "
+                            "JSONB, String, Number, Boolean, Array, Struct types. "
+                            "Got {} to {}",
+                            from_type.get_name(), to_type->get_name())
+
+        );
+    }
+
     switch (to_type->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return &ConvertImplFromJsonb<PrimitiveType::TYPE_BOOLEAN, ColumnUInt8,
@@ -397,6 +413,13 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
 // use jsonb writer to create jsonb value
 WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
                                          bool string_as_jsonb_string) {
+    if (!can_cast_json_type(from_type->get_primitive_type())) {
+        return create_unsupport_wrapper(
+                fmt::format("CAST AS JSONB can only be performed between "
+                            "JSONB, String, Number, Boolean, Array, Struct types. "
+                            "Got {} to {}",
+                            from_type->get_name(), to_type.get_name()));
+    }
     switch (from_type->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;

@@ -356,7 +356,7 @@ constexpr inline __int128 max_i128(int digit_count) {
     return values[digit_count];
 }
 
-inline wide::Int256 max_i256(int digit_count) {
+constexpr inline wide::Int256 max_i256(int digit_count) {
     if (digit_count < 0) {
         return 0;
     }
@@ -364,8 +364,8 @@ inline wide::Int256 max_i256(int digit_count) {
         return std::numeric_limits<wide::Int256>::max();
     }
 
-    static constexpr wide::Int256 i10e18 {1000000000000000000LL};
-    static const wide::Int256 values[] = {
+    constexpr wide::Int256 i10e18 {1000000000000000000LL};
+    constexpr wide::Int256 values[] = {
             static_cast<wide::Int256>(0LL),
             static_cast<wide::Int256>(9LL),
             static_cast<wide::Int256>(99LL),
