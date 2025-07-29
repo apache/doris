@@ -77,7 +77,6 @@
 #include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/stopwatch.hpp"
-#include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/uid_util.h"

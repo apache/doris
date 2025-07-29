@@ -14,20 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
+
 #include <mutex>
 #include <string>
-#include <unordered_map>
-#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
 #include "http/action/http_stream.h"
 #include "olap/wal/wal_info.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/stream_load_context.h"
 
 namespace doris {
 class WalTable {

@@ -27,7 +27,6 @@
 #include "olap/compaction.h"
 #include "olap/task/engine_checksum_task.h"
 #include "service/backend_options.h"
-#include "util/thread.h"
 #include "util/uuid_generator.h"
 #include "vec/runtime/vdatetime_value.h"
 

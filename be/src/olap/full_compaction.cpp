@@ -37,7 +37,6 @@
 #include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
-#include "util/thread.h"
 #include "util/trace.h"
 
 namespace doris {

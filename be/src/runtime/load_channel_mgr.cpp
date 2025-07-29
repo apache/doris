@@ -35,7 +35,6 @@
 #include "runtime/load_channel.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
-#include "util/thread.h"
 
 namespace doris {
 
@@ -205,16 +204,12 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
 }
 
 Status LoadChannelMgr::_start_bg_worker() {
-    RETURN_IF_ERROR(Thread::create(
-            "LoadChannelMgr", "cancel_timeout_load_channels",
-            [this]() {
-                while (!_stop_background_threads_latch.wait_for(
-                        std::chrono::seconds(START_BG_INTERVAL))) {
-                    static_cast<void>(_start_load_channels_clean());
-                }
-            },
-            &_load_channels_clean_thread));
-
+    _load_channels_clean_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "LoadChannelMgr-clean_timeout_load_channels");
+        while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(START_BG_INTERVAL))) {
+            static_cast<void>(_start_load_channels_clean());
+        }
+    });
     return Status::OK();
 }
 

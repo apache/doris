@@ -582,55 +582,55 @@ void Daemon::calculate_workload_group_metrics_thread() {
 }
 
 void Daemon::start() {
-    Status st;
-    st = Thread::create(
-            "Daemon", "tcmalloc_gc_thread", [this]() { this->tcmalloc_gc_thread(); },
-            &_threads.emplace_back());
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
-            &_threads.emplace_back());
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "memtable_memory_refresh_thread",
-            [this]() { this->memtable_memory_refresh_thread(); }, &_threads.emplace_back());
-    CHECK(st.ok()) << st;
+    _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Daemon-tcmalloc_gc_thread");
+        this->tcmalloc_gc_thread();
+    });
+
+    _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Daemon-memory_maintenance_thread");
+        this->memory_maintenance_thread();
+    });
+
+    _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Daemon-memtable_memory_refresh_thread");
+        this->memtable_memory_refresh_thread();
+    });
 
     if (config::enable_metric_calculator) {
-        st = Thread::create(
-                "Daemon", "calculate_metrics_thread",
-                [this]() { this->calculate_metrics_thread(); }, &_threads.emplace_back());
-        CHECK(st.ok()) << st;
+        _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+            pthread_setname_np(pthread_self(), "Daemon-calculate_metrics_thread");
+            this->calculate_metrics_thread();
+        });
     }
-    st = Thread::create(
-            "Daemon", "je_reset_dirty_decay_thread",
-            [this]() { this->je_reset_dirty_decay_thread(); }, &_threads.emplace_back());
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "cache_adjust_capacity_thread",
-            [this]() { this->cache_adjust_capacity_thread(); }, &_threads.emplace_back());
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "cache_prune_stale_thread", [this]() { this->cache_prune_stale_thread(); },
-            &_threads.emplace_back());
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "query_runtime_statistics_thread",
-            [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
-    CHECK(st.ok()) << st;
+    _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Daemon-je_reset_dirty_decay_thread");
+        this->je_reset_dirty_decay_thread();
+    });
+    _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Daemon-cache_adjust_capacity_thread");
+        this->cache_adjust_capacity_thread();
+    });
+    _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Daemon-cache_prune_stale_thread");
+        this->cache_prune_stale_thread();
+    });
+    _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Daemon-query_runtime_statistics_thread");
+        this->report_runtime_query_statistics_thread();
+    });
 
     if (config::enable_be_proc_monitor) {
-        st = Thread::create(
-                "Daemon", "be_proc_monitor_thread", [this]() { this->be_proc_monitor_thread(); },
-                &_threads.emplace_back());
+        _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+            pthread_setname_np(pthread_self(), "Daemon-be_proc_monitor_thread");
+            this->be_proc_monitor_thread();
+        });
     }
-    CHECK(st.ok()) << st;
 
-    st = Thread::create(
-            "Daemon", "workload_group_metrics",
-            [this]() { this->calculate_workload_group_metrics_thread(); },
-            &_threads.emplace_back());
-    CHECK(st.ok()) << st;
+    _threads.emplace_back() = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Daemon-workload_group_metrics");
+        this->calculate_workload_group_metrics_thread();
+    });
 }
 
 void Daemon::stop() {

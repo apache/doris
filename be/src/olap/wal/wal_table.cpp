@@ -22,16 +22,12 @@
 
 #include "http/action/http_stream.h"
 #include "http/action/stream_load.h"
-#include "http/ev_http_server.h"
-#include "http/http_common.h"
-#include "http/http_headers.h"
 #include "http/utils.h"
-#include "io/fs/local_file_system.h"
-#include "io/fs/stream_load_pipe.h"
 #include "olap/wal/wal_manager.h"
+#include "olap/wal/wal_reader.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
-#include "util/path_util.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
@@ -330,7 +326,7 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,
 }
 
 Status WalTable::_read_wal_header(const std::string& wal_path, std::string& columns) {
-    std::shared_ptr<doris::WalReader> wal_reader = std::make_shared<WalReader>(wal_path);
+    auto wal_reader = std::make_shared<WalReader>(wal_path);
     RETURN_IF_ERROR(wal_reader->init());
     uint32_t version = 0;
     RETURN_IF_ERROR(wal_reader->read_header(version, columns));

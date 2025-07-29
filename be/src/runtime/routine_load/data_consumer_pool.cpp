@@ -128,14 +128,12 @@ void DataConsumerPool::return_consumers(DataConsumerGroup* grp) {
 }
 
 Status DataConsumerPool::start_bg_worker() {
-    RETURN_IF_ERROR(Thread::create(
-            "ResultBufferMgr", "clean_idle_consumer",
-            [this]() {
-                do {
-                    _clean_idle_consumer_bg();
-                } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)));
-            },
-            &_clean_idle_consumer_thread));
+    _clean_idle_consumer_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "ResultBufferMgr-clean_idle_consumer");
+        do {
+            _clean_idle_consumer_bg();
+        } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)));
+    });
     return Status::OK();
 }
 

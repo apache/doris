@@ -23,8 +23,6 @@
 #include <algorithm>
 #include <filesystem>
 #include <memory>
-#include <numeric>
-#include <random>
 #include <string>
 
 #include "common/logging.h"
@@ -84,9 +82,10 @@ Status SpillStreamManager::init() {
                               .set_max_queue_size(config::spill_io_thread_pool_queue_size)
                               .build(&_spill_io_thread_pool));
 
-    RETURN_IF_ERROR(Thread::create(
-            "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
-            &_spill_gc_thread));
+    _spill_gc_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Spill-spill_gc_thread");
+        this->_spill_gc_thread_callback();
+    });
     LOG(INFO) << "spill gc thread started";
 
     _init_metrics();

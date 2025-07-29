@@ -560,16 +560,20 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         const std::string& name, int normal_worker_count, int high_prior_worker_count,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
+    std::string normal_name = "Normal-" + name;
     for (int i = 0; i < normal_worker_count; ++i) {
-        auto st = Thread::create(
-                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
-        CHECK(st.ok()) << name << ": " << st;
+        _workers.emplace_back() = std::make_shared<std::thread>([this, &normal_name] {
+            pthread_setname_np(pthread_self(), normal_name.c_str());
+            normal_loop();
+        });
     }
 
+    std::string high_prior_name = "HighPrior-" + name;
     for (int i = 0; i < high_prior_worker_count; ++i) {
-        auto st = Thread::create(
-                "HighPrior", name, [this] { high_prior_loop(); }, &_workers.emplace_back());
-        CHECK(st.ok()) << name << ": " << st;
+        _workers.emplace_back() = std::make_shared<std::thread>([this, &high_prior_name] {
+            pthread_setname_np(pthread_self(), high_prior_name.c_str());
+            high_prior_loop();
+        });
     }
 }
 
@@ -748,8 +752,11 @@ ReportWorker::ReportWorker(std::string name, const ClusterInfo* cluster_info, in
         engine.deregister_report_listener(this);
     };
 
-    auto st = Thread::create("ReportWorker", _name, report_loop, &_thread);
-    CHECK(st.ok()) << _name << ": " << st;
+    std::string report_thread_name = "ReportWorker-" + _name;
+    _thread = std::make_unique<std::thread>([&report_thread_name, report_loop]() {
+        pthread_setname_np(pthread_self(), report_thread_name.c_str());
+        report_loop();
+    });
 }
 
 ReportWorker::~ReportWorker() {

@@ -23,7 +23,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "olap/options.h"
 #include "util/metrics.h"
 #include "util/threadpool.h"
 #include "vec/spill/spill_stream.h"
@@ -157,7 +156,7 @@ private:
 
     CountDownLatch _stop_background_threads_latch;
     std::unique_ptr<ThreadPool> _spill_io_thread_pool;
-    scoped_refptr<Thread> _spill_gc_thread;
+    std::unique_ptr<std::thread> _spill_gc_thread;
 
     std::atomic_uint64_t id_ = 0;
 

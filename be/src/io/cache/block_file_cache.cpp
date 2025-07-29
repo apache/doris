@@ -47,7 +47,6 @@
 #include "io/cache/mem_file_cache_storage.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
-#include "util/thread.h"
 #include "util/time.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/uint128.h"
