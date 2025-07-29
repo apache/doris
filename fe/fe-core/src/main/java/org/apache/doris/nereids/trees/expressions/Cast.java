@@ -84,6 +84,10 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public boolean nullable() {
         if (SessionVariable.enableStrictCast()) {
+            DataType childDataType = child().getDataType();
+            if (childDataType.isJsonType()) {
+                return true;
+            }
             return child().nullable();
         } else {
             return unStrictCastNullable();
