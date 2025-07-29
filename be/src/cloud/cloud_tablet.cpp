@@ -151,7 +151,7 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
             }
         }
         const auto& rs = it->second;
-        return rs->has_been_warmed_up();
+        return rs->is_warmed_up();
     };
     RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
             0, version_path, rowset_is_warmed_up));

@@ -318,9 +318,14 @@ public:
 
     std::vector<std::string> get_index_file_names();
 
-    bool has_been_warmed_up() const {
+    bool is_warmed_up() const {
         // TODO: change me
-        return true;
+        return _is_warmed_up;
+    }
+
+    void set_is_warmed_up(bool warmed_up) {
+        // TODO: change me
+        _is_warmed_up = warmed_up;
     }
 
 protected:
@@ -363,6 +368,8 @@ protected:
 
     // <column_uniq_id>, skip index compaction
     std::set<int32_t> skip_index_compaction;
+
+    bool _is_warmed_up {false};
 };
 
 // `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
