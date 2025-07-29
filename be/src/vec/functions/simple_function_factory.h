@@ -203,7 +203,8 @@ public:
             }
         }
 
-        if (key_str.starts_with("unix_timestamp") && attr.new_version_unix_timestamp) {
+        if ((key_str.starts_with("unix_timestamp") || key_str.starts_with("from_unixtime")) &&
+            attr.new_version_unix_timestamp) {
             key_str += "_new";
         }
 

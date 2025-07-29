@@ -786,7 +786,7 @@ template <typename Impl>
 class FunctionUnixTimestampNew : public IFunction {
 public:
     static constexpr auto name = "unix_timestamp_new";
-    static FunctionPtr create() { return std::make_shared<FunctionUnixTimestamp<Impl>>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionUnixTimestampNew<Impl>>(); }
 
     String get_name() const override { return name; }
 

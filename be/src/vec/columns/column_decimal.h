@@ -34,7 +34,6 @@
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -86,10 +85,10 @@ private:
     friend class COWHelper<IColumn, Self>;
 
 public:
-    using value_type =
+    using value_type =                                       // DecimalXX
             typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
     using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
-    using Container = DecimalPaddedPODArray<value_type>;
+    using Container = DecimalPaddedPODArray<value_type>; // IntXX
 
 private:
     ColumnDecimal(const size_t n, UInt32 scale_) : data(n, scale_), scale(scale_) {}
