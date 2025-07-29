@@ -488,6 +488,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
         }
+        if (olapTable.isDistributionColumn(dropColName)) {
+            throw new DdlException("Could not drop distribution column: " + dropColName);
+        }
         return lightSchemaChange;
     }
 
