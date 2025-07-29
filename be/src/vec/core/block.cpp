@@ -48,6 +48,7 @@
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -59,7 +60,7 @@ class SipHash;
 namespace doris::segment_v2 {
 enum CompressionTypePB : int;
 } // namespace doris::segment_v2
-
+#include "common/compile_check_begin.h"
 namespace doris::vectorized {
 template <typename T>
 void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
@@ -384,6 +385,12 @@ Status Block::check_type_and_column() const {
             continue;
         }
 
+        // ColumnNothing is a special column type, it is used to represent a column that
+        // is not materialized, so we don't need to check it.
+        if (check_and_get_column<ColumnNothing>(elem.column.get())) {
+            continue;
+        }
+
         const auto& type = elem.type;
         const auto& column = elem.column;
 
@@ -514,10 +521,10 @@ std::string Block::dump_types() const {
 
 std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mismatch) const {
     std::vector<std::string> headers;
-    std::vector<size_t> headers_size;
+    std::vector<int> headers_size;
     for (const auto& it : data) {
         std::string s = fmt::format("{}({})", it.name, it.type->get_name());
-        headers_size.push_back(s.size() > 15 ? s.size() : 15);
+        headers_size.push_back(s.size() > 15 ? (int)s.size() : 15);
         headers.emplace_back(s);
     }
 
@@ -724,7 +731,7 @@ void Block::clear_column_data(int64_t column_size) noexcept {
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
     if (column_size != -1 and data.size() > column_size) {
-        for (int i = data.size() - 1; i >= column_size; --i) {
+        for (int64_t i = data.size() - 1; i >= column_size; --i) {
             erase(i);
         }
     }
@@ -1105,7 +1112,7 @@ void MutableBlock::erase(const String& name) {
 }
 
 Block MutableBlock::to_block(int start_column) {
-    return to_block(start_column, _columns.size());
+    return to_block(start_column, (int)_columns.size());
 }
 
 Block MutableBlock::to_block(int start_column, int end_column) {
@@ -1119,10 +1126,10 @@ Block MutableBlock::to_block(int start_column, int end_column) {
 
 std::string MutableBlock::dump_data(size_t row_limit) const {
     std::vector<std::string> headers;
-    std::vector<size_t> headers_size;
+    std::vector<int> headers_size;
     for (size_t i = 0; i < columns(); ++i) {
         std::string s = _data_types[i]->get_name();
-        headers_size.push_back(s.size() > 15 ? s.size() : 15);
+        headers_size.push_back(s.size() > 15 ? (int)s.size() : 15);
         headers.emplace_back(s);
     }
 
@@ -1244,5 +1251,5 @@ std::string MutableBlock::dump_names() const {
     }
     return out;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

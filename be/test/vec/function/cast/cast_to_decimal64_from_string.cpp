@@ -23,33 +23,33 @@ void FunctionCastToDecimalTest::from_string_to_decimal64_test_func() {
     int table_index = 0;
     int test_data_index = 0;
 
-    from_string_test_func<Decimal64, 18, 0>(table_index, test_data_index);
+    from_string_test_func<Decimal64>(18, 0, table_index, test_data_index);
     ++table_index;
 
-    from_string_test_func<Decimal64, 18, 1>(table_index, test_data_index);
+    from_string_test_func<Decimal64>(18, 1, table_index, test_data_index);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 1>(table_index, test_data_index, 0, true);
+    from_string_test_func<Decimal64>(18, 1, table_index, test_data_index, 0, true);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 1>(table_index, test_data_index, 1);
+    from_string_test_func<Decimal64>(18, 1, table_index, test_data_index, 1);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 1>(table_index, test_data_index, 100);
+    from_string_test_func<Decimal64>(18, 1, table_index, test_data_index, 100);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 1>(table_index, test_data_index, -1);
+    from_string_test_func<Decimal64>(18, 1, table_index, test_data_index, -1);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 1>(table_index, test_data_index, -17);
+    from_string_test_func<Decimal64>(18, 1, table_index, test_data_index, -17);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 1>(table_index, test_data_index, -100);
+    from_string_test_func<Decimal64>(18, 1, table_index, test_data_index, -100);
     ++table_index;
 
-    from_string_test_func<Decimal64, 18, 9>(table_index, test_data_index);
+    from_string_test_func<Decimal64>(18, 9, table_index, test_data_index);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 9>(table_index, test_data_index, 0, true);
+    from_string_test_func<Decimal64>(18, 9, table_index, test_data_index, 0, true);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 9>(table_index, test_data_index, 1);
+    from_string_test_func<Decimal64>(18, 9, table_index, test_data_index, 1);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 9>(table_index, test_data_index, 9);
+    from_string_test_func<Decimal64>(18, 9, table_index, test_data_index, 9);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 9>(table_index, test_data_index, 100);
+    from_string_test_func<Decimal64>(18, 9, table_index, test_data_index, 100);
     ++table_index;
     // from_string_test_func<Decimal64, 18, 9>(table_index, test_data_index, -11);
     // ++table_index;
@@ -58,22 +58,22 @@ void FunctionCastToDecimalTest::from_string_to_decimal64_test_func() {
     // from_string_test_func<Decimal64, 18, 9>(table_index, test_data_index, -100);
     // ++table_index;
 
-    from_string_test_func<Decimal64, 18, 17>(table_index, test_data_index);
+    from_string_test_func<Decimal64>(18, 17, table_index, test_data_index);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 17>(table_index, test_data_index, 0, true);
+    from_string_test_func<Decimal64>(18, 17, table_index, test_data_index, 0, true);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 17>(table_index, test_data_index, 1);
+    from_string_test_func<Decimal64>(18, 17, table_index, test_data_index, 1);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 17>(table_index, test_data_index, 17);
+    from_string_test_func<Decimal64>(18, 17, table_index, test_data_index, 17);
     ++table_index;
-    from_string_test_func<Decimal64, 18, 17>(table_index, test_data_index, 100);
+    from_string_test_func<Decimal64>(18, 17, table_index, test_data_index, 100);
     ++table_index;
     // from_string_test_func<Decimal64, 18, 17>(table_index, test_data_index, -1);
     // ++table_index;
     // from_string_test_func<Decimal64, 18, 17>(table_index, test_data_index, -100);
     // ++table_index;
 
-    from_string_test_func<Decimal64, 18, 18>(table_index, test_data_index);
+    from_string_test_func<Decimal64>(18, 18, table_index, test_data_index);
     ++table_index;
 }
 TEST_F(FunctionCastToDecimalTest, test_to_decimal64_from_string) {

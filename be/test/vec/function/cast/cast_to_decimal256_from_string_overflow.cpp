@@ -40,21 +40,21 @@ void FunctionCastToDecimalTest::from_string_to_decimal256_overflow_test_func() {
         (*ofs_case) << "    sql \"set enable_decimal256 = true;\"\n";
     }
 
-    from_string_overflow_test_func<Decimal256, 76, 0>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal256>(76, 0, ofs_const_case, ofs_const_expected_result,
+                                               ofs_case, ofs_expected_result, regression_case_name,
+                                               table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal256, 76, 1>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal256>(76, 1, ofs_const_case, ofs_const_expected_result,
+                                               ofs_case, ofs_expected_result, regression_case_name,
+                                               table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal256, 76, 38>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal256>(76, 38, ofs_const_case, ofs_const_expected_result,
+                                               ofs_case, ofs_expected_result, regression_case_name,
+                                               table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal256, 76, 76>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal256>(76, 76, ofs_const_case, ofs_const_expected_result,
+                                               ofs_case, ofs_expected_result, regression_case_name,
+                                               table_index, test_data_index);
     if (FLAGS_gen_regression_case) {
         (*ofs_const_case) << "}";
         (*ofs_case) << "}";
