@@ -97,9 +97,9 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, DistinctSelectorContext ctx) {
         Plan newChild = agg.child().accept(this, ctx);
         agg = agg.withChildren(ImmutableList.of(newChild));
-        // 如果只有一个distinct聚合函数,那么直接返回吧
-
-
+        if (agg.distinctFuncNum() < 2) {
+            return agg;
+        }
         if (shouldUseMultiDistinct(agg)) {
             return MultiDistinctFunctionStrategy.rewrite(agg);
         } else {

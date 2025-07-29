@@ -19,8 +19,10 @@ package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -31,6 +33,8 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -58,12 +62,19 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
     }
 
     private List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
-        return ImmutableList.<Plan>builder()
-                .add(splitToTwoPlusOnePhase(aggregate))
-                .add(splitToOnePlusOnePhase(aggregate))
-                .add(splitToTwoPlusTwoPhase(aggregate))
-                .add(splitToOnePlusTwoPhase(aggregate))
-                .build();
+        if (shouldUseThreePhase(aggregate)) {
+            return ImmutableList.<Plan>builder()
+                    // .add(splitToTwoPlusOnePhase(aggregate))
+                    // .add(splitToOnePlusOnePhase(aggregate))
+                    .add(splitToOnePlusTwoPhase(aggregate))
+                    .build();
+        } else {
+            return ImmutableList.<Plan>builder()
+                    // .add(splitToOnePlusOnePhase(aggregate))
+                    // .add(splitToTwoPlusTwoPhase(aggregate))
+                    .add(splitToOnePlusTwoPhase(aggregate))
+                    .build();
+        }
     }
 
     private Plan splitToTwoPlusOnePhase(LogicalAggregate<? extends Plan> aggregate) {
@@ -84,7 +95,8 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
         AggregateParam inputToResultParamFirst = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER, false);
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
         Plan localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet, inputToResultParamFirst,
-                localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
+                localAggFunctionToAlias, aggregate.child(),
+                Utils.fastToImmutableList(aggregate.getDistinctArguments()));
 
         // second phase
         AggregateParam inputToResultParamSecond = new AggregateParam(AggPhase.DISTINCT_GLOBAL,
@@ -107,7 +119,8 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
         AggregateParam inputToResultParamFirst = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER, false);
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
         Plan localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet, inputToResultParamFirst,
-                localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
+                localAggFunctionToAlias, aggregate.child(),
+                Utils.fastToImmutableList(aggregate.getDistinctArguments()));
         return splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, localAgg);
     }
 
@@ -133,6 +146,26 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
         return aggregate.withAggParam(globalOutput, aggregate.getGroupByExpressions(),
                 inputToResultParamSecond, aggregate.getLogicalProperties(),
                 aggregate.getGroupByExpressions(), child);
+    }
+
+    private boolean shouldUseThreePhase(LogicalAggregate<? extends Plan> aggregate) {
+        Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
+        Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
+        for (Expression groupByExpr : aggregate.getGroupByExpressions()) {
+            ColumnStatistic columnStat = aggChildStats.findColumnStatistics(groupByExpr);
+            if (columnStat == null) {
+                columnStat = ExpressionEstimation.estimate(groupByExpr, aggChildStats);
+            }
+            if (columnStat.isUnKnown) {
+                return true;
+            }
+        }
+        double ndv = aggStats.getRowCount();
+        // 当ndv非常低的情况下,不能使用三阶段AGG,会有倾斜
+        if (ndv < 1000) {
+            return false;
+        }
+        return true;
     }
 
 }

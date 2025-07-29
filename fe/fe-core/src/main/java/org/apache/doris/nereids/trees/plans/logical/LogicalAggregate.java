@@ -279,7 +279,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 && ordinalIsResolved == that.ordinalIsResolved
                 && generated == that.generated
                 && Objects.equals(sourceRepeat, that.sourceRepeat)
-                && aggregateParam.equals(that.aggregateParam);
+                && aggregateParam.equals(that.aggregateParam)
+                && partitionExpressions.equals(that.partitionExpressions);
     }
 
     @Override
