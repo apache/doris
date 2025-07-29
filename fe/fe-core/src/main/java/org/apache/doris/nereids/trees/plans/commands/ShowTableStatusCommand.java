@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -124,7 +125,8 @@ public class ShowTableStatusCommand extends ShowCommand {
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    @VisibleForTesting
+    protected void validate(ConnectContext ctx) throws AnalysisException {
         if (Strings.isNullOrEmpty(db)) {
             db = ctx.getDatabase();
             if (Strings.isNullOrEmpty(db)) {
