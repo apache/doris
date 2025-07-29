@@ -400,7 +400,13 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb(
                 "deserialize_column_from_jsonb");
     }
     auto& col_str = assert_cast<ColumnString&>(column);
-    std::string str = JsonbToJson {}.to_json_string(jsonb_value);
+    std::string str;
+    if (jsonb_value->isString()) {
+        const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+        str.assign(blob->getBlob(), blob->getBlobLen());
+    } else {
+        str = JsonbToJson {}.to_json_string(jsonb_value);
+    }
     col_str.insert_value(str);
 
     return Status::OK();

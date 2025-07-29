@@ -16,6 +16,9 @@
 // under the License.
 
 suite("regression_test_variant_agg"){
+        sql """
+        set debug_skip_fold_constant = true;
+        """
     sql """DROP TABLE IF EXISTS var_agg"""
     sql """
         CREATE TABLE IF NOT EXISTS var_agg (
