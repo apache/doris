@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/unique_rowset_id_generator.h"
+suite("test_show_create_load", "load_p0") {
+    // test unknown db
+    try {
+        sql "show create load for unknown_db.test_label"
+    } catch (Exception e) {
+        logger.info("result: ${e.message}")
+        assertTrue(e.message.contains(" Unknown database 'unknown_db'"))
+    }
 
-namespace doris {
-
-UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
-        : _backend_uid(backend_uid), _inc_id(1) {}
-
-UniqueRowsetIdGenerator::~UniqueRowsetIdGenerator() = default;
-
-RowsetId UniqueRowsetIdGenerator::next_id() {
-    RowsetId rowset_id;
-    rowset_id.init(_version, _inc_id.fetch_add(1, std::memory_order_relaxed), _backend_uid.hi,
-                   _backend_uid.lo);
-    return rowset_id;
+    // test unknown label
+    try {
+        sql "show create load for ${context.dbName}.unknown_label"
+    } catch (Exception e) {
+        logger.info("result: ${e.message}")
+        assertTrue(e.message.contains("Label does not exist: unknown_label"))
+    }
 }
-
-} // namespace doris

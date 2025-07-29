@@ -157,7 +157,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
             try (Connection connection = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword)) {
                 Statement statement = connection.createStatement();
                 statement.execute("use ${db}");
-                statement.execute("set group_commit = eventual_consistency;");
+                statement.execute("set group_commit = async_mode;");
                 if (item == "nereids") {
                     statement.execute("set enable_nereids_dml = true;");
                     statement.execute("set enable_nereids_planner=true;");

@@ -15,20 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/unique_rowset_id_generator.h"
-
-namespace doris {
-
-UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
-        : _backend_uid(backend_uid), _inc_id(1) {}
-
-UniqueRowsetIdGenerator::~UniqueRowsetIdGenerator() = default;
-
-RowsetId UniqueRowsetIdGenerator::next_id() {
-    RowsetId rowset_id;
-    rowset_id.init(_version, _inc_id.fetch_add(1, std::memory_order_relaxed), _backend_uid.hi,
-                   _backend_uid.lo);
-    return rowset_id;
+suite("cast_ignore") {
+    sql "drop table if exists tdate"
+    sql """
+    create table tdate(
+        k1 int,
+        kdate date,
+        kdatetime datetime
+) distributed by hash (k1) buckets 1
+properties ("replication_num"="1");
+    """
+    sql """
+insert into tdate values(1,'2023-10-01','2023-10-01 01:00:00'),
+(2,'2023-10-02','2023-10-02 01:00:00'),
+(3,'2023-10-03','2023-10-03 01:00:00');
+"""
+    qt_test "select k1,kdate,kdatetime from tdate where cast(cast(kdatetime as date) as datetime)='2023-10-01';"
+    qt_test "select k1,kdate,kdatetime from tdate where kdatetime='2023-10-01';"
 }
-
-} // namespace doris

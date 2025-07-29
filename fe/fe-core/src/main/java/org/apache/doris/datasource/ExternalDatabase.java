@@ -153,40 +153,46 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return initialized;
     }
 
-    public final synchronized void makeSureInitialized() {
+    public final void makeSureInitialized() {
+        // Must call this method before any operation on the database to avoid deadlock of synchronized block
         extCatalog.makeSureInitialized();
-        if (!initialized) {
-            if (extCatalog.getUseMetaCache().get()) {
-                if (metaCache == null) {
-                    metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
-                            name,
-                            OptionalLong.of(86400L),
-                            OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_meta_object_cache_num,
-                            ignored -> listTableNames(),
-                            localTableName -> Optional.ofNullable(
-                                    buildTableForInit(null, localTableName,
-                                            Util.genIdByName(extCatalog.getName(), name, localTableName), extCatalog,
-                                            this, true)),
-                            (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
-                }
-                setLastUpdateTime(System.currentTimeMillis());
-            } else {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                    try {
-                        remoteExecutor.forward(extCatalog.getId(), id);
-                    } catch (Exception e) {
-                        Util.logAndThrowRuntimeException(LOG,
-                                String.format("failed to forward init external db %s operation to master", name), e);
+        synchronized (this) {
+            if (!initialized) {
+                if (extCatalog.getUseMetaCache().get()) {
+                    if (metaCache == null) {
+                        metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+                                name,
+                                OptionalLong.of(86400L),
+                                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
+                                Config.max_meta_object_cache_num,
+                                ignored -> listTableNames(),
+                                localTableName -> Optional.ofNullable(
+                                        buildTableForInit(null, localTableName,
+                                                Util.genIdByName(extCatalog.getName(), name, localTableName),
+                                                extCatalog,
+                                                this, true)),
+                                (key, value, cause)
+                                        -> value.ifPresent(ExternalTable::unsetObjectCreated));
                     }
-                    return;
+                    setLastUpdateTime(System.currentTimeMillis());
+                } else {
+                    if (!Env.getCurrentEnv().isMaster()) {
+                        // Forward to master and wait the journal to replay.
+                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                        MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
+                        try {
+                            remoteExecutor.forward(extCatalog.getId(), id);
+                        } catch (Exception e) {
+                            Util.logAndThrowRuntimeException(LOG,
+                                    String.format("failed to forward init external db %s operation to master", name),
+                                    e);
+                        }
+                        return;
+                    }
+                    init();
                 }
-                init();
+                initialized = true;
             }
-            initialized = true;
         }
     }
 
