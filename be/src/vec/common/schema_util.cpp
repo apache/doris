@@ -277,9 +277,6 @@ Status check_variant_has_no_ambiguous_paths(const PathsInData& tuple_paths) {
         path_groups[tuple_paths[i].get_path()].push_back(i);
         // print part of tuple_paths[i]
         VLOG_DEBUG << "tuple_paths[i]: " << tuple_paths[i].get_path();
-        for (const auto& part : tuple_paths[i].get_parts()) {
-            VLOG_DEBUG << "part: " << part.key << ", is_nested: " << part.is_nested;
-        }
     }
 
     // Only compare paths within the same group
