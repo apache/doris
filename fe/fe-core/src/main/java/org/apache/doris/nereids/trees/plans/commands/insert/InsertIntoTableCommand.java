@@ -206,6 +206,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
      */
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor stmtExecutor,
                                            boolean needBeginTransaction) throws Exception {
+        stmtExecutor.setProfileType(ProfileType.LOAD);
         List<String> qualifiedTargetTableName = InsertUtils.getTargetTableQualified(originLogicalQuery, ctx);
 
         AbstractInsertExecutor insertExecutor;
@@ -271,7 +272,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 Throwables.throwIfInstanceOf(e, RuntimeException.class);
                 throw new IllegalStateException(e.getMessage(), e);
             }
-            stmtExecutor.setProfileType(ProfileType.LOAD);
             // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
             // so we need to set this here
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
