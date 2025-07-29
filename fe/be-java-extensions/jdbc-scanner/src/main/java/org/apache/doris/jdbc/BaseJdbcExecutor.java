@@ -83,6 +83,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     // col name(lowercase) -> index in resultSetMetaData
     private Map<String, Integer> resultSetColumnMap = null;
+    private boolean isTvf = false;
 
     public BaseJdbcExecutor(byte[] thriftParams) throws Exception {
         setJdbcDriverSystemProperties();
@@ -112,6 +113,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
         init(config, request.statement);
         this.jdbcDriverVersion = getJdbcDriverVersion();
+        this.isTvf = request.isSetIsTvf() ? request.is_tvf : false;
     }
 
     public void close() throws Exception {
@@ -221,7 +223,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             int outputColumnCount = outputTable.getColumns().length;
             initializeBlock(outputColumnCount, replaceStringList, batchSize, outputTable);
 
-            if (this.resultSetColumnMap == null) {
+            // the resultSetColumnMap is only for "query()" tvf
+            if (this.isTvf && this.resultSetColumnMap == null) {
                 this.resultSetColumnMap = new HashMap<>();
                 int resultSetColumnCount = resultSetMetaData.getColumnCount();
                 for (int i = 1; i <= resultSetColumnCount; i++) {
@@ -231,35 +234,37 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
 
             do {
-                for (int j = 0; j < outputColumnCount; ++j) {
-                    String outputColumnName = outputTable.getFields()[j];
-                    Integer columnIndex = resultSetColumnMap.get(outputColumnName.toLowerCase());
+                for (int i = 0; i < outputColumnCount; ++i) {
+                    String outputColumnName = outputTable.getFields()[i];
+                    int columnIndex = this.isTvf ?
+                            resultSetColumnMap.getOrDefault(outputColumnName.toLowerCase(), 0) - 1 : i;
 
-                    if (columnIndex != null) {
-                        ColumnType type = convertTypeIfNecessary(j, outputTable.getColumnType(j), replaceStringList);
-                        block.get(j)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
+                    if (columnIndex > -1) {
+                        ColumnType type = convertTypeIfNecessary(i, outputTable.getColumnType(i), replaceStringList);
+                        block.get(i)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
                     } else {
-                        throw new RuntimeException("Column not found in columnIndexMap: " + outputColumnName);
+                        throw new RuntimeException("Column not found in resultSetColumnMap: " + outputColumnName);
                     }
                 }
                 curBlockRows++;
             } while (curBlockRows < batchSize && resultSet.next());
 
-            for (int j = 0; j < outputColumnCount; ++j) {
-                String outputColumnName = outputTable.getFields()[j];
-                Integer columnIndex = resultSetColumnMap.get(outputColumnName.toLowerCase());
+            for (int i = 0; i < outputColumnCount; ++i) {
+                String outputColumnName = outputTable.getFields()[i];
+                Integer columnIndex = this.isTvf ?
+                        resultSetColumnMap.getOrDefault(outputColumnName.toLowerCase(), 0) - 1 : i;
 
                 if (columnIndex != null) {
-                    ColumnType type = outputTable.getColumnType(j);
-                    Object[] columnData = block.get(j);
+                    ColumnType type = outputTable.getColumnType(i);
+                    Object[] columnData = block.get(i);
                     Class<?> componentType = columnData.getClass().getComponentType();
                     Object[] newColumn = (Object[]) Array.newInstance(componentType, curBlockRows);
                     System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
-                    boolean isNullable = Boolean.parseBoolean(nullableList[j]);
+                    boolean isNullable = Boolean.parseBoolean(nullableList[i]);
                     outputTable.appendData(
-                            j,
+                            i,
                             newColumn,
-                            getOutputConverter(type, replaceStringList[j]),
+                            getOutputConverter(type, replaceStringList[i]),
                             isNullable
                     );
                 } else {
@@ -712,5 +717,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return hexString.toString();
     }
 }
+
 
 
