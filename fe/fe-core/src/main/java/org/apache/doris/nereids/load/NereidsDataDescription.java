@@ -1167,10 +1167,15 @@ public class NereidsDataDescription {
         List<Expr> legacyColumnMappingList = new ArrayList<>();
         if (this.columnMappingList != null && !this.columnMappingList.isEmpty()) {
             for (Expression expression : this.columnMappingList) {
-                if (expression != null && expression instanceof EqualTo) {
-                    Expr left = PlanUtils.translateToLegacyExpr(((EqualTo) expression).left(), null, ctx);
-                    Expr right = PlanUtils.translateToLegacyExpr(((EqualTo) expression).right(), null, ctx);
-                    legacyColumnMappingList.add(new BinaryPredicate(BinaryPredicate.Operator.EQ, left, right));
+                if (expression != null) {
+                    if (expression instanceof EqualTo) {
+                        Expr left = PlanUtils.translateToLegacyExpr(((EqualTo) expression).left(), null, ctx);
+                        Expr right = PlanUtils.translateToLegacyExpr(((EqualTo) expression).right(), null, ctx);
+                        legacyColumnMappingList.add(new BinaryPredicate(BinaryPredicate.Operator.EQ, left, right));
+                    } else {
+                        throw new AnalysisException(String.format("column mapping expr must be EqualTo, but it's %s",
+                                expression));
+                    }
                 }
             }
         }
