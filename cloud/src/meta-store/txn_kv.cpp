@@ -340,6 +340,7 @@ TxnErrorCode Transaction::init() {
 }
 
 TxnErrorCode Transaction::enable_access_system_keys() {
+    /*
     fdb_error_t err = fdb_transaction_set_option(
             txn_, FDBTransactionOption::FDB_TR_OPTION_ACCESS_SYSTEM_KEYS, nullptr, 0);
     if (err) {
@@ -349,6 +350,7 @@ TxnErrorCode Transaction::enable_access_system_keys() {
                 .tag("msg", fdb_get_error(err));
         return cast_as_txn_code(err);
     }
+        */
     return TxnErrorCode::TXN_OK;
 }
 
