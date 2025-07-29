@@ -324,9 +324,10 @@ TxnErrorCode Transaction::init() {
     // See:
     // - https://apple.github.io/foundationdb/api-c.html#fdb_future_set_callback.
     // - https://forums.foundationdb.org/t/does-fdb-future-set-callback-guarantee-exactly-once-execution/1498/2
+    int64_t tmp_ms=10000;
     static_assert(sizeof(config::fdb_txn_timeout_ms) == sizeof(int64_t));
     err = fdb_transaction_set_option(txn_, FDBTransactionOption::FDB_TR_OPTION_TIMEOUT,
-                                     (const uint8_t*)&config::fdb_txn_timeout_ms,
+                                     (const uint8_t*)&tmp_ms,
                                      sizeof(config::fdb_txn_timeout_ms));
     if (err) {
         LOG_WARNING("fdb_transaction_set_option error: ")
