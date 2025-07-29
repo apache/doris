@@ -25,7 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
@@ -35,6 +35,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergVendedCredentialsProvider;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -102,7 +103,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private ConcurrentHashMap.KeySetView<Object, Boolean> partitionPathSet;
     private boolean isPartitionedTable;
     private int formatVersion;
-    private PreExecutionAuthenticator preExecutionAuthenticator;
+    private ExecutionAuthenticator preExecutionAuthenticator;
     private TableScan icebergTableScan;
 
     // for test
@@ -149,7 +150,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         partitionPathSet = ConcurrentHashMap.newKeySet();
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
-        preExecutionAuthenticator = source.getCatalog().getPreExecutionAuthenticator();
+        preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
         super.doInitialize();
         ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
     }
@@ -488,7 +489,12 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() throws UserException {
-        return source.getCatalog().getCatalogProperty().getHadoopProperties();
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
+        return IcebergVendedCredentialsProvider.getBackendLocationProperties(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                icebergTable
+        );
     }
 
     @VisibleForTesting

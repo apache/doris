@@ -25,9 +25,10 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/common_column_test.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -598,16 +599,6 @@ TEST_F(ColumnDecimalTest, get_scale) {
     EXPECT_EQ(column_decimal64_1->get_scale(), dt_decimal64_1->get_scale());
     EXPECT_EQ(column_decimal128_1->get_scale(), dt_decimal128_1->get_scale());
     EXPECT_EQ(column_decimal256_1->get_scale(), dt_decimal256_1->get_scale());
-}
-TEST_F(ColumnDecimalTest, get_scale_multiplier) {
-    EXPECT_EQ((int)column_decimal32_1->get_scale_multiplier(),
-              common::exp10_i32(dt_decimal32_1->get_scale()));
-    EXPECT_EQ((int64_t)column_decimal64_1->get_scale_multiplier(),
-              common::exp10_i64(dt_decimal64_1->get_scale()));
-    EXPECT_EQ((int128_t)column_decimal128_1->get_scale_multiplier(),
-              common::exp10_i128(dt_decimal128_1->get_scale()));
-    EXPECT_EQ((wide::Int256)column_decimal256_1->get_scale_multiplier(),
-              common::exp10_i256(dt_decimal256_1->get_scale()));
 }
 
 TEST_F(ColumnDecimalTest, sort_column) {

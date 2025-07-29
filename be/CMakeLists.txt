@@ -140,6 +140,9 @@ message(STATUS "make benchmark: ${BUILD_BENCHMARK}")
 option(BUILD_FS_BENCHMARK "ON for building fs benchmark tool or OFF for not" OFF)
 message(STATUS "build fs benchmark tool: ${BUILD_FS_BENCHMARK}")
 
+option(BUILD_TASK_EXECUTOR_SIMULATOR "ON for building task executor simulator or OFF for not" OFF)
+message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}")
+
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -177,9 +180,6 @@ endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
-option(BUILD_FAISS "Link doris with faiss for vector similarity search" OFF)
-message(STATUS "build faiss: ${BUILD_FAISS}")
-
 include (cmake/thirdparty.cmake)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
@@ -194,10 +194,15 @@ SET(SNAPPY_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(LZ4_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(LZ4_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/lz4")
 SET(ZLIB_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(ZLIB_USE_STATIC_LIBS ON)
+SET(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+find_package(ZLIB)
 SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
+SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 
-add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
+# Out of source build need to set the binary dir
+add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
@@ -205,14 +210,14 @@ option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
 option(BUILD_CONTRIBS_LIB "Build contribs lib" ON)
 
 set(BOOST_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
-set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
 
-add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
+# Out of source build need to set the binary dir
+add_subdirectory(${CONTRIB_PATH}/clucene ${PROJECT_BINARY_DIR}/clucene EXCLUDE_FROM_ALL)
 
 set(clucene_options -w -Wall)
 if (COMPILER_CLANG)
@@ -227,7 +232,7 @@ target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
 target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
+    ${CONTRIB_PATH}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
 
 install(DIRECTORY
@@ -436,15 +441,15 @@ set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
 # Set include dirs
 include_directories(
-    ${SRC_DIR}/apache-orc/c++/include
-    ${CMAKE_CURRENT_BINARY_DIR}/src/apache-orc/c++/include
+    ${CONTRIB_PATH}/apache-orc/c++/include
+    ${CMAKE_CURRENT_BINARY_DIR}/apache-orc/c++/include
 )
 
 include_directories(
-    ${CMAKE_CURRENT_BINARY_DIR}/src/clucene/src/shared
-    ${SRC_DIR}/clucene/src/core
-    ${SRC_DIR}/clucene/src/shared
-    ${SRC_DIR}/clucene/src/contribs-lib
+    ${CMAKE_CURRENT_BINARY_DIR}/clucene/src/shared
+    ${CONTRIB_PATH}/clucene/src/core
+    ${CONTRIB_PATH}/clucene/src/shared
+    ${CONTRIB_PATH}/clucene/src/contribs-lib
 )
 
 include_directories(
@@ -561,11 +566,8 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        absl::flags_internal
-        absl::flags_reflection
-        absl::random_internal_pool_urbg
-        absl::random_internal_randen
-        absl::random_internal_seed_material
+        absl::flags
+        absl::random_random
         absl::spinlock_wait
         absl::status
         absl::statusor
@@ -835,6 +837,9 @@ foreach(dir ${dirs})
 endforeach()
 
 if (BUILD_BENCHMARK)
+    if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "RELEASE")
+        message(FATAL_ERROR "Benchmark should be built with RELEASE build type, current build type is ${CMAKE_BUILD_TYPE}")
+    endif()
     add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
     set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})

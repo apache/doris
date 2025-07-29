@@ -18,11 +18,13 @@
 #pragma once
 
 #include <byteswap.h>
+#include <fmt/format.h>
 
 #include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace doris::cloud {
 
@@ -114,6 +116,15 @@ public:
             order = byteswap16(order);
         }
         return order;
+    }
+
+    std::string to_string() const {
+        std::string result;
+        result.reserve(21); // 10 bytes * 2 hex digits + 1 for null terminator
+        for (const auto& byte : data_) {
+            result += fmt::format("{:02x}", byte);
+        }
+        return result;
     }
 
 private:

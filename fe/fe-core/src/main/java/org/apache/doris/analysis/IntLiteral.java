@@ -23,7 +23,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.util.ByteBufferUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -170,46 +169,6 @@ public class IntLiteral extends NumericLiteralExpr {
         }
 
         return new IntLiteral(value);
-    }
-
-    public static IntLiteral createMaxValue(Type type) {
-        long value = 0L;
-        switch (type.getPrimitiveType()) {
-            case TINYINT:
-                value = TINY_INT_MAX;
-                break;
-            case SMALLINT:
-                value = SMALL_INT_MAX;
-                break;
-            case INT:
-                value = INT_MAX;
-                break;
-            case BIGINT:
-                value = BIG_INT_MAX;
-                break;
-            default:
-                Preconditions.checkState(false);
-        }
-
-        return new IntLiteral(value);
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        //it's so strange, now in write/read function, not write type info
-        if (this.type.getPrimitiveType() == Type.INVALID.getPrimitiveType()) {
-            if (this.value <= TINY_INT_MAX && this.value >= TINY_INT_MIN) {
-                type = Type.TINYINT;
-            } else if (this.value <= SMALL_INT_MAX && this.value >= SMALL_INT_MIN) {
-                type = Type.SMALLINT;
-            } else if (this.value <= INT_MAX && this.value >= INT_MIN) {
-                type = Type.INT;
-            } else if (this.value <= BIG_INT_MAX && this.value >= BIG_INT_MIN) {
-                type = Type.BIGINT;
-            } else {
-                Preconditions.checkState(false, value);
-            }
-        }
     }
 
     @Override
@@ -363,23 +322,4 @@ public class IntLiteral extends NumericLiteralExpr {
         return 31 * super.hashCode() + Long.hashCode(value);
     }
 
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        switch (type.getPrimitiveType()) {
-            case TINYINT:
-                value = data.get();
-                break;
-            case SMALLINT:
-                value = !isUnsigned ? data.getChar() : ByteBufferUtil.getUnsignedByte(data);
-                break;
-            case INT:
-                value = !isUnsigned ? data.getInt() : ByteBufferUtil.getUnsignedShort(data);
-                break;
-            case BIGINT:
-                value = !isUnsigned ? data.getLong() : ByteBufferUtil.getUnsignedInt(data);
-                break;
-            default:
-                Preconditions.checkState(false);
-        }
-    }
 }

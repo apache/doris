@@ -378,7 +378,7 @@ public class ColumnDef {
         FeNameFormat.checkColumnName(name);
         FeNameFormat.checkColumnCommentLength(comment);
 
-        typeDef.analyze(null);
+        typeDef.analyze();
 
         Type type = typeDef.getType();
 

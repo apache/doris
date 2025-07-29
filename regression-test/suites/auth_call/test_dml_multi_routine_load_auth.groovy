@@ -29,6 +29,9 @@ suite("test_dml_multi_routine_load_auth","p0,auth_call") {
     String tableName2 = 'test_dml_multi_routine_load_auth_tb2'
     String labelName = 'test_dml_multi_routine_load_auth_label'
 
+    try_sql("DROP USER ${user}")
+    try_sql """drop database if exists ${dbName}"""
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -36,10 +39,6 @@ suite("test_dml_multi_routine_load_auth","p0,auth_call") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
-
-    try_sql("DROP USER ${user}")
-    try_sql """drop database if exists ${dbName}"""
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
 

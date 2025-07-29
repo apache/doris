@@ -33,6 +33,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(store_sales store d1 item )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

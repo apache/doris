@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -81,12 +81,14 @@ public class AddColumnClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, DdlException {
+    public void analyze() throws AnalysisException, DdlException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
         if (tableName != null) {
-            Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+            TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrDdlException(tableName.getCtl())
+                    .getDbOrDdlException(tableName.getDb())
                     .getTableOrDdlException(tableName.getTbl());
             if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
                     && columnDef.getAggregateType() == null) {

@@ -23,7 +23,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -174,8 +173,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected synchronized void initPreExecutionAuthenticator() {
-        if (preExecutionAuthenticator == null) {
-            preExecutionAuthenticator = new PreExecutionAuthenticator(hmsProperties.getHdfsAuthenticator());
+        if (executionAuthenticator == null) {
+            executionAuthenticator = hmsProperties.getExecutionAuthenticator();
         }
     }
 
@@ -189,7 +188,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 Integer.MAX_VALUE,
                 String.format("hms_iceberg_catalog_%s_executor_pool", name),
                 true,
-                preExecutionAuthenticator);
+                executionAuthenticator);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
                  this.catalogProperty.getStoragePropertiesMap());
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
@@ -242,25 +241,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSCachedClient getClient() {
         makeSureInitialized();
         return ((HiveMetadataOps) metadataOps).getClient();
-    }
-
-    @Override
-    public void unregisterDatabase(String dbName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("drop database [{}]", dbName);
-        }
-        if (useMetaCache.get()) {
-            if (isInitialized()) {
-                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
-            }
-        } else {
-            Long dbId = dbNameToId.remove(dbName);
-            if (dbId == null) {
-                LOG.warn("drop database [{}] failed", dbName);
-            }
-            idToDb.remove(dbId);
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
     }
 
     @Override

@@ -226,11 +226,10 @@ public:
                 _dict.insert_value(value);
             }
         }
-
+        size_t org_size = _codes.size();
         char* end_ptr = (char*)_codes.get_end_ptr();
         memcpy(end_ptr, data_array + start_index, data_num * sizeof(Int32));
-        end_ptr += data_num * sizeof(Int32);
-        _codes.set_end_ptr(end_ptr);
+        _codes.resize(org_size + data_num);
     }
 
     void convert_dict_codes_if_necessary() override {
@@ -509,6 +508,8 @@ public:
         IColumn::Permutation _perm;
         size_t _total_str_len;
     };
+
+    size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 private:
     size_t _reserve_size;

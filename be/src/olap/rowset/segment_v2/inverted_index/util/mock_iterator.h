@@ -21,7 +21,10 @@
 #include <memory>
 #include <vector>
 
+#include "common/cast_set.h"
+
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class MockIterator {
 public:
@@ -34,7 +37,7 @@ public:
         return _impl->current_doc != _impl->postings.end() ? _impl->current_doc->first : INT_MAX;
     }
 
-    int32_t freq() const { return _impl->current_freq; }
+    int32_t freq() const { return cast_set<int32_t>(_impl->current_freq); }
 
     int32_t next_doc() {
         auto& postings = _impl->postings;
@@ -71,7 +74,7 @@ public:
         return INT_MAX;
     }
 
-    int64_t doc_freq() const { return _impl->postings.size(); }
+    int32_t doc_freq() const { return cast_set<int32_t>(_impl->postings.size()); }
 
     int32_t next_position() {
         auto& current_doc = _impl->current_doc;
@@ -97,7 +100,7 @@ private:
         std::map<int32_t, std::vector<int32_t>> postings;
         std::map<int32_t, std::vector<int32_t>>::iterator current_doc;
         size_t pos_idx = 0;
-        int32_t current_freq = 0;
+        size_t current_freq = 0;
 
         Impl() {
             current_doc = postings.begin();
@@ -120,3 +123,4 @@ private:
 using MockIterPtr = std::shared_ptr<MockIterator>;
 
 } // namespace doris::segment_v2::inverted_index
+#include "common/compile_check_end.h"

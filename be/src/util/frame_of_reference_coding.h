@@ -22,17 +22,19 @@
 #include <cstdlib>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "olap/olap_common.h"
 #include "olap/uint24.h"
 #include "util/faststring.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 inline uint8_t leading_zeroes(const uint64_t v) {
     if (v == 0) {
         return 64;
     }
-    return __builtin_clzll(v);
+    return cast_set<uint8_t>(__builtin_clzll(v));
 }
 
 inline uint8_t bits_less_than_64(const uint64_t v) {
@@ -46,18 +48,18 @@ inline uint8_t bits_may_more_than_64(const uint128_t v) {
         return 0;
     }
     uint64_t hi = v >> 64;
-    uint64_t lo = v;
+    auto lo = static_cast<uint64_t>(v); // Use static_cast to get low 64 bits without range check
     int z[3] = {leading_zeroes(hi), leading_zeroes(lo) + 64, 128};
     int idx = !hi + ((!lo) & (!hi));
-    return 128 - z[idx];
+    return cast_set<uint8_t>(128 - z[idx]);
 }
 
 template <typename T>
 uint8_t bits(const T v) {
     if (sizeof(T) <= 8) {
-        return bits_less_than_64(v);
+        return bits_less_than_64(static_cast<uint64_t>(v));
     } else {
-        return bits_may_more_than_64(v);
+        return bits_may_more_than_64(static_cast<uint128_t>(v));
     }
 }
 
@@ -105,7 +107,10 @@ public:
 
     // underlying buffer size + footer meta size.
     // Note: should call this method before flush.
-    uint32_t len() { return _buffer->size() + _storage_formats.size() + _bit_widths.size() + 5; }
+    uint32_t len() {
+        return cast_set<uint32_t>(_buffer->size() + _storage_formats.size() + _bit_widths.size() +
+                                  5);
+    }
 
     // Resets all the state in the encoder.
     void clear() {
@@ -120,9 +125,9 @@ private:
     void bit_pack_8(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
     template <typename U>
-    void bit_pack_32(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
+    void bit_pack_4(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
-    void bit_pack_128(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
+    void bit_pack_1(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
     void bit_packing_one_frame_value(const T* input);
 
@@ -167,6 +172,9 @@ public:
 private:
     void bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output);
 
+    template <typename U>
+    void bit_unpack_optimize(const uint8_t* input, uint8_t in_num, int bit_width, T* output);
+
     uint32_t frame_size(uint32_t frame_index) {
         return (frame_index == _frame_count - 1) ? _last_frame_size : _max_frame_size;
     }
@@ -203,4 +211,5 @@ private:
     uint32_t _current_decoded_frame = -1;
     std::vector<T> _out_buffer; // store values of decoded frame
 };
+#include "common/compile_check_end.h"
 } // namespace doris

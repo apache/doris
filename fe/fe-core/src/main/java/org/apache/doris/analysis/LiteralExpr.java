@@ -204,11 +204,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
     }
 
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // Literals require no analysis.
-    }
-
     /*
      * return real value
      */
@@ -447,11 +442,4 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
     }
 
-    // Parse from binary data, the format follows mysql binary protocal
-    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
-    // Return next offset
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        Preconditions.checkState(false,
-                "should implement this in derived class. " + this.type.toSql());
-    }
 }

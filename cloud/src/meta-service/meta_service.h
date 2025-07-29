@@ -188,6 +188,18 @@ public:
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override;
 
+    void prepare_restore_job(::google::protobuf::RpcController* controller,
+                             const RestoreJobRequest* request, RestoreJobResponse* response,
+                             ::google::protobuf::Closure* done) override;
+
+    void commit_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override;
+
+    void finish_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override;
+
     void get_tablet_stats(::google::protobuf::RpcController* controller,
                           const GetTabletStatsRequest* request, GetTabletStatsResponse* response,
                           ::google::protobuf::Closure* done) override;
@@ -395,6 +407,12 @@ private:
                                              std::string& msg, std::stringstream& ss,
                                              KVStats& stats);
 
+    void update_table_version(Transaction* txn, std::string_view instance_id, int64_t db_id,
+                              int64_t table_id);
+
+    bool is_version_read_enabled(std::string_view instance_id) const;
+    bool is_version_write_enabled(std::string_view instance_id) const;
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
@@ -572,6 +590,24 @@ public:
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::drop_partition, controller, request, response, done);
+    }
+
+    void prepare_restore_job(::google::protobuf::RpcController* controller,
+                             const RestoreJobRequest* request, RestoreJobResponse* response,
+                             ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::prepare_restore_job, controller, request, response, done);
+    }
+
+    void commit_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_restore_job, controller, request, response, done);
+    }
+
+    void finish_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::finish_restore_job, controller, request, response, done);
     }
 
     void get_tablet_stats(::google::protobuf::RpcController* controller,

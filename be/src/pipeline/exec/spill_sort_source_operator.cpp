@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <cstdint>
+
 #include "common/status.h"
 #include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
@@ -179,10 +181,16 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
 Status SpillSortLocalState::_create_intermediate_merger(
         int num_blocks, const vectorized::SortDescription& sort_description) {
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
+    int64_t limit = -1;
+    int64_t offset = 0;
+    if (num_blocks >= _shared_state->sorted_streams.size()) {
+        // final round use real limit and offset
+        limit = Base::_shared_state->limit;
+        offset = Base::_shared_state->offset;
+    }
+
     _merger = std::make_unique<vectorized::VSortedRunMerger>(
-            sort_description, _runtime_state->batch_size(),
-            Base::_shared_state->in_mem_shared_state->sorter->limit(),
-            Base::_shared_state->in_mem_shared_state->sorter->offset(), custom_profile());
+            sort_description, _runtime_state->batch_size(), limit, offset, custom_profile());
 
     _current_merging_streams.clear();
     for (int i = 0; i < num_blocks && !_shared_state->sorted_streams.empty(); ++i) {

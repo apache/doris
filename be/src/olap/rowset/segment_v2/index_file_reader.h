@@ -26,6 +26,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -42,10 +43,8 @@ class DorisCompoundReader;
 
 class IndexFileReader {
 public:
-    using EntriesType =
-            lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
-                                    lucene::util::Equals::Char, lucene::util::Deletor::acArray,
-                                    lucene::util::Deletor::Object<ReaderFileEntry>>;
+    // Modern C++ using std::unordered_map with smart pointers for automatic memory management
+    using EntriesType = std::unordered_map<std::string, std::unique_ptr<ReaderFileEntry>>;
     // Map to hold the file entries for each index ID.
     using IndicesEntriesMap =
             std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;

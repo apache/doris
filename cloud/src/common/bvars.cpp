@@ -56,6 +56,9 @@ BvarLatencyRecorderWithTag g_bvar_ms_commit_index("ms", "commit_index");
 BvarLatencyRecorderWithTag g_bvar_ms_prepare_partition("ms", "prepare_partition");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_partition("ms", "commit_partition");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_partition("ms", "drop_partition");
+BvarLatencyRecorderWithTag g_bvar_ms_prepare_restore_job("ms", "prepare_restore_job");
+BvarLatencyRecorderWithTag g_bvar_ms_commit_restore_job("ms", "commit_restore_job");
+BvarLatencyRecorderWithTag g_bvar_ms_finish_restore_job("ms", "finish_restore_job");
 BvarLatencyRecorderWithTag g_bvar_ms_get_tablet_stats("ms", "get_tablet_stats");
 BvarLatencyRecorderWithTag g_bvar_ms_get_obj_store_info("ms", "get_obj_store_info");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_obj_store_info("ms", "alter_obj_store_info");
@@ -103,6 +106,7 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts("recycle
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts("recycler", "recycle_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycler", "recycle_tmp_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
+BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts("recycler", "recycle_restore_job_earlest_ts");
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
 // current concurrency of recycle task
 bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
@@ -110,11 +114,11 @@ bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
 // recycler's mbvars
 bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter("recycler_instance_running_counter");
 // cost time of the last whole recycle process
-mBvarStatus<int64_t> g_bvar_recycler_instance_last_recycle_duration("recycler_instance_last_recycle_duration",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration("recycler_instance_last_round_recycle_duration",{"instance_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts("recycler_instance_next_ts",{"instance_id"});
 // start and end timestamps of the recycle process
-mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_st_ts("recycler_instance_recycle_st_ts",{"instance_id"});
-mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_ed_ts("recycler_instance_recycle_ed_ts",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts("recycler_instance_recycle_start_ts",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts("recycler_instance_recycle_end_ts",{"instance_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts("recycler_instance_recycle_last_success_ts",{"instance_id"});
 
 // recycler's mbvars
@@ -211,6 +215,8 @@ bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz("fdb_workload_
 bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz("fdb_workload_transactions_committed_hz", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz("fdb_workload_transactions_rejected_hz", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent("fdb_client_thread_busyness_percent", BVAR_FDB_INVALID_VALUE);
+mBvarStatus<int64_t> g_bvar_fdb_process_status_int("fdb_process_status_int", {"process_id", "component", "metric"});
+mBvarStatus<double> g_bvar_fdb_process_status_float("fdb_process_status_float", {"process_id", "component", "metric"});
 
 // checker's bvars
 BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned("checker", "num_scanned");
@@ -393,5 +399,174 @@ mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_counter("rpc_kv_clean_txn_labe
 mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_counter("rpc_kv_clean_txn_label_del_counter",{"instance_id"});
 // get_txn_id
 mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter("rpc_kv_get_txn_id_get_counter",{"instance_id"});
+// bytes
+// get_rowset
+mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes("rpc_kv_get_rowset_get_bytes",{"instance_id"});
+// get_version
+mBvarInt64Adder g_bvar_rpc_kv_get_version_get_bytes("rpc_kv_get_version_get_bytes",{"instance_id"});
+// get_schema_dict
+mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_bytes("rpc_kv_get_schema_dict_get_bytes",{"instance_id"});
+// create_tablets
+mBvarInt64Adder g_bvar_rpc_kv_create_tablets_get_bytes("rpc_kv_create_tablets_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_bytes("rpc_kv_create_tablets_put_bytes",{"instance_id"});
+// update_tablet
+mBvarInt64Adder g_bvar_rpc_kv_update_tablet_get_bytes("rpc_kv_update_tablet_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_tablet_put_bytes("rpc_kv_update_tablet_put_bytes",{"instance_id"});
+// update_tablet_schema
+mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_get_bytes("rpc_kv_update_tablet_schema_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_put_bytes("rpc_kv_update_tablet_schema_put_bytes",{"instance_id"});
+// get_tablet
+mBvarInt64Adder g_bvar_rpc_kv_get_tablet_get_bytes("rpc_kv_get_tablet_get_bytes",{"instance_id"});
+// prepare_rowset
+mBvarInt64Adder g_bvar_rpc_kv_prepare_rowset_get_bytes("rpc_kv_prepare_rowset_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_prepare_rowset_put_bytes("rpc_kv_prepare_rowset_put_bytes",{"instance_id"});
+// commit_rowset
+mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_get_bytes("rpc_kv_commit_rowset_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_put_bytes("rpc_kv_commit_rowset_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_del_bytes("rpc_kv_commit_rowset_del_bytes",{"instance_id"});
+// update_tmp_rowset
+mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_get_bytes("rpc_kv_update_tmp_rowset_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_put_bytes("rpc_kv_update_tmp_rowset_put_bytes",{"instance_id"});
+// get_tablet_stats
+mBvarInt64Adder g_bvar_rpc_kv_get_tablet_stats_get_bytes("rpc_kv_get_tablet_stats_get_bytes",{"instance_id"});
+// update_delete_bitmap
+mBvarInt64Adder g_bvar_rpc_kv_update_delete_bitmap_get_bytes("rpc_kv_update_delete_bitmap_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_delete_bitmap_put_bytes("rpc_kv_update_delete_bitmap_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_delete_bitmap_del_bytes("rpc_kv_update_delete_bitmap_del_bytes",{"instance_id"});
+// get_delete_bitmap
+mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_get_bytes("rpc_kv_get_delete_bitmap_get_bytes",{"instance_id"});
+// get_delete_bitmap_update_lock
+mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_update_lock_get_bytes("rpc_kv_get_delete_bitmap_update_lock_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_update_lock_put_bytes("rpc_kv_get_delete_bitmap_update_lock_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_update_lock_del_bytes("rpc_kv_get_delete_bitmap_update_lock_del_bytes",{"instance_id"});
+// remove_delete_bitmap_update_lock
+mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_update_lock_get_bytes("rpc_kv_remove_delete_bitmap_update_lock_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_update_lock_put_bytes("rpc_kv_remove_delete_bitmap_update_lock_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_update_lock_del_bytes("rpc_kv_remove_delete_bitmap_update_lock_del_bytes",{"instance_id"});
+// remove_delete_bitmap
+mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_del_bytes("rpc_kv_remove_delete_bitmap_del_bytes",{"instance_id"});
+// start_tablet_job
+mBvarInt64Adder g_bvar_rpc_kv_start_tablet_job_get_bytes("rpc_kv_start_tablet_job_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_start_tablet_job_put_bytes("rpc_kv_start_tablet_job_put_bytes",{"instance_id"});
+// finish_tablet_job
+mBvarInt64Adder g_bvar_rpc_kv_finish_tablet_job_get_bytes("rpc_kv_finish_tablet_job_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_finish_tablet_job_put_bytes("rpc_kv_finish_tablet_job_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_finish_tablet_job_del_bytes("rpc_kv_finish_tablet_job_del_bytes",{"instance_id"});
+// prepare_index
+mBvarInt64Adder g_bvar_rpc_kv_prepare_index_get_bytes("rpc_kv_prepare_index_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_prepare_index_put_bytes("rpc_kv_prepare_index_put_bytes",{"instance_id"});
+// commit_index
+mBvarInt64Adder g_bvar_rpc_kv_commit_index_get_bytes("rpc_kv_commit_index_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_index_put_bytes("rpc_kv_commit_index_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_index_del_bytes("rpc_kv_commit_index_del_bytes",{"instance_id"});
+// drop_index
+mBvarInt64Adder g_bvar_rpc_kv_drop_index_get_bytes("rpc_kv_drop_index_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_drop_index_put_bytes("rpc_kv_drop_index_put_bytes",{"instance_id"});
+// prepare_partition
+mBvarInt64Adder g_bvar_rpc_kv_prepare_partition_get_bytes("rpc_kv_prepare_partition_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_prepare_partition_put_bytes("rpc_kv_prepare_partition_put_bytes",{"instance_id"});
+// commit_partition
+mBvarInt64Adder g_bvar_rpc_kv_commit_partition_get_bytes("rpc_kv_commit_partition_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_partition_put_bytes("rpc_kv_commit_partition_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_partition_del_bytes("rpc_kv_commit_partition_del_bytes",{"instance_id"});
+// drop_partition
+mBvarInt64Adder g_bvar_rpc_kv_drop_partition_get_bytes("rpc_kv_drop_partition_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_drop_partition_put_bytes("rpc_kv_drop_partition_put_bytes",{"instance_id"});
+// check_kv
+mBvarInt64Adder g_bvar_rpc_kv_check_kv_get_bytes("rpc_kv_check_kv_get_bytes",{"instance_id"});
+// get_obj_store_info
+mBvarInt64Adder g_bvar_rpc_kv_get_obj_store_info_get_bytes("rpc_kv_get_obj_store_info_get_bytes",{"instance_id"});
+// alter_storage_vault
+mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_get_bytes("rpc_kv_alter_storage_vault_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_put_bytes("rpc_kv_alter_storage_vault_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_del_bytes("rpc_kv_alter_storage_vault_del_bytes",{"instance_id"});
+// alter_obj_store_info
+mBvarInt64Adder g_bvar_rpc_kv_alter_obj_store_info_get_bytes("rpc_kv_alter_obj_store_info_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_alter_obj_store_info_put_bytes("rpc_kv_alter_obj_store_info_put_bytes",{"instance_id"});
+// update_ak_sk
+mBvarInt64Adder g_bvar_rpc_kv_update_ak_sk_get_bytes("rpc_kv_update_ak_sk_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_ak_sk_put_bytes("rpc_kv_update_ak_sk_put_bytes",{"instance_id"});
+// create_instance
+mBvarInt64Adder g_bvar_rpc_kv_create_instance_get_bytes("rpc_kv_create_instance_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_create_instance_put_bytes("rpc_kv_create_instance_put_bytes",{"instance_id"});
+// get_instance
+mBvarInt64Adder g_bvar_rpc_kv_get_instance_get_bytes("rpc_kv_get_instance_get_bytes",{"instance_id"});
+// alter_cluster
+mBvarInt64Adder g_bvar_rpc_kv_alter_cluster_get_bytes("rpc_kv_alter_cluster_get_bytes",{"instance_id"});
+// get_cluster
+mBvarInt64Adder g_bvar_rpc_kv_get_cluster_get_bytes("rpc_kv_get_cluster_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_get_cluster_put_bytes("rpc_kv_get_cluster_put_bytes",{"instance_id"});
+// create_stage
+mBvarInt64Adder g_bvar_rpc_kv_create_stage_get_bytes("rpc_kv_create_stage_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_create_stage_put_bytes("rpc_kv_create_stage_put_bytes",{"instance_id"});
+// get_stage
+mBvarInt64Adder g_bvar_rpc_kv_get_stage_get_bytes("rpc_kv_get_stage_get_bytes",{"instance_id"});
+// get_iam
+mBvarInt64Adder g_bvar_rpc_kv_get_iam_get_bytes("rpc_kv_get_iam_get_bytes",{"instance_id"});
+// alter_iam
+mBvarInt64Adder g_bvar_rpc_kv_alter_iam_get_bytes("rpc_kv_alter_iam_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_alter_iam_put_bytes("rpc_kv_alter_iam_put_bytes",{"instance_id"});
+// alter_ram_user
+mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_get_bytes("rpc_kv_alter_ram_user_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_put_bytes("rpc_kv_alter_ram_user_put_bytes",{"instance_id"});
+// begin_copy
+mBvarInt64Adder g_bvar_rpc_kv_begin_copy_get_bytes("rpc_kv_begin_copy_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_begin_copy_put_bytes("rpc_kv_begin_copy_put_bytes",{"instance_id"});
+// finish_copy
+mBvarInt64Adder g_bvar_rpc_kv_finish_copy_get_bytes("rpc_kv_finish_copy_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_finish_copy_put_bytes("rpc_kv_finish_copy_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_finish_copy_del_bytes("rpc_kv_finish_copy_del_bytes",{"instance_id"});
+// get_copy_job
+mBvarInt64Adder g_bvar_rpc_kv_get_copy_job_get_bytes("rpc_kv_get_copy_job_get_bytes",{"instance_id"});
+// get_copy_files
+mBvarInt64Adder g_bvar_rpc_kv_get_copy_files_get_bytes("rpc_kv_get_copy_files_get_bytes",{"instance_id"});
+// filter_copy_files
+mBvarInt64Adder g_bvar_rpc_kv_filter_copy_files_get_bytes("rpc_kv_filter_copy_files_get_bytes",{"instance_id"});
+// get_cluster_status
+mBvarInt64Adder g_bvar_rpc_kv_get_cluster_status_get_bytes("rpc_kv_get_cluster_status_get_bytes",{"instance_id"});
+// begin_txn
+mBvarInt64Adder g_bvar_rpc_kv_begin_txn_get_bytes("rpc_kv_begin_txn_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_begin_txn_put_bytes("rpc_kv_begin_txn_put_bytes",{"instance_id"});
+// precommit_txn
+mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_get_bytes("rpc_kv_precommit_txn_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_put_bytes("rpc_kv_precommit_txn_put_bytes",{"instance_id"});
+// get_rl_task_commit_attach
+mBvarInt64Adder g_bvar_rpc_kv_get_rl_task_commit_attach_get_bytes("rpc_kv_get_rl_task_commit_attach_get_bytes",{"instance_id"});
+// reset_rl_progress
+mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_get_bytes("rpc_kv_reset_rl_progress_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_put_bytes("rpc_kv_reset_rl_progress_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_del_bytes("rpc_kv_reset_rl_progress_del_bytes",{"instance_id"});
+// commit_txn
+mBvarInt64Adder g_bvar_rpc_kv_commit_txn_get_bytes("rpc_kv_commit_txn_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_txn_put_bytes("rpc_kv_commit_txn_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_txn_del_bytes("rpc_kv_commit_txn_del_bytes",{"instance_id"});
+// abort_txn
+mBvarInt64Adder g_bvar_rpc_kv_abort_txn_get_bytes("rpc_kv_abort_txn_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_abort_txn_put_bytes("rpc_kv_abort_txn_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_abort_txn_del_bytes("rpc_kv_abort_txn_del_bytes",{"instance_id"});
+// get_txn
+mBvarInt64Adder g_bvar_rpc_kv_get_txn_get_bytes("rpc_kv_get_txn_get_bytes",{"instance_id"});
+// get_current_max_txn_id
+mBvarInt64Adder g_bvar_rpc_kv_get_current_max_txn_id_get_bytes("rpc_kv_get_current_max_txn_id_get_bytes",{"instance_id"});
+// begin_sub_txn
+mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_get_bytes("rpc_kv_begin_sub_txn_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_put_bytes("rpc_kv_begin_sub_txn_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_del_bytes("rpc_kv_begin_sub_txn_del_bytes",{"instance_id"});
+// abort_sub_txn
+mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_get_bytes("rpc_kv_abort_sub_txn_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_put_bytes("rpc_kv_abort_sub_txn_put_bytes",{"instance_id"});
+// abort_txn_with_coordinator
+mBvarInt64Adder g_bvar_rpc_kv_abort_txn_with_coordinator_get_bytes("rpc_kv_abort_txn_with_coordinator_get_bytes",{"instance_id"});
+// check_txn_conflict
+mBvarInt64Adder g_bvar_rpc_kv_check_txn_conflict_get_bytes("rpc_kv_check_txn_conflict_get_bytes",{"instance_id"});
+// clean_txn_label
+mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_get_bytes("rpc_kv_clean_txn_label_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_bytes("rpc_kv_clean_txn_label_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_bytes("rpc_kv_clean_txn_label_del_bytes",{"instance_id"});
+// get_txn_id
+mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_bytes("rpc_kv_get_txn_id_get_bytes",{"instance_id"});
+
+// meta ranges
+mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count("fdb_kv_ranges_count", {"category","instance_id", "sub_category"});
 
 // clang-format on

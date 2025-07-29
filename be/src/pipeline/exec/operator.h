@@ -177,6 +177,11 @@ public:
     // Do initialization. This step should be executed only once and in bthread, so we can do some
     // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
+    // Make sure all resources are ready before execution. For example, remote tablets should be
+    // loaded to local storage.
+    // This is called by execution pthread and different from `Operator::prepare` which is called
+    // by bthread.
+    virtual Status prepare(RuntimeState* state) = 0;
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
@@ -209,7 +214,7 @@ public:
     virtual Dependency* finishdependency() { return nullptr; }
     virtual Dependency* spill_dependency() const { return nullptr; }
     //  override in Scan  MultiCastSink
-    virtual std::vector<Dependency*> filter_dependencies() { return {}; }
+    virtual std::vector<Dependency*> execution_dependencies() { return {}; }
 
     Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
                         vectorized::Block* block, size_t column_to_keep);
@@ -285,6 +290,7 @@ public:
     ~PipelineXLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override;
 
     virtual std::string name_suffix() const;
@@ -466,6 +472,7 @@ public:
     // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
+    virtual Status prepare(RuntimeState* state) = 0;
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
@@ -549,6 +556,7 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
     Status terminate(RuntimeState* state) override;
@@ -862,8 +870,6 @@ public:
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
 
-    // Tablets should be hold before open phase.
-    [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
     Status prepare(RuntimeState* state) override;
 
     Status terminate(RuntimeState* state) override;
@@ -1148,7 +1154,9 @@ public:
     ~DummyOperatorLocalState() = default;
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
-    std::vector<Dependency*> filter_dependencies() override { return {_filter_dependency.get()}; }
+    std::vector<Dependency*> execution_dependencies() override {
+        return {_filter_dependency.get()};
+    }
     Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 private:

@@ -93,6 +93,7 @@ suite("test_mv_case") {
         )
     """
     sql """insert into tb1 select id,map_agg(a, b) from(select 123 id,3 a,'5' b union all select 123 id, 6 a, '8' b) aa group by id"""
+    sql"""DROP MATERIALIZED VIEW if exists mv1;"""
     sql"""CREATE MATERIALIZED VIEW mv1 BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 MINUTE DUPLICATE KEY(info_id) DISTRIBUTED BY HASH(`info_id`) BUCKETS 2 PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "min_load_replica_num" = "-1",
@@ -115,6 +116,7 @@ suite("test_mv_case") {
         from
         tb1 a;"""
     waitingMTMVTaskFinishedByMvName("mv1")
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv2"""
     sql """CREATE MATERIALIZED VIEW mv2 BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 MINUTE DUPLICATE KEY(info_id) DISTRIBUTED BY HASH(`info_id`) BUCKETS 2 PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "min_load_replica_num" = "-1",

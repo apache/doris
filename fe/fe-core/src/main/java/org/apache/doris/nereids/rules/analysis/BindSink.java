@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -106,6 +107,15 @@ import java.util.stream.Collectors;
  * bind an unbound logicalTableSink represent the target table of an insert command
  */
 public class BindSink implements AnalysisRuleFactory {
+    public boolean needTruncateStringWhenInsert;
+
+    public BindSink() {
+        this(true);
+    }
+
+    public BindSink(boolean needTruncateStringWhenInsert) {
+        this.needTruncateStringWhenInsert = needTruncateStringWhenInsert;
+    }
 
     @Override
     public List<Rule> buildRules() {
@@ -298,6 +308,8 @@ public class BindSink implements AnalysisRuleFactory {
                 int targetLength = ((CharacterType) targetType).getLen();
                 if (sourceLength == targetLength) {
                     castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+                } else if (needTruncateStringWhenInsert && sourceLength > targetLength && targetLength >= 0) {
+                    castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                 } else if (targetType.isStringType()) {
                     castExpr = new Cast(castExpr, StringType.INSTANCE);
                 }
@@ -422,10 +434,17 @@ public class BindSink implements AnalysisRuleFactory {
                         // null, we use the literal string of the default value, or it may be
                         // default value function, like CURRENT_TIMESTAMP.
                         if (column.getDefaultValueExpr() == null) {
-                            columnToOutput.put(column.getName(),
-                                    new Alias(Literal.of(column.getDefaultValue())
-                                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
-                                            column.getName()));
+                            try {
+                                columnToOutput.put(column.getName(),
+                                        new Alias(Literal.of(column.getDefaultValue())
+                                                .checkedCastTo(DataType.fromCatalogType(column.getType())),
+                                                column.getName()));
+                            } catch (Exception ignored) {
+                                columnToOutput.put(column.getName(),
+                                        new Alias(Literal.of(column.getDefaultValue())
+                                                .deprecatingCheckedCastTo(DataType.fromCatalogType(column.getType())),
+                                                column.getName()));
+                            }
                         } else {
                             Expression unboundDefaultValue = new NereidsParser().parseExpression(
                                     column.getDefaultValueExpr().toSqlWithoutTbl());

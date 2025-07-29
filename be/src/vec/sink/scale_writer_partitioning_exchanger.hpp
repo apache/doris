@@ -27,7 +27,7 @@
 #include "vec/runtime/partitioner.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class ScaleWriterPartitioner final : public PartitionerBase {
 public:
     using HashValType = uint32_t;
@@ -92,7 +92,7 @@ public:
             _hash_vals[position] = writer_id;
         }
 
-        for (size_t partition_id = 0; partition_id < _partition_row_counts.size(); partition_id++) {
+        for (int partition_id = 0; partition_id < _partition_row_counts.size(); partition_id++) {
             _partition_rebalancer.add_partition_row_count(partition_id,
                                                           _partition_row_counts[partition_id]);
         }
@@ -107,7 +107,7 @@ public:
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override {
         partitioner.reset(new ScaleWriterPartitioner(
-                _channel_size, _partition_count, _task_count, _task_bucket_count,
+                _channel_size, (int)_partition_count, _task_count, _task_bucket_count,
                 _min_partition_data_processed_rebalance_threshold,
                 _min_data_processed_rebalance_threshold));
         return Status::OK();
@@ -131,5 +131,5 @@ private:
     const long _min_partition_data_processed_rebalance_threshold;
     const long _min_data_processed_rebalance_threshold;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

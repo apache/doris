@@ -26,7 +26,7 @@ void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType lo
                                           const UInt128Wrapper hash, const size_t offset,
                                           const size_t size) {
     CacheLRULogQueue& log_queue = get_lru_log_queue(type);
-    log_queue.push_back(std::make_unique<CacheLRULog>(log_type, hash, offset, size));
+    log_queue.enqueue(std::make_unique<CacheLRULog>(log_type, hash, offset, size));
     ++(_lru_queue_update_cnt_from_last_dump[type]);
 }
 
@@ -36,9 +36,8 @@ void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
     LRUQueue& shadow_queue = get_shadow_queue(type);
 
     std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
-    while (!log_queue.empty()) {
-        auto log = std::move(log_queue.front());
-        log_queue.pop_front();
+    std::unique_ptr<CacheLRULog> log;
+    while (log_queue.try_dequeue(log)) {
         try {
             switch (log->type) {
             case CacheLRULogType::ADD: {
@@ -47,7 +46,7 @@ void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
             }
             case CacheLRULogType::REMOVE: {
                 auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
-                if (it != shadow_queue.end()) {
+                if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
                     shadow_queue.remove(it, lru_log_lock);
                 } else {
                     LOG(WARNING) << "REMOVE failed, doesn't exist in shadow queue";
@@ -56,7 +55,7 @@ void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
             }
             case CacheLRULogType::MOVETOBACK: {
                 auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
-                if (it != shadow_queue.end()) {
+                if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
                     shadow_queue.move_to_end(it, lru_log_lock);
                 } else {
                     LOG(WARNING) << "MOVETOBACK failed, doesn't exist in shadow queue";
