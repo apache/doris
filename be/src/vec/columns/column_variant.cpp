@@ -821,8 +821,7 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
     if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
         src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
         is_finalized()) {
-        assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(*get_root())
-                .insert_from(*src_v->get_root(), n);
+        get_root()->insert_from(*src_v->get_root(), n);
         ++num_rows;
         return;
     }
