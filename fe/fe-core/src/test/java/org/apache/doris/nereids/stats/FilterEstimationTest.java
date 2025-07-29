@@ -18,13 +18,10 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -1786,7 +1783,6 @@ class FilterEstimationTest {
         ColumnStatistic iaStats2 = stats.findColumnStatistics(slotA);
         Assertions.assertEquals(iaStats.getHotValues(), iaStats2.getHotValues());
     }
-
 
     @Test
     public void testLikeSkew() {

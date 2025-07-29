@@ -447,8 +447,6 @@ public class JoinEstimation {
             EqualPredicate equalTo = (EqualPredicate) expr;
             ColumnStatistic leftColStats = ExpressionEstimation.estimate(equalTo.left(), inputStats);
             ColumnStatistic rightColStats = ExpressionEstimation.estimate(equalTo.right(), inputStats);
-            double leftNdv = 1.0;
-            double rightNdv = 1.0;
             Expression eqLeft = equalTo.left();
             if (eqLeft instanceof Cast) {
                 eqLeft = eqLeft.child(0);
