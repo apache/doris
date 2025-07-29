@@ -877,6 +877,83 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testTrim() {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        sql = "trim('1', '2')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("trim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim('2' from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("trim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim(both '2' from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("trim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim(leading '2' from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("ltrim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim(trailing '2' from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("rtrim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim(both from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("trim", unboundFunction.getName());
+        Assertions.assertEquals(1, unboundFunction.arity());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+
+        sql = "trim(leading from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("ltrim", unboundFunction.getName());
+        Assertions.assertEquals(1, unboundFunction.arity());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+
+        sql = "trim(trailing from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("rtrim", unboundFunction.getName());
+        Assertions.assertEquals(1, unboundFunction.arity());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(invalid '2' from '1')"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(invalid '2' '1')"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(from '1')"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(both '1')"));
+    }
+
+    @Test
     public void testNoBackSlashEscapes() {
         testNoBackSlashEscapes("''", "", "");
         testNoBackSlashEscapes("\"\"", "", "");

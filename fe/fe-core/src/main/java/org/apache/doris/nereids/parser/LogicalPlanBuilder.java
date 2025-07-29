@@ -441,6 +441,7 @@ import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableSnapshotContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TabletListContext;
+import org.apache.doris.nereids.DorisParser.TrimContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UninstallPluginContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
@@ -1219,7 +1220,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             SelectHintContext selectHintContext = (SelectHintContext) selectHintContexts.get(0);
             Map<String, String> parameterNames = Maps.newLinkedHashMap();
             for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
-                String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
+                String hintName = hintStatement.hintName().getText().toLowerCase(Locale.ROOT);
                 if (!hintName.equalsIgnoreCase("set_var")) {
                     throw new AnalysisException("only set_var hint is allowed in: " + ctx.getText());
                 }
@@ -3044,6 +3045,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitTrim(TrimContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Expression> params = visit(ctx.expression(), Expression.class);
+            params = Lists.reverse(params);
+            String name = "trim";
+            if (ctx.LEADING() != null) {
+                name = "ltrim";
+            } else if (ctx.TRAILING() != null) {
+                name = "rtrim";
+            }
+            return processUnboundFunction(ctx, null, name, false, params, null, null);
+        });
+    }
+
+    @Override
     public Expression visitFunctionCallExpression(DorisParser.FunctionCallExpressionContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String dbName = null;
@@ -4123,7 +4139,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         hints.add(new SelectHintUseMv("NO_USE_MV", getTableList(hintStatement.tableList), false));
                         continue;
                     }
-                    String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
+                    String hintName = hintStatement.hintName().getText().toLowerCase(Locale.ROOT);
                     switch (hintName) {
                         case "set_var":
                             Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
@@ -4220,8 +4236,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (hintContext instanceof SelectHintContext) {
                     SelectHintContext preAggOnHintContext = (SelectHintContext) hintContext;
                     if (preAggOnHintContext.hintStatement != null
-                            && preAggOnHintContext.hintStatement.hintName != null) {
-                        String text = preAggOnHintContext.hintStatement.hintName.getText();
+                            && preAggOnHintContext.hintStatement.hintName() != null) {
+                        String text = preAggOnHintContext.hintStatement.hintName().getText();
                         if (text.equalsIgnoreCase("PREAGGOPEN")) {
                             newPlan = new LogicalPreAggOnHint<>(newPlan);
                             break;
