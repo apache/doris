@@ -145,6 +145,7 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
@@ -4210,6 +4211,21 @@ public class Env {
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
             Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
+            while (iterator.hasNext()) {
+                Entry<String, String> prop = iterator.next();
+                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                if (iterator.hasNext()) {
+                    sb.append(",");
+                }
+            }
+            sb.append("\n)");
+        } else if (table.getType() == TableType.PAIMON_EXTERNAL_TABLE) {
+            addTableComment(table, sb);
+            PaimonExternalTable paimonExternalTable = (PaimonExternalTable) table;
+            Map<String, String> properties = paimonExternalTable.getTableProperties();
+            sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
+            sb.append("\nPROPERTIES (");
+            Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
             while (iterator.hasNext()) {
                 Entry<String, String> prop = iterator.next();
                 sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
