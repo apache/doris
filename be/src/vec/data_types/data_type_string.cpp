@@ -31,6 +31,7 @@
 #include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
@@ -307,4 +308,13 @@ const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* colum
         return buf;
     }
 }
+
+FieldWithDataType DataTypeString::get_field_with_data_type(const IColumn& column,
+                                                           size_t row_num) const {
+    const auto& column_data = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    return FieldWithDataType {
+            .field = Field::create_field<TYPE_STRING>(column_data.get_data_at(row_num).to_string()),
+            .base_scalar_type_id = get_primitive_type()};
+}
+
 } // namespace doris::vectorized
