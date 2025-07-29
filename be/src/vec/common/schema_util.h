@@ -199,7 +199,7 @@ void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
 
 size_t get_size_of_interger(TypeIndex type);
 
-void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
+Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                   TabletSchemaSPtr& common_schema, bool update_sparse_column,
                                   int32_t variant_col_unique_id,
                                   const std::map<std::string, TabletColumnPtr>& typed_columns,

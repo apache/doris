@@ -159,7 +159,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         // here we should check the paths in variant and paths in result,
         // if two paths which same prefix have different structure, we should throw an exception
         std::vector<PathInData> check_paths;
-        for (const auto& entry : column_variant.get_subcolumns()) {
+        for (const auto& entry : column_object.get_subcolumns()) {
             check_paths.push_back(entry->path);
         }
         check_paths.insert(check_paths.end(), paths.begin(), paths.end());
