@@ -19,12 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_variant.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_variant.h"
 #include "vec/json/json_parser.h"
 
 namespace doris {
@@ -399,14 +399,16 @@ TEST_F(SchemaUtilTest, parse_variant_columns_ambiguous_paths) {
     using namespace doris::vectorized;
     // Prepare the string column with two rows
     auto string_col = ColumnString::create();
-    string_col->insert(String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}"));
-    string_col->insert(String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}"));
+    auto field1 = vectorized::Field(String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}"));
+    auto field2 = vectorized::Field(String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}"));
+    string_col->insert(field1);
+    string_col->insert(field2);
     auto string_type = std::make_shared<DataTypeString>();
 
     // Prepare the variant column with the string column as root
     vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
     dynamic_subcolumns.create_root(
-            vectorized::ColumnVariant::Subcolumn(string_col->assume_mutable(), string_type, true));
+            vectorized::ColumnObject::Subcolumn(string_col->assume_mutable(), string_type, true));
 
     auto variant_col = ColumnObject::create(std::move(dynamic_subcolumns), true);
     auto variant_type = std::make_shared<DataTypeObject>();
