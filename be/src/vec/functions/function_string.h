@@ -3365,6 +3365,44 @@ struct FormatRoundDoubleImpl {
         return {std::make_shared<DataTypeFloat64>(), std::make_shared<vectorized::DataTypeInt32>()};
     }
 
+    static std::string add_thousands_separator(const std::string& formatted_num) {
+        //  Find the position of the decimal point
+        size_t dot_pos = formatted_num.find('.');
+        if (dot_pos == std::string::npos) {
+            dot_pos = formatted_num.size();
+        }
+
+        // Handle the integer part
+        int start = (formatted_num[0] == '-') ? 1 : 0;
+        int digit_count = dot_pos - start;
+
+        // There is no need to add commas.
+        if (digit_count <= 3) {
+            return formatted_num;
+        }
+
+        std::string result;
+
+        if (start == 1) result += '-';
+
+        // Add the integer part (with comma)
+        int first_group = digit_count % 3;
+        if (first_group == 0) first_group = 3;
+        result.append(formatted_num, start, first_group);
+
+        for (size_t i = start + first_group; i < dot_pos; i += 3) {
+            result += ',';
+            result.append(formatted_num, i, 3);
+        }
+
+        // Add the decimal part (keep as it is)
+        if (dot_pos != formatted_num.size()) {
+            result.append(formatted_num, dot_pos);
+        }
+
+        return result;
+    }
+
     template <bool is_const>
     static Status execute(FunctionContext* context, ColumnString* result_column,
                           const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
@@ -3382,9 +3420,15 @@ struct FormatRoundDoubleImpl {
             // round to `decimal_places` decimal places
             double value = MathFunctions::my_double_round(data_column->get_element(i),
                                                           decimal_places, false, false);
-            StringRef str = FormatRound::do_format_round(
-                    context, fmt::format("{:.{}f}", value, decimal_places), decimal_places);
-            result_column->insert_data(str.data, str.size);
+            std::string formatted_value = fmt::format("{:.{}f}", value, decimal_places);
+            if (std::isfinite(value)) {
+                auto res_str = add_thousands_separator(formatted_value);
+                result_column->insert_data(res_str.data(), res_str.size());
+            } else {
+                // if value is not finite, we just insert the original formatted value
+                // e.g. "inf", "-inf", "nan"
+                result_column->insert_data(formatted_value.data(), formatted_value.size());
+            }
         }
         return Status::OK();
     }

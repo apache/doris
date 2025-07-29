@@ -634,10 +634,17 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
             }
         } else if (column->path.get_path().size() == 5) {
             EXPECT_EQ(column->data.get_non_null_value_size(), 10);
-            EXPECT_EQ(assert_cast<const DataTypeNullable*>(column->data.data_types[0].get())
-                              ->get_nested_type()
-                              ->get_type_id(),
-                      TypeIndex::JSONB);
+            if (column->path.get_path() == "v.d.d") {
+                EXPECT_EQ(assert_cast<const DataTypeNullable*>(column->data.data_types[0].get())
+                                  ->get_nested_type()
+                                  ->get_type_id(),
+                          TypeIndex::Array);
+            } else if (column->path.get_path() == "v.c.d") {
+                EXPECT_EQ(assert_cast<const DataTypeNullable*>(column->data.data_types[0].get())
+                                  ->get_nested_type()
+                                  ->get_type_id(),
+                          TypeIndex::JSONB);
+            }
             for (size_t row = 0; row < 5; ++row) {
                 EXPECT_TRUE(column->data.data[0]->is_null_at(row));
             }
@@ -1461,6 +1468,35 @@ TEST(ColumnVariantTest, test_serialize_to_sparse_column_and_deserialize) {
     bool_subcolumn.serialize_text_json(1, write_buffer10);
     write_buffer10.commit();
     EXPECT_EQ(tmp_col10->get_data_at(1), StringRef("1", 1));
+}
+
+TEST(ColumnVariantTest, test_array_field_contains_null_field) {
+    ColumnObject::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
+    Field null_field = Field();
+    Field int_field = Field(1);
+    Field array_field = Array(2);
+    auto& array = array_field.get<Array>();
+    array[0] = int_field;
+    array[1] = null_field;
+    subcolumn.insert(array_field);
+    subcolumn.finalize();
+    EXPECT_EQ(subcolumn.data.size(), 1);
+    EXPECT_EQ(subcolumn.data[0]->size(), 1);
+
+    auto serialized_sparse_column = ColumnMap::create(
+            ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
+    auto& column_map = assert_cast<ColumnMap&>(*serialized_sparse_column);
+    auto& sparse_column_keys = assert_cast<ColumnString&>(column_map.get_keys());
+    auto& sparse_column_values = assert_cast<ColumnString&>(column_map.get_values());
+    subcolumn.serialize_to_sparse_column(&sparse_column_keys, "array", &sparse_column_values, 0);
+
+    auto column_object3 = ColumnObject::create(0);
+    const auto& [field, field_info] =
+            column_object3->deserialize_from_sparse_column(&sparse_column_values, 0);
+    EXPECT_EQ(field.get<Array>().size(), 2);
+    EXPECT_EQ(field.get<Array>()[0].get<Field>(), int_field);
+    EXPECT_EQ(field.get<Array>()[1].get<Field>(), null_field);
+    EXPECT_EQ(field_info.scalar_type_id, TypeIndex::Int8);
 }
 
 } // namespace doris::vectorized

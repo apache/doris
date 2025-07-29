@@ -164,6 +164,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public TQueryCacheParam queryCacheParam;
     private int numBackends = 0;
+    private boolean forceSingleInstance = false;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -320,6 +321,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     }
 
     public int getParallelExecNum() {
+        if (forceSingleInstance) {
+            return 1;
+        }
         return parallelExecNum;
     }
 
@@ -521,5 +525,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean hasSerialScanNode() {
         return planRoot.hasSerialScanChildren();
+    }
+
+    public void setForceSingleInstance() {
+        this.forceSingleInstance = true;
     }
 }

@@ -223,9 +223,6 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
         // free memory of compressed page
         page = std::move(decompressed_page);
         page_slice = Slice(page->data(), footer->uncompressed_size() + footer_size + 4);
-        opts.stats->uncompressed_bytes_read += page_slice.size;
-    } else {
-        opts.stats->uncompressed_bytes_read += body_size;
     }
 
     if (opts.pre_decode && opts.encoding_info) {
@@ -239,6 +236,10 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
 
     *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
     page->reset_size(page_slice.size);
+    // Uncompressed has 2 meanings: uncompress and decode. The buffer in pagecache maybe
+    // uncompressed or decoded. So that should update the uncompressed_bytes_read counter
+    // just before add it to pagecache, it will be consistency with reading data from page cache.
+    opts.stats->uncompressed_bytes_read += body->size;
     if (opts.use_page_cache && cache) {
         // insert this page into cache and return the cache handle
         cache->insert(cache_key, page.get(), &cache_handle, opts.type, opts.kept_in_memory);

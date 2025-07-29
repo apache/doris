@@ -25,6 +25,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -35,6 +36,14 @@ public abstract class BaseMaterializedIndexSelectTest extends TestWithFeService 
         singleTableTest(sql, scan -> {
             Assertions.assertEquals(preAgg, scan.isPreAggregation());
             Assertions.assertEquals(indexName, scan.getSelectedIndexName());
+        });
+    }
+
+    // any index in indexNameSet is ok
+    protected void singleTableTest(String sql, Set<String> indexNameSet, boolean preAgg) {
+        singleTableTest(sql, scan -> {
+            Assertions.assertEquals(preAgg, scan.isPreAggregation());
+            Assertions.assertTrue(indexNameSet.contains(scan.getSelectedIndexName()));
         });
     }
 

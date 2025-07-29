@@ -87,12 +87,6 @@ DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_
     if (type == TypeIndex::Nothing) {
         return std::make_shared<DataTypeNothing>();
     }
-    if (type == ColumnObject::MOST_COMMON_TYPE_ID) {
-        // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
-        // So we ignored num_dimensions.
-        return is_nullable ? make_nullable(std::make_shared<ColumnObject::MostCommonType>())
-                           : std::make_shared<ColumnObject::MostCommonType>();
-    }
     DataTypePtr result =
             DataTypeFactory::instance().create_data_type(type, is_nullable, precision, scale);
     for (size_t i = 0; i < num_dimensions; ++i) {
@@ -972,13 +966,18 @@ const char* parse_binary_from_sparse_column(FieldType type, const char* data, Fi
         res = Array(size);
         auto& array = res.get<Array>();
         info_res.num_dimensions++;
+        FieldType nested_filed_type = FieldType::OLAP_FIELD_TYPE_NONE;
         for (size_t i = 0; i < size; ++i) {
             Field nested_field;
             const auto nested_type =
                     static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
             data = parse_binary_from_sparse_column(nested_type, data, nested_field, info_res);
             array[i] = std::move(nested_field);
+            if (nested_type != FieldType::OLAP_FIELD_TYPE_NONE) {
+                nested_filed_type = nested_type;
+            }
         }
+        info_res.scalar_type_id = fieldTypeToTypeIndex(nested_filed_type);
         end = data;
         break;
     }
@@ -1066,6 +1065,11 @@ const char* parse_binary_from_sparse_column(FieldType type, const char* data, Fi
         res = *reinterpret_cast<const uint8_t*>(data);
         end = data + sizeof(uint8_t);
         info_res.need_wrapped = true;
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_NONE: {
+        res = Field();
+        end = data;
         break;
     }
     default:
