@@ -267,7 +267,7 @@ Status DataTypeArraySerDe::deserialize_column_from_jsonb(IColumn& column,
                 nested_serde->deserialize_column_from_jsonb(nested_column, elem, castParms));
     }
 
-    offsets.push_back(offsets.size() + array_size);
+    offsets.push_back(offsets.back() + array_size);
 
     return Status::OK();
 }
