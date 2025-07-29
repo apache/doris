@@ -145,7 +145,7 @@ private:
             PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
 
             if (node.path.has_nested_part()) {
-                if (node.data.type->get_primitive_type() != PrimitiveType::TYPE_ARRAY) {
+                if (remove_nullable(node.data.type)->get_type_id() != TypeIndex::Array) {
                     return Status::InternalError(
                             "Meet none array column when flatten nested array, path {}, type {}",
                             node.path.get_path(), node.data.type->get_name());

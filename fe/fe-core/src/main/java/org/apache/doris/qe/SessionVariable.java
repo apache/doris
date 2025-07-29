@@ -4802,28 +4802,6 @@ public class SessionVariable implements Serializable, Writable {
         return disableVariantFlattenNested;
     }
 
-    public void setProfileLevel(String profileLevel) {
-        int profileLevelTmp = Integer.valueOf(profileLevel);
-        if (profileLevelTmp < 1 || profileLevelTmp > 3) {
-            LOG.warn("Profile level shuold be in the range of 1-3.");
-        } else {
-            this.profileLevel = profileLevelTmp;
-        }
-
-    }
-
-    public void checkProfileLevel(String profileLevel) {
-        int value = Integer.valueOf(profileLevel);
-        if (value < 1 || value > 3) {
-            UnsupportedOperationException exception =
-                    new UnsupportedOperationException("Profile level can not be set to " + profileLevel
-                            + ", it must be in the range of 1-3");
-            LOG.warn("Check profile_level failed", exception);
-            throw exception;
-        }
-    }
-
->>>>>>> 958e9eefe4 ([fix](variant) fix the reading core caused by inserting nested column and scalar column in variant sub-column (#53083))
     public void checkSqlConvertorFeatures(String features) {
         if (Strings.isNullOrEmpty(features)) {
             return;

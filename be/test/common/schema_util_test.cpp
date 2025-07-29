@@ -399,10 +399,8 @@ TEST_F(SchemaUtilTest, parse_variant_columns_ambiguous_paths) {
     using namespace doris::vectorized;
     // Prepare the string column with two rows
     auto string_col = ColumnString::create();
-    string_col->insert(
-            String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}"));
-    string_col->insert(
-            String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}"));
+    string_col->insert(String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}"));
+    string_col->insert(String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}"));
     auto string_type = std::make_shared<DataTypeString>();
 
     // Prepare the variant column with the string column as root
