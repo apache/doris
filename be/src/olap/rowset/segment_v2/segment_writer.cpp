@@ -23,6 +23,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -70,6 +71,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
 
@@ -106,7 +108,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
     for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
         _key_coders.push_back(get_key_coder(column.type()));
-        _key_index_size.push_back(column.index_length());
+        _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
     }
     if (_is_mow()) {
         // encode the sequence id into the primary key index
@@ -127,7 +129,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             for (auto cid : _tablet_schema->cluster_key_uids()) {
                 const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
-                _key_index_size.push_back(column.index_length());
+                _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
             }
         }
     }
@@ -168,7 +170,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
 
 Status SegmentWriter::init() {
     std::vector<uint32_t> column_ids;
-    int column_cnt = _tablet_schema->num_columns();
+    auto column_cnt = cast_set<int>(_tablet_schema->num_columns());
     for (uint32_t i = 0; i < column_cnt; ++i) {
         column_ids.emplace_back(i);
     }
@@ -204,8 +206,8 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
             return Status::NotSupported("Do not support ngram bloom filter for bf_size: ",
                                         gram_bf_size);
         }
-        opts.gram_size = gram_size;
-        opts.gram_bf_size = gram_bf_size;
+        opts.gram_size = cast_set<uint8_t>(gram_size);
+        opts.gram_bf_size = cast_set<uint16_t>(gram_bf_size);
     }
 
     opts.need_bitmap_index = column.has_bitmap_index();
@@ -401,7 +403,7 @@ Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& da
                 continue;
             }
             CHECK(entry->data.is_finalized());
-            int current_column_id = column_id++;
+            auto current_column_id = cast_set<int>(column_id++);
             TabletColumn tablet_column = generate_column_info(entry);
             vectorized::schema_util::inherit_column_attributes(*parent_column, tablet_column,
                                                                _flush_schema);
@@ -473,8 +475,8 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
             vectorized::DataTypeSerDeSPtrs serdes =
                     vectorized::create_data_type_serdes(block.get_data_types());
             vectorized::JsonbSerializeUtil::block_to_jsonb(
-                    *_tablet_schema, block, *row_store_column, _tablet_schema->num_columns(),
-                    serdes,
+                    *_tablet_schema, block, *row_store_column,
+                    cast_set<int>(_tablet_schema->num_columns()), serdes,
                     {_tablet_schema->row_columns_uids().begin(),
                      _tablet_schema->row_columns_uids().end()});
             break;
@@ -496,9 +498,9 @@ Status SegmentWriter::probe_key_for_mow(
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
-    auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
-                                      specified_rowsets, &loc, _mow_context->max_version,
-                                      segment_caches, &rowset);
+    auto st = _tablet->lookup_row_key(
+            key, _tablet_schema.get(), have_input_seq_column, specified_rowsets, &loc,
+            cast_set<uint32_t>(_mow_context->max_version), segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
         if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
@@ -537,7 +539,7 @@ Status SegmentWriter::probe_key_for_mow(
         // for this row, we need to ensure that each column is aligned
         _mow_context->delete_bitmap->add(
                 {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                segment_pos);
+                cast_set<uint32_t>(segment_pos));
         ++stats.num_rows_deleted;
     } else {
         _mow_context->delete_bitmap->add(
@@ -678,7 +680,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         auto not_found_cb = [&]() {
             return _opts.rowset_ctx->partial_update_info->handle_new_key(
                     *_tablet_schema, [&]() -> std::string {
-                        return block->dump_one_line(block_pos, _num_sort_key_columns);
+                        return block->dump_one_line(block_pos,
+                                                    cast_set<int>(_num_sort_key_columns));
                     });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
@@ -699,7 +702,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     // read to fill full block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
-            use_default_or_null_flag, has_default_or_nullable, segment_start_pos, block));
+            use_default_or_null_flag, has_default_or_nullable,
+            cast_set<uint32_t>(segment_start_pos), block));
 
     // convert block to row store format
     _serialize_block_to_row_column(full_block);
@@ -959,7 +963,7 @@ std::string SegmentWriter::_encode_keys(
 template <typename RowType>
 Status SegmentWriter::append_row(const RowType& row) {
     for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
-        auto cell = row.cell(cid);
+        auto cell = row.cell(cast_set<uint32_t>(cid));
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
     std::string full_encoded_key;
@@ -1207,7 +1211,7 @@ Status SegmentWriter::_write_footer() {
 
     faststring fixed_buf;
     // footer's size
-    put_fixed32_le(&fixed_buf, footer_buf.size());
+    put_fixed32_le(&fixed_buf, cast_set<uint32_t>(footer_buf.size()));
     // footer's checksum
     uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
@@ -1324,5 +1328,6 @@ inline bool SegmentWriter::_is_mow() {
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

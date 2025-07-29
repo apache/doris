@@ -27,9 +27,9 @@
 #include <limits>
 
 #include "common/cast_set.h"
-#include "gutil/endian.h"
 #include "util/bit_util.h"
 #include "util/coding.h"
+#include "vec/common/endian.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

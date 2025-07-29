@@ -17,26 +17,30 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.apache.logging.log4j.util.Strings;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-public class IcebergRestProperties extends MetastoreProperties {
+public class IcebergRestProperties extends AbstractIcebergProperties {
 
     // REST catalog property constants
     private static final String PREFIX_PROPERTY = "prefix";
@@ -126,8 +130,27 @@ public class IcebergRestProperties extends MetastoreProperties {
             description = "The cache TTL for case insensitive name matching in ms.")
     private String icebergRestCaseInsensitiveNameMatchingCacheTtlMs = "0";
 
-    public IcebergRestProperties(Map<String, String> origProps) {
-        super(Type.ICEBERG_REST, origProps);
+    protected IcebergRestProperties(Map<String, String> props) {
+        super(props);
+    }
+
+    @Override
+    public String getIcebergCatalogType() {
+        return IcebergExternalCatalog.ICEBERG_REST;
+    }
+
+    @Override
+    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+        Map<String, String> fileIOProperties = Maps.newHashMap();
+        Configuration conf = new Configuration();
+        toFileIOProperties(storagePropertiesList, fileIOProperties, conf);
+
+        // 3. Merge properties for REST catalog service.
+        Map<String, String> options = Maps.newHashMap(getIcebergRestCatalogProperties());
+        options.putAll(fileIOProperties);
+
+        // 4. Build iceberg catalog
+        return CatalogUtil.buildIcebergCatalog(catalogName, options, conf);
     }
 
     @Override
@@ -247,10 +270,10 @@ public class IcebergRestProperties extends MetastoreProperties {
      * @param fileIOProperties Options map to be populated
      * @param conf Configuration object to be populated (for HDFS), will be created if null and HDFS is used
      */
-    public void toFileIOProperties(Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
+    public void toFileIOProperties(List<StorageProperties> storagePropertiesList,
             Map<String, String> fileIOProperties, Configuration conf) {
 
-        for (StorageProperties storageProperties : storagePropertiesMap.values()) {
+        for (StorageProperties storageProperties : storagePropertiesList) {
             if (storageProperties instanceof HdfsCompatibleProperties) {
                 storageProperties.getBackendConfigProperties().forEach(conf::set);
             } else if (storageProperties instanceof AbstractS3CompatibleProperties) {

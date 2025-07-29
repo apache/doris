@@ -194,9 +194,10 @@ template <PrimitiveType T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
     FieldType val {};
+    StringRef str_ref(rb.position(), rb.count());
     StringParser::ParseResult res =
             read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), FieldType>(
-                    val, rb, precision, scale);
+                    val, str_ref, precision, scale);
     if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
         column_data.emplace_back(val);
         return Status::OK();
@@ -380,52 +381,6 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_
         return std::make_shared<DataTypeDecimal<TYPE_DECIMAL128I>>(precision_value, scale_value);
     }
     return std::make_shared<DataTypeDecimal<TYPE_DECIMAL256>>(precision_value, scale_value);
-}
-
-template <>
-Decimal32 DataTypeDecimal<TYPE_DECIMAL32>::get_scale_multiplier(UInt32 scale) {
-    return common::exp10_i32(scale);
-}
-
-template <>
-Decimal64 DataTypeDecimal<TYPE_DECIMAL64>::get_scale_multiplier(UInt32 scale) {
-    return common::exp10_i64(scale);
-}
-
-template <>
-Decimal128V2 DataTypeDecimal<TYPE_DECIMALV2>::get_scale_multiplier(UInt32 scale) {
-    return common::exp10_i128(scale);
-}
-
-template <>
-Decimal128V3 DataTypeDecimal<TYPE_DECIMAL128I>::get_scale_multiplier(UInt32 scale) {
-    return common::exp10_i128(scale);
-}
-
-template <>
-Decimal256 DataTypeDecimal<TYPE_DECIMAL256>::get_scale_multiplier(UInt32 scale) {
-    return Decimal256(common::exp10_i256(scale));
-}
-
-template <>
-Decimal32 DataTypeDecimal<TYPE_DECIMAL32>::get_max_digits_number(UInt32 digit_count) {
-    return common::max_i32(digit_count);
-}
-template <>
-Decimal64 DataTypeDecimal<TYPE_DECIMAL64>::get_max_digits_number(UInt32 digit_count) {
-    return common::max_i64(digit_count);
-}
-template <>
-Decimal128V2 DataTypeDecimal<TYPE_DECIMALV2>::get_max_digits_number(UInt32 digit_count) {
-    return common::max_i128(digit_count);
-}
-template <>
-Decimal128V3 DataTypeDecimal<TYPE_DECIMAL128I>::get_max_digits_number(UInt32 digit_count) {
-    return common::max_i128(digit_count);
-}
-template <>
-Decimal256 DataTypeDecimal<TYPE_DECIMAL256>::get_max_digits_number(UInt32 digit_count) {
-    return Decimal256(common::max_i256(digit_count));
 }
 
 /// Explicit template instantiations.

@@ -18,6 +18,7 @@
 #include "cast_base.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/cast/cast_to_string.h"
@@ -207,14 +208,14 @@ template <PrimitiveType type, typename ColumnType, typename ToDataType>
 struct ConvertImplFromJsonb {
     template <PrimitiveType PT, bool enable_strict_cast>
     static bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x,
-                               ReadBuffer& rb) {
+                               const StringRef& str_ref) {
         if constexpr (is_float_or_double(PT)) {
-            return try_read_float_text(x, rb);
+            return try_read_float_text(x, str_ref);
         } else if constexpr (PT == TYPE_BOOLEAN) {
-            return try_read_bool_text(x, rb);
+            return try_read_bool_text(x, str_ref);
         } else if constexpr (is_int(PT)) {
             return try_read_int_text<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                                     enable_strict_cast>(x, rb);
+                                     enable_strict_cast>(x, str_ref);
         } else {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "try_parse_impl not implemented for type: {}",
@@ -273,12 +274,12 @@ struct ConvertImplFromJsonb {
                     const auto* blob = value->unpack<JsonbBinaryVal>();
                     const auto& data = blob->getBlob();
                     size_t len = blob->getBlobLen();
-                    ReadBuffer rb((char*)(data), len);
+                    StringRef str_ref((char*)(data), len);
                     bool enable_strict_cast = context->enable_strict_mode();
                     std::visit(
                             [&](auto enable_strict_cast) {
                                 bool parsed = try_parse_impl<ToDataType::PType, enable_strict_cast>(
-                                        res[i], rb);
+                                        res[i], str_ref);
                                 null_map[i] = !parsed;
                             },
                             vectorized::make_bool_variant(enable_strict_cast));
