@@ -31,7 +31,7 @@ public class ShowWarningStmt extends ShowStmt implements NotFallbackInParser {
                     .build();
 
     @Override
-    public void analyze(Analyzer analyzer) {
+    public void analyze() {
     }
 
     @Override

@@ -711,6 +711,8 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
+
+DECLARE_mInt64(min_write_buffer_size_for_partial_update);
 // max parallel flush task per memtable writer
 DECLARE_mInt32(memtable_flush_running_count_limit);
 
@@ -1586,6 +1588,7 @@ DECLARE_Bool(enable_table_size_correctness_check);
 DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 
 DECLARE_mInt32(compaction_num_per_round);
+DECLARE_mInt32(max_automatic_compaction_num_per_round);
 
 DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
 DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
@@ -1621,6 +1624,9 @@ DECLARE_mBool(random_segments_key_bounds_truncation);
 DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
 
 DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
+
+// p0, daily, rqg, external
+DECLARE_String(fuzzy_test_type);
 
 #ifdef BE_TEST
 // test s3

@@ -752,10 +752,8 @@ nonterminal List<BinaryPredicate> set_clause;
 nonterminal List<BinaryPredicate> assignment_list;
 nonterminal BinaryPredicate assignment;
 
-nonterminal BackupStmt backup_stmt;
 nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
 nonterminal Boolean backup_exclude_or_not;
-nonterminal RestoreStmt restore_stmt;
 
 nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
 nonterminal Expr set_expr_or_default;
@@ -1188,10 +1186,6 @@ stmt ::=
     {: RESULT = stmt; :}
     | sync_stmt : stmt
     {: RESULT = stmt; :}
-    | backup_stmt : stmt
-    {: RESULT = stmt; :}
-    | restore_stmt : stmt
-    {: RESULT = stmt; :}
     | transaction_stmt : stmt
     {: RESULT = stmt; :}
     | unsupported_stmt : stmt
@@ -1246,15 +1240,7 @@ refresh_stmt ::=
     ;
 
 clean_stmt ::=
-    KW_CLEAN KW_LABEL from_or_in ident:db
-    {:
-        RESULT = new CleanLabelStmt(db, null);
-    :}
-    | KW_CLEAN KW_LABEL ident:label from_or_in ident:db
-    {:
-        RESULT = new CleanLabelStmt(db, label);
-    :}
-    | KW_CLEAN KW_ALL KW_PROFILE
+    KW_CLEAN KW_ALL KW_PROFILE
     {:
         RESULT = new CleanProfileStmt();
     :}
@@ -1652,17 +1638,8 @@ opt_intermediate_type ::=
 
 // Create Statement
 create_stmt ::=
-    /* Database */
-    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists db_name:db opt_properties:properties
-    {:
-        RESULT = new CreateDbStmt(ifNotExists, db, properties);
-    :}
-    | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists db_name:db
-    {:
-        RESULT = new CreateDbStmt(ifNotExists, db, null);
-    :}
     /* Catalog */
-    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_comment:comment opt_properties:properties
+    KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_comment:comment opt_properties:properties
     {:
          RESULT = new CreateCatalogStmt(ifNotExists, catalogName, null, properties, comment);
     :}
@@ -3611,17 +3588,9 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
-    | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
-    {:
-        RESULT = new ShowAnalyzeTaskStatus(jobId);
-    :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
-    | KW_WARM KW_UP KW_JOB opt_wild_where
-    {:
-        RESULT = new ShowCloudWarmUpStmt(parser.where);
     :}
     ;
 
@@ -3965,17 +3934,6 @@ assignment ::=
     :}
     ;
 
-// backup stmt
-backup_stmt ::=
-    KW_BACKUP KW_SNAPSHOT job_label:label
-    KW_TO ident:repoName
-    opt_backup_table_ref_list:tblRefClause
-    opt_properties:properties
-    {:
-        RESULT = new BackupStmt(label, repoName, tblRefClause, properties);
-    :}
-    ;
-
 unlock_tables_stmt ::=
     KW_UNLOCK KW_TABLES
     {:
@@ -4066,17 +4024,6 @@ backup_exclude_or_not ::=
     :}
     ;
 
-// Restore statement
-restore_stmt ::=
-    KW_RESTORE KW_SNAPSHOT job_label:label
-    KW_FROM ident:repoName
-    opt_backup_table_ref_list:tblRefClause
-    opt_properties:properties
-    {:
-        RESULT = new RestoreStmt(label, repoName, tblRefClause, properties);
-    :}
-    ;
-
 // TODO(zhaochun): stolen from MySQL. Why not use value list, maybe avoid shift/reduce conflict
 // Set statement
 set_stmt ::=
@@ -4105,12 +4052,6 @@ unset_var_stmt ::=
         RESULT = new UnsetVariableStmt(type, true);
     :}
     ;
-
-unset_default_storage_vault_stmt ::=
-    KW_UNSET KW_DEFAULT KW_STORAGE KW_VAULT
-    {:
-        RESULT = new UnsetDefaultStorageVaultStmt();
-    :};
 
 user_property_list ::=
     user_property:property

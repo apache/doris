@@ -51,6 +51,13 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
                                const std::string& instance_id, const TabletIndexPB& idx,
                                TabletStatsPB& stats, bool snapshot = false);
 
+// Get versioned tablet stats via `txn`. If an error occurs, `code` will be set to non OK.
+// NOTE: this function returns original `TabletStatsPB` and detached tablet stats val stored in kv store,
+//  MUST call `merge_tablet_stats(stats, detached_stats)` to get the real tablet stats.
+void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                                         const std::string& instance_id, const TabletIndexPB& idx,
+                                         TabletStatsPB& stats, bool snapshot = false);
+
 // clang-format off
 /**
  * Get detached tablet stats via with given stats_kvs

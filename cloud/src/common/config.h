@@ -281,6 +281,7 @@ CONF_Int32(txn_lazy_commit_num_threads, "8");
 CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
+CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
 
 CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
 
@@ -340,5 +341,6 @@ CONF_mString(ca_cert_file_paths,
 
 CONF_Bool(enable_split_rowset_meta_pb, "false");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
+CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 
 } // namespace doris::cloud::config

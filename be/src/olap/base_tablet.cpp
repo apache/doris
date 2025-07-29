@@ -194,11 +194,13 @@ Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_
     CHECK(_max_version_schema->schema_version() >= update_schema->schema_version());
     TabletSchemaSPtr final_schema;
     bool check_column_size = true;
+    VLOG_DEBUG << "dump _max_version_schema: " << _max_version_schema->dump_full_schema();
+    VLOG_DEBUG << "dump update_schema: " << update_schema->dump_full_schema();
     RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
             {_max_version_schema, update_schema}, _max_version_schema, final_schema,
             check_column_size));
     _max_version_schema = final_schema;
-    VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_structure();
+    VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_full_schema();
     return Status::OK();
 }
 
@@ -461,7 +463,7 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
 Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
                                   bool with_seq_col,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                  RowLocation* row_location, uint32_t version,
+                                  RowLocation* row_location, int64_t version,
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
                                   std::string* encoded_seq_value, OlapReaderStatistics* stats,
@@ -637,9 +639,9 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
     RETURN_IF_ERROR(seg->load_pk_index_and_bf(nullptr)); // We need index blocks to iterate
     const auto* pk_idx = seg->get_primary_key_index();
-    int total = pk_idx->num_rows();
+    int64_t total = pk_idx->num_rows();
     uint32_t row_id = 0;
-    int32_t remaining = total;
+    int64_t remaining = total;
     bool exact_match = false;
     std::string last_key;
     int batch_size = 1024;
@@ -651,7 +653,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
-        size_t num_to_read = std::min(batch_size, remaining);
+        size_t num_to_read = std::min<int64_t>(batch_size, remaining);
         auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                 pk_idx->type_info()->type(), 1, 0);
         auto index_column = index_type->create_column();
@@ -719,12 +721,11 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             Status st = Status::OK();
             if (tablet_delete_bitmap == nullptr) {
                 st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                    cast_set<uint32_t>(dummy_version.first - 1), segment_caches,
-                                    &rowset_find);
+                                    dummy_version.first - 1, segment_caches, &rowset_find);
             } else {
                 st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                    cast_set<uint32_t>(dummy_version.first - 1), segment_caches,
-                                    &rowset_find, true, nullptr, nullptr, tablet_delete_bitmap);
+                                    dummy_version.first - 1, segment_caches, &rowset_find, true,
+                                    nullptr, nullptr, tablet_delete_bitmap);
             }
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
@@ -1075,37 +1076,40 @@ Status BaseTablet::generate_new_block_for_partial_update(
             //         before, even the `strict_mode` is true (which requires partial update
             //         load job can't insert new keys), this "new" key MUST be written into
             //         the new generated segment file.
-            bool use_default = false;
             bool new_row_delete_sign =
                     (new_block_delete_signs != nullptr && new_block_delete_signs[idx]);
-            bool old_row_delete_sign = (old_block_delete_signs != nullptr &&
-                                        old_block_delete_signs[read_index_old[idx]] != 0);
-            if (old_row_delete_sign) {
-                if (!rowset_schema->has_sequence_col()) {
-                    use_default = true;
-                } else if (have_input_seq_column || !rs_column.is_seqeunce_col()) {
-                    // to keep the sequence column value not decreasing, we should read values of seq column
-                    // from old rows even if the old row is deleted when the input don't specify the sequence column, otherwise
-                    // it may cause the merge-on-read based compaction to produce incorrect results
-                    use_default = true;
-                }
-            }
-
             if (new_row_delete_sign) {
                 mutable_column->insert_default();
-            } else if (use_default) {
-                if (rs_column.has_default_value()) {
-                    mutable_column->insert_from(*default_value_block.get_by_position(i).column, 0);
-                } else if (rs_column.is_nullable()) {
-                    assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                            mutable_column.get())
-                            ->insert_default();
-                } else {
-                    mutable_column->insert(rs_column.get_vec_type()->get_default());
-                }
             } else {
-                mutable_column->insert_from(*old_block.get_by_position(i).column,
-                                            read_index_old[idx]);
+                bool use_default = false;
+                bool old_row_delete_sign = (old_block_delete_signs != nullptr &&
+                                            old_block_delete_signs[read_index_old.at(idx)] != 0);
+                if (old_row_delete_sign) {
+                    if (!rowset_schema->has_sequence_col()) {
+                        use_default = true;
+                    } else if (have_input_seq_column || !rs_column.is_seqeunce_col()) {
+                        // to keep the sequence column value not decreasing, we should read values of seq column
+                        // from old rows even if the old row is deleted when the input don't specify the sequence column, otherwise
+                        // it may cause the merge-on-read based compaction to produce incorrect results
+                        use_default = true;
+                    }
+                }
+
+                if (use_default) {
+                    if (rs_column.has_default_value()) {
+                        mutable_column->insert_from(*default_value_block.get_by_position(i).column,
+                                                    0);
+                    } else if (rs_column.is_nullable()) {
+                        assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                                mutable_column.get())
+                                ->insert_default();
+                    } else {
+                        mutable_column->insert(rs_column.get_vec_type()->get_default());
+                    }
+                } else {
+                    mutable_column->insert_from(*old_block.get_by_position(i).column,
+                                                read_index_old[idx]);
+                }
             }
         }
     }
@@ -1851,6 +1855,9 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
     }
     int64_t start_version = version.first;
     int64_t end_version = version.second;
+    if (start_version == end_version) {
+        return;
+    }
     DCHECK(start_version < end_version)
             << ". start_version: " << start_version << ", end_version: " << end_version;
     // get pre rowsets

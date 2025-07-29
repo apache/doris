@@ -89,7 +89,8 @@ int32_t get_broker_index(const std::vector<TNetworkAddress>& brokers, const std:
     }
 
     // secondly select broker by hash of file path
-    auto key = HashUtil::hash(path.data(), cast_set<int32_t>(path.size()), 0);
+    auto key = HashUtil::hash(path.data(), cast_set<uint32_t>(path.size()), 0);
+
     return key % brokers.size();
 }
 

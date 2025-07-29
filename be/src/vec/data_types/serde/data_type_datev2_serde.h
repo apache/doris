@@ -104,11 +104,5 @@ private:
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
-
-    Status _from_string(const std::string& str, DateV2Value<DateV2ValueType>& res,
-                        const cctz::time_zone* local_time_zone) const;
-
-    Status _from_string_strict_mode(const std::string& str, DateV2Value<DateV2ValueType>& res,
-                                    const cctz::time_zone* local_time_zone) const;
 };
 } // namespace doris::vectorized

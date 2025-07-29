@@ -83,8 +83,10 @@ public:
 
     std::unique_ptr<Block>& unsorted_block() { return _unsorted_block; }
 
+    void ignore_offset() { _offset = 0; }
+
 private:
-    Status _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
+    void _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
 
     std::unique_ptr<Block> _unsorted_block;
     MergeSorterQueue _queue;
@@ -129,7 +131,7 @@ public:
 
     virtual Status append_block(Block* block) = 0;
 
-    virtual Status prepare_for_read() = 0;
+    virtual Status prepare_for_read(bool is_spill) = 0;
 
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) = 0;
 
@@ -182,7 +184,7 @@ public:
 
     Status append_block(Block* block) override;
 
-    Status prepare_for_read() override;
+    Status prepare_for_read(bool is_spill) override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 

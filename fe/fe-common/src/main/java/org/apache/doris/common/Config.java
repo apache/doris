@@ -1700,6 +1700,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static long backup_handler_update_interval_millis = 3000;
 
+
+    /**
+     * Whether to enable cloud restore job.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {"是否开启存算分离恢复功能。",
+        "Whether to enable cloud restore job."}, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_cloud_restore_job = false;
+
     /**
      * Control the default max num of the instance for a user.
      */
@@ -1968,9 +1976,6 @@ public class Config extends ConfigBase {
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = true;
-
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_wg_memory_sum_limit = true;
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
@@ -2267,7 +2272,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg"})
+    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg", "external"})
     public static String fuzzy_test_type = "";
 
     /**

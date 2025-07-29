@@ -686,6 +686,8 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
+
+DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
 
@@ -1527,7 +1529,12 @@ DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
-DEFINE_mInt32(compaction_num_per_round, "4");
+// The number of compaction tasks generated each time.
+// -1 means automatic number, other values mean fixed number.
+DEFINE_mInt32(compaction_num_per_round, "-1");
+// Max automatic compaction task generated num per round.
+// Only valid if "compaction_num_per_round = 0"
+DEFINE_mInt32(max_automatic_compaction_num_per_round, "64");
 
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
@@ -1559,6 +1566,8 @@ DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
+// p0, daily, rqg, external
+DEFINE_String(fuzzy_test_type, "");
 
 DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
 
@@ -2017,6 +2026,39 @@ Status set_fuzzy_configs() {
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
             std::to_string(distribution2(*generator));
+
+    // external
+    if (config::fuzzy_test_type == "external") {
+        std::uniform_int_distribution<int64_t> distribution3(0, 2);
+
+        int64_t idx = distribution3(*generator);
+        fuzzy_field_and_value["max_hdfs_file_handle_cache_num"] =
+                (idx == 0) ? "0" : ((idx == 1) ? "10" : "20000");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["max_hdfs_file_handle_cache_time_sec"] =
+                (idx == 0) ? "1" : ((idx == 1) ? "10" : "28800");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["max_external_file_meta_cache_num"] =
+                (idx == 0) ? "0" : ((idx == 1) ? "10" : "1000");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["common_obj_lru_cache_stale_sweep_time_sec"] =
+                (idx == 0) ? "0" : ((idx == 1) ? "10" : "900");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["max_amplified_read_ratio"] =
+                (idx == 0) ? "0.1" : ((idx == 1) ? "0.8" : "1");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["merged_oss_min_io_size"] =
+                (idx == 0) ? "4096" : ((idx == 1) ? "8192" : "1048576");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["merged_hdfs_min_io_size"] =
+                (idx == 0) ? "4096" : ((idx == 1) ? "8192" : "1048576");
+    }
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {

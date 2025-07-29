@@ -76,7 +76,7 @@ public:
 
     Status convert_column_data(const vectorized::ColumnPtr& column_ptr,
                                const vectorized::DataTypePtr& type_ptr,
-                               const vectorized::DataTypePtr& type, int row,
+                               const vectorized::DataTypePtr& type, size_t row,
                                TOdbcTableType::type table_type);
 
     // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size

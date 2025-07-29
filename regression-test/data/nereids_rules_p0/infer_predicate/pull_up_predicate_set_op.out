@@ -400,7 +400,7 @@ PhysicalResultSink
 
 -- !union_all_and_project_pull_up --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]

@@ -671,10 +671,10 @@ TEST_F(DataTypeDecimalTest, scale_factor_for) {
 
     EXPECT_THROW(dt_decimal128v3_2.scale_factor_for(dt_decimal256_2), Exception);
 
-    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal64_1).value, 1000);
-    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal256_1).value, 1000);
+    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal64_1), 1000);
+    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal256_1), 1000);
 
-    EXPECT_EQ(dt_decimal64_3.scale_factor_for(dt_decimal64_2).value,
+    EXPECT_EQ(dt_decimal64_3.scale_factor_for(dt_decimal64_2),
               std::pow(10, dt_decimal64_3.get_scale() - dt_decimal64_2.get_scale()));
 
     EXPECT_EQ(dt_decimal256_3.scale_factor_for(dt_decimal256_2),

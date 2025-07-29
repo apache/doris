@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <boost/algorithm/string/join.hpp>
 
+#include "common/cast_set.h"      // IWYU pragma: keep
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -43,6 +44,9 @@
 #include "util/thread.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 using namespace ErrorCode;
 
 static const uint32_t MAX_SHARD_NUM = 1024;
@@ -132,7 +136,8 @@ bool LoadPathMgr::check_disk_space(size_t disk_capacity_bytes, size_t available_
                                    int64_t file_bytes) {
     bool is_available = false;
     int64_t remaining_bytes = available_bytes - file_bytes;
-    double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / disk_capacity_bytes;
+    double used_ratio =
+            1.0 - cast_set<double>(remaining_bytes) / cast_set<double>(disk_capacity_bytes);
     is_available = !(used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
                      remaining_bytes <= config::storage_flood_stage_left_capacity_bytes);
     if (!is_available) {
@@ -290,10 +295,13 @@ void LoadPathMgr::clean_error_log() {
     time_t now = time(nullptr);
     bool exists = true;
     std::vector<io::FileInfo> sub_dirs;
-    Status status = io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs, &exists);
-    if (!status.ok()) {
-        LOG(WARNING) << "scan error_log dir failed: " << status;
-        return;
+    {
+        Status status =
+                io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs, &exists);
+        if (!status.ok()) {
+            LOG(WARNING) << "scan error_log dir failed: " << status;
+            return;
+        }
     }
 
     for (auto& sub_dir : sub_dirs) {
@@ -322,5 +330,7 @@ void LoadPathMgr::clean_error_log() {
         }
     }
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
