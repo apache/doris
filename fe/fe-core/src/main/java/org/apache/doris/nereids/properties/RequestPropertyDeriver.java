@@ -449,7 +449,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                 // 还需加上ndv的判断
                 if (new HashSet<>(groupByExprIds).containsAll(hashExprIds)) {
                     addRequestPropertyToChildren(PhysicalProperties.createHash(hashExprIds, ShuffleType.REQUIRE));
-                    // addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
                     return null;
                 }
             }

@@ -23,17 +23,15 @@ import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.trees.expressions.AggregateExpression;
-import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -50,6 +48,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -58,7 +58,6 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * ensure child add enough distribute. update children properties if we do regular.
@@ -110,74 +109,83 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (agg.getGroupByExpressions().isEmpty() && agg.getOutputExpressions().isEmpty()) {
             return ImmutableList.of();
         }
+        // 如果origin property 满足group by key, 但是不满足required, 那么禁用这个计划
+        PhysicalProperties originChildProperty = originChildrenProperties.get(0);
+        PhysicalProperties requiredChildProperty = requiredProperties.get(0);
+        PhysicalProperties hashSpec = PhysicalProperties.createHash(agg.getGroupByExpressions(), ShuffleType.REQUIRE);
+        GroupExpression child = children.get(0);
+        if (child.getPlan() instanceof PhysicalDistribute) {
+            PhysicalProperties properties = new PhysicalProperties(
+                    DistributionSpecAny.INSTANCE, originChildProperty.getOrderSpec());
+            GroupExpression distributeChild = child.getOwnerGroup().getLowestCostPlan(properties).get().second;
+            PhysicalProperties distributeChildProperties = distributeChild.getOutputProperties(properties);
+            if (distributeChildProperties.satisfy(hashSpec)
+                    && !distributeChildProperties.satisfy(requiredChildProperty)) {
+                return ImmutableList.of();
+            }
+        }
+
         if (!agg.getAggregateParam().canBeBanned) {
             return visit(agg, context);
         }
-        // forbid one phase agg on distribute
-        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT && children.get(0).getPlan() instanceof PhysicalDistribute) {
-            // this means one stage gather agg, usually bad pattern
-            return ImmutableList.of();
-        }
-
-        // forbid TWO_PHASE_AGGREGATE_WITH_DISTINCT after shuffle
-        // TODO: this is forbid good plan after cte reuse by mistake
-        if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER
-                && requiredProperties.get(0).getDistributionSpec() instanceof DistributionSpecHash
-                && children.get(0).getPlan() instanceof PhysicalDistribute) {
-            return ImmutableList.of();
-        }
-
-        // agg(group by x)-union all(A, B)
-        // no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
-        // and hence we forbid one phase agg
-        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
-                && children.get(0).getPlan() instanceof PhysicalUnion
-                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct()) {
-            return ImmutableList.of();
-        }
-        // forbid multi distinct opt that bad than multi-stage version when multi-stage can be executed in one fragment
-        if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER || agg.getAggMode() == AggMode.INPUT_TO_RESULT) {
-            List<MultiDistinction> multiDistinctions = agg.getOutputExpressions().stream()
-                    .filter(Alias.class::isInstance)
-                    .map(a -> ((Alias) a).child())
-                    .filter(AggregateExpression.class::isInstance)
-                    .map(a -> ((AggregateExpression) a).getFunction())
-                    .filter(MultiDistinction.class::isInstance)
-                    .map(MultiDistinction.class::cast)
-                    .collect(Collectors.toList());
-            if (multiDistinctions.size() == 1) {
-                Expression distinctChild = multiDistinctions.get(0).child(0);
-                DistributionSpec childDistribution = originChildrenProperties.get(0).getDistributionSpec();
-                if (distinctChild instanceof SlotReference && childDistribution instanceof DistributionSpecHash) {
-                    SlotReference slotReference = (SlotReference) distinctChild;
-                    DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
-                    List<ExprId> groupByColumns = agg.getGroupByExpressions().stream()
-                            .map(SlotReference.class::cast)
-                            .map(SlotReference::getExprId)
-                            .collect(Collectors.toList());
-                    DistributionSpecHash groupByRequire = new DistributionSpecHash(
-                            groupByColumns, ShuffleType.REQUIRE);
-                    List<ExprId> distinctChildColumns = Lists.newArrayList(slotReference.getExprId());
-                    distinctChildColumns.add(slotReference.getExprId());
-                    DistributionSpecHash distinctChildRequire = new DistributionSpecHash(
-                            distinctChildColumns, ShuffleType.REQUIRE);
-                    if ((!groupByColumns.isEmpty() && distributionSpecHash.satisfy(groupByRequire))
-                            || (groupByColumns.isEmpty() && distributionSpecHash.satisfy(distinctChildRequire))) {
-                        if (!agg.mustUseMultiDistinctAgg()) {
-                            return ImmutableList.of();
-                        }
-                    }
-                }
-                // if distinct without group by key, we prefer three or four stage distinct agg
-                // because the second phase of multi-distinct only have one instance, and it is slow generally.
-                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()
-                        && !agg.mustUseMultiDistinctAgg()) {
+        // 如果没有group by key, 必须要禁用掉一阶段AGG,因为会gather
+        if (agg.getGroupByExpressions().isEmpty()) {
+            if (shouldBanOnePhaseAgg(agg)) {
+                return ImmutableList.of();
+            }
+        } else {
+            Statistics aggStatistics = agg.getGroupExpression().get().getOwnerGroup().getStatistics();
+            Statistics inputStatistics = agg.getGroupExpression().get().childStatistics(0);
+            // 如果有未知的统计信息,那么直接禁用一阶段
+            if (hasUnknownStatistics(agg, inputStatistics)) {
+                if (shouldBanOnePhaseAgg(agg)) {
                     return ImmutableList.of();
+                }
+            } else {
+                double gbyNdv = aggStatistics.getRowCount();
+                double rows = inputStatistics.getRowCount();
+                // 如果gbyNdv大,那么使用一阶段,禁用二阶段
+                if (gbyNdv * 10 > rows) {
+                    if (agg.getAggPhase().isLocal()) {
+                        return ImmutableList.of();
+                    }
+                } else {
+                    // 使用二阶段,禁用一阶段
+                    if (shouldBanOnePhaseAgg(agg)) {
+                        return ImmutableList.of();
+                    }
                 }
             }
         }
+
         // process must shuffle
         return visit(agg, context);
+    }
+
+    private boolean shouldBanOnePhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate) {
+        return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
+                && children.get(0).getPlan() instanceof PhysicalDistribute
+                && !(children.get(0).children().get(0).getLogicalExpressions().get(0).getPlan()
+                instanceof LogicalCTEConsumer)
+                // agg(group by x)-union all(A, B)
+                // no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
+                // and hence we forbid one phase agg
+                || aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
+                        && children.get(0).getPlan() instanceof PhysicalUnion
+                        && !((PhysicalUnion) children.get(0).getPlan()).isDistinct();
+    }
+
+    private boolean hasUnknownStatistics(PhysicalHashAggregate<? extends Plan> aggregate, Statistics inputStatistics) {
+        for (Expression gbyExpr : aggregate.getGroupByExpressions()) {
+            ColumnStatistic colStats = inputStatistics.findColumnStatistics(gbyExpr);
+            if (colStats == null) {
+                colStats = ExpressionEstimation.estimate(gbyExpr, inputStatistics);
+            }
+            if (colStats.isUnKnown()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

@@ -124,6 +124,21 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
         }
         return false;
     }
+
+    /**
+     * distinctFuncNum
+     * @return number of distinct aggregate functions
+     */
+    default int distinctFuncNum() {
+        int num = 0;
+        for (AggregateFunction aggFunc : getAggregateFunctions()) {
+            if (aggFunc.isDistinct()) {
+                ++num;
+            }
+        }
+        return num;
+    }
+
     /**
      * Skew rewrite is applicable only when all the following conditions are met:
      * 1. The rule is not disabled in the current session (checked via `disableRules`).

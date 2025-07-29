@@ -42,7 +42,7 @@ public class AggregateParam {
 
     /** AggregateParam */
     public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean needSplit) {
-        this(aggPhase, aggMode, false, needSplit);
+        this(aggPhase, aggMode, true, needSplit);
     }
 
     /** AggregateParam */
