@@ -413,6 +413,22 @@ private:
     bool is_version_read_enabled(std::string_view instance_id) const;
     bool is_version_write_enabled(std::string_view instance_id) const;
 
+    void commit_txn_immediately(
+            const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+            std::string& msg, const std::string& instance_id, int64_t db_id,
+            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+            TxnErrorCode& err, KVStats& stats);
+
+    void commit_txn_eventually(
+            const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+            std::string& msg, const std::string& instance_id, int64_t db_id,
+            const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+            KVStats& stats);
+
+    void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse* response,
+                                 MetaServiceCode& code, std::string& msg,
+                                 const std::string& instance_id, KVStats& stats);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
