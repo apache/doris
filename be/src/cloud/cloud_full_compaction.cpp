@@ -358,7 +358,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     }
     auto delete_bitmap_size = delete_bitmap->delete_bitmap.size();
     DeleteBitmapPtr delete_bitmap_v2 = std::make_shared<DeleteBitmap>(*delete_bitmap);
-    if (config::delete_bitmap_store_version == 2) {
+    if (config::delete_bitmap_store_version >= 2) {
         std::vector<std::pair<RowsetId, int64_t>> pre_rowset_ids_to_segment_num;
         for (const auto& [rowset_version, rowset_ptr] : cloud_tablet()->rowset_map()) {
             if (rowset_version.second < _output_rowset->start_version() ||
