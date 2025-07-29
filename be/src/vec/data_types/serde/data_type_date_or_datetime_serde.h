@@ -113,20 +113,6 @@ protected:
     Status _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                    int64_t end, const cctz::time_zone& ctz) const;
 
-    Status _from_string(const std::string& str, CppType& res,
-                        const cctz::time_zone* local_time_zone) const;
-
-    Status _from_string_strict_mode(const std::string& str, CppType& res,
-                                    const cctz::time_zone* local_time_zone) const;
-
-    void _cast_to_type(CppType& res) const {
-        if constexpr (IsDatetime) {
-            res.to_datetime();
-        } else {
-            res.cast_to_date();
-        }
-    }
-
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(
