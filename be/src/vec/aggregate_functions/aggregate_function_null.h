@@ -425,7 +425,9 @@ public:
                     this->nested_place(place), columns_tmp, arena, is_previous_frame_start_null,
                     is_current_frame_end_null, true, use_null_result, could_use_previous_result);
             DCHECK_EQ(result_is_nullable, true);
-            if (current_frame_end - current_frame_start != this->get_null_count(place)) {
+            if (current_frame_end - current_frame_start == this->get_null_count(place)) {
+                this->init_flag(place);
+            } else {
                 this->set_flag(place);
             }
         } else {
