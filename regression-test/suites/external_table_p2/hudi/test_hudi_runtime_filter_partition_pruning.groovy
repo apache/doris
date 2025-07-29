@@ -147,20 +147,20 @@ suite("test_hudi_runtime_filter_partition_pruning", "p2,external,hudi,external_r
                 order by part1 desc limit 2);
         """
 
-        // // Test TIMESTAMP partition
-        // qt_runtime_filter_partition_pruning_timestamp_1 """
-        //     select count(*) from timestamp_partition_tb where part1 =
-        //         (select part1 from timestamp_partition_tb
-        //         group by part1 having count(*) > 0
-        //         order by part1 desc limit 1);
-        // """
+        // Test TIMESTAMP partition
+        qt_runtime_filter_partition_pruning_timestamp_1 """
+            select count(*) from timestamp_partition_tb where part1 =
+                (select part1 from timestamp_partition_tb
+                group by part1 having count(*) > 0
+                order by part1 desc limit 1);
+        """
         
-        // qt_runtime_filter_partition_pruning_timestamp_2 """
-        //     select count(*) from timestamp_partition_tb where part1 in
-        //         (select part1 from timestamp_partition_tb
-        //         group by part1 having count(*) > 0
-        //         order by part1 desc limit 2);
-        // """
+        qt_runtime_filter_partition_pruning_timestamp_2 """
+            select count(*) from timestamp_partition_tb where part1 in
+                (select part1 from timestamp_partition_tb
+                group by part1 having count(*) > 0
+                order by part1 desc limit 2);
+        """
 
         // Additional complex scenarios with multiple filters
         qt_runtime_filter_partition_pruning_complex_1 """

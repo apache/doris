@@ -44,6 +44,12 @@
 -- !runtime_filter_partition_pruning_date_2 --
 4
 
+-- !runtime_filter_partition_pruning_timestamp_1 --
+2
+
+-- !runtime_filter_partition_pruning_timestamp_2 --
+4
+
 -- !runtime_filter_partition_pruning_complex_1 --
 7
 
@@ -93,6 +99,12 @@
 2
 
 -- !runtime_filter_partition_pruning_date_2 --
+4
+
+-- !runtime_filter_partition_pruning_timestamp_1 --
+2
+
+-- !runtime_filter_partition_pruning_timestamp_2 --
 4
 
 -- !runtime_filter_partition_pruning_complex_1 --
