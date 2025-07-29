@@ -88,8 +88,9 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 List<ExprId> hashColumns = Lists.newArrayList();
                 for (Column column : hashDistributionInfo.getDistributionColumns()) {
                     for (Slot slot : output) {
-                        if (((SlotReference) slot).getOriginalColumn().get().getNameWithoutMvPrefix()
-                                .equals(column.getName())) {
+                        Column originalColumn = ((SlotReference) slot).getOriginalColumn().get();
+                        String origName = originalColumn.tryGetBaseColumnName();
+                        if (origName.equals(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }
                     }

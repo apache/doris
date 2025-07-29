@@ -18,7 +18,6 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -82,7 +81,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJobLifeCycle {
@@ -311,22 +309,19 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 int schemaVersion = indexMeta.getSchemaVersion();
                 int schemaHash = indexMeta.getSchemaHash();
                 List<TColumn> columnsDesc = Lists.newArrayList();
+                Map<String, TColumn> colNameToColDesc = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
                 // using to update schema of the rowset, so full columns should be included
                 for (Column column : indexMeta.getSchema(true)) {
-                    columnsDesc.add(column.toThrift());
+                    TColumn tCol = column.toThrift();
+                    columnsDesc.add(tCol);
+                    String colName = column.tryGetBaseColumnName();
+                    colNameToColDesc.put(colName, tCol);
                 }
 
-                Map<String, TColumn> colNameToColDesc = columnsDesc.stream()
-                        .collect(Collectors.toMap(c -> c.getColumnName(), Function.identity(), (v1, v2) -> v1,
-                                () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
                 for (Predicate condition : deleteConditions) {
                     SlotRef slotRef = (SlotRef) condition.getChild(0);
                     String columnName = slotRef.getColumnName();
                     TColumn column = colNameToColDesc.get(slotRef.getColumnName());
-                    if (column == null) {
-                        columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
-                        column = colNameToColDesc.get(columnName);
-                    }
                     if (column == null) {
                         if (partition.isRollupIndex(index.getId())) {
                             throw new AnalysisException("If MV or rollup index exists, do not support delete."
@@ -362,7 +357,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 TTaskType.REALTIME_PUSH,
                                 transactionId,
                                 Env.getCurrentEnv().getNextId() + 10000000000L,
-                                columnsDesc,
+                                columnsDesc, colNameToColDesc,
                                 vaultId, schemaVersion);
                         pushTask.setIsSchemaChanging(false);
                         pushTask.setCountDownLatch(countDownLatch);

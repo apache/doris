@@ -369,6 +369,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     private Collection<Long> distributionPrune(
+            List<Column> schema,
             List<Long> tabletIdsInOrder,
             DistributionInfo distributionInfo,
             boolean pruneTablesByNereids) throws AnalysisException {
@@ -381,7 +382,7 @@ public class OlapScanNode extends ScanNode {
         switch (distributionInfo.getType()) {
             case HASH: {
                 HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
-                distributionPruner = new HashDistributionPruner(tabletIdsInOrder,
+                distributionPruner = new HashDistributionPruner(schema, tabletIdsInOrder,
                         info.getDistributionColumns(),
                         columnFilters,
                         info.getBucketNum(),
@@ -885,7 +886,7 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = Lists.newArrayList();
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             // point query need prune tablets at this place
-            Collection<Long> prunedTabletIds = distributionPrune(
+            Collection<Long> prunedTabletIds = distributionPrune(olapTable.getSchemaByIndexId(selectedIndexId),
                     allTabletIds, partition.getDistributionInfo(), isNereids && !isPointQuery);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("distribution prune tablets: {}", prunedTabletIds);
