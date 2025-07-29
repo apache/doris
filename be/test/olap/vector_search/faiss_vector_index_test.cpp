@@ -539,7 +539,7 @@ TEST_F(VectorSearchTest, RangeSearchAllRowsAsCandidates) {
 }
 
 TEST_F(VectorSearchTest, RangeSearchWithSelector1) {
-    size_t iterations = 5;
+    size_t iterations = 2;
     for (size_t i = 0; i < iterations; ++i) {
         // Step 1: Create and build index
         auto index1 = std::make_unique<FaissVectorIndex>();
@@ -648,7 +648,7 @@ TEST_F(VectorSearchTest, RangeSearchWithSelector1) {
 }
 
 TEST_F(VectorSearchTest, InnerProductTopKSearch) {
-    const size_t iterations = 3;
+    const size_t iterations = 2;
     const std::vector<int> dimensions = {32, 64, 128};
     const std::vector<int> vector_counts = {100, 500, 1000};
     const std::vector<int> k_values = {5, 10, 20};

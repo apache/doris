@@ -38,7 +38,11 @@ class VExprContext;
 namespace doris::vectorized {
 
 VSlotRef::VSlotRef(const doris::TExprNode& node)
-        : VExpr(node), _slot_id(node.slot_ref.slot_id), _column_id(-1), _column_label(node.label) {}
+        : VExpr(node),
+          _slot_id(node.slot_ref.slot_id),
+          _column_id(-1),
+          _column_name(nullptr),
+          _column_label(node.label) {}
 
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
         : VExpr(desc->type(), true), _slot_id(desc->id()), _column_id(-1), _column_name(nullptr) {}
@@ -57,7 +61,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
                 "couldn't resolve slot descriptor {}, desc: {}", _slot_id,
                 state->desc_tbl().debug_string());
     }
-    _column_name = slot_desc->col_name();
+    _column_name = &slot_desc->col_name();
     if (!context->force_materialize_slot() && !slot_desc->is_materialized()) {
         // slot should be ignored manually
         _column_id = -1;
@@ -68,7 +72,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "VSlotRef {} have invalid slot id: {}, desc: {}, slot_desc: {}, desc_tbl: {}",
-                _column_name, _slot_id, desc.debug_string(), slot_desc->debug_string(),
+                *_column_name, _slot_id, desc.debug_string(), slot_desc->debug_string(),
                 state->desc_tbl().debug_string());
     }
     _prepare_finished = true;
@@ -86,7 +90,7 @@ Status VSlotRef::open(RuntimeState* state, VExprContext* context,
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                "input block not contain slot column {}, column_id={}, block={}", _column_name,
+                "input block not contain slot column {}, column_id={}, block={}", *_column_name,
                 _column_id, block->dump_structure());
     }
     *result_column_id = _column_id;
@@ -94,15 +98,16 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
 }
 
 const std::string& VSlotRef::expr_name() const {
-    return this->_expr_name;
+    return *_column_name;
 }
 std::string VSlotRef::expr_label() {
     return _column_label;
 }
 
 std::string VSlotRef::debug_string() const {
-    std::string out = fmt::format("VSlotRef(slot_id={}, column_id={})", _slot_id, _column_id);
-    return out;
+    std::stringstream out;
+    out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ")";
+    return out.str();
 }
 
 bool VSlotRef::equals(const VExpr& other) {

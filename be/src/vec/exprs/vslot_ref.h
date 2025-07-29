@@ -40,8 +40,6 @@ public:
     VSlotRef(const SlotDescriptor* desc);
 #ifdef BE_TEST
     VSlotRef() = default;
-    void set_column_id(int column_id) { _column_id = column_id; }
-    void set_slot_id(int slot_id) { _slot_id = slot_id; }
 #endif
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
@@ -68,9 +66,8 @@ public:
 private:
     int _slot_id;
     int _column_id;
+    const std::string* _column_name = nullptr;
     const std::string _column_label;
-    const std::string _expr_name = "SlotRef";
-    std::string _column_name;
 };
 } // namespace vectorized
 } // namespace doris

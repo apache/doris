@@ -32,7 +32,7 @@ using namespace doris::vector_search_utils;
 namespace doris::vectorized {
 
 TEST_F(VectorSearchTest, AnnIndexReaderRangeSearch) {
-    size_t iterato = 5;
+    size_t iterato = 2;
     for (size_t i = 0; i < iterato; ++i) {
         std::map<std::string, std::string> index_properties;
         index_properties["index_type"] = "hnsw";

@@ -51,7 +51,6 @@
 #include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/functions/array/function_array_distance.h"
-#include "vec/functions/array/function_array_distance_approximate.h"
 #include "vec/functions/function_agg_state.h"
 #include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"

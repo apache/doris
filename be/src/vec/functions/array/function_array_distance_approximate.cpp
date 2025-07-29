@@ -15,15 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/array/function_array_distance_approximate.h"
-
+#include "vec/functions/array/function_array_distance.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
 void register_function_array_distance_approximate(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayDistanceApproximate<L2DistanceApproximate>>();
-    factory.register_function<FunctionArrayDistanceApproximate<InnerProductApproximate>>();
+    factory.register_function<FunctionArrayDistance<L2DistanceApproximate>>();
+    factory.register_function<FunctionArrayDistance<InnerProductApproximate>>();
 }
 
 } // namespace doris::vectorized

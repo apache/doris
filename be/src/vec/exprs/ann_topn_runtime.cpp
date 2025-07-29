@@ -36,7 +36,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vslot_ref.h"
-#include "vec/functions/array/function_array_distance_approximate.h"
+#include "vec/functions/array/function_array_distance.h"
 
 namespace doris::vectorized {
 
