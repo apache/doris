@@ -118,6 +118,8 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+
+CONF_mBool(enable_checker_for_meta_key_check, "false");
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
