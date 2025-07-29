@@ -162,7 +162,7 @@ public:
 
 struct CastParameters {
     Status status = Status::OK();
-    bool is_strict = true;
+    bool is_strict = false;
 };
 
 #ifdef BE_TEST
