@@ -1301,7 +1301,6 @@ int InstanceRecycler::recycle_partitions() {
             return -1;
         }
         // Partitions with PREPARED state MUST have no data
-        bool is_empty_tablet = part_pb.state() == RecyclePartitionPB::PREPARED;
         if (part_pb.state() != RecyclePartitionPB::RECYCLING) {
             part_pb.set_state(RecyclePartitionPB::RECYCLING);
             txn->put(k, part_pb.SerializeAsString());
@@ -1314,8 +1313,7 @@ int InstanceRecycler::recycle_partitions() {
 
         int ret = 0;
         for (int64_t index_id : part_pb.index_id()) {
-            if (recycle_tablets(part_pb.table_id(), index_id, metrics_context, partition_id,
-                                is_empty_tablet) != 0) {
+            if (recycle_tablets(part_pb.table_id(), index_id, metrics_context, partition_id) != 0) {
                 LOG_WARNING("failed to recycle tablets under partition")
                         .tag("table_id", part_pb.table_id())
                         .tag("instance_id", instance_id_)
@@ -1489,8 +1487,8 @@ int InstanceRecycler::recycle_versions() {
 }
 
 int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
-                                      RecyclerMetricsContext& metrics_context, int64_t partition_id,
-                                      bool is_empty_tablet) {
+                                      RecyclerMetricsContext& metrics_context,
+                                      int64_t partition_id) {
     int64_t num_scanned = 0;
     std::atomic_long num_recycled = 0;
 
@@ -1550,7 +1548,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
     std::vector<std::string> tablet_idx_keys;
     std::vector<std::string> restore_job_keys;
     std::vector<std::string> init_rs_keys;
-    auto recycle_func = [&, is_empty_tablet, this](std::string_view k, std::string_view v) -> int {
+    auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
         bool use_range_remove = true;
         ++num_scanned;
         doris::TabletMetaCloudPB tablet_meta_pb;
@@ -1568,49 +1566,19 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
 
         tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
         restore_job_keys.push_back(job_restore_tablet_key({instance_id_, tablet_id}));
-        if (!is_empty_tablet) {
-            sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
-                               &metrics_context, k]() mutable -> TabletKeyPair {
-                if (recycle_tablet(tid, metrics_context) != 0) {
-                    LOG_WARNING("failed to recycle tablet")
-                            .tag("instance_id", instance_id_)
-                            .tag("tablet_id", tid);
-                    range_move = false;
-                    return {std::string_view(), range_move};
-                }
-                ++num_recycled;
-                LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
-                return {k, range_move};
-            });
-        } else {
-            // Empty tablet only has a [0-1] init rowset
-            init_rs_keys.push_back(meta_rowset_key({instance_id_, tablet_id, 1}));
-            DCHECK([&]() {
-                std::unique_ptr<Transaction> txn;
-                if (TxnErrorCode err = txn_kv_->create_txn(&txn); err != TxnErrorCode::TXN_OK) {
-                    LOG_ERROR("failed to create txn").tag("err", err);
-                    return false;
-                }
-                auto rs_key_begin = meta_rowset_key({instance_id_, tablet_id, 2});
-                auto rs_key_end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
-                std::unique_ptr<RangeGetIterator> iter;
-                if (TxnErrorCode err = txn->get(rs_key_begin, rs_key_end, &iter, true, 1);
-                    err != TxnErrorCode::TXN_OK) {
-                    LOG_ERROR("failed to get kv").tag("err", err);
-                    return false;
-                }
-                if (iter->has_next()) {
-                    LOG_ERROR("tablet is not empty").tag("tablet_id", tablet_id);
-                    return false;
-                }
-                return true;
-            }());
-            sync_executor.add([k]() mutable -> TabletKeyPair {
-                LOG_INFO("k is {}, is empty {}", k, k.empty());
-                return {k, true};
-            });
+        sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
+                           &metrics_context, k]() mutable -> TabletKeyPair {
+            if (recycle_tablet(tid, metrics_context) != 0) {
+                LOG_WARNING("failed to recycle tablet")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tid);
+                range_move = false;
+                return {std::string_view(), range_move};
+            }
             ++num_recycled;
-        }
+            LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
+            return {k, range_move};
+        });
         return 0;
     };
 

@@ -167,11 +167,10 @@ public:
      * recycle all tablets belonging to the index specified by `index_id`
      *
      * @param partition_id if positive, only recycle tablets in this partition belonging to the specified index
-     * @param is_empty_tablet indicates whether the tablet has object files, can skip delete objects if tablet is empty
      * @return 0 for success otherwise error
      */
     int recycle_tablets(int64_t table_id, int64_t index_id, RecyclerMetricsContext& ctx,
-                        int64_t partition_id = -1, bool is_empty_tablet = false);
+                        int64_t partition_id = -1);
 
     /**
      * recycle all rowsets belonging to the tablet specified by `tablet_id`
