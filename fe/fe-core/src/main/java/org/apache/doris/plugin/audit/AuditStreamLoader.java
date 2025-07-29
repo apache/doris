@@ -37,6 +37,8 @@ import java.util.stream.Collectors;
 public class AuditStreamLoader {
     private static final Logger LOG = LogManager.getLogger(AuditStreamLoader.class);
     private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
+    // timeout for both connection and read. 10 seconds is long enough.
+    private static final int HTTP_TIMEOUT_MS = 10000;
     private String hostPort;
     private String db;
     private String auditLogTbl;
@@ -62,6 +64,8 @@ public class AuditStreamLoader {
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
         conn.addRequestProperty("label", label);
+        conn.setConnectTimeout(HTTP_TIMEOUT_MS);
+        conn.setReadTimeout(HTTP_TIMEOUT_MS);
         conn.setRequestProperty("timeout", String.valueOf(GlobalVariable.auditPluginLoadTimeoutS));
         conn.addRequestProperty("max_filter_ratio", "1.0");
         conn.addRequestProperty("columns",
