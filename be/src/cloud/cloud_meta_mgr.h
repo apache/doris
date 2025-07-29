@@ -25,8 +25,8 @@
 #include <variant>
 #include <vector>
 
-#include "cloud/config.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_meta.h"
 #include "util/s3_util.h"

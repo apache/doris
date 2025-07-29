@@ -3082,6 +3082,14 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
     // TODO
     bool write_v2 = request->v2_rowset_ids_size() > 0 /*&& is_version_write_enabled(instance_id)*/;
+    if (write_v2 && request->v2_rowset_ids_size() != request->delete_bitmap_storages_size()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        ss << "v2_rowset_ids size=" << request->v2_rowset_ids_size()
+           << " not equal to delete_bitmap_storages size="
+           << request->delete_bitmap_storages_size();
+        msg = ss.str();
+        return;
+    }
 
     std::string use_version =
             delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
@@ -3480,13 +3488,24 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                       << ", delete_bitmap_num=" << delete_bitmap_num
                       << ", delete_bitmap_byte=" << delete_bitmap_byte;
         } else {
+            if (delete_bitmap_byte > config::max_get_delete_bitmap_byte) {
+                code = MetaServiceCode::KV_TXN_GET_ERR;
+                ss << "tablet=" << tablet_id << ", get_delete_bitmap_byte=" << delete_bitmap_byte
+                   << ",exceed max byte";
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                g_bvar_get_delete_bitmap_fail_counter << 1;
+                return;
+            }
+
             std::string key;
             versioned::MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowset_ids[i]};
             versioned::meta_delete_bitmap_key(key_info, &key);
             ValueBuf val_buf;
             err = cloud::blob_get(txn.get(), key, &val_buf);
-            // TODO retry for TXN_TOO_OLD
-            /*int64_t retry = 0;
+
+            int64_t retry = 0;
+            TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &retry, &err);
             while (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
                 stats.get_bytes += txn->get_bytes();
                 stats.get_counter += txn->num_get_keys();
@@ -3494,17 +3513,18 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 err = txn_kv_->create_txn(&txn);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::CREATE>(err);
-                    ss << "failed to init txn, retry=" << retry << ", internal round=" << round;
+                    ss << "failed to init txn, retry=" << retry;
                     msg = ss.str();
                     return;
                 }
                 err = cloud::blob_get(txn.get(), key, &val_buf);
                 retry++;
-                LOG(INFO) << "retry get delete bitmap, tablet=" << tablet_id
-                          << ", retry=" << retry << ", internal round=" << round
+                LOG(INFO) << "retry get delete bitmap, tablet=" << tablet_id << ", retry=" << retry
                           << ", delete_bitmap_num=" << delete_bitmap_num
                           << ", delete_bitmap_byte=" << delete_bitmap_byte;
-            }*/
+                TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &retry, &err);
+            }
+
             if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
                 LOG(INFO) << "delete bitmap not found for tablet=" << tablet_id
                           << ", rowset=" << rowset_ids[i];
@@ -3532,7 +3552,6 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                       << delete_bitmap_storage.delete_bitmap().rowset_ids_size();
             delete_bitmap_num += delete_bitmap_storage.delete_bitmap().rowset_ids_size();
             delete_bitmap_byte += val_buf.value().size();
-            // TODO check if delete_bitmap_byte > config::max_get_delete_bitmap_byte
         }
     }
     LOG(INFO) << "finish get delete bitmap for tablet=" << tablet_id
