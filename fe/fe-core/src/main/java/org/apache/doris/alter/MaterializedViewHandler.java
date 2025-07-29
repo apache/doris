@@ -597,10 +597,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
                     mvColumnItem.setIsKey(false);
                     for (String slotName : mvColumnItem.getBaseColumnNames()) {
-                        if (olapTable
-                                .getColumn(MaterializedIndexMeta
-                                        .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
-                                .isKey()) {
+                        if (olapTable.getColumn(slotName).isKey()) {
                             mvColumnItem.setIsKey(true);
                         }
                     }
@@ -611,10 +608,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
                 // check a.2 and b.2
                 for (String slotName : mvColumnItem.getBaseColumnNames()) {
-                    if (olapTable
-                            .getColumn(MaterializedIndexMeta
-                                    .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
-                            .isKey() != mvColumnItem.isKey()) {
+                    if (olapTable.getColumn(slotName).isKey() != mvColumnItem.isKey()) {
                         throw new DdlException("The mvItem[" + mvColumnItem.getName()
                                 + "]'s isKey must same with all slot, mvItem.isKey="
                                 + (mvColumnItem.isKey() ? "true" : "false"));
@@ -624,10 +618,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 if (!mvColumnItem.isKey() && olapTable.getKeysType() == KeysType.AGG_KEYS) {
                     // check a.1
                     for (String slotName : mvColumnItem.getBaseColumnNames()) {
-                        if (olapTable
-                                .getColumn(MaterializedIndexMeta
-                                        .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
-                                .getAggregationType() != mvColumnItem.getAggregationType()) {
+                        if (olapTable.getColumn(slotName).getAggregationType() != mvColumnItem.getAggregationType()) {
                             throw new DdlException("The mvItem[" + mvColumnItem.getName()
                                     + "]'s AggregationType must same with all slot");
                         }
@@ -666,7 +657,7 @@ public class MaterializedViewHandler extends AlterHandler {
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
             Set<String> originColumns = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
             for (Column column : newMVColumns) {
-                originColumns.add(CreateMaterializedViewStmt.mvColumnBreaker(column.getName()));
+                originColumns.add(column.tryGetBaseColumnName());
             }
             for (Column column : olapTable.getBaseSchema()) {
                 if (column.isKey() && !originColumns.contains(column.getName())) {
@@ -680,8 +671,8 @@ public class MaterializedViewHandler extends AlterHandler {
                 && createMvCommand.getMVKeysType() == olapTable.getKeysType()) {
             boolean allKeysMatch = true;
             for (int i = 0; i < newMVColumns.size(); i++) {
-                if (!CreateMaterializedViewStmt.mvColumnBreaker(newMVColumns.get(i).getName())
-                        .equalsIgnoreCase(olapTable.getBaseSchema().get(i).getName())) {
+                String baseColumnName = newMVColumns.get(i).tryGetBaseColumnName();
+                if (!baseColumnName.equalsIgnoreCase(olapTable.getBaseSchema().get(i).getName())) {
                     allKeysMatch = false;
                     break;
                 }

@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
@@ -381,17 +380,9 @@ public class Column implements GsonPostProcessable {
         return removeNamePrefix(name);
     }
 
-    public String getNameWithoutMvPrefix() {
-        return CreateMaterializedViewStmt.mvColumnBreaker(name);
-    }
-
-    public static String getNameWithoutMvPrefix(String originalName) {
-        return CreateMaterializedViewStmt.mvColumnBreaker(originalName);
-    }
-
     public String getDisplayName() {
         if (defineExpr == null) {
-            return getNameWithoutMvPrefix();
+            return name;
         } else {
             return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
         }
@@ -1193,6 +1184,17 @@ public class Column implements GsonPostProcessable {
 
     public boolean isMaterializedViewColumn() {
         return defineExpr != null;
+    }
+
+    public String tryGetBaseColumnName() {
+        String colName = name;
+        if (defineExpr != null && defineExpr instanceof SlotRef) {
+            Column baseCol = ((SlotRef) defineExpr).getColumn();
+            if (baseCol != null) {
+                colName = baseCol.getName();
+            }
+        }
+        return colName;
     }
 
     public GeneratedColumnInfo getGeneratedColumnInfo() {
