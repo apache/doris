@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -142,7 +141,7 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
 
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
 
     }
 
@@ -209,22 +208,6 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
             return mvColumnBreaker(name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length()));
         }
         return name;
-    }
-
-    private static boolean mvMatch(String name, String prefix) {
-        return MaterializedIndexMeta.normalizeName(name).startsWith(prefix);
-    }
-
-    public static boolean isMVColumn(String name) {
-        return isMVColumnAggregate(name) || isMVColumnNormal(name);
-    }
-
-    public static boolean isMVColumnAggregate(String name) {
-        return mvMatch(name, MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
-    }
-
-    public static boolean isMVColumnNormal(String name) {
-        return mvMatch(name, MATERIALIZED_VIEW_NAME_PREFIX);
     }
 
     @Override

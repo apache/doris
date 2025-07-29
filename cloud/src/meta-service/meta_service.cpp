@@ -86,6 +86,10 @@ MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
 
 MetaServiceImpl::~MetaServiceImpl() = default;
 
+void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stats,
+                         std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
+                         std::string& msg);
+
 // FIXME(gavin): should it be a member function of ResourceManager?
 std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                             const std::string& cloud_unique_id) {
@@ -998,6 +1002,621 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
             msg = fmt::format("malformed schema value, key={}", schema_key);
             return;
         }
+    }
+}
+
+void scan_restore_job_rowset(
+        Transaction* txn, const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
+        std::string& msg,
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* restore_job_rs_metas) {
+    std::stringstream ss;
+    JobRestoreRowsetKeyInfo rs_key_info0 {instance_id, tablet_id, 0};
+    JobRestoreRowsetKeyInfo rs_key_info1 {instance_id, tablet_id + 1, 0};
+    std::string restore_job_rs_key0;
+    std::string restore_job_rs_key1;
+    job_restore_rowset_key(rs_key_info0, &restore_job_rs_key0);
+    job_restore_rowset_key(rs_key_info1, &restore_job_rs_key1);
+
+    int num_rowsets = 0;
+    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
+            (int*)0x01, [restore_job_rs_key0, restore_job_rs_key1, &num_rowsets](int*) {
+                LOG(INFO) << "get restore job rs meta, num_rowsets=" << num_rowsets << " range=["
+                          << hex(restore_job_rs_key0) << "," << hex(restore_job_rs_key1) << "]";
+            });
+
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        TxnErrorCode err = txn->get(restore_job_rs_key0, restore_job_rs_key1, &it, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to get restore job rs meta while committing,"
+               << " tablet_id=" << tablet_id << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            LOG(INFO) << "range_get restore_job_rs_key=" << hex(k) << " tablet_id=" << tablet_id;
+            restore_job_rs_metas->emplace_back();
+            if (!restore_job_rs_metas->back().second.ParseFromArray(v.data(), v.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "malformed restore job rowset meta, tablet_id=" << tablet_id
+                   << " key=" << hex(k);
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            restore_job_rs_metas->back().first = std::string(k.data(), k.size());
+            ++num_rowsets;
+            if (!it->has_next()) restore_job_rs_key0 = k;
+        }
+        restore_job_rs_key0.push_back('\x00'); // Update to next smallest key for iteration
+    } while (it->more());
+    return;
+}
+
+void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* controller,
+                                          const RestoreJobRequest* request,
+                                          RestoreJobResponse* response,
+                                          ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(prepare_restore_job);
+    if (!request->has_tablet_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty tablet_id";
+        return;
+    }
+
+    if (!request->has_tablet_meta() || !request->tablet_meta().rs_metas_size()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = !request->has_tablet_meta() ? "no tablet meta" : "no rowset meta";
+        return;
+    }
+
+    if (!request->tablet_meta().has_schema() && !request->tablet_meta().has_schema_version()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "tablet_meta must have either schema or schema_version";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    RPC_RATE_LIMIT(prepare_restore_job)
+
+    std::unique_ptr<Transaction> txn0;
+    TxnErrorCode err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    // validate request
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn0.get(), instance_id, request->tablet_id(), tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+
+    auto key = job_restore_tablet_key({instance_id, tablet_idx.tablet_id()});
+    std::string val;
+    err = txn0->get(key, &val);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check restore tablet {} existence, err={}",
+                          tablet_idx.tablet_id(), err);
+        return;
+    }
+    if (err == TxnErrorCode::TXN_OK) {
+        RestoreJobCloudPB restore_job_pb;
+        if (!restore_job_pb.ParseFromString(val)) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "malformed restore job";
+            LOG_WARNING(msg);
+            return;
+        }
+        if (restore_job_pb.state() != RestoreJobCloudPB::DROPPED) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("restore tablet {} already exists, state: {}", tablet_idx.tablet_id(),
+                              RestoreJobCloudPB::State_Name(restore_job_pb.state()));
+            return;
+        }
+    }
+
+    TabletMetaCloudPB tablet_meta;
+    std::vector<doris::RowsetMetaCloudPB> rs_metas;
+    tablet_meta = request->tablet_meta();
+    rs_metas.assign(tablet_meta.rs_metas().begin(), tablet_meta.rs_metas().end());
+    tablet_meta.clear_rs_metas(); // strip off rs meta
+
+    int64_t total_rowset_num = 0;
+    int64_t total_row_num = 0;
+    int64_t total_segment_num = 0;
+    int64_t total_disk_size = 0;
+    // 1. save restore job
+    std::string to_save_val;
+    {
+        RestoreJobCloudPB pb;
+        pb.set_tablet_id(tablet_idx.tablet_id());
+        pb.mutable_tablet_meta()->Swap(&tablet_meta);
+        pb.set_creation_time(::time(nullptr));
+        pb.set_expiration(request->expiration());
+        pb.set_state(RestoreJobCloudPB::PREPARED);
+        total_rowset_num = rs_metas.size();
+        for (const auto& rs_meta : rs_metas) {
+            total_row_num += rs_meta.num_rows();
+            total_segment_num += rs_meta.num_segments();
+            total_disk_size += rs_meta.total_disk_size();
+        }
+        pb.set_total_rowset_num(total_rowset_num);
+        pb.set_total_row_num(total_row_num);
+        pb.set_total_segment_num(total_segment_num);
+        pb.set_total_disk_size(total_disk_size);
+        pb.SerializeToString(&to_save_val);
+    }
+    LOG_INFO("put restore job")
+            .tag("job_restore_tablet_key", hex(key))
+            .tag("tablet_id", tablet_idx.tablet_id())
+            .tag("state", RestoreJobCloudPB::PREPARED)
+            .tag("total_rowset_num", total_rowset_num)
+            .tag("total_row_num", total_row_num)
+            .tag("total_segment_num", total_segment_num)
+            .tag("total_disk_size", total_disk_size);
+    txn0->put(key, to_save_val);
+    err = txn0->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit txn: {}", err);
+        return;
+    }
+
+    // 2. save restore rowsets
+    for (auto& rowset_meta : rs_metas) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to init txn";
+            return;
+        }
+        // put restore rowset kv
+        std::string restore_job_rs_key;
+        std::string restore_job_rs_val;
+        JobRestoreRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(),
+                                             rowset_meta.end_version()};
+        job_restore_rowset_key(rs_key_info, &restore_job_rs_key);
+        if (!rowset_meta.SerializeToString(&restore_job_rs_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "failed to serialize rowset meta";
+            return;
+        }
+        txn->put(restore_job_rs_key, restore_job_rs_val);
+        LOG_INFO("put restore job rowset")
+                .tag("restore_job_rs_key", hex(restore_job_rs_key))
+                .tag("tablet_id", tablet_idx.tablet_id())
+                .tag("rowset_id", rowset_meta.rowset_id_v2())
+                .tag("rowset_size", restore_job_rs_key.size() + restore_job_rs_val.size())
+                .tag("rowset_meta", rowset_meta.DebugString());
+
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to prepare restore job,"
+               << " tablet_id=" << tablet_idx.tablet_id()
+               << " rowset_id=" << rowset_meta.rowset_id_v2() << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+    }
+}
+
+void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* controller,
+                                         const RestoreJobRequest* request,
+                                         RestoreJobResponse* response,
+                                         ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(commit_restore_job);
+    if (!request->has_tablet_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty tablet_id";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    RPC_RATE_LIMIT(commit_restore_job)
+
+    std::unique_ptr<Transaction> txn0;
+    TxnErrorCode err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn0.get(), instance_id, request->tablet_id(), tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+
+    // 1. get restore job
+    auto key = job_restore_tablet_key({instance_id, request->tablet_id()});
+    std::string val;
+    err = txn0->get(key, &val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "restore job not exists or has been recycled";
+        return;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check restore job existence, err={}", err);
+        LOG_WARNING(msg);
+        return;
+    }
+
+    RestoreJobCloudPB restore_job_pb;
+    if (!restore_job_pb.ParseFromString(val)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "malformed restore job";
+        LOG_WARNING(msg);
+        return;
+    }
+
+    if (restore_job_pb.state() != RestoreJobCloudPB::PREPARED) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("restore tablet {} with invalid state: {}", tablet_idx.tablet_id(),
+                          RestoreJobCloudPB::State_Name(restore_job_pb.state()));
+        return;
+    }
+
+    // 2. get restore rowsets
+    std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> restore_job_rs_metas;
+    scan_restore_job_rowset(txn0.get(), instance_id, request->tablet_id(), code, msg,
+                            &restore_job_rs_metas);
+    if (code != MetaServiceCode::OK) {
+        LOG_WARNING("scan restore job rowset failed")
+                .tag("tablet_id", request->tablet_id())
+                .tag("msg", msg)
+                .tag("code", code);
+        return;
+    }
+
+    if (restore_job_pb.total_rowset_num() != restore_job_rs_metas.size()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("rowset num mismatch, expected {} but got {}",
+                          restore_job_pb.total_rowset_num(), restore_job_rs_metas.size());
+        return;
+    }
+
+    // 3. convert restore job rowsets to rs meta
+    TabletStats tablet_stat;
+    int32_t max_batch_size = config::max_restore_job_rowsets_per_batch;
+    for (size_t i = 0; i < restore_job_rs_metas.size(); i += max_batch_size) {
+        size_t end = (i + max_batch_size) > restore_job_rs_metas.size()
+                             ? restore_job_rs_metas.size()
+                             : i + max_batch_size;
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> sub_restore_job_rs_metas(
+                restore_job_rs_metas.begin() + i, restore_job_rs_metas.begin() + end);
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to init txn";
+            return;
+        }
+
+        // 3.1 put rs metas
+        for (auto& [_, rowset_meta] : sub_restore_job_rs_metas) {
+            if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
+                rowset_meta.set_index_id(tablet_idx.index_id());
+                rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
+                std::string schema_key = meta_schema_key(
+                        {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+                if (rowset_meta.has_variant_type_in_schema()) {
+                    write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
+                    if (code != MetaServiceCode::OK) {
+                        return;
+                    }
+                }
+                put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
+                if (code != MetaServiceCode::OK) {
+                    return;
+                }
+                rowset_meta.set_allocated_tablet_schema(nullptr);
+            }
+            // put rowset meta
+            std::string rs_key;
+            std::string rs_val;
+            MetaRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(),
+                                           rowset_meta.end_version()};
+            meta_rowset_key(rs_key_info, &rs_key);
+            if (!rowset_meta.SerializeToString(&rs_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = "failed to serialize rowset meta";
+                return;
+            }
+            txn->put(rs_key, rs_val);
+            LOG_INFO("put rowset key")
+                    .tag("rowset_key", hex(rs_key))
+                    .tag("tablet_id", tablet_idx.tablet_id())
+                    .tag("rowset_id", rowset_meta.rowset_id_v2())
+                    .tag("version", rowset_meta.end_version())
+                    .tag("rowset_size", rs_key.size() + rs_val.size())
+                    .tag("rowset_meta", rowset_meta.DebugString());
+
+            tablet_stat.data_size += rowset_meta.total_disk_size();
+            tablet_stat.num_rows += rowset_meta.num_rows();
+            tablet_stat.num_segs += rowset_meta.num_segments();
+            tablet_stat.index_size += rowset_meta.index_disk_size();
+            tablet_stat.segment_size += rowset_meta.data_disk_size();
+            ++tablet_stat.num_rowsets;
+        }
+
+        // 3.2 remove restore job rs keys
+        for (auto& [k, _] : sub_restore_job_rs_metas) {
+            txn->remove(k);
+        }
+
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to put restore job rowset,"
+               << " tablet_id=" << tablet_idx.tablet_id() << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+    }
+
+    if (restore_job_pb.total_row_num() != tablet_stat.num_rows ||
+        restore_job_pb.total_segment_num() != tablet_stat.num_segs ||
+        restore_job_pb.total_disk_size() != tablet_stat.data_size) {
+        LOG_WARNING("Restore job verification failed:")
+                .tag("tablet_id", tablet_idx.tablet_id())
+                .tag("expected_row", restore_job_pb.total_row_num())
+                .tag("actual_row", tablet_stat.num_rows)
+                .tag("expected_segment", restore_job_pb.total_segment_num())
+                .tag("actual_segment", tablet_stat.num_segs)
+                .tag("expected_data_size", restore_job_pb.total_disk_size())
+                .tag("actual_data_size", tablet_stat.data_size);
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("commit restore job verification failed, tablet_id={}",
+                          tablet_idx.tablet_id());
+        return;
+    }
+
+    // 4. convert restore tablet to tablet meta
+    TabletMetaCloudPB* tablet_meta = restore_job_pb.mutable_tablet_meta();
+    DCHECK_EQ(tablet_meta->tablet_id(), tablet_idx.tablet_id());
+
+    txn0.reset();
+    err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = fmt::format("failed to create txn, err={}", err);
+        LOG(WARNING) << msg;
+        return;
+    }
+
+    DeleteBitmapPB* delete_bitmap = tablet_meta->mutable_delete_bitmap();
+    for (size_t i = 0; i < delete_bitmap->rowset_ids_size(); ++i) {
+        MetaDeleteBitmapInfo key_info {instance_id, tablet_meta->tablet_id(),
+                                       delete_bitmap->rowset_ids(i), delete_bitmap->versions(i),
+                                       delete_bitmap->segment_ids(i)};
+        std::string key;
+        meta_delete_bitmap_key(key_info, &key);
+        auto& val = delete_bitmap->segment_delete_bitmaps(i);
+
+        if (txn0->approximate_bytes() + key.size() * 3 + val.size() > config::max_txn_commit_byte) {
+            err = txn0->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::COMMIT>(err);
+                msg = fmt::format("failed to update delete bitmap, tablet_id={}, err={}",
+                                  tablet_idx.tablet_id(), err);
+                return;
+            }
+            err = txn_kv_->create_txn(&txn0);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::CREATE>(err);
+                msg = "failed to init txn";
+                return;
+            }
+        }
+        txn0->put(key, val);
+        LOG_INFO("put delete bitmap key")
+                .tag("delete_bitmap_key", hex(key))
+                .tag("tablet_id", tablet_idx.tablet_id())
+                .tag("rowset_id", delete_bitmap->rowset_ids(i))
+                .tag("version", delete_bitmap->versions(i))
+                .tag("segment_id", delete_bitmap->segment_ids(i))
+                .tag("delete_bitmap_size", key.size() + val.size());
+    }
+    err = txn0->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to update delete bitmap, tablet_id={}, err={}",
+                          tablet_idx.tablet_id(), err);
+        return;
+    }
+
+    txn0.reset();
+    err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = fmt::format("failed to create txn, err={}", err);
+        LOG(WARNING) << msg;
+        return;
+    }
+
+    if (tablet_meta->has_schema()) {
+        // Temporary hard code to fix wrong column type string generated by FE
+        auto fix_column_type = [](doris::TabletSchemaCloudPB* schema) {
+            for (auto& column : *schema->mutable_column()) {
+                if (column.type() == "DECIMAL128") {
+                    column.mutable_type()->push_back('I');
+                }
+            }
+        };
+        if (config::write_schema_kv) {
+            // detach TabletSchemaCloudPB from TabletMetaCloudPB
+            tablet_meta->set_schema_version(tablet_meta->schema().schema_version());
+            fix_column_type(tablet_meta->mutable_schema());
+            auto schema_key = meta_schema_key(
+                    {instance_id, tablet_meta->index_id(), tablet_meta->schema_version()});
+            put_schema_kv(code, msg, txn0.get(), schema_key, tablet_meta->schema());
+            if (code != MetaServiceCode::OK) return;
+            tablet_meta->set_allocated_schema(nullptr);
+        } else {
+            fix_column_type(tablet_meta->mutable_schema());
+        }
+    }
+
+    MetaTabletKeyInfo tablet_info {instance_id, tablet_meta->table_id(), tablet_meta->index_id(),
+                                   tablet_meta->partition_id(), tablet_meta->tablet_id()};
+    std::string tablet_key;
+    std::string tablet_val;
+    meta_tablet_key(tablet_info, &tablet_key);
+    if (!tablet_meta->SerializeToString(&tablet_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize tablet meta";
+        return;
+    }
+    txn0->put(tablet_key, tablet_val);
+    LOG_INFO("put tablet key")
+            .tag("tablet_key", hex(tablet_key))
+            .tag("tablet_id", tablet_idx.tablet_id())
+            .tag("tablet_size", tablet_key.size() + tablet_val.size());
+
+    StatsTabletKeyInfo stat_info {instance_id, tablet_meta->table_id(), tablet_meta->index_id(),
+                                  tablet_meta->partition_id(), tablet_meta->tablet_id()};
+    std::string stats_key;
+    std::string stats_val;
+    stats_tablet_key(stat_info, &stats_key);
+    TabletStatsPB stats_pb;
+    stats_pb.mutable_idx()->set_table_id(tablet_meta->table_id());
+    stats_pb.mutable_idx()->set_index_id(tablet_meta->index_id());
+    stats_pb.mutable_idx()->set_partition_id(tablet_meta->partition_id());
+    stats_pb.mutable_idx()->set_tablet_id(tablet_meta->tablet_id());
+    stats_pb.set_base_compaction_cnt(0);
+    stats_pb.set_cumulative_compaction_cnt(0);
+    stats_pb.set_cumulative_point(tablet_meta->cumulative_layer_point());
+    stats_val = stats_pb.SerializeAsString();
+    txn0->put(stats_key, stats_val);
+    LOG_INFO("put tablet stats")
+            .tag("tablet_id", tablet_meta->tablet_id())
+            .tag("stats key", hex(stats_key));
+
+    update_tablet_stats(stat_info, tablet_stat, txn0, code, msg);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+
+    // 5. remove restore job
+    txn0->remove(key);
+    LOG_INFO("remove restore job")
+            .tag("job_restore_tablet_key", hex(key))
+            .tag("tablet_id", tablet_idx.tablet_id())
+            .tag("state", restore_job_pb.state());
+    err = txn0->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit restore job: {}", err);
+        return;
+    }
+}
+
+void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* controller,
+                                         const RestoreJobRequest* request,
+                                         RestoreJobResponse* response,
+                                         ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(finish_restore_job);
+    if (!request->has_tablet_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty tablet_id";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    RPC_RATE_LIMIT(finish_restore_job)
+
+    std::unique_ptr<Transaction> txn0;
+    TxnErrorCode err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn0.get(), instance_id, request->tablet_id(), tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+
+    // 1. get restore job
+    auto key = job_restore_tablet_key({instance_id, request->tablet_id()});
+    std::string val;
+    err = txn0->get(key, &val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "restore job not exists or has been recycled";
+        return;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check restore job existence, err={}", err);
+        LOG_WARNING(msg);
+        return;
+    }
+
+    RestoreJobCloudPB restore_job_pb;
+    if (!restore_job_pb.ParseFromString(val)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "malformed restore job";
+        LOG_WARNING(msg);
+        return;
+    }
+
+    if (restore_job_pb.state() == RestoreJobCloudPB::DROPPED) {
+        LOG_INFO("restore job already finished")
+                .tag("job_restore_tablet_key", hex(key))
+                .tag("tablet_id", tablet_idx.tablet_id());
+        return;
+    }
+
+    // 2. update restore job
+    std::string to_save_val;
+    restore_job_pb.set_state(RestoreJobCloudPB::DROPPED);
+    restore_job_pb.SerializeToString(&to_save_val);
+    LOG_INFO("put restore job")
+            .tag("job_restore_tablet_key", hex(key))
+            .tag("tablet_id", tablet_idx.tablet_id())
+            .tag("state", restore_job_pb.state());
+    txn0->put(key, to_save_val);
+    err = txn0->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit txn: {}", err);
+        return;
     }
 }
 

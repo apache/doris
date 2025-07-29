@@ -189,7 +189,6 @@ public:
 
     operator T() const { return dec; }
     T get_value() const { return dec; }
-    T get_scale_multiplier() const;
     UInt32 get_scale() const { return scale; }
 
     template <typename U>

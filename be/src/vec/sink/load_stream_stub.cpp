@@ -318,7 +318,7 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     watch.start();
     while (!_tablet_schema_for_index->contains(index_id) &&
            watch.elapsed_time() / 1000 / 1000 < timeout_ms) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         static_cast<void>(wait_for_new_schema(100));
     }
 
@@ -345,7 +345,7 @@ Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) 
         return _status;
     }
     if (_is_closed.load()) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         if (!_is_eos.load()) {
             return Status::InternalError("Stream closed without EOS, {}", to_string());
         }
@@ -381,6 +381,7 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
     }
     bool eos = header.opcode() == doris::PStreamHeader::CLOSE_LOAD;
     bool get_schema = header.opcode() == doris::PStreamHeader::GET_SCHEMA;
+    add_bytes_written(buf.size());
     return _send_with_buffer(buf, eos || get_schema);
 }
 
@@ -469,7 +470,7 @@ void LoadStreamStub::_handle_failure(butil::IOBuf& buf, Status st) {
 
 Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
     for (;;) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         int ret;
         {
             DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.delay_before_send", {

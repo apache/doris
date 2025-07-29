@@ -19,6 +19,7 @@
 
 #include <fmt/core.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <vec/common/schema_util.h>
 
 #include <functional>
 #include <memory>
@@ -62,6 +63,27 @@ SchemaCloudDictionarySPtr SchemaCloudDictionaryCache::_lookup(int64_t index_id) 
     return dict;
 }
 
+Status check_path_amibigus(const SchemaCloudDictionary& schema, RowsetMetaCloudPB* rowset_meta) {
+    // if enable_variant_flatten_nested is false, then we don't need to check path amibigus
+    if (!rowset_meta->tablet_schema().enable_variant_flatten_nested()) {
+        return Status::OK();
+    }
+    // try to get all the paths in the rowset meta
+    vectorized::PathsInData all_paths;
+    for (const auto& column : rowset_meta->tablet_schema().column()) {
+        vectorized::PathInData path_in_data;
+        path_in_data.from_protobuf(column.column_path_info());
+        all_paths.push_back(path_in_data);
+    }
+    // try to get all the paths in the schema dict
+    for (const auto& [_, column] : schema.column_dict()) {
+        vectorized::PathInData path_in_data;
+        path_in_data.from_protobuf(column.column_path_info());
+        all_paths.push_back(path_in_data);
+    }
+    RETURN_IF_ERROR(vectorized::schema_util::check_variant_has_no_ambiguous_paths(all_paths));
+    return Status::OK();
+}
 /**
  * Processes dictionary entries by matching items from the given item map.
  * It maps items to their dictionary keys, then adds these keys to the rowset metadata.
@@ -101,7 +123,7 @@ Status process_dictionary(SchemaCloudDictionary& dict,
         return output;
     };
 
-    google::protobuf::RepeatedPtrField<ItemPB> none_ext_items;
+    google::protobuf::RepeatedPtrField<ItemPB> none_extracted_items;
     std::unordered_map<std::string, int> reversed_dict;
     for (const auto& [key, val] : item_dict) {
         reversed_dict[serialize_fn(val)] = key;
@@ -110,7 +132,7 @@ Status process_dictionary(SchemaCloudDictionary& dict,
     for (const auto& item : items) {
         if (filter(item)) {
             // Filter none extended items, mainly extended columns and extended indexes
-            *none_ext_items.Add() = item;
+            *none_extracted_items.Add() = item;
             continue;
         }
         const std::string serialized_key = serialize_fn(item);
@@ -127,7 +149,7 @@ Status process_dictionary(SchemaCloudDictionary& dict,
     }
     // clear extended items to prevent writing them to fdb
     if (result != nullptr) {
-        result->Swap(&none_ext_items);
+        result->Swap(&none_extracted_items);
     }
     return Status::OK();
 }
@@ -137,11 +159,15 @@ Status SchemaCloudDictionaryCache::replace_schema_to_dict_keys(int64_t index_id,
     if (!rowset_meta->has_variant_type_in_schema()) {
         return Status::OK();
     }
+    // first attempt to get dict from cache
     auto dict = _lookup(index_id);
     if (!dict) {
-        g_schema_dict_cache_miss_count << 1;
-        return Status::NotFound<false>("Not found dict {}", index_id);
+        // if not found the dict in cache, then refresh the dict from remote meta service
+        RETURN_IF_ERROR(refresh_dict(index_id, &dict));
     }
+    // here we should have the dict
+    DCHECK(dict);
+    RETURN_IF_ERROR(check_path_amibigus(*dict, rowset_meta));
     auto* dict_list = rowset_meta->mutable_schema_dict_key_list();
     // Process column dictionary: add keys for non-extended columns.
     auto column_filter = [&](const doris::ColumnPB& col) -> bool { return col.unique_id() >= 0; };

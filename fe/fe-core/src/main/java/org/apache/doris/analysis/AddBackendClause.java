@@ -56,8 +56,8 @@ public class AddBackendClause extends BackendClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        super.analyze(analyzer);
+    public void analyze() throws AnalysisException {
+        super.analyze();
         tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
         if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
             throw new AnalysisException(NEED_LOCATION_TAG_MSG);

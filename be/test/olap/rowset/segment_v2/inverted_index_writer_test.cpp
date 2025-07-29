@@ -1251,7 +1251,8 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     CollectionValue collection1;
     collection1.set_data(reinterpret_cast<uint8_t*>(slices.data()));
     collection1.set_length(3);
-    collection1.set_null_signs(nullptr);
+    bool null_signs[] = {false, false, false};
+    collection1.set_null_signs(null_signs);
     collections.push_back(collection1);
 
     // Test add_array_values with CollectionValue
