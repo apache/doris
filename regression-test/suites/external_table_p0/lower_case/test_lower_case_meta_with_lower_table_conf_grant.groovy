@@ -73,7 +73,11 @@ suite("test_lower_case_meta_with_lower_table_conf_auth", "p0,external,doris,exte
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf_auth,external_test_UPPER_with_conf_auth",
-            "lower_case_meta_names" = "false"
+            "lower_case_meta_names" = "false",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
 
@@ -122,7 +126,11 @@ suite("test_lower_case_meta_with_lower_table_conf_auth", "p0,external,doris,exte
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf_auth,external_test_UPPER_with_conf_auth",
-            "lower_case_meta_names" = "true"
+            "lower_case_meta_names" = "true",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     sql """ show tables from test_lower_true_with_conf0_auth.external_test_lower_with_conf_auth;"""
