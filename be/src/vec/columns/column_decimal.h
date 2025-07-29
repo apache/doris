@@ -236,10 +236,8 @@ public:
 
     UInt32 get_scale() const { return scale; }
 
-    //TODO: use CppNativeType instead of value_type
-    value_type get_scale_multiplier() const;
-    CppNativeType get_intergral_part(size_t n) const { return data[n] / get_scale_multiplier(); }
-    CppNativeType get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
+    CppNativeType get_intergral_part(size_t n) const;
+    CppNativeType get_fractional_part(size_t n) const;
 
     void erase(size_t start, size_t length) override {
         if (start >= data.size() || length == 0) {
