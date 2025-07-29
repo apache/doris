@@ -81,7 +81,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
                     MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
                     boolean isBaseIndexSelected = olapScan.getSelectedIndexId() == olapScan.getTable().getBaseIndexId();
                     Collection<Long> prunedTabletIds = getSelectedTabletIds(
-                            olapScan.getTable().getSchemaByIndexId(index.getId()),
+                            olapScan.getTable().getSchemaByIndexId(olapScan.getSelectedIndexId()),
                             filterMap, index, isBaseIndexSelected, partition.getDistributionInfo());
                     selectedTabletIdsBuilder.addAll(prunedTabletIds);
                 }
