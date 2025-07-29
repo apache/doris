@@ -38,8 +38,10 @@
  * ${module}_${name}_${tag}
  * where `tag` is added automatically when calling `get` or `put`
  */
-template <typename Bvar, bool is_status = false>
+template <typename Bvar, bool is_status = false, bool is_adder = false>
 class BvarWithTag {
+    static_assert(!(is_status && is_adder), "is_status and is_adder cannot both be true");
+
 public:
     BvarWithTag(std::string module, std::string name)
             : module_(std::move(module)), name_(std::move(name)) {}
@@ -52,14 +54,18 @@ public:
             std::lock_guard<bthread::Mutex> l(mutex_);
             auto it = bvar_map_.find(tag);
             if (it == bvar_map_.end()) {
-                instance = std::make_shared<Bvar>(module_, name_ + "_" + tag, ValType());
+                if constexpr (is_adder) {
+                    instance = std::make_shared<Bvar>(module_, name_ + "_" + tag);
+                } else {
+                    instance = std::make_shared<Bvar>(module_, name_ + "_" + tag, ValType());
+                }
                 bvar_map_[tag] = instance;
             } else {
                 instance = it->second;
             }
         }
         // FIXME(gavin): check bvar::Adder and more
-        if constexpr (std::is_same_v<Bvar, bvar::LatencyRecorder>) {
+        if constexpr (std::is_same_v<Bvar, bvar::LatencyRecorder> || is_adder) {
             (*instance) << value;
         } else if constexpr (is_status) {
             instance->set_value(value);
@@ -97,6 +103,10 @@ private:
 };
 
 using BvarLatencyRecorderWithTag = BvarWithTag<bvar::LatencyRecorder>;
+
+template <typename T>
+    requires std::is_integral_v<T>
+using BvarAdderWithTag = BvarWithTag<bvar::Adder<T>>;
 
 template <typename T>
     requires std::is_integral_v<T>
@@ -255,6 +265,8 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
+extern BvarAdderWithTag<int64_t> g_bvar_ms_get_delete_bitmap_bytes;
+extern BvarAdderWithTag<int64_t> g_bvar_ms_update_delete_bitmap_bytes;
 
 // recycler's bvars
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;

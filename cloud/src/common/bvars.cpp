@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/bvars.h"
+#include "bvars.h"
 
 #include <bvar/multi_dimension.h>
 #include <bvar/reducer.h>
@@ -24,6 +24,8 @@
 
 #include <cstdint>
 #include <stdexcept>
+
+#include "common/bvars.h"
 
 // clang-format off
 
@@ -91,6 +93,8 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status("ms", "get_cluster_statu
 BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
 BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict("ms", "get_schema_dict");
+BvarAdderWithTag<int64_t> g_bvar_ms_get_delete_bitmap_bytes("ms", "get_delete_bitmap_bytes");
+BvarAdderWithTag<int64_t> g_bvar_ms_update_delete_bitmap_bytes("ms", "update_delete_bitmap_bytes");
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;

@@ -47,6 +47,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "../common/bvars.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/encryption_util.h"
@@ -2375,6 +2376,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                    << " txn_size=" << txn->approximate_bytes();
                 msg = ss.str();
                 g_bvar_update_delete_bitmap_fail_counter << 1;
+                g_bvar_ms_update_delete_bitmap_bytes.put(instance_id, total_txn_put_bytes);
                 return;
             }
             stats.get_bytes += txn->get_bytes();
@@ -2389,6 +2391,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::CREATE>(err);
                 msg = "failed to init txn";
+                g_bvar_ms_update_delete_bitmap_bytes.put(instance_id, total_txn_put_bytes);
                 return;
             }
             if (!without_lock) {
@@ -2515,6 +2518,9 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     total_txn_put_bytes += txn->put_bytes();
     total_txn_size += txn->approximate_bytes();
     total_txn_count++;
+
+    g_bvar_ms_update_delete_bitmap_bytes.put(instance_id, total_txn_put_bytes);
+
     if (err != TxnErrorCode::TXN_OK) {
         if (err == TxnErrorCode::TXN_CONFLICT) {
             g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
@@ -2629,6 +2635,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     code = cast_as<ErrCategory::CREATE>(err);
                     ss << "failed to init txn, retry=" << retry << ", internal round=" << round;
                     msg = ss.str();
+                    g_bvar_ms_get_delete_bitmap_bytes.put(instance_id, delete_bitmap_byte);
                     return;
                 }
                 if (test) {
@@ -2648,6 +2655,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                    << ", ret=" << err;
                 msg = ss.str();
                 g_bvar_get_delete_bitmap_fail_counter << 1;
+                g_bvar_ms_get_delete_bitmap_bytes.put(instance_id, delete_bitmap_byte);
                 return;
             }
 
@@ -2692,6 +2700,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 msg = ss.str();
                 LOG(WARNING) << msg;
                 g_bvar_get_delete_bitmap_fail_counter << 1;
+                g_bvar_ms_get_delete_bitmap_bytes.put(instance_id, delete_bitmap_byte);
                 return;
             }
             round++;
@@ -2705,6 +2714,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     LOG(INFO) << "finish get delete bitmap for tablet=" << tablet_id
               << ", delete_bitmap_num=" << delete_bitmap_num
               << ", delete_bitmap_byte=" << delete_bitmap_byte;
+    g_bvar_ms_get_delete_bitmap_bytes.put(instance_id, delete_bitmap_byte);
 
     if (request->has_idx()) {
         std::unique_ptr<Transaction> txn;
