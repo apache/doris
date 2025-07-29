@@ -21,6 +21,7 @@
 #include <byteswap.h>
 #include <foundationdb/fdb_c_types.h>
 
+#include <cassert>
 #include <algorithm>
 #include <atomic>
 #include <bit>
@@ -326,6 +327,7 @@ TxnErrorCode Transaction::init() {
     // - https://forums.foundationdb.org/t/does-fdb-future-set-callback-guarantee-exactly-once-execution/1498/2
     int64_t tmp_ms=10000;
     static_assert(sizeof(config::fdb_txn_timeout_ms) == sizeof(int64_t));
+    assert(txn_!=nullptr);
     err = fdb_transaction_set_option(txn_, FDBTransactionOption::FDB_TR_OPTION_TIMEOUT,
                                      (const uint8_t*)&tmp_ms,
                                      sizeof(config::fdb_txn_timeout_ms));
