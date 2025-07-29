@@ -22,6 +22,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
@@ -329,6 +330,38 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& f
         to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
+                                                             const JsonbValue* jsonb_value,
+                                                             CastParameters& castParms) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    } else {
+        if (jsonb_value->isString()) {
+            RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
+            return Status::OK();
+        }
+        typename PrimitiveTypeTraits<T>::ColumnItemType to;
+        auto cast_to_basic_number = [&]() {
+            if constexpr (T == TYPE_BOOLEAN) {
+                return JsonbCast::cast_from_json_to_boolean(jsonb_value, to, castParms);
+            } else if constexpr (is_int(T)) {
+                return JsonbCast::cast_from_json_to_int(jsonb_value, to, castParms);
+            } else if constexpr (is_float_or_double(T)) {
+                return JsonbCast::cast_from_json_to_float(jsonb_value, to, castParms);
+            } else {
+                return false;
+            }
+        };
+        if (!cast_to_basic_number()) {
+            return JsonbCast::report_error(jsonb_value, T);
+        }
+        auto& data = assert_cast<ColumnType&>(column).get_data();
+        data.push_back(to);
+        return Status::OK();
+    }
 }
 
 template <PrimitiveType T>

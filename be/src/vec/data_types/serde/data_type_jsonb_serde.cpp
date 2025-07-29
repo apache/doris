@@ -317,5 +317,34 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
     }
     return Status::OK();
 }
+
+Status DataTypeJsonbSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                     JsonbWriter& writer) const {
+    const auto& jsonb_binary = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
+    JsonbDocument* doc = nullptr;
+    RETURN_IF_ERROR(
+            JsonbDocument::checkAndCreateDocument(jsonb_binary.data, jsonb_binary.size, &doc));
+
+    if (!writer.writeValue(doc->getValue())) {
+        return Status::InternalError(
+                "writeValue failed in DataTypeJsonbSerDe::serialize_column_to_jsonb");
+    }
+    return Status::OK();
+}
+
+Status DataTypeJsonbSerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                         const JsonbValue* jsonb_value,
+                                                         CastParameters& castParms) const {
+    JsonbWriter writer;
+    if (!writer.writeValue(jsonb_value)) {
+        return Status::InternalError(
+                "writeValue failed in DataTypeJsonbSerDe::deserialize_column_from_jsonb");
+    }
+
+    auto& col = assert_cast<ColumnString&>(column);
+    col.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

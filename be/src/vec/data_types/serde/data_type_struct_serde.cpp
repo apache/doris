@@ -354,6 +354,39 @@ Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column
     return Status::OK();
 }
 
+Status DataTypeStructSerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                          const JsonbValue* jsonb_value,
+                                                          CastParameters& castParms) const {
+    if (jsonb_value->isString()) {
+        RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
+        return Status::OK();
+    }
+    auto& struct_column = assert_cast<ColumnStruct&>(column);
+    if (!jsonb_value->isObject()) {
+        return Status::InvalidArgument("jsonb_value is not an object");
+    }
+    const auto* jsonb_object = jsonb_value->unpack<ObjectVal>();
+
+    if (jsonb_object->numElem() != elem_names.size()) {
+        return Status::InvalidArgument("jsonb_value field size {} is not equal to struct size {}",
+                                       jsonb_object->numElem(), struct_column.tuple_size());
+    }
+
+    for (size_t i = 0; i < elem_names.size(); ++i) {
+        const auto& field_name = elem_names[i];
+
+        JsonbValue* value = jsonb_object->find(field_name.data(), (int)field_name.size());
+
+        if (!value) {
+            return Status::InvalidArgument("jsonb_value does not have key {}", field_name);
+        }
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->deserialize_column_from_jsonb(
+                struct_column.get_column(i), value, castParms));
+    }
+
+    return Status::OK();
+}
+
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());

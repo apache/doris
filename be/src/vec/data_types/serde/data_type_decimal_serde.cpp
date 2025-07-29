@@ -25,6 +25,7 @@
 #include "arrow/type.h"
 #include "common/consts.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -481,6 +482,27 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& 
         }
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
+                                                              const JsonbValue* jsonb_value,
+                                                              CastParameters& castParms) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support deserialize_column_from_jsonb");
+    } else {
+        if (jsonb_value->isString()) {
+            RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
+            return Status::OK();
+        }
+        auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
+        FieldType to;
+        if (!JsonbCast::cast_from_json_to_decimal(jsonb_value, to, precision, scale, castParms)) {
+            return JsonbCast::report_error(jsonb_value, T);
+        }
+        data.push_back(to);
+        return Status::OK();
+    }
 }
 
 template <PrimitiveType T>
