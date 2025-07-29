@@ -389,9 +389,9 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
-    auto st = _tablet->lookup_row_key(
-            key, _tablet_schema.get(), have_input_seq_column, specified_rowsets, &loc,
-            cast_set<uint32_t>(_mow_context->max_version), segment_caches, &rowset);
+    auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
+                                      specified_rowsets, &loc, _mow_context->max_version,
+                                      segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
         if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
@@ -515,10 +515,10 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // write including columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
-    size_t segment_start_pos;
+    uint32_t segment_start_pos = 0;
     for (auto cid : including_cids) {
         // here we get segment column row num before append data.
-        segment_start_pos = _column_writers[cid]->get_next_rowid();
+        segment_start_pos = cast_set<uint32_t>(_column_writers[cid]->get_next_rowid());
         // olap data convertor alway start from id = 0
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
         if (!status.ok()) {
@@ -659,7 +659,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // create full block and fill with sort key columns
     full_block = _tablet_schema->create_block();
 
-    auto segment_start_pos = _column_writers.front()->get_next_rowid();
+    uint32_t segment_start_pos = cast_set<uint32_t>(_column_writers.front()->get_next_rowid());
 
     DCHECK(_tablet_schema->has_skip_bitmap_col());
     auto skip_bitmap_col_idx = _tablet_schema->skip_bitmap_col_idx();
@@ -738,8 +738,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // 6. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
-            use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.row_pos,
-            data.block, skip_bitmaps));
+            use_default_or_null_flag, has_default_or_nullable, segment_start_pos,
+            cast_set<uint32_t>(data.row_pos), data.block, skip_bitmaps));
 
     // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table

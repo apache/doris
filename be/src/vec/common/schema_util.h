@@ -102,6 +102,11 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseConfig& config);
 
+// check if the tuple_paths has ambiguous paths
+// situation:
+// throw exception if there exists a prefix with matched names, but not matched structure (is Nested, number of dimensions).
+Status check_variant_has_no_ambiguous_paths(const std::vector<PathInData>& paths);
+
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
 // Return the final merged schema as common schema.
@@ -112,13 +117,13 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 
 // Get least common types for extracted columns which has Path info,
 // with a speicified variant column's unique id
-void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                std::unordered_set<PathInData, PathInData::Hash>* path_set);
+Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  std::unordered_set<PathInData, PathInData::Hash>* path_set);
 
-void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                const std::unordered_set<PathInData, PathInData::Hash>& path_set);
+Status update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  const std::unordered_set<PathInData, PathInData::Hash>& path_set);
 
 // inherit attributes like index/agg info from it's parent column
 void inherit_column_attributes(TabletSchemaSPtr& schema);

@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/cast_set.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
@@ -53,7 +54,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
             _runtime_state->query_options().inverted_index_skip_threshold < 100) {
             auto query_bkd_limit_percent =
                     _runtime_state->query_options().inverted_index_skip_threshold;
-            uint32_t hit_count = 0;
+            size_t hit_count = 0;
             RETURN_IF_ERROR(try_read_from_inverted_index(reader, i_param->column_name,
                                                          i_param->query_value, i_param->query_type,
                                                          &hit_count));
@@ -101,7 +102,7 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const InvertedIndexRe
                                                            const std::string& column_name,
                                                            const void* query_value,
                                                            InvertedIndexQueryType query_type,
-                                                           uint32_t* count) {
+                                                           size_t* count) {
     // NOTE: only bkd index support try read now.
     if (query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
         query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||

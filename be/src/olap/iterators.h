@@ -123,6 +123,10 @@ public:
     // Cache for sparse column data to avoid redundant reads
     // col_unique_id -> cached column_ptr
     std::unordered_map<int32_t, vectorized::ColumnPtr> sparse_column_cache;
+
+    std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+    std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
+    std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
 };
 
 struct CompactionSampleInfo {

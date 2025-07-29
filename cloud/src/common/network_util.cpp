@@ -170,6 +170,7 @@ std::string get_local_ip(const std::string& priority_networks) {
                      << "there may be multiple NICs for use, "
                      << "please set priority_networks with a CIDR expression in doris_cloud.conf "
                      << "to choose a non-loopback address accordingly";
+        LOG(WARNING) << "process will exit ...";
         exit(-1);
     };
     if (priority_networks == "") {

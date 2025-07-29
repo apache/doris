@@ -410,6 +410,7 @@ public:
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
     size_t num_variant_columns() const { return _num_variant_columns; };
+    size_t num_virtual_columns() const { return _num_virtual_columns; }
     KeysType keys_type() const { return _keys_type; }
     SortType sort_type() const { return _sort_type; }
     size_t sort_col_num() const { return _sort_col_num; }
@@ -678,8 +679,9 @@ private:
     };
     std::unordered_map<IndexKey, std::vector<int32_t>, IndexKeyHash> _col_id_suffix_to_index;
 
-    size_t _num_columns = 0;
+    int32_t _num_columns = 0;
     size_t _num_variant_columns = 0;
+    size_t _num_virtual_columns = 0;
     size_t _num_key_columns = 0;
     std::vector<uint32_t> _cluster_key_uids;
     size_t _num_null_columns = 0;
@@ -715,6 +717,8 @@ private:
     bool _enable_variant_flatten_nested = false;
     // value: extracted path set and sparse path set
     std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;
+
+    std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
 
     // key: field_pattern
     // value: index

@@ -63,17 +63,14 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
     public static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
     private HDFSFileOperations operations = null;
-    private HadoopAuthenticator authenticator = null;
     private final HdfsCompatibleProperties hdfsProperties;
     protected volatile org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
-    private final ReentrantLock fsLock = new ReentrantLock();
 
     public DFSFileSystem(HdfsCompatibleProperties hdfsProperties) {
         super(StorageBackend.StorageType.HDFS.name(), StorageBackend.StorageType.HDFS);
@@ -142,12 +139,21 @@ public class DFSFileSystem extends RemoteFileSystem {
                     throw new IOException("FileSystem is closed.");
                 }
                 if (dfsFileSystem == null) {
-                    Configuration conf = hdfsProperties.getHadoopConfiguration();
-                    authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
                     try {
-                        dfsFileSystem = authenticator.doAs(() -> {
+                        dfsFileSystem = hdfsProperties.getHadoopAuthenticator().doAs(() -> {
                             try {
-                                return FileSystem.get(remotePath.toUri(), conf);
+                                Configuration originalConf = hdfsProperties.getHadoopStorageConfig();
+                                // Create a copy of the original configuration to avoid modifying global settings
+                                Configuration confCopy = new Configuration(originalConf);
+                                // Disable FileSystem caching to ensure a new instance is created every time
+                                // Reason: We manage the lifecycle of FileSystem instances manually.
+                                // Even if the caller doesn't explicitly close the instance, we will do so when needed.
+                                // However, since Hadoop caches FileSystem instances by default,
+                                // other parts of the system may still be using the same instance.
+                                // If we close the shared instance here, it could break those other users.
+                                // Therefore, we disable the cache to ensure isolated, non-shared instances.
+                                confCopy.setBoolean("fs.hdfs.impl.disable.cache", true);
+                                return FileSystem.get(remotePath.toUri(), confCopy);
                             } catch (IOException e) {
                                 throw new RuntimeException(e);
                             }
@@ -165,11 +171,11 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
             FileSystem fileSystem, Path locatedPath) throws IOException {
-        return authenticator.doAs(() -> fileSystem.listFiles(locatedPath, recursive));
+        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.listFiles(locatedPath, recursive));
     }
 
     protected FileStatus[] getFileStatuses(Path remotePath, FileSystem fileSystem) throws IOException {
-        return authenticator.doAs(() -> fileSystem.listStatus(remotePath));
+        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.listStatus(remotePath));
     }
 
     public static Configuration getHdfsConf(boolean fallbackToSimpleAuth) {
@@ -343,7 +349,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(inputFilePath);
-            boolean isPathExist = authenticator.doAs(() -> fileSystem.exists(inputFilePath));
+            boolean isPathExist = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.exists(inputFilePath));
             if (!isPathExist) {
                 return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
             }
@@ -458,7 +464,8 @@ public class DFSFileSystem extends RemoteFileSystem {
             FileSystem fileSystem = nativeFileSystem(new Path(destPath));
             Path srcfilePath = new Path(srcPathUri.getPath());
             Path destfilePath = new Path(destPathUri.getPath());
-            boolean isRenameSuccess = authenticator.doAs(() -> fileSystem.rename(srcfilePath, destfilePath));
+            boolean isRenameSuccess = hdfsProperties.getHadoopAuthenticator().doAs(()
+                    -> fileSystem.rename(srcfilePath, destfilePath));
             if (!isRenameSuccess) {
                 return new Status(Status.ErrCode.COMMON_ERROR, "failed to rename " + srcPath + " to " + destPath);
             }
@@ -479,7 +486,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(inputFilePath);
-            authenticator.doAs(() -> fileSystem.delete(inputFilePath, true));
+            hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.delete(inputFilePath, true));
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         } catch (IOException e) {
@@ -505,7 +512,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             URI pathUri = URI.create(remotePath);
             Path pathPattern = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(pathPattern);
-            FileStatus[] files = authenticator.doAs(() -> fileSystem.globStatus(pathPattern));
+            FileStatus[] files = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.globStatus(pathPattern));
             if (files == null) {
                 LOG.info("no files in path " + remotePath);
                 return Status.OK;
@@ -533,7 +540,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             Path locatedPath = new Path(remotePath);
             FileSystem fileSystem = nativeFileSystem(locatedPath);
-            if (!authenticator.doAs(() -> fileSystem.mkdirs(locatedPath))) {
+            if (!hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.mkdirs(locatedPath))) {
                 LOG.warn("failed to make dir for " + remotePath);
                 return new Status(Status.ErrCode.COMMON_ERROR, "failed to make dir for " + remotePath);
             }
@@ -546,7 +553,7 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @VisibleForTesting
     public HadoopAuthenticator getAuthenticator() {
-        return authenticator;
+        return hdfsProperties.getHadoopAuthenticator();
     }
 
     @Override
@@ -564,17 +571,17 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     public FileStatus getFileStatus(Path path) throws IOException {
         FileSystem fileSystem = nativeFileSystem(path);
-        return authenticator.doAs(() -> fileSystem.getFileStatus(path));
+        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.getFileStatus(path));
     }
 
     public FSDataInputStream openFile(Path path) throws IOException {
         FileSystem fileSystem = nativeFileSystem(path);
-        return authenticator.doAs(() -> fileSystem.open(path));
+        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.open(path));
     }
 
     public FSDataOutputStream createFile(Path path, boolean overwrite) throws IOException {
         FileSystem fileSystem = nativeFileSystem(path);
-        return authenticator.doAs(() -> fileSystem.create(path, overwrite));
+        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.create(path, overwrite));
     }
 
     @Override

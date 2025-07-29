@@ -47,17 +47,16 @@
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/common/hex.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_struct.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -499,7 +498,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable) {
     _aggregation = agg;
     _type = filed_type;
-    _length = get_scalar_type_info(filed_type)->size();
+    _length = cast_set<int32_t>(get_scalar_type_info(filed_type)->size());
     _is_nullable = is_nullable;
 }
 
@@ -509,7 +508,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, boo
     _type = filed_type;
     _is_nullable = is_nullable;
     _unique_id = unique_id;
-    _length = length;
+    _length = cast_set<int32_t>(length);
 }
 
 TabletColumn::TabletColumn(const ColumnPB& column) {
@@ -926,6 +925,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _version_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == SKIP_BITMAP_COL)) {
         _skip_bitmap_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX))) {
+        _vir_col_idx_to_unique_id[_num_columns] = column.unique_id();
     }
     _field_uniqueid_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
@@ -939,6 +940,7 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
     }
     _num_columns++;
+    _num_virtual_columns = _vir_col_idx_to_unique_id.size();
 }
 
 void TabletColumn::append_sparse_column(TabletColumn column) {
@@ -947,7 +949,7 @@ void TabletColumn::append_sparse_column(TabletColumn column) {
 }
 
 void TabletSchema::append_index(TabletIndex&& index) {
-    int32_t index_pos = _indexes.size();
+    auto index_pos = cast_set<int32_t>(_indexes.size());
     _indexes.push_back(std::make_shared<TabletIndex>(index));
     for (int32_t id : _indexes.back()->col_unique_ids()) {
         if (auto field_pattern = _indexes.back()->field_pattern(); !field_pattern.empty()) {
@@ -1001,7 +1003,7 @@ void TabletSchema::remove_index(int64_t index_id) {
     }
 
     _col_id_suffix_to_index.clear();
-    for (size_t new_pos = 0; new_pos < new_indexes.size(); ++new_pos) {
+    for (int new_pos = 0; new_pos < new_indexes.size(); ++new_pos) {
         const auto& index = new_indexes[new_pos];
         for (int32_t col_uid : index->col_unique_ids()) {
             IndexKey key = std::make_tuple(index->index_type(), col_uid, index->get_index_suffix());
@@ -1088,7 +1090,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
             index = std::make_shared<TabletIndex>();
             index->init_from_pb(index_pb);
         }
-        int32_t index_pos = _indexes.size();
+        auto index_pos = cast_set<int32_t>(_indexes.size());
         _indexes.emplace_back(std::move(index));
         for (int32_t col_uid : _indexes.back()->col_unique_ids()) {
             if (auto field_pattern = _indexes.back()->field_pattern(); !field_pattern.empty()) {
@@ -1261,7 +1263,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     }
 
     for (const auto& i : index->indexes) {
-        int32_t index_pos = _indexes.size();
+        auto index_pos = cast_set<int32_t>(_indexes.size());
         _indexes.emplace_back(std::make_shared<TabletIndex>(*i));
 
         for (int32_t col_uid : _indexes.back()->col_unique_ids()) {
@@ -1366,13 +1368,13 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
         auto* index_pb = tablet_schema_pb->add_index();
         index->to_schema_pb(index_pb);
     }
-    tablet_schema_pb->set_num_short_key_columns(_num_short_key_columns);
-    tablet_schema_pb->set_num_rows_per_row_block(_num_rows_per_row_block);
+    tablet_schema_pb->set_num_short_key_columns(cast_set<int32_t>(_num_short_key_columns));
+    tablet_schema_pb->set_num_rows_per_row_block(cast_set<int32_t>(_num_rows_per_row_block));
     tablet_schema_pb->set_compress_kind(_compress_kind);
     if (_has_bf_fpp) {
         tablet_schema_pb->set_bf_fpp(_bf_fpp);
     }
-    tablet_schema_pb->set_next_column_unique_id(_next_column_unique_id);
+    tablet_schema_pb->set_next_column_unique_id(cast_set<uint32_t>(_next_column_unique_id));
     tablet_schema_pb->set_is_in_memory(_is_in_memory);
     tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
     tablet_schema_pb->set_enable_single_replica_compaction(_enable_single_replica_compaction);
@@ -1381,7 +1383,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_schema_pb->set_sequence_col_idx(_sequence_col_idx);
     tablet_schema_pb->set_sort_type(_sort_type);
-    tablet_schema_pb->set_sort_col_num(_sort_col_num);
+    tablet_schema_pb->set_sort_col_num(cast_set<int32_t>(_sort_col_num));
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_row_store_page_size(_row_store_page_size);
@@ -1465,7 +1467,7 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
     _indexes = std::move(indexes);
     _col_id_suffix_to_index.clear();
     _index_by_unique_id_with_pattern.clear();
-    size_t index_pos = 0;
+    int index_pos = 0;
     for (auto& index : _indexes) {
         for (int32_t col_uid : index->col_unique_ids()) {
             if (auto field_pattern = index->field_pattern(); !field_pattern.empty()) {
@@ -1630,13 +1632,21 @@ vectorized::Block TabletSchema::create_block(
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
     vectorized::Block block;
     for (int i = 0; i < return_columns.size(); ++i) {
-        const auto& col = *_cols[return_columns[i]];
+        const ColumnId cid = return_columns[i];
+        const auto& col = *_cols[cid];
         bool is_nullable = (tablet_columns_need_convert_null != nullptr &&
-                            tablet_columns_need_convert_null->find(return_columns[i]) !=
+                            tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
-        auto column = data_type->create_column();
-        block.insert({std::move(column), data_type, col.name()});
+        if (_vir_col_idx_to_unique_id.contains(cid)) {
+            block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
+            VLOG_DEBUG << fmt::format(
+                    "Create block from tablet schema, column cid {} is virtual column, col_name: "
+                    "{}, col_unique_id: {}, type {}",
+                    cid, col.name(), col.unique_id(), data_type->get_name());
+        } else {
+            block.insert({data_type->create_column(), data_type, col.name()});
+        }
     }
     return block;
 }
@@ -1728,5 +1738,5 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

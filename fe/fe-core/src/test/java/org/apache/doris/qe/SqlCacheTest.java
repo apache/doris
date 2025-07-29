@@ -37,11 +37,11 @@ public class SqlCacheTest {
         queryId.setLo(uuid.getLeastSignificantBits());
         UserIdentity admin = new UserIdentity("admin", "127.0.0.1");
 
-        SqlCacheContext cacheContext = new SqlCacheContext(admin, queryId);
+        SqlCacheContext cacheContext = new SqlCacheContext(admin);
         cacheContext.setOriginSql("SELECT * FROM tbl");
         PUniqueId key1 = cacheContext.doComputeCacheKeyMd5(ImmutableSet.of());
 
-        SqlCacheContext cacheContext2 = new SqlCacheContext(admin, queryId);
+        SqlCacheContext cacheContext2 = new SqlCacheContext(admin);
         cacheContext2.setOriginSql(
                 "-- Same query with comments and extra spaces\n"
                     + "/* Comment */  SELECT   *   FROM   tbl  "
@@ -49,7 +49,7 @@ public class SqlCacheTest {
         PUniqueId key2 = cacheContext2.doComputeCacheKeyMd5(ImmutableSet.of());
         Assertions.assertEquals(key1, key2);
 
-        SqlCacheContext cacheContext3 = new SqlCacheContext(admin, queryId);
+        SqlCacheContext cacheContext3 = new SqlCacheContext(admin);
         cacheContext3.setOriginSql(
                 "-- Same query with comments and extra spaces\n"
                         + "/* Comment */  SELeCT   *   FROM   tbl  "

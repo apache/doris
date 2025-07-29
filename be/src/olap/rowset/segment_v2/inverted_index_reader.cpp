@@ -59,6 +59,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 std::string InvertedIndexReader::get_index_file_path() {
     return _index_file_reader->get_index_file_path(&_index_meta);
@@ -99,10 +100,10 @@ Status InvertedIndexReader::read_null_bitmap(const io::IOContext* io_ctx,
                 InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (dir->fileExists(null_bitmap_file_name)) {
             null_bitmap_in = dir->openInput(null_bitmap_file_name);
-            size_t null_bitmap_size = null_bitmap_in->length();
+            auto null_bitmap_size = cast_set<int32_t>(null_bitmap_in->length());
             faststring buf;
             buf.resize(null_bitmap_size);
-            null_bitmap_in->readBytes(reinterpret_cast<uint8_t*>(buf.data()), null_bitmap_size);
+            null_bitmap_in->readBytes(buf.data(), null_bitmap_size);
             *null_bitmap = roaring::Roaring::read(reinterpret_cast<char*>(buf.data()), false);
             null_bitmap->runOptimize();
             cache->insert(cache_key, null_bitmap, cache_handle);
@@ -552,7 +553,7 @@ Status BkdIndexReader::construct_bkd_query_value(const void* query_value,
 Status BkdIndexReader::invoke_bkd_try_query(const io::IOContext* io_ctx, const void* query_value,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
-                                            uint32_t* count) {
+                                            size_t* count) {
     switch (query_type) {
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
         auto visitor =
@@ -653,7 +654,7 @@ Status BkdIndexReader::invoke_bkd_query(const io::IOContext* io_ctx, OlapReaderS
 Status BkdIndexReader::try_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
                                  RuntimeState* runtime_state, const std::string& column_name,
                                  const void* query_value, InvertedIndexQueryType query_type,
-                                 uint32_t* count) {
+                                 size_t* count) {
     try {
         std::shared_ptr<lucene::util::bkd::bkd_reader> r;
         auto st = get_bkd_reader(r, io_ctx, stats, runtime_state);
@@ -751,7 +752,7 @@ Status BkdIndexReader::get_bkd_reader(BKDIndexSearcherPtr& bkd_reader, const io:
         _value_key_coder = get_key_coder(_type_info->type());
         bkd_reader = *bkd_searcher;
         if (bkd_reader->bytes_per_dim_ == 0) {
-            bkd_reader->bytes_per_dim_ = _type_info->size();
+            bkd_reader->bytes_per_dim_ = cast_set<int32_t>(_type_info->size());
         }
         return Status::OK();
     }
@@ -1088,24 +1089,25 @@ InvertedIndexVisitor<InvertedIndexQueryType::GREATER_THAN_QUERY>::compare(
 }
 
 template <InvertedIndexQueryType QT>
-lucene::util::bkd::relation InvertedIndexVisitor<QT>::compare_prefix(std::vector<uint8_t>& prefix) {
-    if (lucene::util::FutureArrays::CompareUnsigned(prefix.data(), 0, prefix.size(),
-                                                    (const uint8_t*)query_max.c_str(), 0,
-                                                    prefix.size()) > 0 ||
-        lucene::util::FutureArrays::CompareUnsigned(prefix.data(), 0, prefix.size(),
-                                                    (const uint8_t*)query_min.c_str(), 0,
-                                                    prefix.size()) < 0) {
-        return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
+bkd::relation InvertedIndexVisitor<QT>::compare_prefix(std::vector<uint8_t>& prefix) {
+    const int32_t length = cast_set<int32_t>(prefix.size());
+    const uint8_t* data = prefix.data();
+
+    auto cmp = [&](const std::string& bound) {
+        return lucene::util::FutureArrays::CompareUnsigned(
+                data, 0, length, reinterpret_cast<const uint8_t*>(bound.data()), 0, length);
+    };
+
+    int32_t cmpMax = cmp(query_max);
+    int32_t cmpMin = cmp(query_min);
+
+    if (cmpMax > 0 || cmpMin < 0) {
+        return bkd::relation::CELL_OUTSIDE_QUERY;
     }
-    if (lucene::util::FutureArrays::CompareUnsigned(prefix.data(), 0, prefix.size(),
-                                                    (const uint8_t*)query_min.c_str(), 0,
-                                                    prefix.size()) > 0 &&
-        lucene::util::FutureArrays::CompareUnsigned(prefix.data(), 0, prefix.size(),
-                                                    (const uint8_t*)query_max.c_str(), 0,
-                                                    prefix.size()) < 0) {
-        return lucene::util::bkd::relation::CELL_INSIDE_QUERY;
+    if (cmpMin > 0 && cmpMax < 0) {
+        return bkd::relation::CELL_INSIDE_QUERY;
     }
-    return lucene::util::bkd::relation::CELL_CROSSES_QUERY;
+    return bkd::relation::CELL_CROSSES_QUERY;
 }
 
 template <InvertedIndexQueryType QT>
@@ -1150,3 +1152,4 @@ template class InvertedIndexVisitor<InvertedIndexQueryType::GREATER_THAN_QUERY>;
 template class InvertedIndexVisitor<InvertedIndexQueryType::GREATER_EQUAL_QUERY>;
 
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

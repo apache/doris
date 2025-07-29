@@ -278,7 +278,11 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
         PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
         DCHECK(column->size() == nrows);
         if (node.path.has_nested_part()) {
-            CHECK_EQ(node.data.type->get_primitive_type(), PrimitiveType::TYPE_ARRAY);
+            if (node.data.type->get_primitive_type() != PrimitiveType::TYPE_ARRAY) {
+                return Status::InvalidArgument(
+                        "Meet none array column when flatten nested array, path {}, type {}",
+                        node.path.get_path(), node.data.type->get_name());
+            }
             PathInData parent_path =
                     node.path.get_nested_prefix_path().copy_pop_nfront(_path.get_parts().size());
             nested_subcolumns[parent_path].emplace_back(relative_path, column->get_ptr(),

@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics.util;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DateLiteral;
@@ -27,7 +26,6 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
@@ -53,7 +51,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
@@ -250,13 +247,6 @@ public class StatisticsUtil {
             return ctx;
         } else {
             return new AutoCloseConnectContext(connectContext);
-        }
-    }
-
-    public static void analyze(StatementBase statementBase) throws UserException {
-        try (AutoCloseConnectContext r = buildConnectContext(false)) {
-            Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), r.connectContext);
-            statementBase.analyze(analyzer);
         }
     }
 

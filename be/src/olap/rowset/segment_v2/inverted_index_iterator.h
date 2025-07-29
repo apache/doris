@@ -54,7 +54,7 @@ private:
 
     Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
                                         const std::string& column_name, const void* query_value,
-                                        InvertedIndexQueryType query_type, uint32_t* count);
+                                        InvertedIndexQueryType query_type, size_t* count);
     Result<InvertedIndexReaderPtr> _select_best_reader(const vectorized::DataTypePtr& column_type,
                                                        InvertedIndexQueryType query_type);
     Result<InvertedIndexReaderPtr> _select_best_reader();

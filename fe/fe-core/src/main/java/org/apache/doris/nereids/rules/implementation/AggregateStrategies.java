@@ -608,7 +608,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         List<Expression> argumentsOfAggregateFunction = normalizeArguments(agg.getAggregateFunctions(), project);
 
-        if (!onlyContainsSlot(argumentsOfAggregateFunction)) {
+        if (!onlyContainsSlotOrLiteral(argumentsOfAggregateFunction)) {
             return agg;
         }
 
@@ -640,9 +640,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return arguments;
     }
 
-    private boolean onlyContainsSlot(List<Expression> arguments) {
+    private boolean onlyContainsSlotOrLiteral(List<Expression> arguments) {
         return arguments.stream().allMatch(argument -> {
-            if (argument instanceof SlotReference) {
+            if (argument instanceof SlotReference || argument instanceof Literal) {
                 return true;
             }
             return false;
