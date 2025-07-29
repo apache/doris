@@ -55,7 +55,8 @@ struct ColumnWriterOptions {
     // - input: column_id/unique_id/type/length/encoding/compression/is_nullable members
     // - output: encoding/indexes/dict_page members
     ColumnMetaPB* meta = nullptr;
-    size_t data_page_size = 64 * 1024;
+    size_t data_page_size = STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+    size_t dict_page_size = STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
     // store compressed page only when space saving is above the threshold.
     // space saving = 1 - compressed_size / uncompressed_size
     double compression_min_space_saving = 0.1;
@@ -79,7 +80,7 @@ struct ColumnWriterOptions {
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
-           << ", data_page_size=" << data_page_size
+           << ", data_page_size=" << data_page_size << ", dict_page_size=" << dict_page_size
            << ", compression_min_space_saving = " << compression_min_space_saving
            << ", need_zone_map=" << need_zone_map << ", need_bitmap_index=" << need_bitmap_index
            << ", need_bloom_filter" << need_bloom_filter;
