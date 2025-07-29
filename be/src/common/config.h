@@ -1375,9 +1375,6 @@ DECLARE_Int32(workload_group_metrics_interval_ms);
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
-// Remove predicate that is always true for a segment.
-DECLARE_Bool(ignore_always_true_predicate_for_segment);
-
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
 
