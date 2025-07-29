@@ -30,6 +30,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/threadpool.h"
+#include "vec/columns/column_const.h"
 #include "vec/functions/function.h"
 #include "vec/functions/llm/llm_adapter.h"
 
@@ -49,80 +50,6 @@ public:
     // So the value here should be the maximum number that the function can accept.
     size_t get_number_of_arguments() const override {
         return assert_cast<const Derived&>(*this).number_of_arguments;
-    }
-
-    // The llm resource must be literal
-    Status init_from_resource(FunctionContext* context, const Block& block,
-                              const ColumnNumbers& arguments) {
-        // 1. Initialize config
-        const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
-        StringRef resource_name_ref = resource_column.column->get_data_at(0);
-        std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
-
-        const std::map<std::string, TLLMResource>& llm_resources =
-                context->state()->get_query_ctx()->get_llm_resources();
-        auto it = llm_resources.find(resource_name);
-        if (it == llm_resources.end()) {
-            return Status::InternalError("LLM resource not found: " + resource_name);
-        }
-        _config = it->second;
-
-        // 2. Create an adapter based on provider_type
-        _adapter = LLMAdapterFactory::create_adapter(_config.provider_type);
-        if (!_adapter) {
-            return Status::InternalError("Unsupported LLM provider type: " + _config.provider_type);
-        }
-        _adapter->init(_config);
-
-        return Status::OK();
-    }
-
-    // Executes the actual HTTP request
-    Status do_send_request(HttpClient* client, const std::string& request_body,
-                           std::string& response) const {
-        RETURN_IF_ERROR(client->init(_config.endpoint));
-
-        client->set_timeout_ms(_config.timeout_ms);
-
-        if (!_config.api_key.empty()) {
-            RETURN_IF_ERROR(_adapter->set_authentication(client));
-        }
-
-        return client->execute_post_request(request_body, &response);
-    }
-
-    // Sends the request with retry mechanism for handling transient failures
-    Status send_request_to_llm(const std::string& request_body, std::string& response) const {
-        return HttpClient::execute_with_retry(
-                _config.max_retries, _config.retry_delay_ms,
-                [this, &request_body, &response](HttpClient* client) -> Status {
-                    return this->do_send_request(client, request_body, response);
-                });
-    }
-
-    // Wrapper for executing a single LLM request
-    Status execute_single_request(const std::string& input, std::string& result) const {
-        std::vector<std::string> inputs = {input};
-        std::vector<std::string> results;
-
-        std::string request_body;
-        RETURN_IF_ERROR(_adapter->build_request_payload(
-                inputs, assert_cast<const Derived&>(*this).system_prompt, request_body));
-
-        std::string response;
-        RETURN_IF_ERROR(send_request_to_llm(request_body, response));
-
-        Status status = _adapter->parse_response(response, results);
-        if (!status.ok()) {
-            return status;
-        }
-
-        if (results.empty()) {
-            return Status::InternalError("LLM returned empty result");
-        }
-
-        result = results[0];
-        return Status::OK();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -147,20 +74,23 @@ public:
             bool is_null = false;
         };
 
-        if (Status status = const_cast<Derived*>(assert_cast<const Derived*>(this))
-                                    ->init_from_resource(context, block, arguments);
+        TLLMResource config;
+        std::shared_ptr<LLMAdapter> adapter;
+        if (Status status =
+                    const_cast<Derived*>(assert_cast<const Derived*>(this))
+                            ->_init_from_resource(context, block, arguments, config, adapter);
             !status.ok()) {
             return status;
         }
 
         std::vector<RowResult> results(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            Status submit_status =
-                    thread_pool->submit_func([this, i, &block, &arguments, &results]() {
+            Status submit_status = thread_pool->submit_func(
+                    [this, i, &block, &arguments, &results, &adapter, &config]() {
                         RowResult& row_result = results[i];
 
                         try {
-                            // 1. Build LLM prompt text
+                            // Build LLM prompt text
                             std::string prompt;
                             Status status = assert_cast<const Derived&>(*this).build_prompt(
                                     block, arguments, i, prompt);
@@ -171,9 +101,9 @@ public:
                                 return;
                             }
 
-                            // 3. Execute a single LLM request and get the result
+                            // Execute a single LLM request and get the result
                             std::string result_str;
-                            status = execute_single_request(prompt, result_str);
+                            status = execute_single_request(prompt, result_str, config, adapter);
                             if (!status.ok()) {
                                 row_result.status = status;
                                 row_result.is_null = true;
@@ -216,8 +146,85 @@ public:
     }
 
 private:
-    TLLMResource _config;
-    std::shared_ptr<LLMAdapter> _adapter;
+    // The llm resource must be literal
+    Status _init_from_resource(FunctionContext* context, const Block& block,
+                               const ColumnNumbers& arguments, TLLMResource& config,
+                               std::shared_ptr<LLMAdapter>& adapter) {
+        // 1. Initialize config
+        const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
+        StringRef resource_name_ref = resource_column.column->get_data_at(0);
+        std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
+
+        const std::map<std::string, TLLMResource>& llm_resources =
+                context->state()->get_query_ctx()->get_llm_resources();
+        auto it = llm_resources.find(resource_name);
+        if (it == llm_resources.end()) {
+            return Status::InternalError("LLM resource not found: " + resource_name);
+        }
+        config = it->second;
+
+        // 2. Create an adapter based on provider_type
+        adapter = LLMAdapterFactory::create_adapter(config.provider_type);
+        if (!adapter) {
+            return Status::InternalError("Unsupported LLM provider type: " + config.provider_type);
+        }
+        adapter->init(config);
+
+        return Status::OK();
+    }
+
+    // Executes the actual HTTP request
+    Status do_send_request(HttpClient* client, const std::string& request_body,
+                           std::string& response, const TLLMResource& config,
+                           std::shared_ptr<LLMAdapter>& adapter) const {
+        RETURN_IF_ERROR(client->init(config.endpoint));
+
+        client->set_timeout_ms(config.timeout_ms);
+
+        if (!config.api_key.empty()) {
+            RETURN_IF_ERROR(adapter->set_authentication(client));
+        }
+
+        return client->execute_post_request(request_body, &response);
+    }
+
+    // Sends the request with retry mechanism for handling transient failures
+    Status send_request_to_llm(const std::string& request_body, std::string& response,
+                               const TLLMResource& config,
+                               std::shared_ptr<LLMAdapter>& adapter) const {
+        return HttpClient::execute_with_retry(
+                config.max_retries, config.retry_delay_ms,
+                [this, &request_body, &response, &config, &adapter](HttpClient* client) -> Status {
+                    return this->do_send_request(client, request_body, response, config, adapter);
+                });
+    }
+
+    // Wrapper for executing a single LLM request
+    Status execute_single_request(const std::string& input, std::string& result,
+                                  const TLLMResource& config,
+                                  std::shared_ptr<LLMAdapter>& adapter) const {
+        std::vector<std::string> inputs = {input};
+        std::vector<std::string> results;
+
+        std::string request_body;
+        RETURN_IF_ERROR(adapter->build_request_payload(
+                inputs, assert_cast<const Derived&>(*this).system_prompt, request_body));
+
+        std::string response;
+        RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter));
+
+        Status status = adapter->parse_response(response, results);
+        if (!status.ok()) {
+            return status;
+        }
+
+        if (results.empty()) {
+            return Status::InternalError("LLM returned empty result");
+        }
+
+        result = results[0];
+        return Status::OK();
+    }
 };
 
 } // namespace doris::vectorized
