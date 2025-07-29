@@ -1165,7 +1165,7 @@ public class StatisticsUtil {
     }
 
     // This function return true means the column hasn't been analyzed for longer than the configured time.
-    public static boolean isLongTimeColumn(TableIf table, Pair<String, String> column) {
+    public static boolean isLongTimeColumn(TableIf table, Pair<String, String> column, long version) {
         if (column == null) {
             return false;
         }
@@ -1198,15 +1198,20 @@ public class StatisticsUtil {
         }
         // For olap table, if the table visible version and row count doesn't change since last analyze,
         // we don't need to analyze it because its data is not changed.
-        OlapTable olapTable = (OlapTable) table;
-        long version = 0;
-        try {
-            version = ((OlapTable) table).getVisibleVersion();
-        } catch (RpcException e) {
-            LOG.warn("in cloud getVisibleVersion exception", e);
-        }
         return version != columnStats.tableVersion
-                || olapTable.getRowCount() != columnStats.rowCount;
+                || table.getRowCount() != columnStats.rowCount;
+    }
+
+    public static long getOlapTableVersion(OlapTable olapTable) {
+        if (olapTable == null) {
+            return 0;
+        }
+        try {
+            return olapTable.getVisibleVersion();
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
+            return 0;
+        }
     }
 
     public static boolean canCollect() {
