@@ -1321,12 +1321,13 @@ public:
         const ColumnNullable* left_nullable = check_and_get_column<ColumnNullable>(left_col.get());
         const ColumnNullable* right_nullable =
                 check_and_get_column<ColumnNullable>(right_col.get());
-        const auto& date_col = left_nullable ? *assert_cast<const ColumnDateV2*>(
-                                                       left_nullable->get_nested_column().get())
-                                             : *assert_cast<const ColumnDateV2*>(left_col.get());
-        const auto& week_col = right_nullable ? *assert_cast<const ColumnString*>(
-                                                        right_nullable->get_nested_column().get())
-                                              : *assert_cast<const ColumnString*>(right_col.get());
+        const auto& date_col =
+                left_nullable ? assert_cast<const ColumnDateV2&>(left_nullable->get_nested_column())
+                              : *assert_cast<const ColumnDateV2*>(left_col.get());
+        const auto& week_col =
+                right_nullable
+                        ? assert_cast<const ColumnString&>(right_nullable->get_nested_column())
+                        : *assert_cast<const ColumnString*>(right_col.get());
         Status status;
         if (left_const && right_const) {
             status = execute_vector<true, true>(input_rows_count, date_col, week_col, left_nullable,
@@ -1384,8 +1385,8 @@ private:
     static Status execute_vector(size_t input_rows_count, const ColumnDateV2& left_col,
                                  const ColumnString& right_col, const ColumnNullable* left_nullable,
                                  const ColumnNullable* right_nullable, ColumnNullable& res_col) {
-        auto& res_data = assert_cast<ColumnDateV2&>(*res_col.get_nested_column());
-        auto& null_map = assert_cast<ColumnUInt8&>(*res_col.get_null_map_column());
+        auto& res_data = assert_cast<ColumnDateV2&>(res_col.get_nested_column());
+        auto& null_map = assert_cast<ColumnUInt8&>(res_col.get_null_map_column());
         DateV2Value<DateV2ValueType> dtv;
         int week_day;
         bool throw_on_invalid = !right_nullable; // Throw for non-nullable weekday inputs
