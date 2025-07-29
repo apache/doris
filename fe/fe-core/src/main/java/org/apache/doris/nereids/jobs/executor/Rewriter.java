@@ -193,7 +193,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new EliminateSortUnderSubqueryOrView(),
                                             // MergeProjects depends on this rule
                                             new LogicalSubQueryAliasToLogicalProject(),
-                                            new ExpressionNormalizationAndOptimization(),
+                                            ExpressionNormalizationAndOptimization.FULL_RULE_INSTANCE,
                                             new AvgDistinctToSumDivCount(),
                                             new CountDistinctRewrite(),
                                             new ExtractFilterFromCrossJoin()
