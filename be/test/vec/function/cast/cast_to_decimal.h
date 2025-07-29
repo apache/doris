@@ -1448,13 +1448,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     }
                     // float_value = is_negative ? -float_value : float_value;
                     using DoubleType = std::conditional_t<IsDecimal256<T>, long double, double>;
-                    DoubleType expect_value = float_value * DoubleType(multiplier.value);
-                    if (expect_value <= DoubleType(min_result.value) ||
-                        expect_value >= DoubleType(max_result.value)) {
+                    DoubleType expect_value = float_value * DoubleType(multiplier);
+                    if (expect_value <= DoubleType(min_result) ||
+                        expect_value >= DoubleType(max_result)) {
                         // std::cerr << fmt::format("{:f} overflow\n", expect_value);
                     } else {
                         T v {};
-                        // v.value = typename T::NativeType(FromT(float_value * multiplier.value +
+                        // v.value = typename T::NativeType(FromT(float_value * multiplier +
                         //                                        (float_value >= 0 ? 0.5 : -0.5)));
                         v.value = typename T::NativeType(static_cast<double>(
                                 float_value * static_cast<DoubleType>(multiplier) +
