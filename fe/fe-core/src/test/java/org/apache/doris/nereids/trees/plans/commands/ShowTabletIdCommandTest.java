@@ -62,6 +62,7 @@ public class ShowTabletIdCommandTest {
             }
         };
     }
+
     @Test
     public void testValidate() throws Exception {
         runBefore(CatalogMocker.TEST_DB_NAME, true);
