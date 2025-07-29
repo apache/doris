@@ -17,8 +17,6 @@
 
 #include "io/cache/cache_lru_dumper.h"
 
-#include <bit>
-
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/lru_queue_recorder.h"
@@ -26,68 +24,19 @@
 
 namespace doris::io {
 
-// these functions are for branch-3.0, as the alternative
-// to LittleEndian couterparts in doris master
-static void Store64(uint64_t* target, int64_t value) {
-    if (std::endian::native == std::endian::little) {
-        *target = static_cast<uint64_t>(value);
-    } else {
-        uint64_t swapped = 0;
-        for (int i = 0; i < 8; ++i) {
-            swapped |= ((value >> (i * 8)) & 0xFF) << ((7 - i) * 8);
-        }
-        *target = swapped;
-    }
-}
-
-static void Store32(uint32_t* target, int32_t value) {
-    if (std::endian::native == std::endian::little) {
-        *target = static_cast<uint32_t>(value);
-    } else {
-        uint32_t swapped = 0;
-        for (int i = 0; i < 4; ++i) {
-            swapped |= ((value >> (i * 8)) & 0xFF) << ((3 - i) * 8);
-        }
-        *target = swapped;
-    }
-}
-
-static uint64_t Load64(const uint64_t* source) {
-    if (std::endian::native == std::endian::little) {
-        return *source;
-    } else {
-        uint64_t swapped = 0;
-        for (int i = 0; i < 8; ++i) {
-            swapped |= ((*source >> ((7 - i) * 8)) & 0xFF) << (i * 8);
-        }
-        return swapped;
-    }
-}
-
-static uint32_t Load32(const uint32_t* source) {
-    if (std::endian::native == std::endian::little) {
-        return *source;
-    } else {
-        uint32_t swapped = 0;
-        for (int i = 0; i < 4; ++i) {
-            swapped |= ((*source >> ((3 - i) * 8)) & 0xFF) << (i * 8);
-        }
-        return swapped;
-    }
-}
-
 std::string CacheLRUDumper::Footer::serialize_as_string() const {
     std::string result;
     result.reserve(sizeof(Footer));
 
     // Serialize meta_offset (convert to little-endian)
     uint64_t meta_offset_le;
-    Store64(&meta_offset_le, meta_offset);
+    encode_fixed64_le(reinterpret_cast<uint8_t*>(&meta_offset_le), meta_offset);
     result.append(reinterpret_cast<const char*>(&meta_offset_le), sizeof(meta_offset_le));
 
     // Serialize checksum (convert to little-endian)
     uint32_t checksum_le;
-    Store32(&checksum_le, checksum);
+    encode_fixed32_le(reinterpret_cast<uint8_t*>(&checksum_le), checksum);
+
     result.append(reinterpret_cast<const char*>(&checksum_le), sizeof(checksum_le));
 
     result.append(reinterpret_cast<const char*>(&version), sizeof(version));
@@ -106,13 +55,13 @@ bool CacheLRUDumper::Footer::deserialize_from_string(const std::string& data) {
     // Deserialize meta_offset (convert from little-endian)
     uint64_t meta_offset_le;
     std::memcpy(&meta_offset_le, ptr, sizeof(meta_offset_le));
-    meta_offset = Load64(&meta_offset_le);
+    meta_offset = decode_fixed64_le(reinterpret_cast<uint8_t*>(&meta_offset_le));
     ptr += sizeof(meta_offset_le);
 
     // Deserialize checksum (convert from little-endian)
     uint32_t checksum_le;
     std::memcpy(&checksum_le, ptr, sizeof(checksum_le));
-    checksum = Load32(&checksum_le);
+    checksum = decode_fixed32_le(reinterpret_cast<uint8_t*>(&checksum_le));
     ptr += sizeof(checksum_le);
 
     version = *((uint8_t*)ptr);
