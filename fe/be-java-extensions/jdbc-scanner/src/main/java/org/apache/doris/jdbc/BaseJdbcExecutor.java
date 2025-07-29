@@ -287,8 +287,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     private int getRealColumnIndex(String outputColumnName, int indexInOutputTable) {
         // -1 because ResultSetMetaData column index starts from 1, but index in outputTable starts from 0.
-        int columnIndex = this.isTvf ?
-                resultSetColumnMap.getOrDefault(outputColumnName.toLowerCase(), 0) - 1 : indexInOutputTable;
+        int columnIndex = this.isTvf
+                ? resultSetColumnMap.getOrDefault(outputColumnName.toLowerCase(), 0) - 1 : indexInOutputTable;
         return columnIndex;
     }
 
