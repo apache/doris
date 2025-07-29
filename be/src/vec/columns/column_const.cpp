@@ -67,8 +67,8 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_emp
 }
 
 ColumnPtr ColumnConst::convert_to_full_column() const {
-    auto result = data->clone_empty();
-    result->insert_many_from(*data, 0, s);
+    auto result = data->clone_resized(1);
+    result->insert_many_from(*data, 0, s - 1);
     return result;
 }
 

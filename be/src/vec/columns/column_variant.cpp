@@ -776,6 +776,9 @@ size_t ColumnVariant::size() const {
 }
 
 MutableColumnPtr ColumnVariant::clone_resized(size_t new_size) const {
+    if (new_size == 0) {
+        return ColumnVariant::create(is_nullable);
+    }
     // If subcolumns are empty, then res will be empty but new_size > 0
     if (subcolumns.empty()) {
         // Add an emtpy column with new_size rows
