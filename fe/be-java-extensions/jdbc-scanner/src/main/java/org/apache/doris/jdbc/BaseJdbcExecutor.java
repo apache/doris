@@ -82,6 +82,15 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final Map<URL, ClassLoader> classLoaderMap = Maps.newConcurrentMap();
 
     // col name(lowercase) -> index in resultSetMetaData
+    // this map is only used for "query()" tvf, so only valid if isTvf is true.
+    // Because for "query()" tvf, the sql string is written by user, so the column name in resultSetMetaData
+    // maybe larger than the column name in outputTable.
+    // For example, if the sql is "select a from query('select a,b from tbl')",
+    // the column num in resultSetMetaData is 2, but the outputTable only has 1 column "a".
+    // But if the sql is "select a from (select a,b from tbl)x",
+    // the column num in resultSetMetaData is 1, and the outputTable also has 1 column "a".
+    // Because the planner will do the column pruning before generating the sql string.
+    // So, for query() tvf, we need to map the column name in outputTable to the column index in resultSetMetaData.
     private Map<String, Integer> resultSetColumnMap = null;
     private boolean isTvf = false;
 
@@ -236,9 +245,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             do {
                 for (int i = 0; i < outputColumnCount; ++i) {
                     String outputColumnName = outputTable.getFields()[i];
-                    int columnIndex = this.isTvf ?
-                            resultSetColumnMap.getOrDefault(outputColumnName.toLowerCase(), 0) - 1 : i;
-
+                    int columnIndex = getRealColumnIndex(outputColumnName, i);
                     if (columnIndex > -1) {
                         ColumnType type = convertTypeIfNecessary(i, outputTable.getColumnType(i), replaceStringList);
                         block.get(i)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
@@ -251,10 +258,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
             for (int i = 0; i < outputColumnCount; ++i) {
                 String outputColumnName = outputTable.getFields()[i];
-                Integer columnIndex = this.isTvf ?
-                        resultSetColumnMap.getOrDefault(outputColumnName.toLowerCase(), 0) - 1 : i;
-
-                if (columnIndex != null) {
+                int columnIndex = getRealColumnIndex(outputColumnName, i);
+                if (columnIndex > -1) {
                     ColumnType type = outputTable.getColumnType(i);
                     Object[] columnData = block.get(i);
                     Class<?> componentType = columnData.getClass().getComponentType();
@@ -268,7 +273,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                             isNullable
                     );
                 } else {
-                    throw new RuntimeException("Column not found in columnIndexMap: " + outputColumnName);
+                    throw new RuntimeException("Column not found in resultSetColumnMap: " + outputColumnName);
                 }
             }
         } catch (Exception e) {
@@ -278,6 +283,13 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             block.clear();
         }
         return outputTable.getMetaAddress();
+    }
+
+    private int getRealColumnIndex(String outputColumnName, int indexInOutputTable) {
+        // -1 because ResultSetMetaData column index starts from 1, but index in outputTable starts from 0.
+        int columnIndex = this.isTvf ?
+                resultSetColumnMap.getOrDefault(outputColumnName.toLowerCase(), 0) - 1 : indexInOutputTable;
+        return columnIndex;
     }
 
 
