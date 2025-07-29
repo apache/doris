@@ -266,8 +266,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkGlobalPriv(wanted)) {
+                if (role.checkGlobalPriv(wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -289,8 +290,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkCtlPriv(ctl, wanted)) {
+                if (role.checkCtlPriv(ctl, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -312,8 +314,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkDbPriv(ctl, db, wanted)) {
+                if (role.checkDbPriv(ctl, db, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -335,8 +338,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkTblPriv(ctl, db, tbl, wanted)) {
+                if (role.checkTblPriv(ctl, db, tbl, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -363,8 +367,9 @@ public class Auth implements Writable {
 
     private boolean checkColPriv(String ctl, String db, String tbl,
             String col, PrivPredicate wanted, Set<Role> roles) {
+        PrivBitSet savedPrivs = PrivBitSet.of();
         for (Role role : roles) {
-            if (role.checkColPriv(ctl, db, tbl, col, wanted)) {
+            if (role.checkColPriv(ctl, db, tbl, col, wanted, savedPrivs)) {
                 return true;
             }
         }
@@ -376,8 +381,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkResourcePriv(resourceName, wanted)) {
+                if (role.checkResourcePriv(resourceName, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -398,28 +404,9 @@ public class Auth implements Writable {
             }
 
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkWorkloadGroupPriv(workloadGroupName, wanted)) {
-                    return true;
-                }
-            }
-            return false;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    // ==== Other ====
-    /*
-     * Check if current user has certain privilege.
-     * This method will check the given privilege levels
-     */
-    public boolean checkHasPriv(ConnectContext ctx, PrivPredicate priv, PrivLevel... levels) {
-        readLock();
-        try {
-            Set<Role> roles = getRolesByUserWithLdap(ctx.getCurrentUserIdentity());
-            for (Role role : roles) {
-                if (role.checkHasPriv(priv, levels)) {
+                if (role.checkWorkloadGroupPriv(workloadGroupName, wanted, savedPrivs)) {
                     return true;
                 }
             }

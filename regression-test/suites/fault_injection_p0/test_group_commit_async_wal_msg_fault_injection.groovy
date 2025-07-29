@@ -156,7 +156,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k`) 
         BUCKETS 5 
-        properties("replication_num" = "1", "group_commit_interval_ms" = "4000")
+        properties("replication_num" = "1", "group_commit_interval_ms" = "10000")
     """
     GetDebugPoint().clearDebugPointsForAllBEs()
     try {
@@ -167,7 +167,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
             set 'group_commit', 'async_mode'
             unset 'label'
             file 'group_commit_wal_msg.csv'
-            time 10000
+            time 6000
         }
         getRowCount(5)
     } finally {
