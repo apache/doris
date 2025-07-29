@@ -150,6 +150,8 @@ target_link_libraries(recycler_test
 target_link_libraries(fdb_injection_test
     ${FDB_LINKER_FLAGS}
     ${TEST_LINK_LIBS})
+target_include_directories(fdb_injection_test
+    PUBLIC ${THIRDPARTY_DIR}/include/foundationdb)
 
 target_link_libraries(versioned_value_test
     ${FDB_LINKER_FLAGS}

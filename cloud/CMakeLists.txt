@@ -499,6 +499,7 @@ if (${MAKE_TEST} STREQUAL "OFF")
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(doris_cloud PROPERTIES ENABLE_EXPORTS 1)
     target_link_libraries(doris_cloud ${DORIS_LINK_LIBS})
+    target_include_directories(doris_cloud PUBLIC ${THIRDPARTY_DIR}/include/foundationdb)
 
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib)
     install(TARGETS doris_cloud DESTINATION ${OUTPUT_DIR}/lib)
