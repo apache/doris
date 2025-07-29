@@ -57,6 +57,8 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 InPredicateToEqualToRule.INSTANCE,
                 SimplifyNotExprRule.INSTANCE,
                 SimplifyArithmeticRule.INSTANCE,
+                LogToLn.INSTANCE,
+                ConcatWsMultiArrayToOne.INSTANCE,
                 FoldConstantRule.INSTANCE,
                 SimplifyCastRule.INSTANCE,
                 DigitalMaskingConvert.INSTANCE,
@@ -65,8 +67,6 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
                 JsonFunctionRewrite.INSTANCE,
-                LogToLn.INSTANCE,
-                ConcatWsMultiArrayToOne.INSTANCE,
                 CheckCast.INSTANCE
             )
     );
