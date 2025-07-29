@@ -149,7 +149,8 @@ target_link_libraries(recycler_test
 
 target_link_libraries(fdb_injection_test
     ${FDB_LINKER_FLAGS}
-    ${TEST_LINK_LIBS})
+    ${TEST_LINK_LIBS}
+    -L${THIRDPARTY_DIR}/lib/libfdb_c.so)
 target_include_directories(fdb_injection_test
     PUBLIC ${THIRDPARTY_DIR}/include/foundationdb)
 

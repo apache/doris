@@ -339,6 +339,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -lresolv
     -L${DORIS_JAVA_HOME}/lib/server
     -ljvm
+    -L${THIRDPARTY_DIR}/lib/libfdb_c.so
 )
 if (NOT (USE_LIBCPP AND COMPILER_CLANG))
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
