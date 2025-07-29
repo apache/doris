@@ -4053,12 +4053,6 @@ unset_var_stmt ::=
     :}
     ;
 
-unset_default_storage_vault_stmt ::=
-    KW_UNSET KW_DEFAULT KW_STORAGE KW_VAULT
-    {:
-        RESULT = new UnsetDefaultStorageVaultStmt();
-    :};
-
 user_property_list ::=
     user_property:property
     {:
