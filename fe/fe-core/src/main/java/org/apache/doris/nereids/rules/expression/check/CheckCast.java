@@ -114,6 +114,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateTimeV2Type.class);
         allowToStringLikeType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(DateType.class, allowedTypes);
         strictCastWhiteList.put(DateV2Type.class, allowedTypes);
 
@@ -128,6 +129,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(DateTimeType.class, allowedTypes);
         strictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
 
@@ -145,6 +147,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(TimeV2Type.class, allowedTypes);
 
         // Char, Varchar, String
@@ -163,6 +166,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(IPv6Type.class);
         allowToStringLikeType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(IPv4Type.class, allowedTypes);
 
         // IPV6
@@ -170,18 +174,21 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(IPv6Type.class);
         allowToStringLikeType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(IPv6Type.class, allowedTypes);
 
         // bitmap
         allowedTypes = Sets.newHashSet();
         allowToStringLikeType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(BitmapType.class, allowedTypes);
 
         // hll
         allowedTypes = Sets.newHashSet();
         allowToStringLikeType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(HllType.class, allowedTypes);
 
         // array
@@ -194,6 +201,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes = Sets.newHashSet();
         allowToStringLikeType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(MapType.class, allowedTypes);
 
         // struct
@@ -206,12 +214,18 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes = Sets.newHashSet();
         allowToBasicType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(DateType.class);
+        allowedTypes.remove(DateV2Type.class);
+        allowedTypes.remove(DateTimeType.class);
+        allowedTypes.remove(DateTimeV2Type.class);
+        allowedTypes.remove(TimeV2Type.class);
         strictCastWhiteList.put(JsonType.class, allowedTypes);
 
         // variant
         allowedTypes = Sets.newHashSet();
         allowToBasicType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(VariantType.class, allowedTypes);
 
         /*------------------------------FOR UN-STRICT CAST--------------------------------------*/

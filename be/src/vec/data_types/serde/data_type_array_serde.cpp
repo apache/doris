@@ -240,6 +240,38 @@ Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column,
     return Status::OK();
 }
 
+Status DataTypeArraySerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                         const JsonbValue* jsonb_value,
+                                                         CastParameters& castParms) const {
+    if (jsonb_value->isString()) {
+        RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
+        return Status::OK();
+    }
+    if (!jsonb_value->isArray()) {
+        return Status::InvalidArgument("JsonbValue type is not array, type: {}",
+                                       jsonb_value->typeName());
+    }
+
+    auto& array_column = assert_cast<ColumnArray&>(column);
+
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    DCHECK(nested_column.is_nullable());
+
+    const auto* jsonb_array = jsonb_value->unpack<ArrayVal>();
+    const auto array_size = jsonb_array->numElem();
+
+    for (int i = 0; i < array_size; ++i) {
+        const JsonbValue* elem = jsonb_array->get(i);
+        RETURN_IF_ERROR(
+                nested_serde->deserialize_column_from_jsonb(nested_column, elem, castParms));
+    }
+
+    offsets.push_back(offsets.size() + array_size);
+
+    return Status::OK();
+}
+
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                  Arena& arena, int32_t col_id,
                                                  int64_t row_num) const {
