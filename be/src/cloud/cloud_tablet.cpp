@@ -153,8 +153,16 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         const auto& rs = it->second;
         return rs->is_warmed_up();
     };
-    RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
-            0, version_path, rowset_is_warmed_up));
+    if (enable_unique_key_merge_on_write()) {
+        // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
+        // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
+        RETURN_IF_ERROR(
+                _timestamped_version_tracker.capture_newest_consistent_versions_with_validator(
+                        0, version_path, rowset_is_warmed_up));
+    } else {
+        RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
+                0, version_path, rowset_is_warmed_up));
+    }
     int64_t path_max_version = version_path.back().second;
     bool should_fallback =
             std::ranges::any_of(_tablet_meta->all_rs_metas(), [&](const auto& rs_meta) -> bool {
@@ -163,8 +171,10 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
                     return false;
                 }
                 // TODO: consider use another timestamp
+                auto rs_timestamp =
+                        std::chrono::system_clock::from_time_t(rs_meta->newest_write_timestamp());
                 return rs_meta->start_version() > path_max_version &&
-                       std::chrono::seconds(::time(nullptr) - rs_meta->newest_write_timestamp()) >
+                       (std::chrono::system_clock::now() - rs_timestamp) >
                                std::chrono::milliseconds(query_freshness_tolerance_ms);
             });
     if (should_fallback) {

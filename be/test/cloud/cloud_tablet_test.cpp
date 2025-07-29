@@ -26,7 +26,6 @@
 #include <ranges>
 
 #include "cloud/cloud_storage_engine.h"
-#include "json2pb/json_to_pb.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
@@ -61,9 +60,10 @@ public:
         return rowset;
     }
 
-    CloudTabletSPtr create_tablet_with_initial_rowsets(int max_version) {
+    CloudTabletSPtr create_tablet_with_initial_rowsets(int max_version, bool is_mow = false) {
         CloudTabletSPtr tablet =
                 std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*_tablet_meta));
+        tablet->tablet_meta()->set_enable_unique_key_merge_on_write(is_mow);
         std::vector<RowsetSharedPtr> rowsets;
         rowsets.emplace_back(create_rowset(Version {0, 1}, true));
         for (int ver = 2; ver <= max_version; ver++) {
@@ -173,9 +173,9 @@ TEST_F(TestFreshnessTolerance, testCaputure_2) {
                                     │                           │ 
                                     │                           │ 
  return: [2-10],[11-15],[16-16],[17-17],[18-18]
- NOTE: although rowset[16-16] is within freshness tolerance, it is not warmed up yet.
-       It's likely to meet cache miss if we only capture up to version 16.
-       So rather then capturing up to version 16, we just capture up to version 18
+ NOTE: rowset[16-16] must be visible becasue it's within the query freshness tolerance time limit.
+       However, since the data files of rowset[16-16] is not in the cache, there is no difference between
+       capturing up to version 16 and capturing up to version 18
 */
     auto tablet = create_tablet_with_initial_rowsets(15);
     do_cumu_compaction(tablet, 2, 10, true, ::time(nullptr) - 40);
@@ -359,6 +359,199 @@ TEST_F(TestFreshnessTolerance, testCaputure_6) {
     int64_t query_freshness_tolerance_ms = 10000; // 10s
     std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
                                               {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCaputureMow_1) {
+    /*
+                                   now-10s                     now
+                                                                  
+                                    │           10s             │ 
+                                    ◄───────────────────────────┤ 
+┌────────┐  ┌─────────┐  ┌─────────┐│  ┌────────┐   ┌───────┐   │ 
+│in cache│  │ in cache│  │in cache ││  │        │   │       │   │ 
+│        │  │         │  │         ││  │        │   │       │   │ 
+│ [2-10] │  │ [11-15] │  │ [16-16] ││  │ [17-17]│   │[18-18]│   │ 
+└────────┘  └─────────┘  └─────────┘│  └────────┘   └───────┘   │ 
+                                    │                           │ 
+ now-40s      now-20s      now-15s  │   now-7s        now-3s    │ 
+                                    │                           │ 
+                                    │                           │ 
+ return: [2-10],[11-15],[16-16]
+*/
+    auto tablet = create_tablet_with_initial_rowsets(15, true);
+    do_cumu_compaction(tablet, 2, 10, true, ::time(nullptr) - 40);
+    do_cumu_compaction(tablet, 11, 15, true, ::time(nullptr) - 20);
+    add_new_version_rowset(tablet, 16, true, ::time(nullptr) - 15);
+    add_new_version_rowset(tablet, 17, false, ::time(nullptr) - 7);
+    add_new_version_rowset(tablet, 18, false, ::time(nullptr) - 3);
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 15}, {16, 16}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCaputureMow_2) {
+    /*
+                                   now-10s                     now
+                                                                  
+                                    │           10s             │ 
+                                    ◄───────────────────────────┤ 
+┌────────┐  ┌─────────┐  ┌─────────┐│  ┌────────┐   ┌───────┐   │ 
+│in cache│  │ in cache│  │         ││  │        │   │       │   │ 
+│        │  │         │  │         ││  │        │   │       │   │ 
+│ [2-10] │  │ [11-15] │  │ [16-16] ││  │ [17-17]│   │[18-18]│   │ 
+└────────┘  └─────────┘  └─────────┘│  └────────┘   └───────┘   │ 
+                                    │                           │ 
+ now-40s      now-20s      now-15s  │   now-7s        now-3s    │ 
+                                    │                           │ 
+                                    │                           │ 
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]
+ NOTE: rowset[16-16] must be visible becasue it's within the query freshness tolerance time limit.
+       However, since the data files of rowset[16-16] is not in the cache, there is no difference between
+       capturing up to version 16 and capturing up to version 18
+*/
+    auto tablet = create_tablet_with_initial_rowsets(15, true);
+    do_cumu_compaction(tablet, 2, 10, true, ::time(nullptr) - 40);
+    do_cumu_compaction(tablet, 11, 15, true, ::time(nullptr) - 20);
+    add_new_version_rowset(tablet, 16, false, ::time(nullptr) - 15);
+    add_new_version_rowset(tablet, 17, false, ::time(nullptr) - 7);
+    add_new_version_rowset(tablet, 18, false, ::time(nullptr) - 3);
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCaputureMow_3) {
+    /*
+                                   now-10s                     now
+                                                                  
+                                    │           10s             │ 
+                                    ◄───────────────────────────┤ 
+┌────────┐  ┌─────────┐  ┌─────────┐│  ┌────────┐   ┌───────┐   │ 
+│in cache│  │ in cache│  │in cache ││  │in cache│   │       │   │ 
+│        │  │         │  │         ││  │        │   │       │   │ 
+│ [2-10] │  │ [11-15] │  │ [16-16] ││  │ [17-17]│   │[18-18]│   │ 
+└────────┘  └─────────┘  └─────────┘│  └────────┘   └───────┘   │ 
+                                    │                           │ 
+ now-40s      now-20s      now-15s  │   now-7s        now-3s    │ 
+                                    │                           │ 
+                                    │                           │ 
+ return: [2-10],[11-15],[16-16],[17-17]
+*/
+    auto tablet = create_tablet_with_initial_rowsets(15, true);
+    do_cumu_compaction(tablet, 2, 10, true, ::time(nullptr) - 40);
+    do_cumu_compaction(tablet, 11, 15, true, ::time(nullptr) - 20);
+    add_new_version_rowset(tablet, 16, true, ::time(nullptr) - 15);
+    add_new_version_rowset(tablet, 17, true, ::time(nullptr) - 7);
+    add_new_version_rowset(tablet, 18, false, ::time(nullptr) - 3);
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 15}, {16, 16}, {17, 17}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCaputureMow_4) {
+    /*
+                                        now-10s                    now     
+                                           │          10s           │      
+                                           ◄────────────────────────┼      
+                                           │                        │      
+    ┌────────┐                             │┌────────┐    ┌───────┐ │      
+    │in cache│                             ││        │    │       │ │      
+    │        │                             ││        │    │       │ │      
+    │ [2-10] │                             ││ [11-17]│    │[18-18]│ │      
+    └────────┘                             │└────────┘    └───────┘ │      
+                                           │                        │      
+     now-40s                               │ now-1s         now-3s  │      
+┌───────────────────────────────────────────────────────────────────────┐  
+│                                          │                        │   │  
+│  stale rowsets                           │                        │   │  
+│                 ┌─────────┐  ┌─────────┐ │┌────────┐              │   │  
+│                 │ in cache│  │in cache │ ││        │              │   │  
+│                 │         │  │         │ ││        │              │   │  
+│                 │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │  
+│                 └─────────┘  └─────────┘ │└────────┘              │   │  
+│                                          │                        │   │  
+│                   now-20s      now-15s   │ now-7s                 │   │  
+└───────────────────────────────────────────────────────────────────────┘  
+                                           │                        │      
+                                                                           
+ return: [2-10],[11-15],[16-16]                                                                     
+ */
+    auto tablet = create_tablet_with_initial_rowsets(15, true);
+    do_cumu_compaction(tablet, 2, 10, true, ::time(nullptr) - 40);
+    do_cumu_compaction(tablet, 11, 15, true, ::time(nullptr) - 20);
+    add_new_version_rowset(tablet, 16, true, ::time(nullptr) - 15);
+    add_new_version_rowset(tablet, 17, false, ::time(nullptr) - 7);
+    add_new_version_rowset(tablet, 18, false, ::time(nullptr) - 3);
+    do_cumu_compaction(tablet, 11, 17, false, ::time(nullptr) - 1);
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 15}, {16, 16}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCaputureMow_5) {
+    /*
+                                        now-10s                    now     
+                                           │          10s           │      
+                                           ◄────────────────────────┼      
+                                           │                        │      
+    ┌────────┐                             │┌────────┐    ┌───────┐ │      
+    │in cache│                             ││        │    │       │ │      
+    │        │                             ││        │    │       │ │      
+    │ [2-10] │                             ││ [11-17]│    │[18-18]│ │      
+    └────────┘                             │└────────┘    └───────┘ │      
+                                           │                        │      
+     now-40s                               │ now-1s         now-3s  │      
+┌───────────────────────────────────────────────────────────────────────┐  
+│                                          │                        │   │  
+│  stale rowsets                           │                        │   │  
+│                 ┌─────────┐  ┌─────────┐ │┌────────┐              │   │  
+│                 │ in cache│  │in cache │ ││in cache│              │   │  
+│                 │         │  │         │ ││        │              │   │  
+│                 │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │  
+│                 └─────────┘  └─────────┘ │└────────┘              │   │  
+│                                          │                        │   │  
+│                   now-20s      now-15s   │ now-7s                 │   │  
+└───────────────────────────────────────────────────────────────────────┘  
+                                           │                        │      
+                                                                           
+ return: [2-10],[11-15],[16-16],[17-17]                                                                 
+ */
+    auto tablet = create_tablet_with_initial_rowsets(15, true);
+    do_cumu_compaction(tablet, 2, 10, true, ::time(nullptr) - 40);
+    do_cumu_compaction(tablet, 11, 15, true, ::time(nullptr) - 20);
+    add_new_version_rowset(tablet, 16, true, ::time(nullptr) - 15);
+    add_new_version_rowset(tablet, 17, true, ::time(nullptr) - 7);
+    add_new_version_rowset(tablet, 18, false, ::time(nullptr) - 3);
+    do_cumu_compaction(tablet, 11, 17, false, ::time(nullptr) - 1);
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 15}, {16, 16}, {17, 17}};
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 } // namespace doris
