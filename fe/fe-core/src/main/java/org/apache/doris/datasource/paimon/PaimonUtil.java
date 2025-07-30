@@ -120,20 +120,20 @@ public class PaimonUtil {
         List<Type> types = partitionColumns.stream()
                 .map(Column::getType)
                 .collect(Collectors.toList());
+        Map<String, Type> columnNameToType = partitionColumns.stream()
+                .collect(Collectors.toMap(Column::getName, Column::getType));
 
         for (Partition partition : paimonPartitions) {
-            int index = 0;
             Map<String, String> spec = partition.spec();
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<String, String> entry : spec.entrySet()) {
                 sb.append(entry.getKey()).append("=");
                 // Paimon stores DATE type as days since 1970-01-01 (epoch), so we convert the integer to a date string.
-                if (types.get(index).isDateV2()) {
+                if (columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
                     sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
                 } else {
                     sb.append(entry.getValue()).append("/");
                 }
-                index++;
             }
             if (sb.length() > 0) {
                 sb.deleteCharAt(sb.length() - 1);
