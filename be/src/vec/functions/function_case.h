@@ -285,7 +285,9 @@ public:
                             .data();
 
             for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                result_raw_data[row_idx] += (then_idx[row_idx] == i) * column_raw_data[row_idx];
+                result_raw_data[row_idx] +=
+                        typename ColumnType::value_type(then_idx[row_idx] == i) *
+                        column_raw_data[row_idx];
             }
         }
     }

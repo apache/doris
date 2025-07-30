@@ -79,7 +79,7 @@ public:
         double key = std::floor((val - offset) / interval);
         if (key <= MIN_BUCKET_KEY || key >= MAX_BUCKET_KEY) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "{} exceeds the bucket range limit",
-                                   value);
+                                   val);
         }
         buckets[static_cast<int32_t>(key)]++;
     }
