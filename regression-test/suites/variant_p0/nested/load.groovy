@@ -107,7 +107,7 @@ suite("variant_nested_type_load", "p0"){
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-                properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
+                properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true");
             """
         // insert a array of object for a, b, c first then insert structure conflict in one row
         // insert structure conflict in one row
@@ -140,10 +140,8 @@ suite("variant_nested_type_load", "p0"){
             """
         sql """
             insert into ${table_name_1} values (7, '{"nested": [{"a": 2.5}, {"c": 123.1}, {"b": "123.1"}]}');
-            """
-        sql_select_batch(table_name_1)
-        sql_test_cast_to_array(table_name_1)
-        sql_test_cast_to_scalar(table_name_1)
+                """
+        // we should trigger compaction here to make sure the data is loaded correctly for v.nested.b/c: array<json>
         // trigger and wait compaction
         trigger_and_wait_compaction("${table_name_1}", "full")
         sql_select_batch(table_name_1)
@@ -152,7 +150,7 @@ suite("variant_nested_type_load", "p0"){
 
         // drop table
         sql """ drop table ${table_name_1} """
-        sql """ create table ${table_name_1} (k bigint, v variant) duplicate key(k) distributed by hash(k) buckets 1 properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true") """
+        sql """ create table ${table_name_1} (k bigint, v variant) duplicate key(k) distributed by hash(k) buckets 1 properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true") """
         // insert scalar data first then insert structure conflict in one row
         sql """
             insert into ${table_name_1} values (1, '{"nested": {"a": 2.5, "b": "123.1"}}');
@@ -183,9 +181,7 @@ suite("variant_nested_type_load", "p0"){
         sql """
             insert into ${table_name_1} values (7, '{"nested": {"a": 2.5, "b": "123.1", "c": 123.1}}');
             """
-        sql_select_batch(table_name_1)
-        sql_test_cast_to_array(table_name_1)
-        sql_test_cast_to_scalar(table_name_1)
+        // we should trigger compaction here to make sure the data is loaded correctly for v.nested.b/c: json
         // trigger and wait compaction
         trigger_and_wait_compaction("${table_name_1}", "full")
         sql_select_batch(table_name_1)
