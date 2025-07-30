@@ -354,7 +354,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
-                                                    std::vector<StringRef>& buffer_list) const {
+                                                    vectorized::Arena& arena) const {
     auto& col_data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
 
     if constexpr (T == TYPE_DECIMALV2 || T == TYPE_DECIMAL128I || T == TYPE_DECIMAL256) {

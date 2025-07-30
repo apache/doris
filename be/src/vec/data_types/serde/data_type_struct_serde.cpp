@@ -475,14 +475,14 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (auto row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                    row_id + 1, buffer_list));
+                    row_id + 1, arena));
         }
     }
 
