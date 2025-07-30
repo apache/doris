@@ -21,11 +21,11 @@ suite("regression_test_variant_with_bf", "nonConcurrent,p0"){
     sql """
         CREATE TABLE IF NOT EXISTS var_with_bloom_filter (
             k bigint,
-            v variant
+            v variant<properties("variant_max_subcolumns_count" = "10")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "bloom_filter_columns" = "v", "bloom_filter_fpp" = "0.0001", "variant_max_subcolumns_count" = "10");
+        properties("replication_num" = "1", "bloom_filter_columns" = "v", "bloom_filter_fpp" = "0.0001");
     """
     sql """insert into var_with_bloom_filter values (1, '{"a" : 123456}')"""
     sql """insert into var_with_bloom_filter values (2, '{"a" : 789111}')"""

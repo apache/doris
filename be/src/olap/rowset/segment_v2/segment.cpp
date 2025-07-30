@@ -602,24 +602,44 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // Find the specific node within the variant structure using the relative path.
     const auto* node = variant_reader->get_reader_by_path(relative_path);
 
+    if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
+        return vectorized::DataTypeFactory::instance().create_data_type(column);
+    }
+
     // Case 1: Node not found for the given path within the variant reader.
     // If relative_path is empty, it means the original path pointed to the root
     // of the variant column itself. We should return the Variant type.
     if (node == nullptr || relative_path.empty()) {
-        return vectorized::DataTypeFactory::instance().create_data_type(column);
+        if (column.is_nested_subcolumn()) {
+            return vectorized::DataTypeFactory::instance().create_data_type(column);
+        }
+        return column.is_nullable()
+                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeVariant>(
+                                 column.variant_max_subcolumns_count()))
+                       : std::make_shared<vectorized::DataTypeVariant>(
+                                 column.variant_max_subcolumns_count());
     }
 
     bool exist_in_sparse = variant_reader->exist_in_sparse_column(relative_path);
     bool is_physical_leaf = node->children.empty();
 
+    if (is_physical_leaf && column.is_nested_subcolumn()) {
+        return node->data.file_column_type;
+    }
+
     // Condition to return the specific underlying type of the node:
     // 1. We are reading flat leaves (ignoring hierarchy).
     // 2. OR It's a leaf in the physical column structure AND it doesn't *also* exist
     //    in the sparse column (meaning it's purely a materialized leaf).
-    if (read_flat_leaves || (is_physical_leaf && !exist_in_sparse)) {
+    if (read_flat_leaves || (is_physical_leaf && !exist_in_sparse &&
+                             !variant_reader->is_exceeded_sparse_column_limit())) {
         return node->data.file_column_type;
     }
-    return vectorized::DataTypeFactory::instance().create_data_type(column);
+    return column.is_nullable()
+                   ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeVariant>(
+                             column.variant_max_subcolumns_count()))
+                   : std::make_shared<vectorized::DataTypeVariant>(
+                             column.variant_max_subcolumns_count());
 }
 
 Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {

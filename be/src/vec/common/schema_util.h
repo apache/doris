@@ -114,11 +114,11 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 // with a speicified variant column's unique id
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                std::unordered_set<PathInData, PathInData::Hash>* path_set);
+                                std::set<PathInData>* path_set);
 
 void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                const std::unordered_set<PathInData, PathInData::Hash>& path_set);
+                                const std::set<PathInData>& path_set);
 
 // inherit attributes like index/agg info from it's parent column
 void inherit_column_attributes(TabletSchemaSPtr& schema);
@@ -184,5 +184,29 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
+
+void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
+                               const TabletColumnPtr parent_column, const TabletSchemaSPtr& target,
+                               const PathToDataTypes& path_to_data_types,
+                               const std::unordered_set<std::string>& sparse_paths,
+                               TabletSchemaSPtr& output_schema);
+
+void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
+                                  TabletSchemaSPtr& common_schema, bool update_sparse_column,
+                                  int32_t variant_col_unique_id,
+                                  const std::map<std::string, TabletColumnPtr>& typed_columns,
+                                  std::set<PathInData>* path_set = nullptr);
+
+Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
+                                    const std::unordered_set<std::string>& typed_paths,
+                                    const TabletColumnPtr parent_column,
+                                    TabletSchemaSPtr& output_schema,
+                                    TabletSchema::PathsSetInfo& paths_set_info);
+
+Status get_compaction_nested_columns(
+        const std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>&
+                nested_paths,
+        const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
+        TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info);
 
 } // namespace  doris::vectorized::schema_util

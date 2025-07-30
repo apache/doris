@@ -69,6 +69,7 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
         _inverted_index_ctx->lower_case = INVERTED_INDEX_PARSER_FALSE;
     }
     _inverted_index_ctx->stop_words = node.match_predicate.parser_stopwords;
+    _inverted_index_ctx->custom_analyzer = node.match_predicate.custom_analyzer;
     _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(_inverted_index_ctx.get());
     _inverted_index_ctx->analyzer = _analyzer.get();
 }

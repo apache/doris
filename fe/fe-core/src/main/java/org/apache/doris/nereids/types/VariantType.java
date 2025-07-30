@@ -44,6 +44,8 @@ public class VariantType extends PrimitiveType {
 
     private int variantMaxSubcolumnsCount = 0;
 
+    private boolean enableTypedPathsToSparse = false;
+
     private final List<VariantField> predefinedFields;
 
     // No predefined fields
@@ -59,23 +61,24 @@ public class VariantType extends PrimitiveType {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
     }
 
-    public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount) {
+    public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount, boolean enableTypedPathsToSparse) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
+        this.enableTypedPathsToSparse = enableTypedPathsToSparse;
     }
 
     @Override
     public DataType conversion() {
         return new VariantType(predefinedFields.stream().map(VariantField::conversion)
-                                            .collect(Collectors.toList()), variantMaxSubcolumnsCount);
+                                            .collect(Collectors.toList()), variantMaxSubcolumnsCount,
+                                                                                    enableTypedPathsToSparse);
     }
 
     @Override
     public Type toCatalogDataType() {
         org.apache.doris.catalog.VariantType type = new org.apache.doris.catalog.VariantType(predefinedFields.stream()
                 .map(VariantField::toCatalogDataType)
-                .collect(Collectors.toCollection(ArrayList::new)));
-        type.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+                .collect(Collectors.toCollection(ArrayList::new)), variantMaxSubcolumnsCount, enableTypedPathsToSparse);
         return type;
     }
 
@@ -86,10 +89,36 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public String toSql() {
-        if (predefinedFields.isEmpty()) {
-            return "VARIANT";
+        if (predefinedFields.isEmpty() && variantMaxSubcolumnsCount == 0) {
+            return "variant";
         }
-        return "VARIANT<" + predefinedFields.stream().map(VariantField::toSql).collect(Collectors.joining(",")) + ">";
+        StringBuilder sb = new StringBuilder();
+        sb.append("variant");
+        sb.append("<");
+        if (!predefinedFields.isEmpty()) {
+            sb.append(predefinedFields.stream().map(VariantField::toSql).collect(Collectors.joining(",")));
+            if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse) {
+                sb.append(">");
+                return sb.toString();
+            } else {
+                sb.append(",");
+            }
+        }
+
+        sb.append("PROPERTIES (");
+        if (variantMaxSubcolumnsCount != 0) {
+            sb.append("\"variant_max_subcolumns_count\" = \"")
+                                    .append(String.valueOf(variantMaxSubcolumnsCount)).append("\",");
+        }
+        if (variantMaxSubcolumnsCount != 0 && enableTypedPathsToSparse) {
+            sb.append(",");
+        }
+        if (enableTypedPathsToSparse) {
+            sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
+                                    .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
+        }
+        sb.append(")>");
+        return sb.toString();
     }
 
     @Override
@@ -102,6 +131,7 @@ public class VariantType extends PrimitiveType {
         }
         VariantType other = (VariantType) o;
         return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount
+                    && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
                     && Objects.equals(predefinedFields, other.predefinedFields);
     }
 
@@ -122,5 +152,9 @@ public class VariantType extends PrimitiveType {
 
     public List<VariantField> getPredefinedFields() {
         return predefinedFields;
+    }
+
+    public int getVariantMaxSubcolumnsCount() {
+        return variantMaxSubcolumnsCount;
     }
 }

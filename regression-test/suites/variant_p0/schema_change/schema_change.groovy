@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_schema_change", "variant_type"){
+
     def table_name = "variant_schema_change"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """

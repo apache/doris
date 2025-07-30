@@ -250,6 +250,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
     public static final int VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_VALUE = 0;
 
+    public static final String PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE = "variant_enable_typed_paths_to_sparse";
+
     public enum RewriteType {
         PUT,      // always put property
         REPLACE,  // replace if exists property
@@ -1851,5 +1853,20 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
         }
         return maxSubcoumnsCount;
+    }
+
+    public static boolean analyzeEnableTypedPathsToSparse(Map<String, String> properties,
+                        boolean defaultValue) throws AnalysisException {
+        boolean enableTypedPathsToSparse = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
+            String enableTypedPathsToSparseStr = properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+            try {
+                enableTypedPathsToSparse = Boolean.parseBoolean(enableTypedPathsToSparseStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+        }
+        return enableTypedPathsToSparse;
     }
 }

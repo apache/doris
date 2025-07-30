@@ -27,7 +27,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -330,6 +333,32 @@ public class TypeDef implements ParseNode {
                 if (scale < 0 || scale > 6) {
                     throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
                             + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
+            case VARIANT: {
+                // Configure VariantType parameters by merging session variables with user-specified properties.
+                // Supported properties: variant_max_subcolumns_count, variant_enable_typed_paths_to_sparse
+                VariantType variantType = (VariantType) scalarType;
+                int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
+                        ConnectContext.get().getSessionVariable().getGlobalVariantMaxSubcolumnsCount();
+                boolean enableTypedPathsToSparse = ConnectContext.get() == null ? false :
+                        ConnectContext.get().getSessionVariable().getGlobalEnableTypedPathsToSparse();
+                try {
+                    variantMaxSubcolumnsCount = PropertyAnalyzer
+                            .analyzeVariantMaxSubcolumnsCount(variantType.getProperties(), variantMaxSubcolumnsCount);
+                    enableTypedPathsToSparse = PropertyAnalyzer
+                            .analyzeEnableTypedPathsToSparse(variantType.getProperties(), enableTypedPathsToSparse);
+                } catch (org.apache.doris.common.AnalysisException e) {
+                    throw new AnalysisException(e.getMessage());
+                }
+                variantType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+                variantType.setEnableTypedPathsToSparse(enableTypedPathsToSparse);
+
+                if (!variantType.getProperties().isEmpty()) {
+                    throw new AnalysisException("variant type only support for "
+                            + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE
+                            + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
                 }
                 break;
             }

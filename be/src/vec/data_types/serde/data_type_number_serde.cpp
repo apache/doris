@@ -22,6 +22,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
+#include "olap/tablet_schema.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
@@ -664,7 +665,7 @@ template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
                                                       ColumnString::Chars& chars,
                                                       int64_t row_num) const {
-    const auto type = static_cast<uint8_t>(T);
+    const uint8_t type = (const uint8_t)TabletColumn::get_field_type_by_type(T);
     const auto& data_ref = assert_cast<const ColumnType&>(src_column).get_data_at(row_num);
 
     const size_t old_size = chars.size();

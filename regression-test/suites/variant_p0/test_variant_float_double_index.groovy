@@ -23,6 +23,7 @@ suite("test_variant_float_double_index", "p0, nonConcurrent"){
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set inverted_index_skip_threshold = 0 """
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
 
     def queryAndCheck = { String sqlQuery, int expectedFilteredRows = -1, boolean checkFilterUsed = true ->
       def checkpoints_name = "segment_iterator.inverted_index.filtered_rows"
@@ -43,9 +44,9 @@ suite("test_variant_float_double_index", "p0, nonConcurrent"){
     sql """
         CREATE TABLE ${tableName} (
             `id` int(11) NULL,
-            `v` variant,
+            `v` variant<properties("variant_max_subcolumns_count" = "10")>,
             INDEX idx_variant (v) USING INVERTED
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "10")
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")
     """
     
     sql """ insert into ${tableName} values (1, '{"float_col" : 1.5, "double_col" : 1.5239849328948}'), (2, '{"float_col" : 2.23, "double_col" : 2.239849328948}'), (3, '{"float_col" : 3.02, "double_col" : 3.029849328948}') """
@@ -96,11 +97,12 @@ suite("test_variant_float_double_index", "p0, nonConcurrent"){
             `id` int(11) NULL,
             `v` variant<
                 MATCH_NAME 'float_col': float,
-                MATCH_NAME 'double_col': double
+                MATCH_NAME 'double_col': double,
+                properties("variant_max_subcolumns_count" = "10")
             >,
             INDEX idx_variant (v) USING INVERTED PROPERTIES ( "field_pattern" = "float_col"),
             INDEX idx_variant_double (v) USING INVERTED PROPERTIES ( "field_pattern" = "double_col")
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "10")
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")
     """
     
     sql """ insert into ${tableName} values (1, '{"float_col" : 1.5, "double_col" : 1.5239849328948}'), (2, '{"float_col" : 2.23, "double_col" : 2.239849328948}'), (3, '{"float_col" : 3.02, "double_col" : 3.029849328948}') """

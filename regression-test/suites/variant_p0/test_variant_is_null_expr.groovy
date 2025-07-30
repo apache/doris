@@ -24,15 +24,14 @@ suite("test_variant_is_null_expr_predefine", "p0, nonConcurrent") {
     sql """
         CREATE TABLE ${testTable} (
           `k` int(11) NULL COMMENT "",
-          `v` variant NULL COMMENT "",
+          `v` variant<properties("variant_max_subcolumns_count" = "10")> NULL COMMENT "",
           INDEX idx_a (v) USING INVERTED
           ) ENGINE=OLAP
           DUPLICATE KEY(`k`)
           COMMENT "OLAP"
           DISTRIBUTED BY HASH(`k`) BUCKETS 1
           PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1",
-          "variant_max_subcolumns_count" = "10"
+          "replication_allocation" = "tag.location.default: 1"
         );
       """
 

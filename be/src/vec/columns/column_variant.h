@@ -577,6 +577,10 @@ public:
                                                                       size_t row);
 
     Status pick_subcolumns_to_sparse_column(
+            const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths,
+            bool variant_enable_typed_paths_to_sparse);
+
+    Status convert_typed_path_to_storage_type(
             const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths);
 
     void set_max_subcolumns_count(int32_t max_subcolumns_count) {

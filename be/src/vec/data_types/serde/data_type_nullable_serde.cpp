@@ -385,7 +385,7 @@ void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
                                                      int64_t row_num) const {
     auto& col = assert_cast<const ColumnNullable&>(src_column);
     if (col.is_null_at(row_num)) [[unlikely]] {
-        const uint8_t type = static_cast<uint8_t>(PrimitiveType::INVALID_TYPE);
+        const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_NONE);
         const size_t old_size = chars.size();
         const size_t new_size = old_size + sizeof(uint8_t);
         chars.resize(new_size);
