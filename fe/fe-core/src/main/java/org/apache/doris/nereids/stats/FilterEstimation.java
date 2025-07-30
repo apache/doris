@@ -39,8 +39,6 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
-import org.apache.doris.nereids.trees.expressions.functions.executable.StringArithmetic;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -89,8 +87,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
      */
     public Statistics estimate(Expression expression, Statistics inputStats) {
         Statistics outputStats = expression.accept(this, new EstimationContext(inputStats));
-        if (outputStats.getRowCount() <= RANGE_SELECTIVITY_THRESHOLD * inputStats.getRowCount()
-                && inputStats.getDeltaRowCount() > 0) {
+        if (outputStats.getRowCount() == 0 && inputStats.getDeltaRowCount() > 0) {
             StatisticsBuilder deltaStats = new StatisticsBuilder();
             deltaStats.setDeltaRowCount(0);
             deltaStats.setRowCount(inputStats.getDeltaRowCount());
@@ -105,7 +102,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 for (Expression conjunct : conjuncts) {
                     if (conjunct instanceof ComparisonPredicate) {
                         Statistics partial = conjunct.accept(this, new EstimationContext(inputStats));
-                        if (partial.getRowCount() <= RANGE_SELECTIVITY_THRESHOLD * inputStats.getRowCount()) {
+                        if (partial.getRowCount() == 0) {
                             for (Slot slot : conjunct.getInputSlots()) {
                                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
                             }
@@ -440,10 +437,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             filterKeyColStatsBuilder.setHotValues(matchedHotValues);
         }
 
+        selectivity = Math.min(selectivity, 1.0);
+        selectivity = Math.max(selectivity, 0.0);
+
+        if (selectivity > 0.0) {
+            selectivity = Math.max(selectivity, RANGE_SELECTIVITY_THRESHOLD);
+        }
+
         selectivity = getNotNullSelectivity(leftStats.numNulls,
                 context.statistics.getRowCount(), leftStats.ndv, selectivity);
-        selectivity = Math.max(selectivity, RANGE_SELECTIVITY_THRESHOLD);
-        selectivity = Math.min(selectivity, 1.0);
 
         filterKeyColStatsBuilder.setNumNulls(0);
 
@@ -1117,22 +1119,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     like.left().toSql(), like.toSql());
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
             colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY).setNumNulls(0);
-
-            if (origin.getHotValues() != null) {
-                Map<Literal, Float> matchedHotValues = new HashMap<>();
-                if (like.right() instanceof StringLikeLiteral) {
-                    for (Map.Entry<Literal, Float> entry : origin.getHotValues().entrySet()) {
-                        if (entry.getKey() instanceof StringLikeLiteral) {
-                            Expression result = StringArithmetic.like((StringLikeLiteral) entry.getKey(),
-                                    (StringLikeLiteral) (like.right()));
-                            if (result == BooleanLiteral.TRUE) {
-                                matchedHotValues.put(entry.getKey(), entry.getValue());
-                            }
-                        }
-                    }
-                }
-                colBuilder.setHotValues(matchedHotValues);
-            }
+            colBuilder.setHotValues(null);
             statsBuilder.putColumnStatistics(like.left(), colBuilder.build());
             context.addKeyIfSlot(like.left());
         }
