@@ -34,6 +34,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -504,7 +505,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         ctx.changeDefaultCatalog(externalCatalog);
         ctx.setDatabase(externalDb);
         try {
-            return parseAndAnalyzeView(table, convertedSql, cascadesContext);
+            return new LogicalView<>(new ExternalView(table, ddlSql),
+                    parseAndAnalyzeView(table, convertedSql, cascadesContext));
         } finally {
             // restore catalog and db in connect context
             ctx.changeDefaultCatalog(previousCatalog);
