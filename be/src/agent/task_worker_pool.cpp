@@ -753,7 +753,7 @@ ReportWorker::ReportWorker(std::string name, const ClusterInfo* cluster_info, in
     };
 
     std::string report_thread_name = "ReportWorker-" + _name;
-    _thread = std::make_unique<std::thread>([&report_thread_name, report_loop]() {
+    _thread = std::make_unique<std::thread>([report_thread_name, report_loop]() {
         pthread_setname_np(pthread_self(), report_thread_name.c_str());
         report_loop();
     });
