@@ -302,8 +302,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<List<Expr>> distributeExprLists = getDistributeExprs(child);
         // TODO: why need set streaming here? should remove this.
         if (inputFragment.getPlanRoot() instanceof AggregationNode
-                && child instanceof PhysicalHashAggregate
-                && context.getFirstAggregateInFragment(inputFragment) == child) {
+                && child instanceof PhysicalHashAggregate) {
             PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) child;
             if (hashAggregate.getAggPhase() == AggPhase.LOCAL
                     && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER
@@ -1027,17 +1026,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             default:
                 throw new RuntimeException("Unsupported agg phase: " + aggregate.getAggPhase());
         }
-        // TODO: use to set useStreamingAgg, we should remove it by set it in Nereids
-        PhysicalHashAggregate firstAggregateInFragment = context.getFirstAggregateInFragment(inputPlanFragment);
-        if (firstAggregateInFragment == null) {
-            context.setFirstAggregateInFragment(inputPlanFragment, aggregate);
-        }
 
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
         // so, if we do final phase or merge without exchange.
         // we need turn of parallel scan to ensure to get correct result.
         PlanNode leftMostNode = inputPlanFragment.getPlanRoot();
-        while (leftMostNode.getChildren().size() != 0 && !(leftMostNode instanceof ExchangeNode)) {
+        while (!leftMostNode.getChildren().isEmpty() && !(leftMostNode instanceof ExchangeNode)) {
             leftMostNode = leftMostNode.getChild(0);
         }
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate

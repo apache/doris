@@ -315,4 +315,37 @@ public class CloudSystemInfoServiceTest {
         String res = infoService.getPhysicalCluster(vcgName);
         Assert.assertEquals(pcgName1, res);
     }
+
+    @Test
+    public void testIsStandByComputeGroup() {
+        infoService = new CloudSystemInfoService();
+
+        String vcgName = "v_cluster_1";
+        String pcgName1 = "p_cluster_1";
+        String pcgName2 = "p_cluster_2";
+        String pcgName3 = "p_cluster_3";
+
+        ComputeGroup vcg = new ComputeGroup("id1", vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
+        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        policy.setActiveComputeGroup(pcgName1);
+        policy.setStandbyComputeGroup(pcgName2);
+        vcg.setPolicy(policy);
+
+        ComputeGroup pcg1 = new ComputeGroup("id2", pcgName1, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        ComputeGroup pcg3 = new ComputeGroup("id4", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        infoService.addComputeGroup(vcgName, vcg);
+        infoService.addComputeGroup(pcgName1, pcg1);
+        infoService.addComputeGroup(pcgName2, pcg2);
+        infoService.addComputeGroup(pcgName3, pcg3);
+
+        boolean res = infoService.isStandByComputeGroup(vcgName);
+        Assert.assertFalse(res);
+        res = infoService.isStandByComputeGroup(pcgName1);
+        Assert.assertFalse(res);
+        res = infoService.isStandByComputeGroup(pcgName2);
+        Assert.assertTrue(res);
+        res = infoService.isStandByComputeGroup(pcgName3);
+        Assert.assertFalse(res);
+    }
 }

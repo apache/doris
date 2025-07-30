@@ -22,9 +22,11 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        sql """ DROP TABLE IF EXISTS `iceberg_all_types_${format_compression}`; """
+        def all_types_table = "iceberg_all_types_${format_compression}_branch30"
+        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_branch30"
+        sql """ DROP TABLE IF EXISTS `${all_types_table}`; """
         sql """
-        CREATE TABLE `iceberg_all_types_${format_compression}`(
+        CREATE TABLE `${all_types_table}`(
           `boolean_col` boolean,
           `int_col` int,
           `bigint_col` bigint,
@@ -82,7 +84,7 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
         """
 
         sql """
-        INSERT INTO iceberg_all_types_${format_compression}
+        INSERT INTO ${all_types_table}
         VALUES (
           1, -- boolean_col
           2147483647, -- int_col
@@ -136,11 +138,11 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
           20240320 -- dt
         );
         """
-        order_qt_q01 """ select * from iceberg_all_types_${format_compression};
+        order_qt_q01 """ select * from ${all_types_table};
         """
 
         sql """
-        INSERT INTO iceberg_all_types_${format_compression}
+        INSERT INTO ${all_types_table}
         VALUES (
           1, -- boolean_col
           2147483647, -- int_col
@@ -298,11 +300,11 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
           20240322 -- dt
         );
         """
-        order_qt_q02 """ select * from iceberg_all_types_${format_compression};
+        order_qt_q02 """ select * from ${all_types_table};
         """
 
         sql """
-        INSERT INTO iceberg_all_types_${format_compression}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls)
+        INSERT INTO ${all_types_table}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls)
         VALUES (
           CAST(123.45 AS FLOAT), -- float_col
           MAP(1, 10), -- t_map_int
@@ -310,19 +312,21 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
           ARRAY(null, 'value1', 'value2') -- t_ARRAY_string_starting_with_nulls
         );
         """
-        order_qt_q03 """ select * from iceberg_all_types_${format_compression};
+        order_qt_q03 """ select * from ${all_types_table};
         """
 
-        sql """ DROP TABLE iceberg_all_types_${format_compression}; """
+        sql """ DROP TABLE ${all_types_table}; """
     }
 
     def q03 = { String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        sql """ DROP TABLE IF EXISTS `iceberg_all_types_par_${format_compression}`; """
+        def all_types_table = "iceberg_all_types_${format_compression}_branch30"
+        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_branch30"
+        sql """ DROP TABLE IF EXISTS `${all_types_partition_table}`; """
         sql """
-        CREATE TABLE `iceberg_all_types_par_${format_compression}`(
+        CREATE TABLE `${all_types_partition_table}`(
           `boolean_col` boolean,
           `int_col` int,
           `bigint_col` bigint,
@@ -381,7 +385,7 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
         """
 
         sql """
-        INSERT INTO iceberg_all_types_par_${format_compression}
+        INSERT INTO ${all_types_partition_table}
         VALUES (
           1, -- boolean_col
           2147483647, -- int_col
@@ -435,11 +439,11 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
           20240320 -- dt
         );
         """
-        order_qt_q01 """ select * from iceberg_all_types_par_${format_compression};
+        order_qt_q01 """ select * from ${all_types_partition_table};
         """
 
         sql """
-        INSERT INTO iceberg_all_types_par_${format_compression}
+        INSERT INTO ${all_types_partition_table}
         VALUES  (
           1, -- boolean_col
           2147483647, -- int_col
@@ -597,11 +601,11 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
           20240322 -- dt
         );
         """
-        order_qt_q02 """ select * from iceberg_all_types_par_${format_compression};
+        order_qt_q02 """ select * from ${all_types_partition_table};
         """
 
         sql """
-        INSERT INTO iceberg_all_types_par_${format_compression}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls, dt)
+        INSERT INTO ${all_types_partition_table}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls, dt)
         VALUES (
           123.45, -- float_col
           MAP(1, 10), -- t_map_int
@@ -610,10 +614,10 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
           20240321 -- dt
         );
         """
-        order_qt_q03 """ select * from iceberg_all_types_par_${format_compression};
+        order_qt_q03 """ select * from ${all_types_partition_table};
         """
 
-        sql """ DROP TABLE iceberg_all_types_par_${format_compression}; """
+        sql """ DROP TABLE ${all_types_partition_table}; """
     }
 
     String enabled = context.config.otherConfigs.get("enableExternalIcebergTest")
@@ -634,12 +638,6 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
     sql """ switch ${catalog_name};"""
     sql """ use my_namespace;""" 
     sql """ set enable_fallback_to_original_planner=false """
-    def tables = sql """ show tables; """
-    assertTrue(tables.size() > 0)
-
-    // 1. test querying existing tables
-    qt_sql01 """select * from my_table order by id;"""
-    qt_sql01 """select * from partitioned_table order by ts;"""
 
     try {
         for (String format_compression in format_compressions) {

@@ -84,7 +84,6 @@ public class IcebergTransaction implements Transaction {
         } catch (Exception e) {
             throw new UserException("Failed to begin insert for iceberg table " + tableInfo, e);
         }
-
     }
 
     public void finishInsert(SimpleTableInfo tableInfo, Optional<InsertCommandContext> insertCtx) {
@@ -133,8 +132,14 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
-        // commit the iceberg transaction
-        transaction.commitTransaction();
+        try {
+            // commit the iceberg transaction
+            ops.getPreExecutionAuthenticator().execute(() -> {
+                transaction.commitTransaction();
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to commit iceberg transaction for table " + tableInfo, e);
+        }
     }
 
     @Override

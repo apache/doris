@@ -122,6 +122,12 @@ exit_flag=0
     if [[ "${target_branch}" == "branch-2.0" ]]; then
         cold_run_time_threshold=${cold_run_time_threshold_branch20:-130000} # ms
         hot_run_time_threshold=${hot_run_time_threshold_branch20:-55000}    # ms
+    elif [[ "${target_branch}" == "branch-3.1" ]]; then
+        cold_run_time_threshold=${cold_run_time_threshold_branch31:-120000} # ms
+        hot_run_time_threshold=${hot_run_time_threshold_branch31:-42000}    # ms
+    elif [[ "${target_branch}" == "branch-3.0" ]]; then
+        cold_run_time_threshold=${cold_run_time_threshold_branch30:-120000} # ms
+        hot_run_time_threshold=${hot_run_time_threshold_branch30:-42000}    # ms
     fi
     echo "INFO: cold_run_time_threshold is ${cold_run_time_threshold}, hot_run_time_threshold is ${hot_run_time_threshold}"
     if ! check_tpch_result "${teamcity_build_checkoutDir}"/run-tpch-queries.log; then

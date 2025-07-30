@@ -501,13 +501,13 @@ public class CacheHotspotManager extends MasterDaemon {
             List<Long> batch = new ArrayList<>();
             long curBatchSize = 0L;
             for (Tablet tablet : entry.getValue()) {
-                if (curBatchSize + tablet.getDataSize(true) > maxSizePerBatch) {
+                if (curBatchSize + tablet.getDataSize(true, false) > maxSizePerBatch) {
                     batches.add(batch);
                     batch = new ArrayList<>();
                     curBatchSize = 0L;
                 }
                 batch.add(tablet.getId());
-                curBatchSize += tablet.getDataSize(true);
+                curBatchSize += tablet.getDataSize(true, false);
             }
             if (!batch.isEmpty()) {
                 batches.add(batch);
@@ -545,7 +545,7 @@ public class CacheHotspotManager extends MasterDaemon {
                 continue;
             }
             for (Tablet tablet : index.getTablets()) {
-                warmUpTabletsSize += tablet.getDataSize(true);
+                warmUpTabletsSize += tablet.getDataSize(true, false);
                 tablets.add(tablet);
                 if (warmUpTabletsSize >= dstTotalFileCache) {
                     break;
@@ -785,8 +785,8 @@ public class CacheHotspotManager extends MasterDaemon {
                                                             stmt.isForce());
             }
             Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
-            warmUpJob = new CloudWarmUpJob(jobId, null, stmt.getDstClusterName(),
-                    beToTabletIdBatches, JobType.TABLE);
+            warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(),
+                    beToTabletIdBatches, JobType.TABLE, stmt.getTables(), stmt.isForce());
         } else {
             CloudWarmUpJob.Builder builder = new CloudWarmUpJob.Builder()
                     .setJobId(jobId)
@@ -840,11 +840,15 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     public void cancel(long jobId) throws DdlException {
+        cancel(jobId, "user cancel");
+    }
+
+    public void cancel(long jobId, String msg) throws DdlException {
         CloudWarmUpJob job = cloudWarmUpJobs.get(jobId);
         if (job == null) {
             throw new DdlException("job id: " + jobId + " does not exist.");
         }
-        if (!job.cancel("user cancel", true)) {
+        if (!job.cancel(msg, true)) {
             throw new DdlException("job can not be cancelled. State: " + job.getJobState());
         }
     }
