@@ -861,7 +861,7 @@ public abstract class Type {
         if (targetType.isJsonbType() && sourceType.isComplexType()) {
             return true;
         }
-        if(sourceType.isJsonbType()) {
+        if (sourceType.isJsonbType()) {
             return true;
         }
         if (sourceType.isVariantType() && (targetType.isScalarType() || targetType.isArrayType())) {
