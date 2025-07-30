@@ -2654,7 +2654,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (variantEnableFlattenNested) {
                 throw new DdlException("If you want to enable variant flatten nested, "
                         + "please set session variable: disable_variant_flatten_nested = false");
-            }    
+            } 
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
