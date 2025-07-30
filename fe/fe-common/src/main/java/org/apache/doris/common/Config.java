@@ -1528,6 +1528,12 @@ public class Config extends ConfigBase {
     public static int max_backup_restore_job_num_per_db = 10;
 
     /**
+     * whether to ignore temp partitions when backup, and not report exception.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean ignore_backup_tmp_partitions = false;
+
+    /**
      * Control the default max num of the instance for a user.
      */
     @ConfField(mutable = true)
