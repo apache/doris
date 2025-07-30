@@ -460,6 +460,7 @@ public class MTMVTask extends AbstractTask {
      * @throws DdlException
      */
     private void beforeMTMVRefresh() throws AnalysisException, DdlException {
+        mtmv.getRefreshSnapshot().clearUnUsedSnapshot(mtmv.getPartitionNames());
         for (BaseTableInfo tableInfo : relation.getBaseTablesOneLevel()) {
             TableIf tableIf = MTMVUtil.getTable(tableInfo);
             if (tableIf instanceof MTMVBaseTableIf) {
