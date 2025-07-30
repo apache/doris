@@ -1239,13 +1239,6 @@ refresh_stmt ::=
     :}
     ;
 
-clean_stmt ::=
-    KW_CLEAN KW_ALL KW_PROFILE
-    {:
-        RESULT = new CleanProfileStmt();
-    :}
-    ;
-
 // plugin statement
 install_plugin_stmt ::=
     KW_INSTALL KW_PLUGIN KW_FROM ident_or_text:source opt_properties:properties
