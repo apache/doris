@@ -23,7 +23,6 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
@@ -64,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
@@ -616,14 +616,20 @@ public abstract class TestWithFeService {
     }
 
     public void dropDatabase(String db) throws Exception {
-        String createDbStmtStr = "DROP DATABASE " + db;
-        DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Env.getCurrentEnv().dropDb(createDbStmt);
+        String dropDbStmtStr = "DROP DATABASE " + db;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(dropDbStmtStr);
+        if (logicalPlan instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) logicalPlan).run(connectContext, null);
+        }
     }
 
     public void dropDatabaseWithSql(String dropDbSql) throws Exception {
-        DropDbStmt dropDbStmt = (DropDbStmt) parseAndAnalyzeStmt(dropDbSql);
-        Env.getCurrentEnv().dropDb(dropDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(dropDbSql);
+        if (logicalPlan instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) logicalPlan).run(connectContext, null);
+        }
     }
 
     public void useDatabase(String dbName) {

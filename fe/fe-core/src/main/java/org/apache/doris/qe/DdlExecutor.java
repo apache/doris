@@ -42,7 +42,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropIndexPolicyStmt;
@@ -93,9 +92,7 @@ public class DdlExecutor {
      **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
         checkDdlStmtSupported(ddlStmt);
-        if (ddlStmt instanceof DropDbStmt) {
-            env.dropDb((DropDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateFunctionStmt) {
+        if (ddlStmt instanceof CreateFunctionStmt) {
             env.createFunction((CreateFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFunctionStmt) {
             env.dropFunction((DropFunctionStmt) ddlStmt);
