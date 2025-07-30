@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <cstddef>
 #include <memory>
 #include <type_traits>
@@ -90,8 +92,12 @@ public:
         context->set_function_state(scope, state);
         if (context->get_num_args() == 1) {
             // default argument
-            state->format_str = time_format_type::default_format;
-            state->format_type = time_format_type::default_impl;
+            if constexpr (IsDecimal) {
+                state->format_str = time_format_type::default_format_decimal;
+            } else {
+                state->format_str = time_format_type::default_format;
+                state->format_type = time_format_type::default_impl;
+            }
             return IFunction::open(context, scope);
         }
 
@@ -188,25 +194,42 @@ public:
         res_data.reserve(len * format.size + len);
         null_map.resize_fill(len, false);
 
-        std::visit(
-                [&](auto type) {
-                    using Impl = decltype(type);
-                    size_t offset = 0;
-                    for (int i = 0; i < len; ++i) {
-                        if constexpr (IsDecimal) {
-                            null_map[i] = Transform::template execute_decimal<Impl>(
+        if constexpr (IsDecimal) {
+            // FromUnixTimeDecimalImpl
+            size_t offset = 0;
+            if (format_state->format_str == time_format_type::default_format_decimal) {
+                for (int i = 0; i < len; ++i) {
+                    null_map[i] = Transform::template execute_decimal<
+                            time_format_type::yyyy_MM_dd_HH_mm_ss_SSSSSSImpl>(
+                            col->get_intergral_part(i), col->get_fractional_part(i), format,
+                            res_data, offset, context->state()->timezone_obj());
+                    res_offsets[i] = cast_set<uint32_t>(offset);
+                }
+            } else {
+                for (int i = 0; i < len; ++i) {
+                    null_map[i] =
+                            Transform::template execute_decimal<time_format_type::UserDefinedImpl>(
                                     col->get_intergral_part(i), col->get_fractional_part(i), format,
                                     res_data, offset, context->state()->timezone_obj());
-                        } else {
+                    res_offsets[i] = cast_set<uint32_t>(offset);
+                }
+            }
+            res_data.resize(offset);
+        } else {
+            std::visit(
+                    [&](auto type) {
+                        using Impl = decltype(type);
+                        size_t offset = 0;
+                        for (int i = 0; i < len; ++i) {
                             null_map[i] = Transform::template execute<Impl>(
                                     pod_array[i], format, res_data, offset,
                                     context->state()->timezone_obj());
+                            res_offsets[i] = cast_set<uint32_t>(offset);
                         }
-                        res_offsets[i] = cast_set<uint32_t>(offset);
-                    }
-                    res_data.resize(offset);
-                },
-                format_state->format_type);
+                        res_data.resize(offset);
+                    },
+                    format_state->format_type);
+        }
         return Status::OK();
     }
 };

@@ -563,6 +563,9 @@ public class DateTimeExtractAndTransform {
         return dateFormat(datetime, format);
     }
 
+    /**
+     * date transformation function: from_unixtime
+     */
     @ExecFunction(name = "from_unixtime")
     public static Expression fromUnixTime(DecimalLiteral second, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);

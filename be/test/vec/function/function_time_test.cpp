@@ -174,15 +174,27 @@ TEST(VTimestampFunctionsTest, second_test) {
 }
 
 TEST(VTimestampFunctionsTest, from_unix_test) {
-    std::string func_name = "from_unixtime";
+    std::string func_name = "from_unixtime_new";
     TimezoneUtils::load_timezones_to_cache();
 
-    InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
-
-    DataSet data_set = {{{int64_t(1565080737)}, std::string("2019-08-06 16:38:57")},
-                        {{int64_t(-123)}, Null()}};
-
-    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+        DataSet data_set = {
+                {{int64_t(1565080737)}, std::string("2019-08-06 16:38:57")},
+                {{int64_t(253402271999)}, std::string("9999-12-31 23:59:59")},
+                {{int64_t(-123)}, Null()},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL64, 6, 18}};
+        DataSet data_set = {
+                {{DECIMAL64(1565080737, 999999, 6)}, std::string("2019-08-06 16:38:57.999999")},
+                {{DECIMAL64(253402271999, 999999, 6)}, std::string("9999-12-31 23:59:59.999999")},
+                {{DECIMAL64(263402271999, 999999, 6)}, Null()},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
 }
 
 TEST(VTimestampFunctionsTest, unix_timestamp_test) {

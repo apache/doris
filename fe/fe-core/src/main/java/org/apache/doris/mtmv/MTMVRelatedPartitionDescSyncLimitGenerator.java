@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -111,7 +112,7 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
         if (syncLimit > 1) {
             nowLiteral = dateSub(nowLiteral, timeUnit, syncLimit - 1);
         }
-        return ((IntegerLiteral) DateTimeExtractAndTransform.unixTimestamp(nowLiteral)).getValue();
+        return ((BigIntLiteral) DateTimeExtractAndTransform.unixTimestamp(nowLiteral)).getValue();
     }
 
 

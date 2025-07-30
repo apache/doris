@@ -23,6 +23,7 @@
 #include <cstdint>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "vec/columns/column_nullable.h"
@@ -234,7 +235,7 @@ struct DateFormatImpl {
     template <typename Impl>
     static bool execute(const ArgType& t, StringRef format, ColumnString::Chars& res_data,
                         size_t& offset, const cctz::time_zone& time_zone) {
-        if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
+        if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             // Handle non-special formats.
             const auto& dt = (DateType&)t;
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
@@ -269,19 +270,18 @@ struct DateFormatImpl {
     }
 };
 
-template <PrimitiveType PType, bool WithStringArg, bool NewVersion = false>
+template <bool WithStringArg, bool NewVersion = false>
 struct FromUnixTimeImpl {
-    using CppType = typename PrimitiveTypeTraits<PType>::CppType;       // decimal64 or int64
-    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType; // int64
-    static constexpr PrimitiveType FromPType = PType;
-    constexpr static short Scale = 6; // same with argument's scale in FE's signature
+    using CppType = Int64;
+    using ArgType = Int64;
+    static constexpr PrimitiveType FromPType = TYPE_BIGINT;
 
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithStringArg) {
-            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+            return {std::make_shared<DataTypeInt64>(),
                     std::make_shared<vectorized::DataTypeString>()};
         } else {
-            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
+            return {std::make_shared<DataTypeInt64>()};
         }
     }
     static const int64_t TIMESTAMP_VALID_MAX = 32536771199;
@@ -307,15 +307,6 @@ struct FromUnixTimeImpl {
         return dt;
     }
 
-    static DateV2Value<DateTimeV2ValueType> get_datetime_value(const ArgType& interger,
-                                                               const ArgType& fraction,
-                                                               const cctz::time_zone& time_zone) {
-        DateV2Value<DateTimeV2ValueType> dt;
-        // 9 is nanoseconds, our input's scale is 6
-        dt.from_unixtime(interger, (int32_t)fraction * common::exp10_i32(9 - Scale), time_zone, 6);
-        return dt;
-    }
-
     // return true if null(result is invalid)
     template <typename Impl>
     static bool execute(const ArgType& val, StringRef format, ColumnString::Chars& res_data,
@@ -327,7 +318,7 @@ struct FromUnixTimeImpl {
         if (!dt.is_valid_date()) {
             return true;
         }
-        if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
+        if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
                                                   100 + SAFE_FORMAT_STRING_MARGIN)) {
@@ -345,6 +336,41 @@ struct FromUnixTimeImpl {
         }
         return false;
     }
+};
+
+// only new verison
+template <bool WithStringArg>
+struct FromUnixTimeDecimalImpl {
+    using CppType = Decimal64;
+    using ArgType = Int64;
+    static constexpr PrimitiveType FromPType = TYPE_DECIMAL64;
+    constexpr static short Scale = 6; // same with argument's scale in FE's signature
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (WithStringArg) {
+            return {std::make_shared<DataTypeDecimal64>(),
+                    std::make_shared<vectorized::DataTypeString>()};
+        } else {
+            return {std::make_shared<DataTypeDecimal64>()};
+        }
+    }
+    static constexpr auto name = "from_unixtime_new";
+
+    [[nodiscard]] static bool check_valid(const ArgType& val) {
+        if (val < 0) [[unlikely]] {
+            return false;
+        }
+        return true;
+    }
+
+    static DateV2Value<DateTimeV2ValueType> get_datetime_value(const ArgType& interger,
+                                                               const ArgType& fraction,
+                                                               const cctz::time_zone& time_zone) {
+        DateV2Value<DateTimeV2ValueType> dt;
+        // 9 is nanoseconds, our input's scale is 6
+        dt.from_unixtime(interger, (int32_t)fraction * common::exp10_i32(9 - Scale), time_zone, 6);
+        return dt;
+    }
 
     // return true if null(result is invalid)
     template <typename Impl>
@@ -358,7 +384,7 @@ struct FromUnixTimeImpl {
         if (!dt.is_valid_date()) {
             return true;
         }
-        if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
+        if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
                                                   100 + SAFE_FORMAT_STRING_MARGIN)) {
@@ -371,7 +397,8 @@ struct FromUnixTimeImpl {
         } else {
             // No buffer is needed here because these specially optimized formats have fixed lengths,
             // and sufficient memory has already been reserved.
-            auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
+            auto len = time_format_type::yyyy_MM_dd_HH_mm_ss_SSSSSSImpl::date_to_str(
+                    dt, (char*)res_data.data() + offset);
             offset += len;
         }
         return false;
