@@ -24,12 +24,12 @@ suite("invalid_stats_join_order") {
         v varchar(50) NOT NULL COMMENT ""
         ) ENGINE=OLAP
         DUPLICATE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 2
-        PROPERTIES ("replication_num" = "1");
+        DISTRIBUTED BY HASH(k) BUCKETS 7
+        PROPERTIES ("replication_num" = "1",  "colocate_with" = "group_1");
 
         insert into t1 values (1, 'a');
 
-        alter table t1 modify column k set stats ('row_count'='1', 'ndv'='1', 'num_nulls'='0', 'min_value'='0');
+        alter table t1 modify column k set stats ('row_count'='100', 'ndv'='1', 'num_nulls'='0', 'min_value'='0');
 
         drop table if exists t2;
         
@@ -38,11 +38,11 @@ suite("invalid_stats_join_order") {
         v varchar(50) NOT NULL COMMENT ""
         ) ENGINE=OLAP
         DUPLICATE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 2
-        PROPERTIES ("replication_num" = "1");
+        DISTRIBUTED BY HASH(k) BUCKETS 7
+        PROPERTIES ("replication_num" = "1",  "colocate_with" = "group_1");
 
         insert into t2 values (1, 'a');
-        alter table t2 modify column k set stats ('row_count'='100', 'ndv'='10', 'num_nulls'='0', 'min_value'='0');
+        alter table t2 modify column k set stats ('row_count'='10000000', 'ndv'='10', 'num_nulls'='0', 'min_value'='0');
 
         set runtime_filter_mode=off;
     """
@@ -63,7 +63,7 @@ suite("invalid_stats_join_order") {
     """
 
     sql """
-        alter table t1 modify column k set stats ('row_count'='1', 'ndv'='11', 'num_nulls'='0', 'min_value'='0');
+        alter table t1 modify column k set stats ('row_count'='100', 'ndv'='11', 'num_nulls'='0', 'min_value'='0');
     """
 
     // ndv > rowCount * 10
