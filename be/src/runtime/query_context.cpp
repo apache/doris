@@ -110,6 +110,11 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
     _timeout_second = query_options.execution_timeout;
 
+   // Initialize file cache context holders
+   if (config::enable_file_cache && _query_options.enable_file_cache) {
+        _query_file_cache_context_holders = io::FileCacheFactory::instance()->get_query_context_holders(_query_id);
+    }
+
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
                                query_options.query_type == TQueryType::LOAD ||
                                query_options.query_type == TQueryType::EXTERNAL;

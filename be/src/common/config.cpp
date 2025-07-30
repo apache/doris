@@ -1127,6 +1127,9 @@ DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
 
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
+// control whether to allow evicting from other queue when enable_file_cache_query_limit
+// Default to true to maintain backward compatibility
+DEFINE_mBool(file_cache_query_limit_enable_evict_from_other_queue, "true");
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");

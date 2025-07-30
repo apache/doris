@@ -32,6 +32,8 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
@@ -366,6 +368,9 @@ private:
 
     std::mutex _error_url_lock;
     std::string _load_error_url;
+
+    // file cache context holders
+    std::vector<io::BlockFileCache::QueryFileCacheContextHolderPtr> _query_file_cache_context_holders;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

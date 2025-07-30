@@ -94,6 +94,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_total_evict_size");
+    _total_query_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_total_query_evict_size");
     _gc_evict_bytes_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                     "file_cache_gc_evict_bytes");
     _gc_evict_count_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -193,6 +195,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                             "file_cache_num_hit_blocks");
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
+    _num_query_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                "file_cache_num_query_removed_blocks");
 
     _num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
@@ -274,7 +278,7 @@ BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context
         return {};
     }
 
-    /// if enable_filesystem_query_cache_limit is true,
+    /// if enable_file_cache_query_limit is true,
     /// we create context query for current query.
     auto context = get_or_set_query_context(query_id, cache_lock);
     return std::make_unique<QueryFileCacheContextHolder>(query_id, this, context);
@@ -287,6 +291,7 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_query_context(
 }
 
 void BlockFileCache::remove_query_context(const TUniqueId& query_id) {
+    LOG(INFO) << "BlockFileCache::remove_query_context called for query_id: " << print_id(query_id);
     SCOPED_CACHE_LOCK(_mutex, this);
     const auto& query_iter = _query_map.find(query_id);
 
@@ -301,6 +306,7 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_contex
         return nullptr;
     }
 
+    LOG(INFO) << "BlockFileCache::get_or_set_query_context called for query_id: " << print_id(query_id);
     auto context = get_query_context(query_id, cache_lock);
     if (context) {
         return context;
@@ -1038,6 +1044,10 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
                                                     query_context->get_max_cache_size());
     };
 
+    LOG(INFO) << "Starting query context eviction scan: queue_size=" << queue_size
+                << ", max_queue_size=" << max_size
+                << ", query_cache_size=" << query_context_cache_size
+                << ", query_id=" << print_id(context.query_id);
     /// Select the cache from the LRU queue held by query for expulsion.
     for (auto iter = query_context->queue().begin(); iter != query_context->queue().end(); iter++) {
         if (!is_overflow()) {
@@ -1066,6 +1076,9 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
         }
     }
 
+    *_num_query_removed_blocks << to_evict.size();
+    *_total_query_evict_size_metrics << removed_size;
+
     auto remove_file_block_if = [&](FileBlockCell* cell) {
         FileBlockSPtr file_block = cell->file_block;
         if (file_block) {
@@ -1081,10 +1094,24 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
 
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
 
-    if (is_overflow() &&
-        !try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock)) {
-        return false;
+    if (is_overflow()) {
+        LOG(INFO) << "Query context eviction insufficient, trying to evict from other queues: "
+                  << "removed_size=" << removed_size
+                  << ", ghost_remove_size=" << ghost_remove_size
+                  << ", needed=" << size;
+                  
+        bool other_queue_success = config::file_cache_query_limit_enable_evict_from_other_queue ? 
+            try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock) : false;
+        if (!other_queue_success) {
+            LOG(WARNING) << "Failed to reserve space after exhausting all eviction strategies: "
+                         << "query_limit_enable_evict_from_other_queue=" << config::file_cache_query_limit_enable_evict_from_other_queue 
+                        << "hash=" << hash.to_string()
+                        << ", offset=" << offset
+                        << ", size=" << size;
+            return false;
+        }
     }
+
     query_context->reserve(hash, offset, size, cache_lock);
     return true;
 }
@@ -2383,6 +2410,9 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
     stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
 
+    stats["total_query_removed_counts"] = (double)_num_query_removed_blocks->get_value();
+    stats["total_query_removed_size"] = (double)_total_query_evict_size_metrics->get_value();
+
     return stats;
 }
 
@@ -2412,6 +2442,15 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
     stats["disposable_queue_curr_size"] = (double)_disposable_queue.get_capacity_unsafe();
     stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
     stats["disposable_queue_curr_elements"] = (double)_disposable_queue.get_elements_num_unsafe();
+
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    
+    stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
+    stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
+    stats["total_read_counts"] = (double)_num_read_blocks->get_value();
+    stats["total_query_removed_counts"] = (double)_num_query_removed_blocks->get_value();
+    stats["total_query_removed_size"] = (double)_total_query_evict_size_metrics->get_value();
 
     return stats;
 }

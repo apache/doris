@@ -516,6 +516,7 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_query_evict_size_metrics; 
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_bytes_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_count_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_time_metrics_matrix[4][4];
@@ -531,6 +532,7 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _num_read_blocks;
     std::shared_ptr<bvar::Adder<size_t>> _num_hit_blocks;
     std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _num_query_removed_blocks;
 
     std::shared_ptr<bvar::Status<double>> _hit_ratio;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
