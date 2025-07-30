@@ -91,6 +91,11 @@ suite('test_complextype_to_json', "query_p0") {
     qt_sql_arr_agg_cast_json_object """ select json_object("id", t.id, "label", cast(t.label_name as json), "field", cast(t.value_field as json)) from (select id, array_agg(label_name) as label_name, array_agg(value_field) as value_field from test_agg_to_json group by id) t order by t.id; """
 
 
+
+    sql """
+        set debug_skip_fold_constant = true;
+    """
+
     sql """
         set enable_strict_cast = true;
     """
@@ -104,10 +109,14 @@ suite('test_complextype_to_json', "query_p0") {
 
 
     test {
-        sql """  SELECT CAST('{"invalid JSON' AS JSON); """
+        sql """  SELECT CAST('{invalid JSON' AS JSON); """
         exception "INVALID_ARGUMENT"
     }
 
+
+    sql """
+        drop table if exists test_json_from_string;
+    """
 
     sql """
       CREATE TABLE IF NOT EXISTS test_json_from_string (
