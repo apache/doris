@@ -1086,10 +1086,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     p_load_id.set_lo(load_id.lo);
 
     {
-        // See RowsetBuilder::prepare_txn for details
-        std::shared_lock base_migration_lock(local_tablet->get_migration_lock());
-        auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id,
-                                                         p_load_id, is_ingrest);
+        // TODO: Before push_lock is not held, but I think it should hold.
+        auto status = local_tablet->prepare_txn(partition_id, txn_id, p_load_id, is_ingrest);
         if (!status.ok()) {
             LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
                          << ", status=" << status.to_string();
