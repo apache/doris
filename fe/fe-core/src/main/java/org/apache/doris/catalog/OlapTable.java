@@ -287,7 +287,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public BinlogConfig getBinlogConfig() {
-        readUnlock();
+        readLock();
         try {
             return getOrCreatTableProperty().getBinlogConfig();
         } finally {
