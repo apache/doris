@@ -122,7 +122,7 @@ public class Sum extends NullableAggregateFunction
 
     @Override
     public Expression withIsSkew(boolean isSkew) {
-        return new Sum(getFunctionParams(distinct, alwaysNullable, children));
+        return new Sum(getFunctionParams(distinct, isSkew, children));
     }
 
     @Override
