@@ -1583,70 +1583,75 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_compact) {
             LOG(INFO) << "submit cold data compaction. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(_cold_data_compaction_thread_pool->submit_func(
-                    [&, t = std::move(tablet), this]() {
-                        auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
-                        {
-                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                            _cold_compaction_tablet_submitted.insert(t->tablet_id());
-                        }
-                        Defer defer {[&] {
-                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                            _cold_compaction_tablet_submitted.erase(t->tablet_id());
-                        }};
-                        std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
-                                                              std::try_to_lock);
-                        if (!cold_compaction_lock.owns_lock()) {
-                            LOG(WARNING) << "try cold_compaction_lock failed, tablet_id="
-                                         << t->tablet_id();
-                            return;
-                        }
-                        _update_cumulative_compaction_policy();
-                        if (t->get_cumulative_compaction_policy() == nullptr ||
-                            t->get_cumulative_compaction_policy()->name() !=
-                                    t->tablet_meta()->compaction_policy()) {
-                            t->set_cumulative_compaction_policy(_cumulative_compaction_policies.at(
-                                    t->tablet_meta()->compaction_policy()));
-                        }
+            auto st = _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet),
+                                                                      this]() {
+                auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
+                {
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.insert(t->tablet_id());
+                }
+                Defer defer {[&] {
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.erase(t->tablet_id());
+                }};
+                std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
+                                                      std::try_to_lock);
+                if (!cold_compaction_lock.owns_lock()) {
+                    LOG(WARNING) << "try cold_compaction_lock failed, tablet_id=" << t->tablet_id();
+                    return;
+                }
+                _update_cumulative_compaction_policy();
+                if (t->get_cumulative_compaction_policy() == nullptr ||
+                    t->get_cumulative_compaction_policy()->name() !=
+                            t->tablet_meta()->compaction_policy()) {
+                    t->set_cumulative_compaction_policy(_cumulative_compaction_policies.at(
+                            t->tablet_meta()->compaction_policy()));
+                }
 
-                        auto st = compaction->prepare_compact();
-                        if (!st.ok()) {
-                            LOG(WARNING) << "failed to prepare cold data compaction. tablet_id="
-                                         << t->tablet_id() << " err=" << st;
-                            return;
-                        }
+                auto st = compaction->prepare_compact();
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to prepare cold data compaction. tablet_id="
+                                 << t->tablet_id() << " err=" << st;
+                    return;
+                }
 
-                        st = compaction->execute_compact();
-                        if (!st.ok()) {
-                            LOG(WARNING) << "failed to execute cold data compaction. tablet_id="
-                                         << t->tablet_id() << " err=" << st;
-                            return;
-                        }
-                    }));
+                st = compaction->execute_compact();
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to execute cold data compaction. tablet_id="
+                                 << t->tablet_id() << " err=" << st;
+                    return;
+                }
+            });
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to submit cold data compaction task. tablet_id="
+                             << tablet->tablet_id() << " err=" << st;
+            }
         }
 
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(
-                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                        {
-                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                            _cold_compaction_tablet_submitted.insert(t->tablet_id());
-                        }
-                        auto st = t->cooldown();
-                        {
-                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                            _cold_compaction_tablet_submitted.erase(t->tablet_id());
-                        }
-                        if (!st.ok()) {
-                            // The cooldown of the replica may be relatively slow
-                            // resulting in a short period of time where following cannot be successful
-                            LOG_EVERY_N(WARNING, 5)
-                                    << "failed to cooldown. tablet_id=" << t->tablet_id()
-                                    << " err=" << st;
-                        }
-                    }));
+            auto st = _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
+                {
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.insert(t->tablet_id());
+                }
+                auto st = t->cooldown();
+                {
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.erase(t->tablet_id());
+                }
+                if (!st.ok()) {
+                    // The cooldown of the replica may be relatively slow
+                    // resulting in a short period of time where following cannot be successful
+                    LOG_EVERY_N(WARNING, 5)
+                            << "failed to cooldown. tablet_id=" << t->tablet_id() << " err=" << st;
+                }
+            });
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to submit cold data compaction task. tablet_id="
+                             << tablet->tablet_id() << " err=" << st;
+            }
         }
     }
 }
