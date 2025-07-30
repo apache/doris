@@ -85,7 +85,7 @@ public class MultiDistinctCollectList extends AggregateFunction
 
     private MultiDistinctCollectList(boolean mustUseMultiDistinctAgg, boolean distinct,
             List<Expression> children) {
-        super("multi_distinct_collect_list", false, children);
+        super("multi_distinct_collect_list", false, (Expression) children);
         this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
