@@ -150,10 +150,8 @@ ColumnPtr convert_to_ipv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_ma
         vec_null_map_to = &col_null_map_to->get_data();
     }
 
-    auto col_res = ToColumn::create();
-
+    auto col_res = ToColumn::create(column_size, 0);
     auto& vec_res = col_res->get_data();
-    vec_res.resize(column_size);
 
     const ColumnString::Chars& vec_src = column_string->get_chars();
     const ColumnString::Offsets& offsets_src = column_string->get_offsets();
