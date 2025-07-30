@@ -372,14 +372,15 @@ Status DataTypeStructSerDe::deserialize_column_from_jsonb(IColumn& column,
                                        jsonb_object->numElem(), struct_column.tuple_size());
     }
 
-    for (size_t i = 0; i < elem_names.size(); ++i) {
-        const auto& field_name = elem_names[i];
-
-        JsonbValue* value = jsonb_object->find(field_name.data(), (int)field_name.size());
-
-        if (!value) {
+    for (const auto& field_name : elem_names) {
+        if (!jsonb_object->find(field_name.data(), (int)field_name.size())) {
             return Status::InvalidArgument("jsonb_value does not have key {}", field_name);
         }
+    }
+
+    for (size_t i = 0; i < elem_names.size(); ++i) {
+        const auto& field_name = elem_names[i];
+        JsonbValue* value = jsonb_object->find(field_name.data(), (int)field_name.size());
         RETURN_IF_ERROR(elem_serdes_ptrs[i]->deserialize_column_from_jsonb(
                 struct_column.get_column(i), value, castParms));
     }
