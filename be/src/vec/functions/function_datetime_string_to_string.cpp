@@ -30,19 +30,15 @@ using FunctionDateFormatV2 = FunctionDateTimeStringToString<DateFormatImpl<TYPE_
 using FunctionDateTimeV2DateFormat =
         FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATETIMEV2>>;
 // old version
-using FunctionFromUnixTimeOneArg =
-        FunctionDateTimeStringToString<FromUnixTimeImpl<TYPE_BIGINT, false, false>>;
-using FunctionFromUnixTimeTwoArg =
-        FunctionDateTimeStringToString<FromUnixTimeImpl<TYPE_BIGINT, true, false>>;
+using FunctionFromUnixTimeOneArg = FunctionDateTimeStringToString<FromUnixTimeImpl<false, false>>;
+using FunctionFromUnixTimeTwoArg = FunctionDateTimeStringToString<FromUnixTimeImpl<true, false>>;
 // new version
-using FunctionFromUnixTimeNewOneArg =
-        FunctionDateTimeStringToString<FromUnixTimeImpl<TYPE_BIGINT, false, true>>;
-using FunctionFromUnixTimeNewTwoArg =
-        FunctionDateTimeStringToString<FromUnixTimeImpl<TYPE_BIGINT, true, true>>;
+using FunctionFromUnixTimeNewOneArg = FunctionDateTimeStringToString<FromUnixTimeImpl<false, true>>;
+using FunctionFromUnixTimeNewTwoArg = FunctionDateTimeStringToString<FromUnixTimeImpl<true, true>>;
 using FunctionFromUnixTimeNewDecimalOneArg =
-        FunctionDateTimeStringToString<FromUnixTimeImpl<TYPE_DECIMAL64, false, true>>;
+        FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<false>>;
 using FunctionFromUnixTimeNewDecimalTwoArg =
-        FunctionDateTimeStringToString<FromUnixTimeImpl<TYPE_DECIMAL64, true, true>>;
+        FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<true>>;
 
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateFormat>();
