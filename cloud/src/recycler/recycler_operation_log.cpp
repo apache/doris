@@ -38,11 +38,13 @@
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
+#include "meta-store/versionstamp.h"
 #include "recycler/checker.h"
 #include "recycler/recycler.h"
 #include "recycler/util.h"
@@ -70,6 +72,8 @@ public:
     int recycle_commit_txn_log(const CommitTxnLogPB& commit_txn_log);
 
     int recycle_update_tablet_log(const UpdateTabletLogPB& update_tablet_log);
+
+    int recycle_compaction_log(const CompactionLogPB& compaction_log);
 
     int commit();
 
@@ -235,6 +239,63 @@ int OperationLogRecycler::recycle_update_tablet_log(const UpdateTabletLogPB& upd
         keys_to_remove_.emplace_back(encode_versioned_key(tablet_meta_key, versionstamp));
     }
 
+    return 0;
+}
+
+int OperationLogRecycler::recycle_compaction_log(const CompactionLogPB& compaction_log) {
+    MetaReader meta_reader(instance_id_, txn_kv_, log_version_);
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create transaction for recycling compaction log")
+                .tag("error_code", err);
+        return -1;
+    }
+    for (const RecycleRowsetPB& recycle_rowset_pb : compaction_log.recycle_rowsets()) {
+        // recycle rowset meta key
+        std::string recycle_rowset_value;
+        if (!recycle_rowset_pb.SerializeToString(&recycle_rowset_value)) {
+            LOG_WARNING("failed to serialize RecycleRowsetPB")
+                    .tag("recycle rowset pb", recycle_rowset_pb.ShortDebugString());
+            return -1;
+        }
+        std::string recycle_key =
+                recycle_rowset_key({instance_id_, compaction_log.tablet_id(),
+                                    recycle_rowset_pb.rowset_meta().rowset_id_v2()});
+        kvs_.emplace_back(recycle_key, recycle_rowset_value);
+
+        // remove rowset compact key and rowset load key
+        std::string meta_rowset_compact_key = versioned::meta_rowset_compact_key(
+                {instance_id_, recycle_rowset_pb.rowset_meta().tablet_id(),
+                 recycle_rowset_pb.rowset_meta().end_version()});
+        std::string meta_rowset_load_key = versioned::meta_rowset_load_key(
+                {instance_id_, recycle_rowset_pb.rowset_meta().tablet_id(),
+                 recycle_rowset_pb.rowset_meta().end_version()});
+        RowsetMetaCloudPB rowset_meta_cloud_pb;
+        Versionstamp version;
+        TxnErrorCode err = versioned::document_get(txn.get(), meta_rowset_compact_key,
+                                                   &rowset_meta_cloud_pb, &version);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "";
+        }
+        if (rowset_meta_cloud_pb.start_version() ==
+            recycle_rowset_pb.rowset_meta().start_version()) {
+            versioned::document_remove<doris::RowsetMetaCloudPB>(txn.get(), meta_rowset_compact_key,
+                                                                 version);
+        }
+        err = versioned::document_get(txn.get(), meta_rowset_load_key, &rowset_meta_cloud_pb,
+                                      &version);
+        if (rowset_meta_cloud_pb.start_version() ==
+            recycle_rowset_pb.rowset_meta().start_version()) {
+            versioned::document_remove<doris::RowsetMetaCloudPB>(txn.get(), meta_rowset_load_key,
+                                                                 version);
+        }
+    }
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to remove operation log").tag("error_code", err);
+        return -1;
+    }
     return 0;
 }
 
@@ -443,6 +504,7 @@ int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
     RECYCLE_OPERATION_LOG(commit_index, recycle_commit_index_log);
     RECYCLE_OPERATION_LOG(drop_index, recycle_drop_index_log);
     RECYCLE_OPERATION_LOG(update_tablet, recycle_update_tablet_log);
+    RECYCLE_OPERATION_LOG(compaction, recycle_compaction_log);
 #undef RECYCLE_OPERATION_LOG
 
     if (operation_log.has_commit_txn()) {
