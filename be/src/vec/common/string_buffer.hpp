@@ -101,11 +101,34 @@ public:
 
     void write_char(char x) { write(x); }
 
-    /** Writes a C-string without creating a temporary object. If the string is a literal, then `strlen` is executed at the compilation stage.
-  * Use when the string is a literal.
-  */
+    // Writes a C-string without creating a temporary object. If the string is a literal, then `strlen` is executed at the compilation stage.
+    // Use when the string is a literal.
     void write_c_string(const char* s) { write(s, strlen(s)); }
 
+    /**
+     * @brief Write a string in JSON format, escaping special characters.
+     *
+     * This function takes a string (as a char pointer and size) and writes it to the buffer
+     * as a JSON string literal. This involves:
+     *   1. Enclosing the string in double quotes ("...").
+     *   2. Escaping control characters (e.g., \n, \t, \b).
+     *   3. Escaping JSON-specific characters like backslash (\\) and double-quote (").
+     *   4. Escaping ASCII control characters (0x00-0x1F) using `\uXXXX` notation.
+     *   5. Escaping Unicode line separators U+2028 and U+2029 for JavaScript compatibility.
+     *
+     * @param s A pointer to the character data of the string.
+     * @param size The number of bytes in the string.
+     *
+     * @example
+     *   // String to be written:
+     *   // Hello, "world"!
+     *   // (with a newline at the end)
+     *   const char* my_str = "Hello, \"world\"!\n";
+     *   size_t my_size = 16;
+     *
+     *   // The function will write the following to the buffer:
+     *   // "Hello, \"world\"!\\n"
+     */
     void write_json_string(const char* s, size_t size) {
         write_char('"');
         const char* begin = s;
