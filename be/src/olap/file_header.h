@@ -85,6 +85,12 @@ public:
     // it is actually call deserialize().
     Status validate();
 
+    // write to memory
+    Status serialize_to_memory(uint8_t* buffer, size_t buffer_size);
+
+    // read from memory
+    Status deserialize_from_memory(const uint8_t* buffer, size_t buffer_size);
+
     uint64_t file_length() const { return _fixed_file_header.file_length; }
     uint32_t checksum() const { return _fixed_file_header.checksum; }
     const ExtraType& extra() const { return _extra_fixed_header; }
@@ -145,6 +151,25 @@ Status FileHeader<MessageType, ExtraType>::serialize() {
             {(const uint8_t*)&_extra_fixed_header, sizeof(_extra_fixed_header)}));
     RETURN_IF_ERROR(file_writer->append({_proto_string}));
     return file_writer->close();
+}
+
+template <typename MessageType, typename ExtraType>
+Status FileHeader<MessageType, ExtraType>::serialize_to_memory(uint8_t* buffer,
+                                                               size_t buffer_size) {
+    if (buffer_size < size()) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "buffer size is too small. required={}, provided={}", size(), buffer_size);
+    }
+
+    uint8_t* ptr = buffer;
+    memcpy(ptr, &_fixed_file_header, _fixed_file_header_size);
+    ptr += _fixed_file_header_size;
+
+    memcpy(ptr, &_extra_fixed_header, sizeof(_extra_fixed_header));
+    ptr += sizeof(_extra_fixed_header);
+
+    memcpy(ptr, _proto_string.data(), _proto_string.size());
+    return Status::OK();
 }
 
 template <typename MessageType, typename ExtraType>
@@ -234,6 +259,88 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
         LOG(WARNING) << "fail to load protobuf. file='" << file_reader->path().native();
         return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>("fail to load protobuf. file={}",
                                                               file_reader->path().native());
+    }
+
+    return Status::OK();
+}
+
+template <typename MessageType, typename ExtraType>
+Status FileHeader<MessageType, ExtraType>::deserialize_from_memory(const uint8_t* buffer,
+                                                                   size_t buffer_size) {
+    if (buffer_size < sizeof(FixedFileHeaderV2)) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "buffer size is too small to contain a valid header. provided={}", buffer_size);
+    }
+
+    const uint8_t* ptr = buffer;
+    memcpy(&_fixed_file_header, ptr, _fixed_file_header_size);
+    ptr += _fixed_file_header_size;
+
+    if (_fixed_file_header.magic_number != OLAP_FIX_HEADER_MAGIC_NUMBER) {
+        VLOG_TRACE << "old fix header found, magic num=" << _fixed_file_header.magic_number;
+        if (buffer_size < sizeof(FixedFileHeader)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "buffer size is too small to contain a valid old header. provided={}",
+                    buffer_size);
+        }
+        FixedFileHeader tmp_header;
+        memcpy(&tmp_header, buffer, sizeof(tmp_header));
+        _fixed_file_header.file_length = tmp_header.file_length;
+        _fixed_file_header.checksum = tmp_header.checksum;
+        _fixed_file_header.protobuf_length = tmp_header.protobuf_length;
+        _fixed_file_header.protobuf_checksum = tmp_header.protobuf_checksum;
+        _fixed_file_header.magic_number = OLAP_FIX_HEADER_MAGIC_NUMBER;
+        _fixed_file_header.version = OLAP_DATA_VERSION_APPLIED;
+        _fixed_file_header_size = sizeof(tmp_header);
+        ptr = buffer + sizeof(tmp_header);
+    }
+
+    VLOG_NOTICE << "fix head loaded. file_length=" << _fixed_file_header.file_length
+                << ", checksum=" << _fixed_file_header.checksum
+                << ", protobuf_length=" << _fixed_file_header.protobuf_length
+                << ", magic_number=" << _fixed_file_header.magic_number
+                << ", version=" << _fixed_file_header.version;
+
+    if (buffer_size < _fixed_file_header_size + sizeof(_extra_fixed_header) +
+                              _fixed_file_header.protobuf_length) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "buffer size is too small to contain the entire header and protobuf. required={}, "
+                "provided={}",
+                _fixed_file_header_size + sizeof(_extra_fixed_header) +
+                        _fixed_file_header.protobuf_length,
+                buffer_size);
+    }
+
+    memcpy(&_extra_fixed_header, ptr, sizeof(_extra_fixed_header));
+    ptr += sizeof(_extra_fixed_header);
+
+    std::unique_ptr<char[]> buf(new (std::nothrow) char[_fixed_file_header.protobuf_length]);
+    if (nullptr == buf) {
+        char errmsg[64];
+        return Status::Error<ErrorCode::MEM_ALLOC_FAILED>("malloc protobuf buf error. error={}",
+                                                          strerror_r(errno, errmsg, 64));
+    }
+    memcpy(buf.get(), ptr, _fixed_file_header.protobuf_length);
+
+    // check proto checksum
+    uint32_t real_protobuf_checksum =
+            olap_adler32(olap_adler32_init(), buf.get(), _fixed_file_header.protobuf_length);
+
+    if (real_protobuf_checksum != _fixed_file_header.protobuf_checksum) {
+        return Status::InternalError("checksum is not match. expect={}, actual={}",
+                                     +_fixed_file_header.protobuf_checksum, real_protobuf_checksum);
+    }
+
+    try {
+        std::string protobuf_str(buf.get(), _fixed_file_header.protobuf_length);
+
+        if (!_proto.ParseFromString(protobuf_str)) {
+            return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>(
+                    "fail to parse buffer content to protobuf object.");
+        }
+    } catch (...) {
+        LOG(WARNING) << "fail to load protobuf from buffer.";
+        return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>("fail to load protobuf from buffer.");
     }
 
     return Status::OK();

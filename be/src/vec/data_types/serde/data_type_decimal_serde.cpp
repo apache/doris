@@ -31,50 +31,11 @@
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/functions/cast/cast_to_decimal.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 // #include "common/compile_check_begin.h"
-
-struct PrecisionScaleArg {
-    UInt32 precision;
-    UInt32 scale;
-};
-
-template <typename DataType, typename Additions = void*>
-StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x, ReadBuffer& rb,
-                                                 Additions additions
-                                                 [[maybe_unused]] = Additions()) {
-    if constexpr (IsDataTypeDecimalV2<DataType>) {
-        UInt32 scale = ((PrecisionScaleArg)additions).scale;
-        UInt32 precision = ((PrecisionScaleArg)additions).precision;
-        return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, precision, scale);
-    }
-
-    if constexpr (std::is_same_v<DataTypeDecimal32, DataType>) {
-        UInt32 scale = ((PrecisionScaleArg)additions).scale;
-        UInt32 precision = ((PrecisionScaleArg)additions).precision;
-        return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, precision, scale);
-    }
-
-    if constexpr (std::is_same_v<DataTypeDecimal64, DataType>) {
-        UInt32 scale = ((PrecisionScaleArg)additions).scale;
-        UInt32 precision = ((PrecisionScaleArg)additions).precision;
-        return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
-    }
-
-    if constexpr (IsDataTypeDecimal128V3<DataType>) {
-        UInt32 scale = ((PrecisionScaleArg)additions).scale;
-        UInt32 precision = ((PrecisionScaleArg)additions).precision;
-        return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, precision, scale);
-    }
-
-    if constexpr (IsDataTypeDecimal256<DataType>) {
-        UInt32 scale = ((PrecisionScaleArg)additions).scale;
-        UInt32 precision = ((PrecisionScaleArg)additions).precision;
-        return try_read_decimal_text<TYPE_DECIMAL256>(x, rb, precision, scale);
-    }
-}
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
@@ -89,18 +50,16 @@ Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, Colum
     auto& vec_to = column_to.get_data();
     auto& null_map = column.get_null_map_data();
     size_t current_offset = 0;
-    PrecisionScaleArg scale_arg {.precision = static_cast<UInt32>(precision),
-                                 .scale = static_cast<UInt32>(scale)};
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+    CastParameters params;
+    params.is_strict = false;
     for (size_t i = 0; i < row; ++i) {
         size_t next_offset = (*offsets)[i];
         size_t string_size = next_offset - current_offset;
 
-        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-
-        StringParser::ParseResult res =
-                try_parse_decimal_impl<DataTypeDecimal<T>>(vec_to[i], read_buffer, scale_arg);
-        bool parsed = (res == StringParser::PARSE_SUCCESS);
-        null_map[i] = !parsed;
+        null_map[i] = !CastToDecimal::from_string(StringRef(&(*chars)[current_offset], string_size),
+                                                  vec_to[i], arg_precision, arg_scale, params);
         current_offset = next_offset;
     }
     return Status::OK();
@@ -119,8 +78,10 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
     size_t current_offset = 0;
-    PrecisionScaleArg scale_arg {.precision = static_cast<UInt32>(precision),
-                                 .scale = static_cast<UInt32>(scale)};
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+    CastParameters params;
+    params.is_strict = true;
     for (size_t i = 0; i < row; ++i) {
         if (null_map && null_map[i]) {
             continue;
@@ -128,11 +89,8 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
         size_t next_offset = (*offsets)[i];
         size_t string_size = next_offset - current_offset;
 
-        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-
-        StringParser::ParseResult res =
-                try_parse_decimal_impl<DataTypeDecimal<T>>(vec_to[i], read_buffer, scale_arg);
-        if (res != StringParser::PARSE_SUCCESS) {
+        if (!CastToDecimal::from_string(StringRef(&(*chars)[current_offset], string_size),
+                                        vec_to[i], arg_precision, arg_scale, params)) {
             return Status::InvalidArgument(
                     "parse number fail, string: '{}'",
                     std::string((char*)&(*chars)[current_offset], string_size));
@@ -183,9 +141,9 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
                                                                const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     FieldType val = {};
-    ReadBuffer rb(slice.data, slice.size);
+    StringRef str_ref(slice.data, slice.size);
     StringParser::ParseResult res =
-            read_decimal_text_impl<get_primitive_type(), FieldType>(val, rb, precision, scale);
+            read_decimal_text_impl<get_primitive_type(), FieldType>(val, str_ref, precision, scale);
     if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
         column_data.emplace_back(val);
         return Status::OK();
@@ -396,7 +354,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
-                                                    std::vector<StringRef>& buffer_list) const {
+                                                    vectorized::Arena& arena) const {
     auto& col_data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
 
     if constexpr (T == TYPE_DECIMALV2 || T == TYPE_DECIMAL128I || T == TYPE_DECIMAL256) {

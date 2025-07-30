@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -27,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -59,8 +59,12 @@ public class BatchRollupJobTest {
 
         // create database db1
         String createDbStmtStr = "create database if not exists db1;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(ctx, stmtExecutor);
+        }
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
     }
 

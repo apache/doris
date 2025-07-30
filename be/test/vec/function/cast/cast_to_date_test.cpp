@@ -112,6 +112,19 @@ TEST_F(FunctionCastTest, non_strict_test_from_string_to_date) {
     check_function_for_cast<DataTypeDateV2>(input_types, data_set);
 }
 
+TEST_F(FunctionCastTest, test_string_to_date_error_cases) {
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+        DataSet data_set = {
+                {{std::string("200104")}, std::string("2020-01-04")},
+                {{std::string(" ")}, Null()},
+                {{std::string("200104")}, std::string("2020-01-04")},
+                {{std::string("050505")}, std::string("2005-05-05")},
+        };
+        check_function_for_cast<DataTypeDateV2>(input_types, data_set);
+    }
+}
+
 TEST_F(FunctionCastTest, test_from_numeric_to_date) {
     // Test casting from Double
     {

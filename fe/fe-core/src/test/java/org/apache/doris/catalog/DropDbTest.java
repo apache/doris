@@ -17,12 +17,12 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -71,8 +71,12 @@ public class DropDbTest {
     }
 
     private static void createDb(String sql) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void dropDb(String sql) throws Exception {

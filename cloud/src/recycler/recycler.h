@@ -207,6 +207,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_operation_logs();
 
+    // scan and recycle expired restore jobs
+    // returns 0 for success otherwise error
+    int recycle_restore_jobs();
+
     bool check_recycle_tasks();
 
     int scan_and_statistics_indexes();
@@ -228,6 +232,8 @@ public:
     int scan_and_statistics_expired_stage_objects();
 
     int scan_and_statistics_versions();
+
+    int scan_and_statistics_restore_jobs();
 
 private:
     // returns 0 for success otherwise error

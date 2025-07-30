@@ -130,7 +130,7 @@ public:
                       argument_types_),
               scale(get_decimal_scale(*argument_types_[0])) {
         if constexpr (is_decimal(T)) {
-            multiplier =
+            multiplier.value =
                     ResultDataType::get_scale_multiplier(get_decimal_scale(*argument_types_[0]));
         }
     }
