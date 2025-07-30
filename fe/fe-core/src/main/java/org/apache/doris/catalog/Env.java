@@ -30,7 +30,6 @@ import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -6554,24 +6553,6 @@ public class Env {
             ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
             if (ctl != null) {
                 ctl.replayTruncateTable(info);
-            }
-        }
-    }
-
-    public void createFunction(CreateFunctionStmt stmt) throws UserException {
-        if (SetType.GLOBAL.equals(stmt.getType())) {
-            globalFunctionMgr.addFunction(stmt.getFunction(), stmt.isIfNotExists());
-        } else {
-            Database db = getInternalCatalog().getDbOrDdlException(stmt.getFunctionName().getDb());
-            db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
-            if (stmt.getFunction().isUDTFunction()) {
-                // all of the table function in doris will have two function
-                // one is the noraml, and another is outer, the different of them is deal with
-                // empty: whether need to insert NULL result value
-                Function outerFunction = stmt.getFunction().clone();
-                FunctionName name = outerFunction.getFunctionName();
-                name.setFn(name.getFunction() + "_outer");
-                db.addFunction(outerFunction, stmt.isIfNotExists());
             }
         }
     }
