@@ -66,13 +66,13 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
             return ImmutableList.<Plan>builder()
                     .add(splitToTwoPlusOnePhase(aggregate))
                     .add(splitToOnePlusOnePhase(aggregate))
-                    .add(splitToOnePlusTwoPhase(aggregate))
+                    .addAll(splitToOnePlusTwoPhase(aggregate))
                     .build();
         } else {
             return ImmutableList.<Plan>builder()
                     .add(splitToOnePlusOnePhase(aggregate))
                     .add(splitToTwoPlusTwoPhase(aggregate))
-                    .add(splitToOnePlusTwoPhase(aggregate))
+                    .addAll(splitToOnePlusTwoPhase(aggregate))
                     .build();
         }
     }
@@ -92,11 +92,12 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
     private Plan splitToOnePlusOnePhase(LogicalAggregate<? extends Plan> aggregate) {
         Set<NamedExpression> localAggGroupBySet = getAllKeySet(aggregate);
         // first phase
-        AggregateParam inputToResultParamFirst = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER, false);
+        AggregateParam inputToResultParamFirst = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
+        AggregateParam paramForAggFunc = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER);
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
         Plan localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet, inputToResultParamFirst,
-                localAggFunctionToAlias, aggregate.child(),
-                Utils.fastToImmutableList(aggregate.getDistinctArguments()));
+                paramForAggFunc, localAggFunctionToAlias, aggregate.child(),
+                Utils.fastToImmutableList(aggregate.getGroupByExpressions()));
 
         // second phase
         AggregateParam inputToResultParamSecond = new AggregateParam(AggPhase.DISTINCT_GLOBAL,
@@ -113,18 +114,23 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
         return splitDistinctTwoPhase(aggregate, middleAggFunctionToAlias, middleAgg);
     }
 
-    private Plan splitToOnePlusTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
+    private List<Plan> splitToOnePlusTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
         Set<NamedExpression> localAggGroupBySet = getAllKeySet(aggregate);
         // first phase
-        AggregateParam inputToResultParamFirst = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER, false);
+        AggregateParam paramForAgg = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
+        AggregateParam paramForAggFunc = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER, false);
+
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
-        Plan localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet, inputToResultParamFirst,
+        Plan localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet, paramForAgg, paramForAggFunc,
                 localAggFunctionToAlias, aggregate.child(),
                 Utils.fastToImmutableList(aggregate.getDistinctArguments()));
-        return splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, localAgg);
+        AggregateParam param = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT, false);
+        return ImmutableList.<Plan>builder().add(splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, localAgg))
+                .add(splitDistinctOnePhase(aggregate, param, localAggFunctionToAlias, localAgg))
+                .build();
     }
 
-    private Plan splitDistinctOnePhase(LogicalAggregate<? extends Plan> aggregate,
+    private LogicalAggregate<? extends Plan> splitDistinctOnePhase(LogicalAggregate<? extends Plan> aggregate,
             AggregateParam inputToResultParamSecond, Map<AggregateFunction, Alias> childAggFuncMap, Plan child) {
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
                 aggregate.getOutputExpressions(), expr -> {

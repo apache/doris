@@ -99,11 +99,12 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
     }
 
     Plan splitToThreePhase(LogicalAggregate<? extends Plan> aggregate) {
-        AggregateParam inputToResult = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToResult = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
+        AggregateParam paramForAggFunc = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER);
         Map<AggregateFunction, Alias> localAggFuncToAlias = new LinkedHashMap<>();
         Set<NamedExpression> keySet = getAllKeySet(aggregate);
         LogicalAggregate<? extends Plan> localAgg = splitDeduplicateOnePhase(aggregate, keySet, inputToResult,
-                localAggFuncToAlias, aggregate.child(), Utils.fastToImmutableList(keySet));
+                paramForAggFunc, localAggFuncToAlias, aggregate.child(), Utils.fastToImmutableList(keySet));
         return splitDistinctTwoPhase(aggregate, localAggFuncToAlias, localAgg);
     }
 

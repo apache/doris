@@ -43,14 +43,14 @@ import java.util.stream.Collectors;
 /**SplitAggRule*/
 public abstract class SplitAggRule {
     protected LogicalAggregate<? extends Plan> splitDeduplicateOnePhase(LogicalAggregate<? extends Plan> aggregate,
-            Set<NamedExpression> localAggGroupBySet, AggregateParam inputToBufferParam,
+            Set<NamedExpression> localAggGroupBySet, AggregateParam inputToBufferParam, AggregateParam paramForAggFunc,
             Map<AggregateFunction, Alias> localAggFunctionToAlias, Plan child, List<Expression> partitionExpressions) {
         aggregate.getAggregateFunctions().stream()
                 .filter(aggFunc -> !aggFunc.isDistinct())
                 .collect(Collectors.toMap(
                         expr -> expr,
                         expr -> {
-                            AggregateExpression localAggExpr = new AggregateExpression(expr, inputToBufferParam);
+                            AggregateExpression localAggExpr = new AggregateExpression(expr, paramForAggFunc);
                             return new Alias(localAggExpr);
                         },
                         (existing, replacement) -> existing,
@@ -73,7 +73,7 @@ public abstract class SplitAggRule {
         AggregateParam inputToBufferParam = AggregateParam.LOCAL_BUFFER;
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
         LogicalAggregate<? extends Plan> localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet,
-                inputToBufferParam, localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
+                inputToBufferParam, inputToBufferParam, localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
 
         // second phase
         AggregateParam bufferToBufferParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_BUFFER);
