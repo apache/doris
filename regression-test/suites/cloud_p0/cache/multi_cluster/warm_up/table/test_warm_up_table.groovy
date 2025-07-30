@@ -152,18 +152,10 @@ suite("test_warm_up_table") {
     for (; j < retryTime; j++) {
         sleep(1000)
         def statuses = getJobState(jobId[0][0])
-<<<<<<< HEAD
         if (statuses.any { it != null && it.equals("CANCELLED") }) {
             assertTrue(false);
         }
         if (statuses.any { it != null && it.equals("FINISHED") }) {
-=======
-        logger.info(statuses)
-        if (statuses.any { it.equals("CANCELLED") }) {
-            assertTrue(false);
-        }
-        if (statuses.any { it.equals("FINISHED") }) {
->>>>>>> c772c44448 ([regression](filecache) fix regression failures (#53057))
             break;
         }
     }
