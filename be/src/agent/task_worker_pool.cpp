@@ -297,7 +297,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                 job.process_alter_tablet(agent_task_req.alter_tablet_req_v2),
                 [&](const doris::Exception& ex) {
                     DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
-                    job.clean_up_on_failed();
+                    job.clean_up_on_failure();
                 });
         return Status::OK();
     }();
