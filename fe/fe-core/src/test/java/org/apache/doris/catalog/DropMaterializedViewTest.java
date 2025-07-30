@@ -78,7 +78,12 @@ public class DropMaterializedViewTest {
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         if (parsed instanceof CreateMTMVCommand) {
-            ((CreateMTMVCommand) parsed).run(connectContext, stmtExecutor);
+            try {
+                ((CreateMTMVCommand) parsed).run(connectContext, stmtExecutor);
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw new RuntimeException(e.getMessage());
+            }
         }
         checkAlterJob();
         // waiting table state to normal
