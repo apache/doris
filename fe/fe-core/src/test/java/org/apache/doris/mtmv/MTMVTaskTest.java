@@ -45,6 +45,7 @@ public class MTMVTaskTest {
     private String ptwoName = "p2";
     private List<String> allPartitionNames = Lists.newArrayList(poneName, ptwoName);
     private MTMVRelation relation = new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet());
+    private String mvName = "mv_test";
 
     @Mocked
     private MTMV mtmv;
@@ -94,6 +95,10 @@ public class MTMVTaskTest {
                 mtmvRefreshInfo.getRefreshMethod();
                 minTimes = 0;
                 result = RefreshMethod.COMPLETE;
+
+                mtmv.getName();
+                minTimes = 0;
+                result = mvName;
             }
         };
     }
@@ -104,6 +109,14 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
         Assert.assertEquals(allPartitionNames, result);
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsManualIncremental() throws AnalysisException {
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, false);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null, true, 0, 0);
+        Assert.assertEquals(Lists.newArrayList(mvName), result);
     }
 
     @Test

@@ -24,9 +24,18 @@ import java.util.List;
 import java.util.Map;
 
 public class TableScanParams {
+    public static String READ_MODE = "read_mode";
     public static String INCREMENTAL_READ = "incr";
     public static String BRANCH = "branch";
     public static String TAG = "tag";
+
+    // The keys of incremental read params for Doris Statement
+    public static final String DORIS_START_SNAPSHOT_ID = "startSnapshotId";
+    public static final String DORIS_END_SNAPSHOT_ID = "endSnapshotId";
+    public static final String DORIS_START_TIMESTAMP = "startTimestamp";
+    public static final String DORIS_END_TIMESTAMP = "endTimestamp";
+    public static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
+    public static final String DEFAULT_INCREMENTAL_BETWEEN_SCAN_MODE = "auto";
 
     private final String paramType;
     // There are two ways to pass parameters to a function.
