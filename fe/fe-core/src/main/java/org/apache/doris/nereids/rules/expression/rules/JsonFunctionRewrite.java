@@ -45,6 +45,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 
@@ -89,49 +90,55 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
     }
 
     private static <T extends ScalarFunction> Expression rewriteJsonArrayArguments(T function) {
-        List<Expression> convectedChildren = new ArrayList<Expression>();
-        function.children().forEach(child -> {
-            if (child.getDataType() instanceof JsonType) {
-                convectedChildren.add(child);
-            } else {
-                convectedChildren.add(new ToJson(child));
-            }
+        return MoreFieldsThread.keepFunctionSignature(false, () -> {
+            List<Expression> convectedChildren = new ArrayList<Expression>();
+            function.children().forEach(child -> {
+                if (child.getDataType() instanceof JsonType) {
+                    convectedChildren.add(child);
+                } else {
+                    convectedChildren.add(new ToJson(child));
+                }
+            });
+            return function.withChildren(convectedChildren);
         });
-        return function.withChildren(convectedChildren);
     }
 
     private static Expression rewriteJsonObjectArguments(JsonObject function) {
-        List<Expression> convectedChildren = new ArrayList<Expression>();
-        List<Expression> children = function.children();
-        for (int i = 0; i < children.size(); i++) {
-            Expression child = children.get(i);
-            if (i % 2 == 0) {
-                convectedChildren.add(child);
-            } else if (child.getDataType() instanceof JsonType) {
-                convectedChildren.add(child);
-            } else {
-                convectedChildren.add(new ToJson(child));
+        return MoreFieldsThread.keepFunctionSignature(false, () -> {
+            List<Expression> convectedChildren = new ArrayList<Expression>();
+            List<Expression> children = function.children();
+            for (int i = 0; i < children.size(); i++) {
+                Expression child = children.get(i);
+                if (i % 2 == 0) {
+                    convectedChildren.add(child);
+                } else if (child.getDataType() instanceof JsonType) {
+                    convectedChildren.add(child);
+                } else {
+                    convectedChildren.add(new ToJson(child));
+                }
             }
-        }
-        return function.withChildren(convectedChildren);
+            return function.withChildren(convectedChildren);
+        });
     }
 
     private static <T extends ScalarFunction> Expression rewriteJsonModifyArguments(T function) {
-        List<Expression> convectedChildren = new ArrayList<Expression>();
-        List<Expression> children = function.children();
+        return MoreFieldsThread.keepFunctionSignature(false, () -> {
+            List<Expression> convectedChildren = new ArrayList<Expression>();
+            List<Expression> children = function.children();
 
-        convectedChildren.add(children.get(0));
-        for (int i = 1; i < children.size(); i++) {
-            Expression child = children.get(i);
-            if (i % 2 == 1) {
-                convectedChildren.add(child);
-            } else if (child.getDataType() instanceof JsonType) {
-                convectedChildren.add(child);
-            } else {
-                convectedChildren.add(new ToJson(child));
+            convectedChildren.add(children.get(0));
+            for (int i = 1; i < children.size(); i++) {
+                Expression child = children.get(i);
+                if (i % 2 == 1) {
+                    convectedChildren.add(child);
+                } else if (child.getDataType() instanceof JsonType) {
+                    convectedChildren.add(child);
+                } else {
+                    convectedChildren.add(new ToJson(child));
+                }
             }
-        }
-        return function.withChildren(convectedChildren);
+            return function.withChildren(convectedChildren);
+        });
     }
 
     private static <T extends ScalarFunction> Expression rewriteJsonExtractFunctions(T function) {
