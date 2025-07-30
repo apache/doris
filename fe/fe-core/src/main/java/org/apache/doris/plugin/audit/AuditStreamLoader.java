@@ -17,6 +17,7 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -50,8 +51,8 @@ public class AuditStreamLoader {
         this.db = FeConstants.INTERNAL_DB_NAME;
         this.auditLogTbl = AuditLoader.AUDIT_LOG_TABLE;
         this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
-        // currently, FE identity is FE's IP, so we replace the "." in IP to make it suitable for label
-        this.feIdentity = hostPort.replaceAll("\\.", "_").replaceAll(":", "_");
+        // currently, FE identity is FE's IP:port, so we replace the "." and ":" to make it suitable for label
+        this.feIdentity = Env.getCurrentEnv().getSelfNode().getIdent().replaceAll("\\.", "_").replaceAll(":", "_");
     }
 
     private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
