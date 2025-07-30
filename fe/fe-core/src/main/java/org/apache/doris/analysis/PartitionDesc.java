@@ -282,7 +282,7 @@ public class PartitionDesc {
     }
 
     public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId, boolean isTemp)
-            throws DdlException, AnalysisException {
+            throws DdlException {
         throw new NotImplementedException("toPartitionInfo not implemented");
     }
 

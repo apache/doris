@@ -66,8 +66,8 @@ public class RangePartitionItem extends PartitionItem {
     @Override
     public PartitionKeyDesc toPartitionKeyDesc() {
         return PartitionKeyDesc.createFixed(
-                PartitionInfo.toPartitionValue(partitionKeyRange.lowerEndpoint()),
-                PartitionInfo.toPartitionValue(partitionKeyRange.upperEndpoint()));
+            PartitionKey.toPartitionValue(partitionKeyRange.lowerEndpoint()),
+            PartitionKey.toPartitionValue(partitionKeyRange.upperEndpoint()));
     }
 
     @Override

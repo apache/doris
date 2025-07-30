@@ -289,8 +289,8 @@ public class RangePartitionInfo extends PartitionInfo {
 
             Range<PartitionKey> range = entry.getValue().getItems();
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
-                    PartitionInfo.toPartitionValue(range.lowerEndpoint()),
-                    PartitionInfo.toPartitionValue(range.upperEndpoint()));
+                    PartitionKey.toPartitionValue(range.lowerEndpoint()),
+                    PartitionKey.toPartitionValue(range.upperEndpoint()));
 
             Map<String, String> properties = Maps.newHashMap();
             Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
