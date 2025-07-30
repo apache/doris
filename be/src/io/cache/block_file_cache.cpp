@@ -1784,7 +1784,9 @@ void BlockFileCache::check_disk_resource_limit() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 88;
         config::file_cache_exit_disk_resource_limit_mode_percent = 80;
     }
-    if (is_insufficient(space_percentage) || is_insufficient(inode_percentage)) {
+    bool is_space_insufficient = is_insufficient(space_percentage);
+    bool is_inode_insufficient = is_insufficient(inode_percentage);
+    if (is_space_insufficient || is_inode_insufficient) {
         _disk_resource_limit_mode = true;
         _disk_limit_mode_metrics->set_value(1);
     } else if (_disk_resource_limit_mode &&
@@ -1798,7 +1800,10 @@ void BlockFileCache::check_disk_resource_limit() {
         if (_disk_resource_limit_mode) {
             LOG(WARNING) << "Entering disk resource limit mode: file_cache=" << get_base_path()
                          << " space_percent=" << space_percentage
-                         << " inode_percent=" << inode_percentage << " enter threshold="
+                         << " inode_percent=" << inode_percentage
+                         << " is_space_insufficient=" << is_space_insufficient
+                         << " is_inode_insufficient=" << is_inode_insufficient
+                         << " enter threshold="
                          << config::file_cache_enter_disk_resource_limit_mode_percent;
         } else {
             LOG(INFO) << "Exiting disk resource limit mode: file_cache=" << get_base_path()
@@ -1811,8 +1816,8 @@ void BlockFileCache::check_disk_resource_limit() {
         LOG_EVERY_N(WARNING, 10) << "file_cache=" << get_base_path()
                                  << " space_percent=" << space_percentage
                                  << " inode_percent=" << inode_percentage
-                                 << " is_space_insufficient=" << is_insufficient(space_percentage)
-                                 << " is_inode_insufficient=" << is_insufficient(inode_percentage)
+                                 << " is_space_insufficient=" << is_space_insufficient
+                                 << " is_inode_insufficient=" << is_inode_insufficient
                                  << " mode run in resource limit";
     }
 }
@@ -1849,8 +1854,10 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
     }
     bool previous_mode = _need_evict_cache_in_advance;
-    if (is_insufficient(space_percentage) || is_insufficient(inode_percentage) ||
-        is_insufficient(size_percentage)) {
+    bool is_space_insufficient = is_insufficient(space_percentage);
+    bool is_inode_insufficient = is_insufficient(inode_percentage);
+    bool is_size_insufficient = is_insufficient(size_percentage);
+    if (is_space_insufficient || is_inode_insufficient || is_size_insufficient) {
         _need_evict_cache_in_advance = true;
         _need_evict_cache_in_advance_metrics->set_value(1);
     } else if (_need_evict_cache_in_advance &&
@@ -1867,7 +1874,10 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
                          << "file_cache=" << get_base_path()
                          << " space_percent=" << space_percentage
                          << " inode_percent=" << inode_percentage
-                         << " size_percent=" << size_percentage << " enter threshold="
+                         << " size_percent=" << size_percentage
+                         << " is_space_insufficient=" << is_space_insufficient
+                         << " is_inode_insufficient=" << is_inode_insufficient
+                         << " is_size_insufficient=" << is_size_insufficient << " enter threshold="
                          << config::file_cache_enter_need_evict_cache_in_advance_percent;
         } else {
             LOG(INFO) << "Exiting evict cache in advance mode: "
@@ -1882,9 +1892,9 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
                                  << " space_percent=" << space_percentage
                                  << " inode_percent=" << inode_percentage
                                  << " size_percent=" << size_percentage
-                                 << " is_space_insufficient=" << is_insufficient(space_percentage)
-                                 << " is_inode_insufficient=" << is_insufficient(inode_percentage)
-                                 << " is_size_insufficient=" << is_insufficient(size_percentage)
+                                 << " is_space_insufficient=" << is_space_insufficient
+                                 << " is_inode_insufficient=" << is_inode_insufficient
+                                 << " is_size_insufficient=" << is_size_insufficient
                                  << " need evict cache in advance";
     }
 }
