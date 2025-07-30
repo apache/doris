@@ -19,7 +19,6 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.datasource.property.constants.PaimonProperties;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
@@ -44,13 +43,10 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
         super.initLocalObjectsImpl();
         catalogType = PAIMON_HMS;
         catalog = createCatalog();
+        initPreExecutionAuthenticator();
     }
 
-    @Override
-    protected void setPaimonCatalogOptions(Map<String, String> properties, Map<String, String> options) {
-        options.put(PaimonProperties.PAIMON_CATALOG_TYPE, getPaimonCatalogType(catalogType));
-        options.put(PaimonProperties.HIVE_METASTORE_URIS, properties.get(HMSProperties.HIVE_METASTORE_URIS));
-    }
+
 
     @Override
     public void checkProperties() throws DdlException {

@@ -15,25 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.paimon;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+package org.apache.doris.datasource.property.metastore;
 
 import java.util.Map;
 
-public class PaimonDLFExternalCatalog extends PaimonExternalCatalog {
-    private static final Logger LOG = LogManager.getLogger(PaimonDLFExternalCatalog.class);
+public class PaimonPropertiesFactory extends AbstractMetastorePropertiesFactory {
 
-    public PaimonDLFExternalCatalog(long catalogId, String name, String resource,
-                                    Map<String, String> props, String comment) {
-        super(catalogId, name, resource, props, comment);
+    private static final String KEY = "paimon.catalog.type";
+    private static final String DEFAULT_TYPE = "filesystem";
+
+    public PaimonPropertiesFactory() {
+        register("dlf", PaimonAliyunDLFMetaStoreProperties::new);
+        register("filesystem", PaimonFileSystemMetaStoreProperties::new);
+        register("hms", PaimonHMSMetaStoreProperties::new);
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
-        super.initLocalObjectsImpl();
-        catalogType = PAIMON_DLF;
-        catalog = createCatalog();
+    public MetastoreProperties create(Map<String, String> props) {
+        return createInternal(props, KEY, DEFAULT_TYPE);
     }
 }
