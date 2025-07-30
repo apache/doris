@@ -110,6 +110,29 @@ TEST(ColumnConstTest, get_and_insert) {
         } catch (const Exception& e) {
             EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
         }
+
+        try {
+            column_const->insert_many_from(*dummy_column, 0, 5);
+            EXPECT_FALSE(true);
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        }
+
+        try {
+            column_const->insert_from(*dummy_column, 0);
+            EXPECT_FALSE(true);
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        }
+
+        try {
+            std::vector<uint32_t> indices = {0, 1, 2, 3, 4};
+            column_const->insert_indices_from(*dummy_column, indices.data(),
+                                              indices.data() + indices.size());
+            EXPECT_FALSE(true);
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        }
     }
 
     auto dummy_column = ColumnConst::create(column_data, 3);
