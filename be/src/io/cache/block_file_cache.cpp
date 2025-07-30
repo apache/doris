@@ -194,8 +194,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                              "file_cache_num_read_blocks");
     _num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                             "file_cache_num_hit_blocks");
-    _num_small_hit_blocks = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_num_small_hit_blocks");
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
 
