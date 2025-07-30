@@ -171,16 +171,24 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping, String queryType) {
-        return getPaimonTable(nameMapping, null, queryType);
-    }
-
     public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping, String branch,
             String queryType) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> catalog.getTable(new Identifier(nameMapping.getRemoteDbName(),
-                    nameMapping.getRemoteTblName(), branch, queryType)));
+            Identifier identifier;
+            if (branch != null && queryType != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        branch, queryType);
+            } else if (branch != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        branch);
+            } else if (queryType != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        "main", queryType);
+            } else {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+            }
+            return hadoopAuthenticator.doAs(() -> catalog.getTable(identifier));
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon  table:" + getName() + "."
                     + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName()
