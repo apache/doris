@@ -45,8 +45,8 @@
 #include "gtest/gtest.h"
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
+#include "util/defer_op.h"
 #include "util/random.h"
-#include "util/scoped_cleanup.h"
 #include "util/time.h"
 
 using std::atomic;
@@ -158,7 +158,7 @@ TEST_F(ThreadPoolTest, TestThreadPoolWithNoMinimum) {
     EXPECT_TRUE(_pool->num_threads() == 0);
     // We get up to 3 threads when submitting work.
     CountDownLatch latch(1);
-    SCOPED_CLEANUP({ latch.count_down(); });
+    Defer defer = [&] { latch.count_down(); };
     EXPECT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch)).ok());
     EXPECT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch)).ok());
     EXPECT_EQ(2, _pool->num_threads());
@@ -186,7 +186,7 @@ TEST_F(ThreadPoolTest, TestThreadPoolWithNoMaxThreads) {
                                                   .set_max_threads(std::numeric_limits<int>::max()))
                         .ok());
     CountDownLatch latch(1);
-    auto cleanup_latch = MakeScopedCleanup([&]() { latch.count_down(); });
+    Defer defer = [&]() { latch.count_down(); };
 
     // submit tokenless tasks. Each should create a new thread.
     for (int i = 0; i < kNumCPUs * 2; i++) {
@@ -218,7 +218,7 @@ TEST_F(ThreadPoolTest, TestThreadPoolWithNoMaxThreads) {
 // as a thread is about to exit. Previously this could hang forever.
 TEST_F(ThreadPoolTest, TestRace) {
     alarm(60);
-    auto cleanup = MakeScopedCleanup([]() {
+    Defer defer = ([&]() {
         alarm(0); // Disable alarm on test exit.
     });
     EXPECT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
@@ -233,7 +233,7 @@ TEST_F(ThreadPoolTest, TestRace) {
         // so an cast is needed to use std::bind
         EXPECT_TRUE(_pool
                             ->submit_func(std::bind(
-                                    (void(CountDownLatch::*)())(&CountDownLatch::count_down), &l))
+                                    (void (CountDownLatch::*)())(&CountDownLatch::count_down), &l))
                             .ok());
         l.wait();
         // Sleeping a different amount in each iteration makes it more likely to hit
@@ -429,9 +429,9 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenSubmitsProcessedConcurrently) {
     // A violation to the tested invariant would yield a deadlock, so let's set
     // up an alarm to bail us out.
     alarm(60);
-    SCOPED_CLEANUP({
+    Defer defer = [&] {
         alarm(0); // Disable alarm on test exit.
-    });
+    };
     std::shared_ptr<Barrier> b = std::make_shared<Barrier>(kNumTokens + 1);
     for (int i = 0; i < kNumTokens; i++) {
         tokens.emplace_back(_pool->new_token(GetParam()));
@@ -451,9 +451,9 @@ TEST_F(ThreadPoolTest, TestTokenSubmitsNonSequential) {
     // A violation to the tested invariant would yield a deadlock, so let's set
     // up an alarm to bail us out.
     alarm(60);
-    SCOPED_CLEANUP({
+    Defer defer = [&] {
         alarm(0); // Disable alarm on test exit.
-    });
+    };
     shared_ptr<Barrier> b = std::make_shared<Barrier>(kNumSubmissions + 1);
     std::unique_ptr<ThreadPoolToken> t = _pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
     for (int i = 0; i < kNumSubmissions; i++) {
@@ -476,9 +476,9 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenShutdown) {
     // A violation to the tested invariant would yield a deadlock, so let's set
     // up an alarm to bail us out.
     alarm(60);
-    SCOPED_CLEANUP({
+    Defer defer = [&] {
         alarm(0); // Disable alarm on test exit.
-    });
+    };
 
     for (int i = 0; i < 3; i++) {
         EXPECT_TRUE(t1->submit_func([&]() { l1.wait(); }).ok());
@@ -625,7 +625,7 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenSubmissionsAdhereToMaxQueueSize) {
 
     CountDownLatch latch(1);
     std::unique_ptr<ThreadPoolToken> t = _pool->new_token(GetParam());
-    SCOPED_CLEANUP({ latch.count_down(); });
+    Defer defer = [&] { latch.count_down(); };
     // We will be able to submit two tasks: one for max_threads == 1 and one for
     // max_queue_size == 1.
     EXPECT_TRUE(t->submit(SlowTask::new_slow_task(&latch)).ok());
