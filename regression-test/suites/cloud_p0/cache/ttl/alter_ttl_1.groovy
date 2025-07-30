@@ -174,5 +174,4 @@ suite("alter_ttl_1") {
             assertTrue(flag1)
     }
     }
-    }
 }
