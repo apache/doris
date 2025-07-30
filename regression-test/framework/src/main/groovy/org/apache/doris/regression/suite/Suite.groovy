@@ -23,8 +23,6 @@ import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 
-import static java.util.concurrent.TimeUnit.SECONDS
-
 import com.google.common.base.Strings
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
@@ -283,13 +281,22 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, connInfo.conn.getMetaData().getURL(), actionSupplier)
     }
 
-    public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
-        def connInfo = context.threadLocalConn.get()
-        Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
-            {
-                connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-            }
-        )
+    // delete 'dockerAwaitUntil', should call 'Awaitility.await()...' directly or use 'awaitUntil(..., f)'
+    // public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+    //     def connInfo = context.threadLocalConn.get()
+    //     Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+    //         {
+    //             connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+    //         }
+    //     )
+    // }
+    public void awaitUntil(int atMostSeconds, double intervalSecond = 1, Closure actionSupplier) {
+        Awaitility
+            .with().pollInSameThread()
+            .await()
+            .atMost(atMostSeconds, TimeUnit.SECONDS)
+            .pollInterval((int) (1000 * intervalSecond), TimeUnit.MILLISECONDS)
+            .until(actionSupplier)
     }
 
     // more explaination can see example file: demo_p0/docker_action.groovy
@@ -324,6 +331,7 @@ class Suite implements GroovyInterceptable {
 
     private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
         logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
+        def originConnection = context.threadLocalConn.get()
         try {
             cluster.destroy(true)
             cluster.init(options, isCloud)
@@ -350,18 +358,18 @@ class Suite implements GroovyInterceptable {
 
             // wait be report
             Thread.sleep(5000)
-            def url = String.format(
+            def jdbcUrl = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
-            def conn = DriverManager.getConnection(url, user, password)
-            def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
-            logger.info("try create database if not exists {}", context.dbName)
-            JdbcUtils.executeToList(conn, sql)
-
-            url = Config.buildUrlWithDb(url, context.dbName)
-            logger.info("connect to docker cluster: suite={}, url={}", name, url)
-            connect(user, password, url, actionSupplier)
+            cluster.jdbcUrl = jdbcUrl
+            context.threadLocalConn.remove()
+            actionSupplier.call()
         } finally {
+            if (originConnection == null) {
+                context.threadLocalConn.remove()
+            } else {
+                context.threadLocalConn.set(originConnection)
+            }
             if (!context.config.dockerEndNoKill) {
                 cluster.destroy(context.config.dockerEndDeleteFiles)
             }
@@ -655,7 +663,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getCurDbConnectUrl() {
-        return context.config.getConnectionUrlByDbName(getCurDbName())
+        return Config.buildUrlWithDb(context.getJdbcUrl(), getCurDbName())
     }
 
     long getDbId() {
@@ -1843,9 +1851,10 @@ class Suite implements GroovyInterceptable {
     }
 
     void testFoldConst(String foldSql) {
+        def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
         String openFoldConstant = "set debug_skip_fold_constant=false";
         sql(openFoldConstant)
-        logger.info(foldSql)
+        // logger.info(foldSql)
         Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
         tupleResult = JdbcUtils.executeToStringList(context.getConnection(), foldSql)
         def (resultByFoldConstant, meta) = tupleResult
@@ -1856,6 +1865,9 @@ class Suite implements GroovyInterceptable {
         Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult2 = JdbcUtils.executeToStringList(context.getConnection(), foldSql)
         List<List<Object>> resultExpected = tupleResult2.first
         logger.info("result expected: " + resultExpected.toString())
+
+        // restore debug_skip_fold_constant original value
+        sql("set debug_skip_fold_constant=${sessionVarOrigValue[0][0]}")
 
         String errorMsg = null
         try {
@@ -1971,8 +1983,7 @@ class Suite implements GroovyInterceptable {
 
     void waitAddFeFinished(String host, int port) {
         logger.info("waiting for ${host}:${port}")
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             logger.info("frontends ${frontends}")
             boolean matched = false
@@ -1984,12 +1995,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropFeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        logger.info("waiting drop fe ${host}:${port}");
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             boolean matched = false
             for (frontend: frontends) {
@@ -1998,13 +2009,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waitAddBeFinished(String host, int port) {
         logger.info("waiting ${host}:${port} added");
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -2015,12 +2025,11 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropBeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -2031,7 +2040,7 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waiteCreateTableFinished(String tableName) {
@@ -2163,8 +2172,11 @@ class Suite implements GroovyInterceptable {
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
-                boolean success = !result.contains("${mv_name} chose") && !result.contains("${mv_name} not chose")
+                boolean success = !result.contains(".${mv_name} chose") && !result.contains(".${mv_name} not chose")
                 && !result.contains("${mv_name} fail")
+                if (!success) {
+                    logger.info("mv_not_part_in fail =" + result)
+                }
                 Assert.assertEquals(true, success)
             }
         }
@@ -2178,8 +2190,11 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    success = !result.contains("${mv_name} chose") && !result.contains("${mv_name} not chose")
-                            && !result.contains("${mv_name} fail")
+                    success = !result.contains(".${mv_name} chose") && !result.contains(".${mv_name} not chose")
+                            && !result.contains(".${mv_name} fail")
+                }
+                if (!success) {
+                    logger.info("mv_all_not_part_in fail =" + result)
                 }
                 Assert.assertEquals(true, success)
             }
@@ -2199,7 +2214,7 @@ class Suite implements GroovyInterceptable {
         }
         explain {
             sql(" memo plan ${query_sql}")
-            contains("${mv_name} chose")
+            contains(".${mv_name} chose")
         }
     }
 
@@ -2219,7 +2234,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    def contains = result.contains("${mv_name} chose")
+                    def contains = result.contains(".${mv_name} chose")
                     if (!contains) {
                         logger.info("mv_rewrite_all_success fail =" + result)
                     }
@@ -2245,7 +2260,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = false;
                 for (String mv_name : mv_names) {
-                    success = success || result.contains("${mv_name} chose")
+                    success = success || result.contains(".${mv_name} chose")
                 }
                 if (!success) {
                     logger.info("mv_rewrite_any_success fail =" + result)
@@ -2263,7 +2278,7 @@ class Suite implements GroovyInterceptable {
             check {result ->
                 boolean success = true
                 for (String mv_name : mv_names) {
-                    boolean stepSuccess = result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                    boolean stepSuccess = result.contains(".${mv_name} chose") || result.contains(".${mv_name} not chose")
                     success = success && stepSuccess
                 }
                 if (!success) {
@@ -2282,7 +2297,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = false
                 for (String mv_name : mv_names) {
-                    success = success || result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                    success = success || result.contains(".${mv_name} chose") || result.contains(".${mv_name} not chose")
                 }
                 if (!success) {
                     logger.info("mv_rewrite_any_success_without_check_chosen fail =" + result)
@@ -2298,7 +2313,7 @@ class Suite implements GroovyInterceptable {
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
-                result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                result.contains(".${mv_name} chose") || result.contains(".${mv_name} not chose")
             }
         }
     }
@@ -2308,7 +2323,7 @@ class Suite implements GroovyInterceptable {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
         explain {
             sql(" memo plan ${query_sql}")
-            contains("${mv_name} fail")
+            contains(".${mv_name} fail")
         }
     }
 
@@ -2320,7 +2335,7 @@ class Suite implements GroovyInterceptable {
             check {result ->
                 boolean fail = true
                 for (String mv_name : mv_names) {
-                    boolean stepFail = result.contains("${mv_name} fail")
+                    boolean stepFail = result.contains(".${mv_name} fail")
                     fail = fail && stepFail
                 }
                 if (!fail) {
@@ -2339,7 +2354,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean fail = false
                 for (String mv_name : mv_names) {
-                    fail = fail || result.contains("${mv_name} fail")
+                    fail = fail || result.contains(".${mv_name} fail")
                 }
                 if (!fail) {
                     logger.info("mv_rewrite_any_fail =" + result)

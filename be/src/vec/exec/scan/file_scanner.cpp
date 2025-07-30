@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "exec/rowid_fetcher.h"
 #include "io/cache/block_file_cache_profile.h"
+#include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -95,6 +96,9 @@ class ShardedKVCache;
 namespace doris::vectorized {
 using namespace ErrorCode;
 
+const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
+const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
+
 FileScanner::FileScanner(
         RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
         std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
@@ -147,14 +151,24 @@ Status FileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjun
                                                      "NotFoundFileNum", TUnit::UNIT, 1);
     _file_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
+
+    _file_read_bytes_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                      "FileReadBytes", TUnit::BYTES, 1);
+    _file_read_calls_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                      "FileReadCalls", TUnit::UNIT, 1);
+    _file_read_time_counter =
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileReadTime", 1);
+
     _runtime_filter_partition_pruned_range_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                    "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
+    _file_reader_stats.reset(new io::FileReaderStats());
 
     RETURN_IF_ERROR(_init_io_ctx());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
+    _io_ctx->file_reader_stats = _file_reader_stats.get();
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -438,6 +452,9 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
+            if ((!_cur_reader->count_read_rows()) && _io_ctx) {
+                _io_ctx->file_reader_stats->read_rows += read_rows;
+            }
             // If the push_down_agg_type is COUNT, no need to do the rest,
             // because we only save a number in block.
             if (_get_push_down_agg_type() != TPushAggOp::type::COUNT) {
@@ -1349,10 +1366,15 @@ Status FileScanner::_generate_truncate_columns(bool need_to_get_parsed_schema) {
     return Status::OK();
 }
 
-Status FileScanner::prepare_for_read_one_line(const TFileRangeDesc& range) {
+Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     _current_range = range;
 
+    _file_cache_statistics.reset(new io::FileCacheStatistics());
+    _file_reader_stats.reset(new io::FileReaderStats());
+
     RETURN_IF_ERROR(_init_io_ctx());
+    _io_ctx->file_cache_stats = _file_cache_statistics.get();
+    _io_ctx->file_reader_stats = _file_reader_stats.get();
     _default_val_row_desc.reset(new RowDescriptor((TupleDescriptor*)_real_tuple_desc, false));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
@@ -1366,10 +1388,10 @@ Status FileScanner::prepare_for_read_one_line(const TFileRangeDesc& range) {
     return Status::OK();
 }
 
-Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
-                                             const segment_v2::rowid_t rowid, Block* result_block,
-                                             const ExternalFileMappingInfo& external_info,
-                                             int64_t* init_reader_ms, int64_t* get_block_ms) {
+Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
+                                          const std::list<int64_t>& row_ids, Block* result_block,
+                                          const ExternalFileMappingInfo& external_info,
+                                          int64_t* init_reader_ms, int64_t* get_block_ms) {
     _current_range = range;
     RETURN_IF_ERROR(_generate_parititon_columns());
 
@@ -1389,7 +1411,8 @@ Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
                                             ? ExecEnv::GetInstance()->file_meta_cache()
                                             : nullptr,
                                     false);
-                    RETURN_IF_ERROR(parquet_reader->set_read_lines_mode({rowid}));
+
+                    RETURN_IF_ERROR(parquet_reader->set_read_lines_mode(row_ids));
                     RETURN_IF_ERROR(_init_parquet_reader(std::move(parquet_reader)));
                     break;
                 }
@@ -1399,7 +1422,7 @@ Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
                                                                  1, _state->timezone(),
                                                                  _io_ctx.get(), false);
 
-                    RETURN_IF_ERROR(orc_reader->set_read_lines_mode({rowid}));
+                    RETURN_IF_ERROR(orc_reader->set_read_lines_mode(row_ids));
                     RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader)));
                     break;
                 }
@@ -1419,11 +1442,15 @@ Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
 
     RETURN_IF_ERROR(scope_timer_run(
             [&]() -> Status {
-                bool eof = false;
-                return _get_block_impl(_state, result_block, &eof);
+                while (!_cur_reader_eof) {
+                    bool eof = false;
+                    RETURN_IF_ERROR(_get_block_impl(_state, result_block, &eof));
+                }
+                return Status::OK();
             },
             get_block_ms));
 
+    _cur_reader->collect_profile_before_close();
     RETURN_IF_ERROR(_cur_reader->close());
     return Status::OK();
 }
@@ -1609,6 +1636,51 @@ void FileScanner::try_stop() {
     }
 }
 
+void FileScanner::update_realtime_counters() {
+    pipeline::FileScanLocalState* local_state =
+            static_cast<pipeline::FileScanLocalState*>(_local_state);
+
+    COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
+    COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
+
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(
+            _file_reader_stats->read_rows);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
+            _file_reader_stats->read_bytes);
+
+    if (_file_cache_statistics->bytes_read_from_local == 0 &&
+        _file_cache_statistics->bytes_read_from_remote == 0) {
+        _state->get_query_ctx()
+                ->resource_ctx()
+                ->io_context()
+                ->update_scan_bytes_from_remote_storage(_file_reader_stats->read_bytes);
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                _file_reader_stats->read_bytes);
+    } else {
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+                _file_cache_statistics->bytes_read_from_local);
+        _state->get_query_ctx()
+                ->resource_ctx()
+                ->io_context()
+                ->update_scan_bytes_from_remote_storage(
+                        _file_cache_statistics->bytes_read_from_remote);
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                _file_cache_statistics->bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                _file_cache_statistics->bytes_read_from_remote);
+    }
+
+    COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
+
+    DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
+    DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);
+
+    _file_reader_stats->read_bytes = 0;
+    _file_reader_stats->read_rows = 0;
+    _file_cache_statistics->bytes_read_from_local = 0;
+    _file_cache_statistics->bytes_read_from_remote = 0;
+}
+
 void FileScanner::_collect_profile_before_close() {
     Scanner::_collect_profile_before_close();
     if (config::enable_file_cache && _state->query_options().enable_file_cache &&
@@ -1620,6 +1692,18 @@ void FileScanner::_collect_profile_before_close() {
     if (_cur_reader != nullptr) {
         _cur_reader->collect_profile_before_close();
     }
+
+    pipeline::FileScanLocalState* local_state =
+            static_cast<pipeline::FileScanLocalState*>(_local_state);
+    COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
+    COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
+
+    COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
+    COUNTER_UPDATE(_file_read_calls_counter, _file_reader_stats->read_calls);
+    COUNTER_UPDATE(_file_read_time_counter, _file_reader_stats->read_time_ns);
+
+    DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
+    DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);
 }
 
 } // namespace doris::vectorized

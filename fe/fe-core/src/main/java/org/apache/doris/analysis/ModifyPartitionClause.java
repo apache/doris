@@ -95,7 +95,7 @@ public class ModifyPartitionClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (partitionNames == null || (!needExpand && partitionNames.isEmpty())) {
             throw new AnalysisException("Partition names is not set or empty");
         }

@@ -269,7 +269,6 @@ TEST_F(DataTypeDecimalTest, simple_func_test) {
 
         EXPECT_TRUE(dt.equals(dt));
 
-        EXPECT_EQ(std::string(dt.get_family_name()), std::string("Decimal"));
         EXPECT_EQ(dt.do_get_name(), "Decimal(" + std::to_string(dt.get_precision()) + ", " +
                                             std::to_string(dt.get_scale()) + ")");
         EXPECT_EQ(dt.get_format_scale(), dt.get_scale());
@@ -672,10 +671,10 @@ TEST_F(DataTypeDecimalTest, scale_factor_for) {
 
     EXPECT_THROW(dt_decimal128v3_2.scale_factor_for(dt_decimal256_2), Exception);
 
-    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal64_1).value, 1000);
-    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal256_1).value, 1000);
+    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal64_1), 1000);
+    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal256_1), 1000);
 
-    EXPECT_EQ(dt_decimal64_3.scale_factor_for(dt_decimal64_2).value,
+    EXPECT_EQ(dt_decimal64_3.scale_factor_for(dt_decimal64_2),
               std::pow(10, dt_decimal64_3.get_scale() - dt_decimal64_2.get_scale()));
 
     EXPECT_EQ(dt_decimal256_3.scale_factor_for(dt_decimal256_2),

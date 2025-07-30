@@ -158,7 +158,7 @@ public:
          *       ["abc", "def", "", "hig"]
          */
         const char* nested_string_wrapper;
-        int wrapper_len;
+        int wrapper_len = 0;
 
         /**
          * mysql_collection_delim is used to separate elements in collection, such as array, map, struct
@@ -174,6 +174,8 @@ public:
          *      [true]
          */
         bool is_bool_value_num = true;
+
+        const cctz::time_zone* timezone = nullptr;
 
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
@@ -236,6 +238,36 @@ public:
 public:
     DataTypeSerDe(int nesting_level = 1) : _nesting_level(nesting_level) {};
     virtual ~DataTypeSerDe();
+
+    // All types can override this function
+    // When this function is called, column should be of the corresponding type
+    // everytime call this, should insert new cell to the end of column
+    virtual Status from_string(StringRef& str, IColumn& column,
+                               const FormatOptions& options) const {
+        return Status::NotSupported("from_string is not supported");
+    }
+
+    // Similar to from_string, but in strict mode, we should not handle errors.
+    // If conversion from string fails, we should return immediately
+    virtual Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                           const FormatOptions& options) const {
+        return from_string(str, column, options);
+    }
+
+    // Override functions with _batch suffix only when performance is critical
+    // Only used for basic data types, such as Ip, Date, Number, etc.
+    virtual Status from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                     const FormatOptions& options) const {
+        return Status::NotSupported("from_string is not supported");
+    }
+
+    // For strict mode, we should not have nullable columns, as we will directly report errors when string conversion fails instead of handling them
+    virtual Status from_string_strict_mode_batch(
+            const ColumnString& str, IColumn& column, const FormatOptions& options,
+            const NullMap::value_type* null_map = nullptr) const {
+        return Status::NotSupported("from_string is not supported");
+    }
+
     // Text serializer and deserializer with formatOptions to handle different text format
     virtual Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                               BufferWritable& bw, FormatOptions& options) const = 0;
@@ -322,7 +354,7 @@ public:
 
     // JSONB serializer and deserializer, should write col_id
     virtual void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                         Arena* mem_pool, int32_t col_id,
+                                         Arena& mem_pool, int32_t col_id,
                                          int64_t row_num) const = 0;
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
@@ -351,7 +383,7 @@ public:
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                        const NullMap* null_map,
                                        orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                       int64_t end, std::vector<StringRef>& buffer_list) const = 0;
+                                       int64_t end, vectorized::Arena& arena) const = 0;
     // ORC deserializer
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }

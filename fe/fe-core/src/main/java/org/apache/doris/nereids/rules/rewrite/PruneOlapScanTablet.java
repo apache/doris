@@ -52,7 +52,7 @@ import java.util.Optional;
 public class PruneOlapScanTablet extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(logicalOlapScan()).thenApply(ctx -> {
+        return logicalFilter(logicalOlapScan().when(scan -> scan.getSelectedTabletIds().isEmpty())).thenApply(ctx -> {
             LogicalFilter<LogicalOlapScan> filter = ctx.root;
 
             LogicalOlapScan olapScan = filter.child();
@@ -78,11 +78,10 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
                 for (Long id : olapScan.getSelectedPartitionIds()) {
                     Partition partition = table.getPartition(id);
                     MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
-                    selectedTabletIdsBuilder
-                            .addAll(getSelectedTabletIds(filterMap, index,
-                                    olapScan.getSelectedIndexId() == olapScan.getTable()
-                                            .getBaseIndexId(),
-                                    partition.getDistributionInfo()));
+                    boolean isBaseIndexSelected = olapScan.getSelectedIndexId() == olapScan.getTable().getBaseIndexId();
+                    Collection<Long> prunedTabletIds = getSelectedTabletIds(
+                            filterMap, index, isBaseIndexSelected, partition.getDistributionInfo());
+                    selectedTabletIdsBuilder.addAll(prunedTabletIds);
                 }
             } else {
                 selectedTabletIdsBuilder.addAll(olapScan.getManuallySpecifiedTabletIds());

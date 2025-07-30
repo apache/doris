@@ -9,9 +9,9 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((asceding.rnk = descending.rnk)) otherCondition=()
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((i1.i_item_sk = asceding.item_sk)) otherCondition=() build RFs:RF1 item_sk->[i_item_sk]
+------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((i2.i_item_sk = descending.item_sk)) otherCondition=() build RFs:RF1 item_sk->[i_item_sk]
 --------------------PhysicalProject
-----------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(i1.i_product_name)] apply RFs: RF1
+----------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(i2.i_product_name)] apply RFs: RF1
 --------------------PhysicalProject
 ----------------------filter((rnk < 11))
 ------------------------PhysicalWindow
@@ -39,9 +39,9 @@ PhysicalResultSink
 ------------------------------------------------------filter((store_sales.ss_store_sk = 4) and ss_hdemo_sk IS NULL)
 --------------------------------------------------------PhysicalOlapScan[store_sales]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((i2.i_item_sk = descending.item_sk)) otherCondition=() build RFs:RF0 item_sk->[i_item_sk]
+------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((i1.i_item_sk = asceding.item_sk)) otherCondition=() build RFs:RF0 item_sk->[i_item_sk]
 --------------------PhysicalProject
-----------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(i2.i_product_name)] apply RFs: RF0
+----------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(i1.i_product_name)] apply RFs: RF0
 --------------------PhysicalProject
 ----------------------filter((rnk < 11))
 ------------------------PhysicalWindow

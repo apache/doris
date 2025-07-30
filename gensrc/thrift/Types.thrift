@@ -140,6 +140,9 @@ struct TScalarType {
     // Only set for DECIMAL
     3: optional i32 precision
     4: optional i32 scale
+
+    // Only set for VARIANT
+    5: optional i32 variant_max_subcolumns_count = 0;
 }
 
 // Represents a field in a STRUCT type.
@@ -277,6 +280,7 @@ struct TColumnType {
   3: optional i32 index_len
   4: optional i32 precision
   5: optional i32 scale
+  6: optional i32 variant_max_subcolumns_count = 0;
 }
 
 // A TNetworkAddress is the standard host, port representation of a
@@ -670,6 +674,8 @@ struct TReplicaInfo {
     3: required TPort  http_port
     4: required TPort  brpc_port
     5: required TReplicaId replica_id
+    6: optional bool is_alive
+    7: optional i64 backend_id
 }
 
 struct TResourceInfo {

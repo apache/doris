@@ -43,8 +43,9 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------filter((a.event_id = 'ad_click'))
 ------------PhysicalOlapScan[com_dd_library]
---------filter((cast(experiment_id as DOUBLE) = 37.0))
-----------PhysicalOlapScan[shunt_log_com_dd_library]
+--------hashAgg[LOCAL]
+----------filter((cast(experiment_id as DOUBLE) = 37.0))
+------------PhysicalOlapScan[shunt_log_com_dd_library]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side

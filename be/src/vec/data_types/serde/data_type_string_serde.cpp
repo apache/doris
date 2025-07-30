@@ -196,7 +196,7 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_pb(IColumn& column,
 template <typename ColumnType>
 void DataTypeStringSerDeBase<ColumnType>::write_one_cell_to_jsonb(const IColumn& column,
                                                                   JsonbWriter& result,
-                                                                  Arena* mem_pool, int32_t col_id,
+                                                                  Arena& mem_pool, int32_t col_id,
                                                                   int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const auto& data_ref = column.get_data_at(row_num);
@@ -320,7 +320,7 @@ template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
         const std::string& timezone, const IColumn& column, const NullMap* null_map,
         orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end,
-        std::vector<StringRef>& buffer_list) const {
+        vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     for (auto row_id = start; row_id < end; row_id++) {

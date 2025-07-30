@@ -17,9 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -62,18 +60,12 @@ public class DropDbStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
         InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
-        // Don't allow to drop mysql compatible databases
-        DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
-        if (db != null && db instanceof MysqlCompatibleDatabase) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    analyzer.getQualifiedUser(), dbName);
-        }
 
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(ConnectContext.get(),

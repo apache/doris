@@ -65,20 +65,20 @@ public:
         }
     }
 
-    void read(BufferReadable& buf, Arena*) {
+    void read(BufferReadable& buf, Arena&) {
         buf.read_binary(has_value);
         if (has()) {
             DataTypeBitMap::deserialize_as_stream(value, buf);
         }
     }
 
-    void change(const IColumn& column, size_t row_num, Arena*) {
+    void change(const IColumn& column, size_t row_num, Arena&) {
         has_value = true;
         value = assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(column)
                         .get_data()[row_num];
     }
 
-    void change(const Self& to, Arena*) {
+    void change(const Self& to, Arena&) {
         has_value = true;
         value = to.value;
     }
@@ -102,9 +102,9 @@ public:
         key.write(buf);
     }
 
-    void read(BufferReadable& buf, Arena*) {
-        value.read(buf, nullptr);
-        key.read(buf, nullptr);
+    void read(BufferReadable& buf, Arena& arena) {
+        value.read(buf, arena);
+        key.read(buf, arena);
     }
 };
 
@@ -112,15 +112,15 @@ template <typename VT, typename KT>
 struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
     using Self = AggregateFunctionMaxByData;
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
-                          Arena*) {
-        if (this->key.change_if_greater(key_column, row_num, nullptr)) {
-            this->value.change(value_column, row_num, nullptr);
+                          Arena& arena) {
+        if (this->key.change_if_greater(key_column, row_num, arena)) {
+            this->value.change(value_column, row_num, arena);
         }
     }
 
-    void change_if_better(const Self& to, Arena*) {
-        if (this->key.change_if_greater(to.key, nullptr)) {
-            this->value.change(to.value, nullptr);
+    void change_if_better(const Self& to, Arena& arena) {
+        if (this->key.change_if_greater(to.key, arena)) {
+            this->value.change(to.value, arena);
         }
     }
 
@@ -131,15 +131,15 @@ template <typename VT, typename KT>
 struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
     using Self = AggregateFunctionMinByData;
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
-                          Arena*) {
-        if (this->key.change_if_less(key_column, row_num, nullptr)) {
-            this->value.change(value_column, row_num, nullptr);
+                          Arena& arena) {
+        if (this->key.change_if_less(key_column, row_num, arena)) {
+            this->value.change(value_column, row_num, arena);
         }
     }
 
-    void change_if_better(const Self& to, Arena*) {
-        if (this->key.change_if_less(to.key, nullptr)) {
-            this->value.change(to.value, nullptr);
+    void change_if_better(const Self& to, Arena& arena) {
+        if (this->key.change_if_less(to.key, arena)) {
+            this->value.change(to.value, arena);
         }
     }
 
@@ -170,15 +170,15 @@ public:
     DataTypePtr get_return_type() const override { return value_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
-        this->data(place).change_if_better(*columns[0], *columns[1], row_num, nullptr);
+             Arena& arena) const override {
+        this->data(place).change_if_better(*columns[0], *columns[1], row_num, arena);
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
-        this->data(place).change_if_better(this->data(rhs), nullptr);
+               Arena& arena) const override {
+        this->data(place).change_if_better(this->data(rhs), arena);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -186,8 +186,8 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
-        this->data(place).read(buf, nullptr);
+                     Arena& arena) const override {
+        this->data(place).read(buf, arena);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {

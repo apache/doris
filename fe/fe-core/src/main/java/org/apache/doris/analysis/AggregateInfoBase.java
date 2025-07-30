@@ -31,7 +31,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -96,117 +95,6 @@ public abstract class AggregateInfoBase {
         outputTupleDesc = other.outputTupleDesc;
         materializedSlots = Lists.newArrayList(other.materializedSlots);
         materializedSlotLabels = Lists.newArrayList(other.materializedSlotLabels);
-    }
-
-    /**
-     * Creates the intermediate and output tuple descriptors. If no agg expr has an
-     * intermediate type different from its output type, then only the output tuple
-     * descriptor is created and the intermediate tuple is set to the output tuple.
-     */
-    protected void createTupleDescs(Analyzer analyzer) {
-        // Create the intermediate tuple desc first, so that the tuple ids are increasing
-        // from bottom to top in the plan tree.
-        intermediateTupleDesc = createTupleDesc(analyzer, false);
-        if (requiresIntermediateTuple(aggregateExprs, groupingExprs.size() == 0)) {
-            outputTupleDesc = createTupleDesc(analyzer, true);
-            // save the output and intermediate slots info into global desc table
-            // after creaing the plan, we can call materializeIntermediateSlots method
-            // to set the materialized info to intermediate slots based on output slots.
-            ArrayList<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
-            ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc.getSlots();
-            HashMap<SlotDescriptor, SlotDescriptor> mapping = new HashMap<>();
-            for (int i = 0; i < outputSlots.size(); ++i) {
-                mapping.put(outputSlots.get(i), intermediateSlots.get(i));
-            }
-            analyzer.getDescTbl().addSlotMappingInfo(mapping);
-        } else {
-            outputTupleDesc = intermediateTupleDesc;
-        }
-    }
-
-    /**
-     * Returns a tuple descriptor for the aggregation/analytic's intermediate or final
-     * result, depending on whether isOutputTuple is true or false.
-     * Also updates the appropriate substitution map, and creates and registers auxiliary
-     * equality predicates between the grouping slots and the grouping exprs.
-     */
-    protected TupleDescriptor createTupleDesc(Analyzer analyzer, boolean isOutputTuple) {
-        TupleDescriptor result =
-                analyzer.getDescTbl().createTupleDescriptor(
-                        tupleDebugName() + (isOutputTuple ? "-out" : "-intermed"));
-        List<Expr> exprs = Lists.newArrayListWithCapacity(
-                groupingExprs.size() + aggregateExprs.size());
-        exprs.addAll(groupingExprs);
-        exprs.addAll(aggregateExprs);
-
-        int aggregateExprStartIndex = groupingExprs.size();
-        // if agg is grouping set, so we should set all groupingExpr unless last groupingExpr
-        // must set be be nullable
-        boolean isGroupingSet = !groupingExprs.isEmpty()
-                && groupingExprs.get(groupingExprs.size() - 1) instanceof VirtualSlotRef;
-
-        // the agg node may output slots from child outer join node
-        // to make the agg node create the output tuple desc correctly, we need change the slots' to nullable
-        // from all outer join nullable side temporarily
-        // after create the output tuple we need revert the change by call analyzer.changeSlotsToNotNullable(slots)
-        List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
-        for (int i = 0; i < exprs.size(); ++i) {
-            Expr expr = exprs.get(i);
-            SlotDescriptor slotDesc = analyzer.addSlotDescriptor(result);
-            slotDesc.initFromExpr(expr);
-            if (expr instanceof SlotRef) {
-                if (((SlotRef) expr).getColumn() != null) {
-                    slotDesc.setColumn(((SlotRef) expr).getColumn());
-                }
-            }
-            // Not change the nullable of slot desc when is not grouping set id
-            if (isGroupingSet && i < aggregateExprStartIndex - 1 && !(expr instanceof VirtualSlotRef)) {
-                slotDesc.setIsNullable(true);
-            }
-            if (i < aggregateExprStartIndex) {
-                // register equivalence between grouping slot and grouping expr;
-                // do this only when the grouping expr isn't a constant, otherwise
-                // it'll simply show up as a gratuitous HAVING predicate
-                // (which would actually be incorrect if the constant happens to be NULL)
-                if (!expr.isConstant()) {
-                    analyzer.createAuxEquivPredicate(new SlotRef(slotDesc), expr.clone());
-                }
-            } else {
-                Preconditions.checkArgument(expr instanceof FunctionCallExpr);
-                FunctionCallExpr aggExpr = (FunctionCallExpr) expr;
-                if (aggExpr.isMergeAggFn()) {
-                    slotDesc.setLabel(aggExpr.getChild(0).toSql());
-                    slotDesc.setSourceExpr(aggExpr.getChild(0));
-                } else {
-                    slotDesc.setLabel(aggExpr.toSql());
-                    slotDesc.setSourceExpr(aggExpr);
-                }
-
-                if (isOutputTuple && aggExpr.getFn().getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT)
-                        && groupingExprs.size() == 0) {
-                    slotDesc.setIsNullable(true);
-                }
-
-                if (!isOutputTuple) {
-                    Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
-                    if (intermediateType != null) {
-                        // Use the output type as intermediate if the function has a wildcard decimal.
-                        if (!intermediateType.isWildcardDecimal()) {
-                            slotDesc.setType(intermediateType);
-                        } else {
-                            Preconditions.checkState(expr.getType().isDecimalV2() || expr.getType().isDecimalV3());
-                        }
-                    }
-                }
-            }
-        }
-        analyzer.changeSlotsToNotNullable(slots);
-
-        if (LOG.isTraceEnabled()) {
-            String prefix = (isOutputTuple ? "result " : "intermediate ");
-            LOG.trace(prefix + " tuple=" + result.debugString());
-        }
-        return result;
     }
 
     public ArrayList<Expr> getGroupingExprs() {

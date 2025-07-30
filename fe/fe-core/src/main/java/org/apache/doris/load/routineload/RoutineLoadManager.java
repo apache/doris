@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -42,6 +41,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
@@ -170,6 +170,37 @@ public class RoutineLoadManager implements Writable {
         }
         return beCurrentTaskNumMap;
 
+    }
+
+    public void createRoutineLoadJob(CreateRoutineLoadInfo info, ConnectContext ctx)
+            throws UserException {
+        // check load auth
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                InternalCatalog.INTERNAL_CATALOG_NAME,
+                info.getDBName(),
+                info.getTableName(),
+                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    info.getDBName(),
+                    info.getDBName() + ": " + info.getTableName());
+        }
+
+        RoutineLoadJob routineLoadJob = null;
+        LoadDataSourceType type = LoadDataSourceType.valueOf(info.getTypeName());
+        switch (type) {
+            case KAFKA:
+                routineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(info, ctx);
+                break;
+            default:
+                throw new UserException("Unknown data source type: " + type);
+        }
+
+        routineLoadJob.setOrigStmt(ctx.getStatementContext().getOriginStatement());
+        routineLoadJob.setComment(info.getComment());
+        addRoutineLoadJob(routineLoadJob, info.getDBName(),
+                info.getTableName());
     }
 
     // cloud override
@@ -505,7 +536,7 @@ public class RoutineLoadManager implements Writable {
                 String msg = "no available BE found for job " + jobId
                         + "please check the BE status and user's cluster or tags";
                 job.updateState(RoutineLoadJob.JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR, msg), false /* not replay */);
+                        new ErrorReason(InternalErrorCode.INTERNAL_ERR, msg), false /* not replay */);
             }
             return -1L;
         }
@@ -918,31 +949,6 @@ public class RoutineLoadManager implements Writable {
                 + command.getDataSourceProperties().getDataSourceType());
         }
         job.modifyProperties(command);
-    }
-
-    /**
-     * Enter of altering a routine load job
-     */
-    public void alterRoutineLoadJob(AlterRoutineLoadStmt stmt) throws UserException {
-        RoutineLoadJob job;
-        // it needs lock when getting routine load job,
-        // otherwise, it may cause the editLog out of order in the following scenarios:
-        // thread A: create job and record job meta
-        // thread B: change job state and persist in editlog according to meta
-        // thread A: persist in editlog
-        // which will cause the null pointer exception when replaying editLog
-        readLock();
-        try {
-            job = checkPrivAndGetJob(stmt.getDbName(), stmt.getLabel());
-        } finally {
-            readUnlock();
-        }
-        if (stmt.hasDataSourceProperty()
-                && !stmt.getDataSourceProperties().getDataSourceType().equalsIgnoreCase(job.dataSourceType.name())) {
-            throw new DdlException("The specified job type is not: "
-                    + stmt.getDataSourceProperties().getDataSourceType());
-        }
-        job.modifyProperties(stmt);
     }
 
     public void replayAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {

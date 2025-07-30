@@ -40,7 +40,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 inline std::string int128_to_string(int128_t value) {
     return fmt::format(FMT_COMPILE("{}"), value);
 }
@@ -92,37 +92,24 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
 }
 
 template <typename T>
-bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
+bool try_read_float_text(T& x, const StringRef& in) {
     static_assert(std::is_same_v<T, double> || std::is_same_v<T, float>,
                   "Argument for readFloatTextImpl must be float or double");
     static_assert('a' > '.' && 'A' > '.' && '\n' < '.' && '\t' < '.' && '\'' < '.' && '"' < '.',
                   "Layout of char is not like ASCII"); //-V590
 
     StringParser::ParseResult result;
-    x = StringParser::string_to_float<T>(in.position(), in.count(), &result);
+    x = StringParser::string_to_float<T>(in.data, in.size, &result);
 
-    // to support nan and inf
-    if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(x) || std::isinf(x))) {
-        return false;
-    }
-
-    // only to match the is_all_read() check to prevent return null
-    in.position() = in.end();
-    return true;
+    return result == StringParser::PARSE_SUCCESS;
 }
 
-template <typename T>
-bool read_int_text_impl(T& x, ReadBuffer& buf) {
+template <typename T, bool enable_strict_mode = false>
+bool try_read_int_text(T& x, const StringRef& buf) {
     StringParser::ParseResult result;
-    x = StringParser::string_to_int<T>(buf.position(), buf.count(), &result);
+    x = StringParser::string_to_int<T, enable_strict_mode>(buf.data, buf.size, &result);
 
-    if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
-        return false;
-    }
-
-    // only to match the is_all_read() check to prevent return null
-    buf.position() = buf.end();
-    return true;
+    return result == StringParser::PARSE_SUCCESS;
 }
 
 template <typename T>
@@ -197,7 +184,7 @@ template <typename T>
 bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<UInt32, T>);
     auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), config::allow_zero_date);
+    auto ans = dv.from_date_str(buf.position(), (int)buf.count(), config::allow_zero_date);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -222,7 +209,7 @@ template <typename T>
 bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), scale, config::allow_zero_date);
+    auto ans = dv.from_date_str(buf.position(), (int)buf.count(), scale, config::allow_zero_date);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -245,57 +232,26 @@ bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& lo
 }
 
 template <PrimitiveType P, typename T>
-StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision,
+StringParser::ParseResult read_decimal_text_impl(T& x, const StringRef& buf, UInt32 precision,
                                                  UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
     if constexpr (!std::is_same_v<Decimal128V2, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-
-        x.value = StringParser::string_to_decimal<P>((const char*)buf.position(), buf.count(),
-                                                     precision, scale, &result);
-        // only to match the is_all_read() check to prevent return null
-        buf.position() = buf.end();
+        x.value = StringParser::string_to_decimal<P>(buf.data, (int)buf.size, precision, scale,
+                                                     &result);
         return result;
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-
-        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(buf.position(), buf.count(),
-                                                                  DecimalV2Value::PRECISION,
-                                                                  DecimalV2Value::SCALE, &result);
-
-        // only to match the is_all_read() check to prevent return null
-        buf.position() = buf.end();
-
+        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(
+                buf.data, (int)buf.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE, &result);
         return result;
     }
-}
-
-template <typename T>
-bool try_read_bool_text(T& x, ReadBuffer& buf) {
-    if (read_int_text_impl<T>(x, buf)) {
-        return x == 0 || x == 1;
-    }
-
-    StringParser::ParseResult result;
-    x = StringParser::string_to_bool(buf.position(), buf.count(), &result);
-    if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
-        return false;
-    }
-
-    // only to match the is_all_read() check to prevent return null
-    buf.position() = buf.end();
-    return true;
-}
-
-template <typename T>
-bool try_read_int_text(T& x, ReadBuffer& buf) {
-    return read_int_text_impl<T>(x, buf);
 }
 
 template <typename T>
 const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
-    const int len = end - pos;
-    int i = 0;
+    const int64_t len = end - pos;
+    int64_t i = 0;
     while (i < len) {
         if (pos[i] >= '0' && pos[i] <= '9') {
             i++;
@@ -304,19 +260,14 @@ const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
         }
     }
     const char* int_end = pos + i;
-    ReadBuffer in((char*)pos, int_end - pos);
-    const size_t count = in.count();
+    StringRef in((char*)pos, int_end - pos);
+    const size_t count = in.size;
     try_read_int_text(x, in);
     return pos + count;
 }
 
-template <typename T>
-bool try_read_float_text(T& x, ReadBuffer& in) {
-    return read_float_text_fast_impl<T>(x, in);
-}
-
 template <PrimitiveType P, typename T>
-StringParser::ParseResult try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision,
+StringParser::ParseResult try_read_decimal_text(T& x, const StringRef& in, UInt32 precision,
                                                 UInt32 scale) {
     return read_decimal_text_impl<P, T>(x, in, precision, scale);
 }
@@ -351,4 +302,13 @@ bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& loca
                                UInt32 scale) {
     return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
+
+bool inline try_read_bool_text(UInt8& x, const StringRef& buf) {
+    StringParser::ParseResult result;
+    x = StringParser::string_to_bool(buf.data, buf.size, &result);
+    return result == StringParser::PARSE_SUCCESS;
+}
+
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

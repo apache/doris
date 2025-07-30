@@ -130,7 +130,7 @@ public:
                       argument_types_),
               scale(get_decimal_scale(*argument_types_[0])) {
         if constexpr (is_decimal(T)) {
-            multiplier =
+            multiplier.value =
                     ResultDataType::get_scale_multiplier(get_decimal_scale(*argument_types_[0]));
         }
     }
@@ -144,7 +144,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(
@@ -161,7 +161,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs), multiplier);
     }
 
@@ -170,7 +170,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

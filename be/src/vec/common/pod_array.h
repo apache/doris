@@ -89,7 +89,7 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   * pad_left ----- c_start -------------c_end ---------------------------- c_end_of_storage ------------- pad_right
   *    ^                                        ^                                                              ^
   *    |                                        |                                                              |
-  *    |                                    c_res_mem (usually > c_end && < c_end + PRE_GROWTH_SIZE)           |
+  *    |                                    c_res_mem (>= c_end && <= c_end_of_storage)                        |
   *    |                                                                                                       |
   *    +-------------------------------------- allocated_bytes (4096 bytes) -----------------------------------+
   *
@@ -109,7 +109,7 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   * TODO Allow greater alignment than alignof(T). Example: array of char aligned to page size.
   */
 static constexpr size_t EmptyPODArraySize = 1024;
-static constexpr size_t PRE_GROWTH_SIZE = (1ULL << 20); // 1M
+static constexpr size_t TrackingGrowthMinSize = (1ULL << 18); // 256K
 extern const char empty_pod_array[EmptyPODArraySize];
 
 /** Base class that depend only on size of element, not on element itself.
@@ -170,23 +170,58 @@ protected:
         }
     }
 
-    inline void reset_resident_memory(const char* c_end_new) {
+    inline void reset_resident_memory_impl(const char* c_end_new) {
         static_assert(!TAllocator::need_check_and_tracking_memory(),
-                      "TAllocator should specify `NoTrackingDefaultMemoryAllocator`");
-        if (UNLIKELY(c_end_new - c_res_mem > 0)) {
-            // - allocated_bytes = c_end_of_storage - c_start = 4 MB;
-            // - used_bytes = c_end_new - c_start = 2.1 MB;
-            // - last tracking_res_memory = c_res_mem - c_start = 1 MB;
-            // - res_mem_growth = min(allocated_bytes, integerRoundUp(used_bytes)) - last_tracking_res_memory = 3 - 1 = 2 MB;
-            // - update tracking_res_memory = 1 + 2 = 3 MB;
-            // so after each reset_resident_memory, tracking_res_memory >= used_bytes;
-            int64_t res_mem_growth =
-                    std::min(static_cast<size_t>(c_end_of_storage - c_start),
-                             integerRoundUp(c_end_new - c_start, PRE_GROWTH_SIZE)) -
-                    (c_res_mem - c_start);
-            check_memory(res_mem_growth);
-            CONSUME_THREAD_MEM_TRACKER(res_mem_growth);
-            c_res_mem = c_res_mem + res_mem_growth;
+                      "TAllocator should `check_and_tracking_memory` is false");
+        // Premise conditions:
+        //  - c_res_mem <= c_end_of_storage
+        //  - c_end_new > c_res_mem
+        //  - If padding is not a power of 2, such as 24, allocated_bytes() will also not be a power of 2.
+        //
+        // If allocated_bytes <= 256K, res_mem_growth = c_end_of_storage - c_res_mem.
+        //
+        // If capacity >= 512K:
+        //      - If `c_end_of_storage - c_res_mem < TrackingGrowthMinSize`, then tracking to c_end_of_storage.
+        //      - `c_end_new - c_res_mem` is the size of the physical memory growth,
+        //        which is also the minimum tracking size of this time,
+        //        `(((c_end_new - c_res_mem) >> 16) << 16)` is aligned down to 64K,
+        //        assuming `allocated_bytes >= 512K`, so `(allocated_bytes >> 3)` is at least 64K,
+        //        so `(((c_end_new - c_res_mem) >> 16) << 16) + (allocated_bytes() >> 3)`
+        //        must be greater than `c_end_new - c_res_mem`.
+        //
+        //        For example:
+        //         - 256K < capacity <= 512K,
+        //           it will only tracking twice,
+        //           the second time `c_end_of_storage - c_res_mem < TrackingGrowthMinSize` is true,
+        //           so it will tracking to c_end_of_storage.
+        //         - capacity > 32M, `(((c_end_new - c_res_mem) >> 16) << 16)` align the increased
+        //           physical memory size down to 64k, then add `(allocated_bytes() >> 3)` equals 2M,
+        //           so `reset_resident_memory` is tracking an additional 2M,
+        //           after that, physical memory growth within 2M does not need to reset_resident_memory again.
+        //
+        // so, when PODArray is expanded by power of 2,
+        // the memory is checked and tracked up to 8 times between each expansion,
+        // because each time additional tracking `(allocated_bytes() >> 3)`.
+        // after each reset_resident_memory, tracking_res_memory >= used_bytes;
+        int64_t res_mem_growth =
+                c_end_of_storage - c_res_mem < TrackingGrowthMinSize
+                        ? c_end_of_storage - c_res_mem
+                        : std::min(static_cast<size_t>(c_end_of_storage - c_res_mem),
+                                   static_cast<size_t>((((c_end_new - c_res_mem) >> 16) << 16) +
+                                                       (allocated_bytes() >> 3)));
+        DCHECK(res_mem_growth > 0) << ", c_end_new: " << (c_end_new - c_start)
+                                   << ", c_res_mem: " << (c_res_mem - c_start)
+                                   << ", c_end_of_storage: " << (c_end_of_storage - c_start)
+                                   << ", allocated_bytes: " << allocated_bytes()
+                                   << ", res_mem_growth: " << res_mem_growth;
+        check_memory(res_mem_growth);
+        CONSUME_THREAD_MEM_TRACKER(res_mem_growth);
+        c_res_mem = c_res_mem + res_mem_growth;
+    }
+
+    inline void reset_resident_memory(const char* c_end_new) {
+        if (UNLIKELY(c_end_new > c_res_mem)) {
+            reset_resident_memory_impl(c_end_new);
         }
     }
 
@@ -205,6 +240,7 @@ protected:
         c_end = c_start;
         c_res_mem = c_start;
         c_end_of_storage = allocated + bytes - pad_right;
+        CONSUME_THREAD_MEM_TRACKER(pad_left + pad_right);
 
         if (pad_left) memset(c_start - ELEMENT_SIZE, 0, ELEMENT_SIZE);
     }
@@ -212,7 +248,7 @@ protected:
     void dealloc() {
         if (c_start == null) return;
         unprotect();
-        RELEASE_THREAD_MEM_TRACKER((c_res_mem - c_start));
+        RELEASE_THREAD_MEM_TRACKER((c_res_mem - c_start + pad_right + pad_left));
         TAllocator::free(c_start - pad_left, allocated_bytes());
     }
 
@@ -325,10 +361,13 @@ public:
 
     template <typename... TAllocatorParams>
     void push_back_raw(const char* ptr, TAllocatorParams&&... allocator_params) {
-        if (UNLIKELY(c_end == c_end_of_storage))
-            reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
+        if (UNLIKELY(c_end + ELEMENT_SIZE > c_res_mem)) { // c_res_mem <= c_end_of_storage
+            if (UNLIKELY(c_end + ELEMENT_SIZE > c_end_of_storage)) {
+                reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
+            }
+            reset_resident_memory_impl(c_end + ELEMENT_SIZE);
+        }
 
-        reset_resident_memory(c_end + byte_size(1));
         memcpy(c_end, ptr, ELEMENT_SIZE);
         c_end += byte_size(1);
     }
@@ -441,10 +480,6 @@ public:
     const_iterator cend() const { return t_end(); }
 
     void* get_end_ptr() const { return this->c_end; }
-    void set_end_ptr(void* ptr) {
-        this->c_end = (char*)ptr;
-        this->reset_resident_memory();
-    }
 
     /// Same as resize, but zeroes new elements.
     void resize_fill(size_t n) {
@@ -454,8 +489,6 @@ public:
             this->reserve(n);
             this->reset_resident_memory(this->c_start + new_size);
             memset(this->c_end, 0, this->byte_size(n - old_size));
-        } else {
-            this->reset_resident_memory(this->c_start + new_size);
         }
         this->c_end = this->c_start + new_size;
     }
@@ -469,19 +502,19 @@ public:
             this->reserve(n);
             this->reset_resident_memory(this->c_start + new_size);
             std::fill(t_end(), t_end() + n - old_size, value);
-        } else {
-            this->reset_resident_memory(this->c_start + new_size);
         }
         this->c_end = this->c_start + new_size;
     }
 
     template <typename U, typename... TAllocatorParams>
     void push_back(U&& x, TAllocatorParams&&... allocator_params) {
-        if (UNLIKELY(this->c_end + sizeof(T) > this->c_end_of_storage)) {
-            this->reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
+        if (UNLIKELY(this->c_end + sizeof(T) > this->c_res_mem)) { // c_res_mem <= c_end_of_storage
+            if (UNLIKELY(this->c_end + sizeof(T) > this->c_end_of_storage)) {
+                this->reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
+            }
+            this->reset_resident_memory_impl(this->c_end + this->byte_size(1));
         }
 
-        this->reset_resident_memory(this->c_end + this->byte_size(1));
         new (t_end()) T(std::forward<U>(x));
         this->c_end += this->byte_size(1);
     }
@@ -502,11 +535,13 @@ public:
       */
     template <typename... Args>
     void emplace_back(Args&&... args) {
-        if (UNLIKELY(this->c_end + sizeof(T) > this->c_end_of_storage)) {
-            this->reserve_for_next_size();
+        if (UNLIKELY(this->c_end + sizeof(T) > this->c_res_mem)) { // c_res_mem <= c_end_of_storage
+            if (UNLIKELY(this->c_end + sizeof(T) > this->c_end_of_storage)) {
+                this->reserve_for_next_size();
+            }
+            this->reset_resident_memory_impl(this->c_end + this->byte_size(1));
         }
 
-        this->reset_resident_memory(this->c_end + this->byte_size(1));
         new (t_end()) T(std::forward<Args>(args)...);
         this->c_end += this->byte_size(1);
     }
