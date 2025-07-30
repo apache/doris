@@ -3981,12 +3981,15 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
-            if (err == TxnErrorCode::TXN_CONFLICT && retry == 0) {
-                // do a fast retry
-                response->Clear();
-                code = MetaServiceCode::OK;
-                msg.clear();
-                continue;
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+                if (retry == 0) {
+                    // do a fast retry
+                    response->Clear();
+                    code = MetaServiceCode::OK;
+                    msg.clear();
+                    continue;
+                }
             }
 
             code = cast_as<ErrCategory::COMMIT>(err);
