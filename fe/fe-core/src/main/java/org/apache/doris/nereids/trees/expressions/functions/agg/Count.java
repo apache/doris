@@ -179,6 +179,7 @@ public class Count extends NotNullableAggregateFunction
 
     @Override
     public AggregateFunction convertToMultiDistinct() {
-        return new MultiDistinctCount(false, getFunctionParams(children));
+        return new MultiDistinctCount(getArgument(0),
+                getArguments().subList(1, arity()).toArray(new Expression[0]));
     }
 }

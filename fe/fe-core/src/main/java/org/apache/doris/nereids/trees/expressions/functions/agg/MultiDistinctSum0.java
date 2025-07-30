@@ -84,7 +84,7 @@ public class MultiDistinctSum0 extends NotNullableAggregateFunction implements U
     @Override
     public MultiDistinctSum0 withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum0(mustUseMultiDistinctAgg, getFunctionParams(distinct, children));
+        return new MultiDistinctSum0(mustUseMultiDistinctAgg, getFunctionParams(false, children));
     }
 
     @Override

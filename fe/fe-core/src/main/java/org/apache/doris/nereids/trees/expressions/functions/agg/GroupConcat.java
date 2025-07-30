@@ -171,7 +171,7 @@ public class GroupConcat extends NullableAggregateFunction
     public MultiDistinctGroupConcat convertToMultiDistinct() {
         Preconditions.checkArgument(distinct,
                 "can't convert to multi_distinct_group_concat because there is no distinct args");
-        return new MultiDistinctGroupConcat(false, getFunctionParams(children));
+        return new MultiDistinctGroupConcat(alwaysNullable, children);
     }
 
     @Override

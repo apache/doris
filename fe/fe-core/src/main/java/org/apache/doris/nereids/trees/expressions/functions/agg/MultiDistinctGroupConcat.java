@@ -103,7 +103,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
      */
     @Override
     public MultiDistinctGroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, getFunctionParams(distinct, children));
+        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, getFunctionParams(false, children));
     }
 
     @Override

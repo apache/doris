@@ -71,7 +71,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     @Override
     public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new MultiDistinctCount(mustUseMultiDistinctAgg, getFunctionParams(distinct, children));
+        return new MultiDistinctCount(mustUseMultiDistinctAgg, getFunctionParams(false, children));
     }
 
     @Override
