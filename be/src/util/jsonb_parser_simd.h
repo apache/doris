@@ -160,7 +160,7 @@ private:
                     return Status::InternalError("key size exceeds max limit: {} , {}", key.size(),
                                                  std::numeric_limits<uint8_t>::max());
                 }
-                if (writer.writeKey(key.data(), (uint8_t)key.size()) == 0) {
+                if (!writer.writeKey(key.data(), (uint8_t)key.size())) {
                     return Status::InternalError("writeKey failed : {}", key);
                 }
 
@@ -239,24 +239,24 @@ private:
             }
         } else if (num.is_int64() || num.is_uint64()) {
             int128_t val = num.is_int64() ? (int128_t)num.get_int64() : (int128_t)num.get_uint64();
-            int size = 0;
+            bool success = false;
             if (val >= std::numeric_limits<int8_t>::min() &&
                 val <= std::numeric_limits<int8_t>::max()) {
-                size = writer.writeInt8((int8_t)val);
+                success = writer.writeInt8((int8_t)val);
             } else if (val >= std::numeric_limits<int16_t>::min() &&
                        val <= std::numeric_limits<int16_t>::max()) {
-                size = writer.writeInt16((int16_t)val);
+                success = writer.writeInt16((int16_t)val);
             } else if (val >= std::numeric_limits<int32_t>::min() &&
                        val <= std::numeric_limits<int32_t>::max()) {
-                size = writer.writeInt32((int32_t)val);
+                success = writer.writeInt32((int32_t)val);
             } else if (val >= std::numeric_limits<int64_t>::min() &&
                        val <= std::numeric_limits<int64_t>::max()) {
-                size = writer.writeInt64((int64_t)val);
+                success = writer.writeInt64((int64_t)val);
             } else { // INT128
-                size = writer.writeInt128(val);
+                success = writer.writeInt128(val);
             }
 
-            if (size == 0) {
+            if (!success) {
                 return Status::InternalError("writeInt failed");
             }
         } else {

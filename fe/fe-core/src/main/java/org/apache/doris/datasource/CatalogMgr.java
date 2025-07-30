@@ -17,9 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.AlterCatalogCommentStmt;
-import org.apache.doris.analysis.AlterCatalogNameStmt;
-import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -188,6 +185,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return catalog;
     }
 
+    public CatalogIf getCatalogOrDdlException(String name) throws DdlException {
+        return getCatalogOrException(name,
+                catalog -> new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
+                        ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
     public CatalogIf getCatalogOrAnalysisException(String name) throws AnalysisException {
         return getCatalogOrException(name,
                 catalog -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
@@ -293,6 +296,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 ConnectContext.get().removeLastDBOfCatalog(catalogName);
             }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
+            LOG.info("finished to drop catalog {}:{}", catalog.getName(), catalog.getId());
         } finally {
             writeUnlock();
         }
@@ -338,13 +342,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     /**
-     * Modify the catalog name into a new one and write the meta log.
-     */
-    public void alterCatalogName(AlterCatalogNameStmt stmt) throws UserException {
-        alterCatalogName(stmt.getCatalogName(), stmt.getNewCatalogName());
-    }
-
-    /**
      * Modify the catalog comment to a new one and write the meta log.
      */
     public void alterCatalogComment(String catalogName, String comment) throws UserException {
@@ -362,13 +359,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Modify the catalog comment to a new one and write the meta log.
-     */
-    public void alterCatalogComment(AlterCatalogCommentStmt stmt) throws UserException {
-        alterCatalogComment(stmt.getCatalogName(), stmt.getComment());
     }
 
     /**
@@ -394,13 +384,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Modify the catalog property and write the meta log.
-     */
-    public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
-        alterCatalogProps(stmt.getCatalogName(), stmt.getNewProperties());
     }
 
     public List<List<String>> showCatalogs(
@@ -538,6 +521,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
             }
             addCatalog(catalog);
+            LOG.info("finished to create catalog {}:{}, is replay: {}", catalog.getName(), catalog.getId(), isReplay);
         } finally {
             writeUnlock();
         }

@@ -132,7 +132,7 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
         SchemaScannerHelper::insert_int64_value(0, _backend_id, block);
 
         // TABLET_ID
-        SchemaScannerHelper::insert_int64_value(1, tablet->tablet_meta()->table_id(), block);
+        SchemaScannerHelper::insert_int64_value(1, tablet->tablet_meta()->tablet_id(), block);
 
         // REPLICA_ID
         SchemaScannerHelper::insert_int64_value(2, tablet->tablet_meta()->replica_id(), block);

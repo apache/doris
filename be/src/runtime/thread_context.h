@@ -300,7 +300,7 @@ static ThreadContext* thread_context() {
 
 class ScopedPeakMem {
 public:
-    explicit ScopedPeakMem(int64* peak_mem)
+    explicit ScopedPeakMem(int64_t* peak_mem)
             : _peak_mem(peak_mem),
               _mem_tracker("ScopedPeakMem:" + UniqueId::gen_uid().to_string()) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
@@ -314,7 +314,7 @@ public:
     }
 
 private:
-    int64* _peak_mem;
+    int64_t* _peak_mem;
     MemTracker _mem_tracker;
 };
 
@@ -406,50 +406,6 @@ public:
 };
 
 // Basic macros for mem tracker, usually do not need to be modified and used.
-
-// used to fix the tracking accuracy of caches.
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                             \
-    do {                                                                                          \
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||               \
-               doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() != \
-                       "Orphan")                                                                  \
-                << doris::MEMORY_ORPHAN_CHECK_MSG;                                                \
-        doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->transfer_to(      \
-                size, tracker);                                                                   \
-    } while (0)
-
-#define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker)                                           \
-    do {                                                                                          \
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||               \
-               doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() != \
-                       "Orphan")                                                                  \
-                << doris::MEMORY_ORPHAN_CHECK_MSG;                                                \
-        tracker->transfer_to(                                                                     \
-                size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker());    \
-    } while (0)
-
-// Mem Hook to consume thread mem tracker
-#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size)                            \
-    do {                                                                    \
-        if (doris::use_mem_hook) {                                          \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(size); \
-        }                                                                   \
-    } while (0)
-#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) CONSUME_THREAD_MEM_TRACKER_BY_HOOK(-size)
-#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)                            \
-    do {                                                                                    \
-        if (doris::use_mem_hook) {                                                          \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(size_fn(__VA_ARGS__)); \
-        }                                                                                   \
-    } while (0)
-#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)                             \
-    do {                                                                                     \
-        if (doris::use_mem_hook) {                                                           \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(-size_fn(__VA_ARGS__)); \
-        }                                                                                    \
-    } while (0)
-
-// if use mem hook, avoid repeated consume.
 // must call create_thread_local_if_not_exits() before use thread_context().
 #define CONSUME_THREAD_MEM_TRACKER(size)                                                           \
     do {                                                                                           \

@@ -17,9 +17,6 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.AlterPolicyStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
-import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -197,14 +194,6 @@ public class PolicyMgr implements Writable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Drop policy through stmt.
-     **/
-    public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
-        DropPolicyLog dropPolicyLog = DropPolicyLog.fromDropStmt(stmt);
-        dropPolicy(dropPolicyLog, stmt.isIfExists());
     }
 
     /**
@@ -447,30 +436,6 @@ public class PolicyMgr implements Writable {
     public ShowResultSet showStoragePolicy() throws AnalysisException {
         Policy finalCheckedPolicy = new StoragePolicy();
         return getShowPolicy(finalCheckedPolicy, PolicyTypeEnum.STORAGE);
-    }
-
-    /**
-     * Show policy through stmt.
-     **/
-    public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
-        Policy checkedPolicy = null;
-        switch (showStmt.getType()) {
-            case STORAGE:
-                checkedPolicy = new StoragePolicy();
-                break;
-            case ROW:
-            default:
-                RowPolicy rowPolicy = new RowPolicy();
-                if (showStmt.getUser() != null) {
-                    rowPolicy.setUser(showStmt.getUser());
-                }
-                if (!StringUtils.isEmpty(showStmt.getRoleName())) {
-                    rowPolicy.setRoleName(showStmt.getRoleName());
-                }
-                checkedPolicy = rowPolicy;
-        }
-        final Policy finalCheckedPolicy = checkedPolicy;
-        return getShowPolicy(finalCheckedPolicy, showStmt.getType());
     }
 
     /**
@@ -720,13 +685,6 @@ public class PolicyMgr implements Writable {
         }
         AgentTaskExecutor.submit(batchTask);
         LOG.info("Alter storage policy success. policy: {}", storagePolicy);
-    }
-
-    /*
-     * Alter policy by stmt.
-     **/
-    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
-        alterPolicy(stmt.getPolicyName(), stmt.getProperties());
     }
 
     /**

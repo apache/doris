@@ -18,15 +18,15 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -82,10 +82,20 @@ public class ColumnPrivTest extends TestWithFeService {
         env.getCatalogMgr().createCatalog(testCatalog2);
 
         // 2. create internal db and tbl
-        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt("create database innerdb1");
-        env.createDb(createDbStmt);
-        createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt("create database innerdb2");
-        env.createDb(createDbStmt);
+        String createDbStmtStr = "create database innerdb1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
+
+        createDbStmtStr = "create database innerdb2";
+        logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         CreateTableStmt createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt(
                 "create table innerdb1.innertbl11\n"
@@ -131,11 +141,15 @@ public class ColumnPrivTest extends TestWithFeService {
     @Test
     public void testShowTableStatusPrivs() throws Exception {
         ConnectContext root = createCtx(UserIdentity.ROOT, "127.0.0.1");
-        CreateUserStmt createUserStmt = (CreateUserStmt) parseAndAnalyzeStmt("create user show_table_status"
-                + " identified by '123456'", root);
-        auth.createUser(createUserStmt);
 
         NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create user show_table_status identified by '123456'";
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(root, sql);
+        if (parsed instanceof CreateUserCommand) {
+            ((CreateUserCommand) parsed).run(root, stmtExecutor);
+        }
+
         LogicalPlan logicalPlan1 = nereidsParser.parseSingle("grant select_priv on test2.*.* to show_table_status;");
         Assertions.assertTrue(logicalPlan1 instanceof GrantTablePrivilegeCommand);
         GrantTablePrivilegeCommand command1 = (GrantTablePrivilegeCommand) logicalPlan1;

@@ -28,7 +28,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
@@ -224,7 +223,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
             if (limitedRole != null && !limitedRole.contains(role.getRoleName())) {
                 continue;
             }
-            String isGrantable = role.checkGlobalPriv(PrivPredicate.ADMIN) ? "YES" : "NO";
+            String isGrantable = role.checkGlobalPriv(PrivPredicate.ADMIN, PrivBitSet.of()) ? "YES" : "NO";
 
             for (Map.Entry<WorkloadGroupPattern, PrivBitSet> entry : role.getWorkloadGroupPatternToPrivs().entrySet()) {
                 List<String> row = Lists.newArrayList();
@@ -309,14 +308,8 @@ public class RoleManager implements Writable, GsonPostProcessable {
     }
 
     public static RoleManager read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
-            RoleManager roleManager = new RoleManager();
-            roleManager.readFields(in);
-            return roleManager;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, RoleManager.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, RoleManager.class);
     }
 
     // should be removed after version 3.0
@@ -327,15 +320,6 @@ public class RoleManager implements Writable, GsonPostProcessable {
             newRoles.put(roleName, entry.getValue());
         }
         roles = newRoles;
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Role role = Role.read(in);
-            roles.put(role.getRoleName(), role);
-        }
     }
 
     @Override

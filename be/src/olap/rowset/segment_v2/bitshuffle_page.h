@@ -43,6 +43,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 enum { BITSHUFFLE_PAGE_HEADER_SIZE = 16 };
 
@@ -108,7 +109,7 @@ public:
             *count = 0;
             return Status::OK();
         }
-        int to_add = std::min<int>(_remain_element_capacity, *count);
+        int to_add = std::min<int>(_remain_element_capacity, cast_set<int>(*count));
         int to_add_size = to_add * SIZE_OF_TYPE;
         size_t orig_size = _data.size();
         // This may need a large memory, should return error if could not allocated
@@ -161,7 +162,7 @@ public:
             _buffer.clear();
             _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE);
             _finished = false;
-            _remain_element_capacity = block_size / SIZE_OF_TYPE;
+            _remain_element_capacity = cast_set<int>(block_size / SIZE_OF_TYPE);
         });
         return Status::OK();
     }
@@ -220,7 +221,7 @@ private:
         }
         // update header
         encode_fixed32_le(&_buffer[0], _count);
-        encode_fixed32_le(&_buffer[4], BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
+        encode_fixed32_le(&_buffer[4], cast_set<uint32_t>(BITSHUFFLE_PAGE_HEADER_SIZE + bytes));
         encode_fixed32_le(&_buffer[8], num_elems_after_padding);
         encode_fixed32_le(&_buffer[12], final_size_of_type);
         _finished = true;
@@ -469,5 +470,6 @@ private:
     friend class BinaryDictPageDecoder;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

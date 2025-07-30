@@ -34,7 +34,7 @@ public:
 
     Status append_block(Block* block) override;
 
-    Status prepare_for_read() override;
+    Status prepare_for_read(bool is_spill) override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
@@ -50,6 +50,7 @@ private:
     size_t _queue_row_num = 0;
     MergeSorterQueue _queue;
     std::unique_ptr<MergeSorterState> _state;
+    IColumn::Permutation _reverse_buffer;
 };
 
 #include "common/compile_check_end.h"

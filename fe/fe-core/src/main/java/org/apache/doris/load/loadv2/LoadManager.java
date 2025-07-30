@@ -17,10 +17,8 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -47,9 +45,11 @@ import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -113,6 +113,56 @@ public class LoadManager implements Writable {
         mysqlLoadManager.start();
     }
 
+    public long createLoadJobFromCommand(LoadCommand command, StmtExecutor executor, ConnectContext ctx)
+            throws Exception {
+        List<TPipelineWorkloadGroup> twgList = null;
+        if (Config.enable_workload_group) {
+            try {
+                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
+                        .stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
+            } catch (Throwable t) {
+                LOG.info("Get workload group failed when create load job,", t);
+                throw t;
+            }
+        }
+
+        Database database = checkDb(command.getLabel().getDbName());
+        long dbId = database.getId();
+        LoadJob loadJob;
+        writeLock();
+        try {
+            checkLabelUsed(dbId, command.getLabel().getLabelName());
+            if (command.getBrokerDesc() == null && command.getResourceDesc() == null) {
+                throw new DdlException("LoadManager only support the broker and spark load.");
+            }
+            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                throw new DdlException(
+                    "There are more than " + Config.desired_max_waiting_jobs
+                        + " unfinished load jobs, please retry later. "
+                        + "You can use `SHOW LOAD` to view submitted jobs");
+            }
+
+            loadJob = BulkLoadJob.fromLoadCommand(command, executor, ctx);
+
+            if (twgList != null) {
+                loadJob.settWorkloadGroups(twgList);
+            }
+
+            createLoadJob(loadJob);
+        } finally {
+            writeUnlock();
+        }
+
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
+
+        // The job must be submitted after edit log.
+        // It guarantees that load job has not been changed before edit log.
+        loadJobScheduler.submitJob(loadJob);
+        return loadJob.getId();
+    }
+
     /**
      * This method will be invoked by the broker load(v2) now.
      */
@@ -120,7 +170,10 @@ public class LoadManager implements Writable {
         List<TPipelineWorkloadGroup> twgList = null;
         if (Config.enable_workload_group) {
             try {
-                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get());
+                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
+                        .stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
             } catch (Throwable t) {
                 LOG.info("Get workload group failed when create load job,", t);
                 throw t;
@@ -622,7 +675,10 @@ public class LoadManager implements Writable {
                     throw new DdlException("Label does not exist: " + label);
                 }
             } else {
-                throw new DdlException("Database does not exist");
+                // If dbId is not found in dbIdToLabelToLoadJobs,
+                // it means the database has no label records,
+                // so throw a "Label does not exist" error.
+                throw new DdlException("Label does not exist: " + label);
             }
             return result;
         } finally {
@@ -979,38 +1035,6 @@ public class LoadManager implements Writable {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
             }
         }
-    }
-
-    // ------------------------ for load refactor ------------------------
-    public long createLoadJobFromStmt(InsertStmt insertStmt) throws DdlException {
-        Database database = checkDb(insertStmt.getLoadLabel().getDbName());
-        long dbId = database.getId();
-        LoadJob loadJob;
-        writeLock();
-        BrokerDesc brokerDesc = (BrokerDesc) insertStmt.getResourceDesc();
-        try {
-            checkLabelUsed(dbId, insertStmt.getLoadLabel().getLabelName());
-            if (brokerDesc == null && insertStmt.getResourceDesc() == null) {
-                throw new DdlException("LoadManager only support the broker and spark load.");
-            }
-            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
-                throw new DdlException(
-                        "There are more than " + Config.desired_max_waiting_jobs
-                                + " unfinished load jobs, please retry later. "
-                                + "You can use `SHOW LOAD` to view submitted jobs");
-            }
-
-            loadJob = BulkLoadJob.fromInsertStmt(insertStmt);
-            createLoadJob(loadJob);
-        } finally {
-            writeUnlock();
-        }
-        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
-
-        // The job must be submitted after edit log.
-        // It guarantees that load job has not been changed before edit log.
-        loadJobScheduler.submitJob(loadJob);
-        return loadJob.getId();
     }
 
     public long createIngestionLoadJob(String dbName, String label, List<String> tableNames,

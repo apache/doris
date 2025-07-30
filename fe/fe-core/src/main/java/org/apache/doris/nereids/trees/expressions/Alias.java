@@ -60,6 +60,10 @@ public class Alias extends NamedExpression implements UnaryExpression {
                 Suppliers.memoize(child::toSql), ImmutableList.of(), true);
     }
 
+    public Alias(ExprId exprId, Expression child) {
+        this(exprId, ImmutableList.of(child), Suppliers.memoize(child::toSql), ImmutableList.of(), true);
+    }
+
     public Alias(ExprId exprId, Expression child, String name) {
         this(exprId, ImmutableList.of(child), name, ImmutableList.of(), false);
     }
@@ -89,6 +93,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     public Slot toSlot() throws UnboundException {
         SlotReference slotReference = child() instanceof SlotReference
                 ? (SlotReference) child() : null;
+
         return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier,
                 slotReference != null ? ((SlotReference) child()).getOriginalTable().orElse(null) : null,
                 slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,

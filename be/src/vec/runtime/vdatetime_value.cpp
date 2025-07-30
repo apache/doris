@@ -42,7 +42,7 @@
 #include "vec/common/int_exp.h"
 
 namespace doris {
-
+#include "common/compile_check_avoid_begin.h"
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
@@ -102,7 +102,7 @@ bool VecDateTimeValue::from_date_str(const char* date_str, size_t len,
     return from_date_str_base(date_str, len, &local_time_zone);
 }
 
-bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
+bool VecDateTimeValue::from_date_str_base(const char* date_str, size_t len,
                                           const cctz::time_zone* local_time_zone) {
     const char* ptr = date_str;
     const char* end = date_str + len;
@@ -373,35 +373,6 @@ void VecDateTimeValue::set_max_time(bool neg) {
     _minute = TIME_MAX_MINUTE;
     _second = TIME_MAX_SECOND;
     _neg = neg;
-}
-
-bool VecDateTimeValue::from_time_int64(int64_t value) {
-    _type = TIME_TIME;
-    if (value > TIME_MAX_VALUE) {
-        // 0001-01-01 00:00:00 to convert to a datetime
-        if (value > 10000000000L) {
-            if (from_date_int64(value)) {
-                return true;
-            }
-        }
-        set_max_time(false);
-        return false;
-    } else if (value < -1 * TIME_MAX_VALUE) {
-        set_max_time(true);
-        return false;
-    }
-    if (value < 0) {
-        _neg = 1;
-        value = -value;
-    }
-    _hour = value / 10000;
-    value %= 10000;
-    _minute = value / 100;
-    if (_minute > TIME_MAX_MINUTE) {
-        return false;
-    }
-    _second = value % 100;
-    return _second <= TIME_MAX_SECOND;
 }
 
 char* VecDateTimeValue::append_date_buffer(char* to) const {
@@ -1968,19 +1939,19 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/,
+bool DateV2Value<T>::from_date_str(const char* date_str, size_t len, int scale /* = -1*/,
                                    bool convert_zero) {
     return from_date_str_base(date_str, len, scale, nullptr, convert_zero);
 }
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len,
+bool DateV2Value<T>::from_date_str(const char* date_str, size_t len,
                                    const cctz::time_zone& local_time_zone, int scale /* = -1*/,
                                    bool convert_zero) {
     return from_date_str_base(date_str, len, scale, &local_time_zone, convert_zero);
 }
 // if local_time_zone is null, only be able to parse time without timezone
 template <typename T>
-bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
+bool DateV2Value<T>::from_date_str_base(const char* date_str, size_t len, int scale,
                                         const cctz::time_zone* local_time_zone, bool convert_zero) {
     const char* ptr = date_str;
     const char* end = date_str + len;
@@ -2020,7 +1991,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
 
     int field_idx = 0;
     int field_len = year_len;
-    long sec_offset = 0;
+    int sec_offset = 0;
     bool need_use_timezone = false;
 
     while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
@@ -2185,40 +2156,29 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         if (!TimezoneUtils::find_cctz_time_zone(std::string {ptr, end}, given_tz)) {
             return false; // invalid format
         }
-        auto given = cctz::convert(cctz::civil_second {}, given_tz);
-        auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
-        // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-        sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-    }
-
-    // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
-    // rounding to date part, it would be lost. To avoid this, we use a Datetime type to do these calc. It will save the
-    // time part and apply the offset. Then convert to Date type back.
-    // see https://github.com/apache/doris/pull/33553 for more details.
-    if constexpr (!is_datetime) {
-        if (sec_offset) {
-            DateV2Value<DateTimeV2ValueType> tmp;
-            if (!tmp.check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3],
-                                              date_val[4], date_val[5], date_val[6])) {
-                return false;
-            }
-            if (!tmp.date_add_interval<TimeUnit::SECOND>(
-                        TimeInterval {TimeUnit::SECOND, sec_offset, false})) {
-                return false;
-            }
-            this->assign_from(tmp);
-            return true;
+        if (is_invalid(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4], date_val[5],
+                       date_val[6])) {
+            return false;
         }
+        // will carring on the bits in cctz::civil_second. if day is 70, will carry to month.
+        cctz::civil_second cs {date_val[0], date_val[1], date_val[2],
+                               date_val[3], date_val[4], date_val[5]};
+
+        auto given = cctz::convert(cs, given_tz);
+        auto local = cctz::convert(given, *local_time_zone);
+        date_val[0] = local.year();
+        date_val[1] = local.month();
+        date_val[2] = local.day();
+        date_val[3] = local.hour();
+        date_val[4] = local.minute();
+        date_val[5] = local.second();
     }
 
-    if (!check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
-                                  date_val[5], date_val[6])) {
-        return false;
-    }
-
-    return sec_offset ? date_add_interval<TimeUnit::SECOND>(
-                                TimeInterval {TimeUnit::SECOND, sec_offset, false})
-                      : true;
+    return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
+                                    date_val[5], date_val[6]) &&
+           (sec_offset ? date_add_interval<TimeUnit::SECOND>(
+                                 TimeInterval {TimeUnit::SECOND, sec_offset, false})
+                       : true);
 }
 
 template <typename T>
@@ -3078,47 +3038,34 @@ bool DateV2Value<T>::datetime_trunc() {
         if (!is_valid_date()) [[unlikely]] {
             return false;
         }
-        switch (unit) {
-        case SECOND: {
+        if constexpr (unit == SECOND) {
             date_v2_value_.microsecond_ = 0;
-            break;
-        }
-        case MINUTE: {
+        } else if constexpr (unit == MINUTE) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
-            break;
-        }
-        case HOUR: {
+        } else if constexpr (unit == HOUR) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
-            break;
-        }
-        case DAY: {
+        } else if constexpr (unit == DAY) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
-            break;
-        }
-        case WEEK: {
+        } else if constexpr (unit == WEEK) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
             TimeInterval interval(DAY, weekday(), true);
             date_add_interval<DAY>(interval);
-            break;
-        }
-        case MONTH: {
+        } else if constexpr (unit == MONTH) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
             date_v2_value_.day_ = 1;
-            break;
-        }
-        case QUARTER: {
+        } else if constexpr (unit == QUARTER) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
@@ -3133,40 +3080,26 @@ bool DateV2Value<T>::datetime_trunc() {
             } else {
                 date_v2_value_.month_ = 10;
             }
-            break;
-        }
-        case YEAR: {
+        } else if constexpr (unit == YEAR) {
             date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
             date_v2_value_.day_ = 1;
             date_v2_value_.month_ = 1;
-            break;
-        }
-        default:
+        } else {
             return false;
         }
     } else { // is_datev2
         if (!is_valid_date()) [[unlikely]] {
             return false;
         }
-        switch (unit) {
-        case SECOND:
-        case MINUTE:
-        case HOUR:
-        case DAY:
-            break;
-        case WEEK: {
+        if constexpr (unit == WEEK) {
             TimeInterval interval(DAY, weekday(), true);
             date_add_interval<DAY>(interval);
-            break;
-        }
-        case MONTH: {
+        } else if constexpr (unit == MONTH) {
             date_v2_value_.day_ = 1;
-            break;
-        }
-        case QUARTER: {
+        } else if constexpr (unit == QUARTER) {
             date_v2_value_.day_ = 1;
             if (date_v2_value_.month_ <= 3) {
                 date_v2_value_.month_ = 1;
@@ -3177,15 +3110,9 @@ bool DateV2Value<T>::datetime_trunc() {
             } else {
                 date_v2_value_.month_ = 10;
             }
-            break;
-        }
-        case YEAR: {
+        } else if constexpr (unit == YEAR) {
             date_v2_value_.day_ = 1;
             date_v2_value_.month_ = 1;
-            break;
-        }
-        default:
-            return false;
         }
     }
     return true;
@@ -3752,6 +3679,10 @@ template <typename T>
 uint8_t DateV2Value<T>::calc_week(const uint32_t& day_nr, const uint16_t& year,
                                   const uint8_t& month, const uint8_t& day, uint8_t mode,
                                   uint16_t* to_year, bool disable_lut) {
+    if (year == 0) [[unlikely]] {
+        *to_year = 0;
+        return 0;
+    }
     if (config::enable_time_lut && !disable_lut && mode == 3 && year >= 1950 && year < 2030) {
         return doris::TimeLUT::GetImplement()
                 ->week_of_year_table[year - doris::LUT_START_YEAR][month - 1][day - 1];
@@ -4061,5 +3992,5 @@ template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MONTH>(
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

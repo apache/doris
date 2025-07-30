@@ -25,13 +25,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInput;
-import java.io.DataInputStream;
-import java.io.DataOutput;
-import java.io.DataOutputStream;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
@@ -41,16 +34,8 @@ public class PropertySchemaTest {
     public ExpectedException exceptionRule = ExpectedException.none();
 
     @Test
-    public void testStringPropNormal() throws Exception {
-        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(outStream);
-
+    public void testStringPropNormal() {
         PropertySchema.StringProperty prop = new PropertySchema.StringProperty("key");
-        prop.write("val", output);
-
-        ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
-        DataInput input = new DataInputStream(inStream);
-        Assert.assertEquals("val", prop.read(input));
 
         TPropertyVal tProp = new TPropertyVal();
         prop.write("val", tProp);
@@ -102,16 +87,8 @@ public class PropertySchemaTest {
     }
 
     @Test
-    public void testIntPropNormal() throws Exception {
-        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(outStream);
-
+    public void testIntPropNormal() {
         PropertySchema.IntProperty prop = new PropertySchema.IntProperty("key");
-        prop.write(5, output);
-
-        ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
-        DataInput input = new DataInputStream(inStream);
-        Assert.assertEquals(Integer.valueOf(5), prop.read(input));
 
         TPropertyVal tProp = new TPropertyVal();
         prop.write(6, tProp);
@@ -139,16 +116,8 @@ public class PropertySchemaTest {
     }
 
     @Test
-    public void testEnumPropNormal() throws Exception {
-        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(outStream);
-
+    public void testEnumPropNormal() {
         PropertySchema.EnumProperty<Color> prop = new PropertySchema.EnumProperty<>("key", Color.class);
-        prop.write(Color.RED, output);
-
-        ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
-        DataInput input = new DataInputStream(inStream);
-        Assert.assertEquals(Color.RED, prop.read(input));
 
         TPropertyVal tProp = new TPropertyVal();
         prop.write(Color.GREEN, tProp);
@@ -184,16 +153,8 @@ public class PropertySchemaTest {
     }
 
     @Test
-    public void testLongPropNormal() throws Exception {
-        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(outStream);
-
+    public void testLongPropNormal() {
         PropertySchema.LongProperty prop = new PropertySchema.LongProperty("key");
-        prop.write(5L, output);
-
-        ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
-        DataInput input = new DataInputStream(inStream);
-        Assert.assertEquals(Long.valueOf(5), prop.read(input));
 
         TPropertyVal tProp = new TPropertyVal();
         prop.write(6L, tProp);
@@ -221,21 +182,10 @@ public class PropertySchemaTest {
     }
 
     @Test
-    public void testDatePropNormal() throws Exception {
-        DateTimeFormatter dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
-        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(outStream);
-
+    public void testDatePropNormal() {
         PropertySchema.DateProperty prop =
                 new PropertySchema.DateProperty("key",
                         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()));
-        prop.write(Date.from(
-                        LocalDateTime.parse("2021-06-30 20:34:51", dateFormat).atZone(ZoneId.systemDefault()).toInstant()),
-                output);
-
-        ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
-        DataInput input = new DataInputStream(inStream);
-        Assert.assertEquals(1625056491000L, prop.read(input).getTime());
 
         TPropertyVal tProp = new TPropertyVal();
         prop.write(new Date(1625056491000L), tProp);
@@ -267,16 +217,8 @@ public class PropertySchemaTest {
     }
 
     @Test
-    public void testBooleanPropNormal() throws Exception {
-        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(outStream);
-
+    public void testBooleanPropNormal() {
         PropertySchema.BooleanProperty prop = new PropertySchema.BooleanProperty("key");
-        prop.write(true, output);
-
-        ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
-        DataInput input = new DataInputStream(inStream);
-        Assert.assertEquals(true, prop.read(input));
 
         TPropertyVal tProp = new TPropertyVal();
         prop.write(true, tProp);

@@ -61,6 +61,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BaseRowsetBuilder::BaseRowsetBuilder(const WriteRequest& req, RuntimeProfile* profile)
@@ -164,7 +165,7 @@ Status RowsetBuilder::check_tablet_version_count() {
         LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id() << " : "
                      << st;
     }
-    int version_count = tablet()->version_count();
+    auto version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { version_count = INT_MAX; });
     if (version_count > max_version_config) {
@@ -202,7 +203,7 @@ Status RowsetBuilder::init() {
         RETURN_IF_ERROR(check_tablet_version_count());
     }
 
-    int version_count = tablet()->version_count() + tablet()->stale_version_count();
+    auto version_count = tablet()->version_count() + tablet()->stale_version_count();
     if (tablet()->avg_rs_meta_serialize_size() * version_count >
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
@@ -407,8 +408,9 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
     if (!indexes.empty() && !indexes[i]->columns.empty() &&
         indexes[i]->columns[0]->unique_id() >= 0) {
         _tablet_schema->shawdow_copy_without_columns(ori_tablet_schema);
-        _tablet_schema->build_current_tablet_schema(index_id, table_schema_param->version(),
-                                                    indexes[i], ori_tablet_schema);
+        _tablet_schema->build_current_tablet_schema(
+                index_id, cast_set<int32_t>(table_schema_param->version()), indexes[i],
+                ori_tablet_schema);
     } else {
         _tablet_schema->copy_from(ori_tablet_schema);
     }
@@ -438,6 +440,7 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
     RETURN_IF_ERROR(_partial_update_info->init(
             tablet()->tablet_id(), _req.txn_id, *_tablet_schema,
             table_schema_param->unique_key_update_mode(),
+            table_schema_param->partial_update_new_key_policy(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
@@ -445,5 +448,5 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
             table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

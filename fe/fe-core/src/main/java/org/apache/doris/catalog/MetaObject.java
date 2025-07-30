@@ -22,7 +22,6 @@ import org.apache.doris.common.io.Writable;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -57,10 +56,4 @@ public abstract class MetaObject implements Writable {
         out.writeLong(signature);
         out.writeLong(lastCheckTime);
     }
-
-    public void readFields(DataInput in) throws IOException {
-        this.signature = in.readLong();
-        this.lastCheckTime = in.readLong();
-    }
-
 }

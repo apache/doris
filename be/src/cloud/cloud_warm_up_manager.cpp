@@ -17,7 +17,8 @@
 
 #include "cloud/cloud_warm_up_manager.h"
 
-#include <bthread/countdown_event.h>
+#include <bvar/bvar.h>
+#include <bvar/reducer.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -33,6 +34,8 @@
 #include "util/time.h"
 
 namespace doris {
+
+bvar::Adder<uint64_t> file_cache_warm_up_failed_task_num("file_cache_warm_up", "failed_task_num");
 
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
@@ -59,6 +62,52 @@ std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTable
     return id_to_rowset_meta_map;
 }
 
+void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
+                                               io::FileSystemSPtr file_system,
+                                               int64_t expiration_time,
+                                               std::shared_ptr<bthread::CountdownEvent> wait) {
+    if (file_size < 0) {
+        auto st = file_system->file_size(path, &file_size);
+        if (!st.ok()) [[unlikely]] {
+            LOG(WARNING) << "get file size failed: " << path;
+            file_cache_warm_up_failed_task_num << 1;
+            return;
+        }
+    }
+
+    const int64_t chunk_size = 10 * 1024 * 1024; // 10MB
+    int64_t offset = 0;
+    int64_t remaining_size = file_size;
+
+    while (remaining_size > 0) {
+        int64_t current_chunk_size = std::min(chunk_size, remaining_size);
+        wait->add_count();
+
+        _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
+                .path = path,
+                .file_size = file_size,
+                .offset = offset,
+                .download_size = current_chunk_size,
+                .file_system = file_system,
+                .ctx =
+                        {
+                                .expiration_time = expiration_time,
+                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                        },
+                .download_done =
+                        [wait](Status st) {
+                            if (!st) {
+                                LOG_WARNING("Warm up error ").error(st);
+                            }
+                            wait->signal();
+                        },
+        });
+
+        offset += current_chunk_size;
+        remaining_size -= current_chunk_size;
+    }
+}
+
 void CloudWarmUpManager::handle_jobs() {
 #ifndef BE_TEST
     constexpr int WAIT_TIME_SECONDS = 600;
@@ -70,13 +119,19 @@ void CloudWarmUpManager::handle_jobs() {
                 _cond.wait(lock);
             }
             if (_closed) break;
-            cur_job = _pending_job_metas.front();
+            if (!_pending_job_metas.empty()) {
+                cur_job = _pending_job_metas.front();
+            }
         }
 
         if (!cur_job) {
             LOG_WARNING("Warm up job is null");
             continue;
         }
+
+        std::shared_ptr<bthread::CountdownEvent> wait =
+                std::make_shared<bthread::CountdownEvent>(0);
+
         for (int64_t tablet_id : cur_job->tablet_ids) {
             if (_cur_job_id == 0) { // The job is canceled
                 break;
@@ -92,8 +147,7 @@ void CloudWarmUpManager::handle_jobs() {
                 LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(st);
                 continue;
             }
-            std::shared_ptr<bthread::CountdownEvent> wait =
-                    std::make_shared<bthread::CountdownEvent>(0);
+
             auto tablet_meta = tablet->tablet_meta();
             auto rs_metas = snapshot_rs_metas(tablet.get());
             for (auto& [_, rs] : rs_metas) {
@@ -112,76 +166,62 @@ void CloudWarmUpManager::handle_jobs() {
                         expiration_time = 0;
                     }
 
-                    wait->add_count();
-                    // clang-format off
-                    _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
-                            .path = storage_resource.value()->remote_segment_path(*rs, seg_id),
-                            .file_size = rs->segment_file_size(seg_id),
-                            .file_system = storage_resource.value()->fs,
-                            .ctx =
-                                    {
-                                            .expiration_time = expiration_time,
-                                            .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                                    },
-                            .download_done =
-                                    [wait](Status st) {
-                                        if (!st) {
-                                            LOG_WARNING("Warm up error ").error(st);
-                                        }
-                                        wait->signal();
-                                    },
-                    });
+                    // 1st. download segment files
+                    submit_download_tasks(
+                            storage_resource.value()->remote_segment_path(*rs, seg_id),
+                            rs->segment_file_size(seg_id), storage_resource.value()->fs,
+                            expiration_time, wait);
 
-                    auto download_idx_file = [&](const io::Path& idx_path) {
-                        io::DownloadFileMeta meta {
-                                .path = idx_path,
-                                .file_size = -1,
-                                .file_system = storage_resource.value()->fs,
-                                .ctx =
-                                        {
-                                                .expiration_time = expiration_time,
-                                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                                        },
-                                .download_done =
-                                        [wait](Status st) {
-                                            if (!st) {
-                                                LOG_WARNING("Warm up error ").error(st);
-                                            }
-                                            wait->signal();
-                                        },
-                        };
-                        // clang-format on
-                        _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
-                    };
+                    // 2nd. download inverted index files
+                    int64_t file_size = -1;
                     auto schema_ptr = rs->tablet_schema();
                     auto idx_version = schema_ptr->get_inverted_index_storage_format();
+                    const auto& idx_file_info = rs->inverted_index_file_info(seg_id);
                     if (idx_version == InvertedIndexStorageFormatPB::V1) {
                         for (const auto& index : schema_ptr->inverted_indexes()) {
-                            wait->add_count();
                             auto idx_path = storage_resource.value()->remote_idx_v1_path(
                                     *rs, seg_id, index->index_id(), index->get_index_suffix());
-                            download_idx_file(idx_path);
+                            if (idx_file_info.index_info_size() > 0) {
+                                for (const auto& idx_info : idx_file_info.index_info()) {
+                                    if (index->index_id() == idx_info.index_id() &&
+                                        index->get_index_suffix() == idx_info.index_suffix()) {
+                                        file_size = idx_info.index_file_size();
+                                        break;
+                                    }
+                                }
+                            }
+                            submit_download_tasks(idx_path, file_size, storage_resource.value()->fs,
+                                                  expiration_time, wait);
                         }
                     } else {
                         if (schema_ptr->has_inverted_index()) {
-                            wait->add_count();
                             auto idx_path =
                                     storage_resource.value()->remote_idx_v2_path(*rs, seg_id);
-                            download_idx_file(idx_path);
+                            file_size = idx_file_info.has_index_size() ? idx_file_info.index_size()
+                                                                       : -1;
+                            submit_download_tasks(idx_path, file_size, storage_resource.value()->fs,
+                                                  expiration_time, wait);
                         }
                     }
                 }
             }
-            timespec time;
-            time.tv_sec = UnixSeconds() + WAIT_TIME_SECONDS;
-            if (!wait->timed_wait(time)) {
-                LOG_WARNING("Warm up tablet {} take a long time", tablet_meta->tablet_id());
-            }
+        }
+
+        timespec time;
+        time.tv_sec = UnixSeconds() + WAIT_TIME_SECONDS;
+        if (wait->timed_wait(time)) {
+            LOG_WARNING("Warm up {} tablets take a long time", cur_job->tablet_ids.size());
         }
         {
             std::unique_lock lock(_mtx);
             _finish_job.push_back(cur_job);
-            _pending_job_metas.pop_front();
+            // _pending_job_metas may be cleared by a CLEAR_JOB request
+            // so we need to check it again.
+            if (!_pending_job_metas.empty()) {
+                // We can not call pop_front before the job is finished,
+                // because GET_CURRENT_JOB_STATE_AND_LEASE is relying on the pending job size.
+                _pending_job_metas.pop_front();
+            }
         }
     }
 #endif

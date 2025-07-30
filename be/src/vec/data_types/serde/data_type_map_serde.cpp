@@ -21,6 +21,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -314,17 +315,17 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
 }
 
 void DataTypeMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
 void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                               Arena* mem_pool, int32_t col_id,
+                                               Arena& arena, int32_t col_id,
                                                int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
-    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    StringRef value = column.serialize_value_into_arena(row_num, arena, begin);
     result.writeStartBinary();
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();
@@ -495,8 +496,7 @@ Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                              const NullMap* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                             int64_t end,
-                                             std::vector<StringRef>& buffer_list) const {
+                                             int64_t end, vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -510,10 +510,10 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
 
         RETURN_IF_ERROR(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
                                                        cur_batch->keys.get(), offset, next_offset,
-                                                       buffer_list));
+                                                       arena));
         RETURN_IF_ERROR(value_serde->write_column_to_orc(timezone, nested_values_column, nullptr,
                                                          cur_batch->elements.get(), offset,
-                                                         next_offset, buffer_list));
+                                                         next_offset, arena));
 
         cur_batch->offsets[row_id + 1] = next_offset;
     }

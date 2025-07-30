@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
@@ -216,14 +217,37 @@ Status DataTypeArraySerDe::serialize_one_cell_to_hive_text(
     return Status::OK();
 }
 
+Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                     JsonbWriter& writer) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(from_column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t start = offsets[row_num - 1];
+    size_t end = offsets[row_num];
+    const IColumn& nested_column = data_column.get_data();
+
+    if (!writer.writeStartArray()) {
+        return Status::InternalError("writeStartArray failed");
+    }
+
+    for (size_t i = start; i < end; ++i) {
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(nested_column, i, writer));
+    }
+    if (!writer.writeEndArray()) {
+        return Status::InternalError("writeEndArray failed");
+    }
+
+    return Status::OK();
+}
+
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                 Arena* mem_pool, int32_t col_id,
+                                                 Arena& arena, int32_t col_id,
                                                  int64_t row_num) const {
     // JsonbKeyValue::keyid_type is uint16_t and col_id is int32_t, need a cast
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
-    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    StringRef value = column.serialize_value_into_arena(row_num, arena, begin);
     result.writeStartBinary();
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();
@@ -231,7 +255,7 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 
 Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& mem_pool, int64_t row_num) const {
+                                                  Arena& arena, int64_t row_num) const {
     auto res = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = res.first;
     row_num = res.second;
@@ -247,7 +271,7 @@ Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjs
     for (size_t i = offset; i < next_offset; ++i) {
         rapidjson::Value val;
         RETURN_IF_ERROR(
-                nested_serde->write_one_cell_to_json(nested_column, val, allocator, mem_pool, i));
+                nested_serde->write_one_cell_to_json(nested_column, val, allocator, arena, i));
         result.PushBack(val, allocator);
     }
     return Status::OK();
@@ -271,7 +295,7 @@ Status DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
 }
 
 void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
@@ -387,8 +411,7 @@ Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
 Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                               int64_t end,
-                                               std::vector<StringRef>& buffer_list) const {
+                                               int64_t end, vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -400,7 +423,7 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
         size_t next_offset = offsets[row_id];
         RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
                                                           cur_batch->elements.get(), offset,
-                                                          next_offset, buffer_list));
+                                                          next_offset, arena));
         cur_batch->offsets[row_id + 1] = next_offset;
     }
     cur_batch->elements->numElements = nested_column.size();

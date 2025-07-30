@@ -28,7 +28,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/io/io_helper.h"
 
 // TODO: optimize count=0
 // TODO: support datetime
@@ -79,7 +78,7 @@ public:
         double key = std::floor((val - offset) / interval);
         if (key <= MIN_BUCKET_KEY || key >= MAX_BUCKET_KEY) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "{} exceeds the bucket range limit",
-                                   value);
+                                   val);
         }
         buckets[static_cast<int32_t>(key)]++;
     }
@@ -100,30 +99,30 @@ public:
 
     // write
     void write(BufferWritable& buf) const {
-        write_binary(offset, buf);
-        write_binary(interval, buf);
-        write_binary(lower, buf);
-        write_binary(upper, buf);
-        write_binary(buckets.size(), buf);
+        buf.write_binary(offset);
+        buf.write_binary(interval);
+        buf.write_binary(lower);
+        buf.write_binary(upper);
+        buf.write_binary(buckets.size());
         for (const auto& [key, count] : buckets) {
-            write_binary(key, buf);
-            write_binary(count, buf);
+            buf.write_binary(key);
+            buf.write_binary(count);
         }
     }
 
     // read
     void read(BufferReadable& buf) {
-        read_binary(offset, buf);
-        read_binary(interval, buf);
-        read_binary(lower, buf);
-        read_binary(upper, buf);
+        buf.read_binary(offset);
+        buf.read_binary(interval);
+        buf.read_binary(lower);
+        buf.read_binary(upper);
         size_t size;
-        read_binary(size, buf);
+        buf.read_binary(size);
         for (size_t i = 0; i < size; i++) {
             int32_t key;
             size_t count;
-            read_binary(key, buf);
-            read_binary(count, buf);
+            buf.read_binary(key);
+            buf.read_binary(count);
             buckets[key] = count;
         }
     }
@@ -201,7 +200,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         double interval =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                         .get_data()[row_num];
@@ -235,7 +234,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -244,7 +243,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

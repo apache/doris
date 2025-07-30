@@ -25,7 +25,7 @@
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Only Used In RuntimeFilter
 class BloomFilterFuncBase : public FilterBase {
 public:
@@ -46,10 +46,16 @@ public:
         if (_build_bf_by_runtime_size) {
             // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
             // m is the number of bits we would need to get the fpp specified
-            double m = -K * runtime_size / std::log(1 - std::pow(FPP, 1.0 / K));
+            double m = -K * (double)runtime_size / std::log(1 - std::pow(FPP, 1.0 / K));
+
+#ifdef __APPLE__
+            constexpr double LN2 = 0.693147180559945309417;
+#else
+            constexpr double LN2 = std::numbers::ln2;
+#endif
 
             // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
-            int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
+            int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / LN2)));
             auto be_calculate_size = (((int64_t)1) << log_filter_size);
             // if FE do use ndv stat to predict the bf size, BE only use the row count. FE have more
             // exactly row count stat. which one is min is more correctly.
@@ -107,7 +113,7 @@ public:
 
     void get_data(char** data, int* len) {
         *data = _bloom_filter->data();
-        *len = _bloom_filter->size();
+        *len = (int)_bloom_filter->size();
     }
 
     bool contain_null() const {
@@ -132,7 +138,7 @@ public:
 
     virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results) = 0;
 
-    virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
+    virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap,
                                                 uint16_t* offsets, int number,
                                                 bool is_parse_column) = 0;
 
@@ -149,7 +155,7 @@ private:
     }
 
 protected:
-    int32_t _bloom_filter_alloced = 0;
+    int64_t _bloom_filter_alloced = 0;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     int64_t _bloom_filter_length;
     int64_t _runtime_bloom_filter_min_size;
@@ -190,7 +196,7 @@ public:
     }
 
     template <bool is_nullable>
-    uint16_t find_dict_olap_engine(const vectorized::ColumnDictI32* column, const uint8* nullmap,
+    uint16_t find_dict_olap_engine(const vectorized::ColumnDictI32* column, const uint8_t* nullmap,
                                    uint16_t* offsets, int number) {
         uint16_t new_size = 0;
         for (uint16_t i = 0; i < number; i++) {
@@ -206,7 +212,7 @@ public:
         return new_size;
     }
 
-    uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
+    uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap, uint16_t* offsets,
                                         int number, bool is_parse_column) override {
         if (_enable_fixed_len_to_uint32_v2) {
             return OpV2::find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
@@ -221,5 +227,5 @@ private:
     using Op = typename BloomFilterTypeTraits<fixed_len_to_uint32, type>::FindOp;
     using OpV2 = typename BloomFilterTypeTraits<fixed_len_to_uint32_v2, type>::FindOp;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive.DeriveContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -33,9 +34,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
-import java.util.HashSet;
+import com.google.common.collect.ImmutableSet;
+import org.roaringbitmap.RoaringBitmap;
+
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * derive operative columns
@@ -49,7 +54,9 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
 
     @Override
     public Plan visit(Plan plan, DeriveContext context) {
-        context.addOperativeSlots(plan.getInputSlots());
+        for (Expression expression : plan.getExpressions()) {
+            context.addOperativeSlots(expression);
+        }
         return visitChildren(this, plan, context);
     }
 
@@ -61,9 +68,9 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
     private Plan deriveUnion(LogicalUnion union, DeriveContext context) {
         for (int i = 0; i < union.getOutput().size(); i++) {
             Slot output = union.getOutput().get(i);
-            if (context.operativeSlots.contains(output)) {
+            if (context.operativeSlotIds.contains(output.getExprId().asInt())) {
                 for (List<SlotReference> childOutput : union.getRegularChildrenOutputs()) {
-                    context.operativeSlots.add(childOutput.get(i));
+                    context.operativeSlotIds.add(childOutput.get(i).getExprId().asInt());
                 }
             }
         }
@@ -77,11 +84,11 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
         boolean needBackPropagation = false;
         for (int i = 0; i < union.getOutput().size(); i++) {
             Slot output = union.getOutput().get(i);
-            if (!context.operativeSlots.contains(output)) {
+            if (!context.operativeSlotIds.contains(output.getExprId().asInt())) {
                 for (List<SlotReference> childOutput : union.getRegularChildrenOutputs()) {
-                    if (context.operativeSlots.contains(childOutput.get(i))) {
+                    if (context.operativeSlotIds.contains(childOutput.get(i).getExprId().asInt())) {
                         // if any child output is operative, this output is operative
-                        context.operativeSlots.add(output);
+                        context.operativeSlotIds.add(output.getExprId().asInt());
                         needBackPropagation = true;
                         break;
                     }
@@ -100,12 +107,12 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
         for (NamedExpression ne : project.getProjects()) {
             if (!(ne instanceof Slot)) {
                 if (ne.child(0) instanceof Slot) {
-                    if (context.operativeSlots.contains(ne.toSlot())) {
-                        context.operativeSlots.add((Slot) ne.child(0));
+                    if (context.operativeSlotIds.contains(ne.getExprId().asInt())) {
+                        context.operativeSlotIds.add(((Slot) ne.child(0)).getExprId().asInt());
                     }
                 } else {
-                    context.addOperativeSlots(ne.getInputSlots());
-                    context.addOperativeSlot(ne.toSlot());
+                    context.addOperativeSlots(ne);
+                    context.addOperativeSlot(ne);
                 }
             }
         }
@@ -113,8 +120,8 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
         // back propagate
         for (NamedExpression ne : project.getProjects()) {
             if (!(ne instanceof Slot) && ne.child(0) instanceof Slot) {
-                if (context.operativeSlots.contains(((Slot) ne.child(0)))) {
-                    context.addOperativeSlot(ne.toSlot());
+                if (context.operativeSlotIds.contains(((Slot) ne.child(0)).getExprId().asInt())) {
+                    context.addOperativeSlot(ne);
                 }
             }
         }
@@ -123,8 +130,15 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
 
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, DeriveContext context) {
-        Set<Slot> intersectSlots = new HashSet<>(olapScan.getOutput());
-        intersectSlots.retainAll(context.operativeSlots);
+        // the operativeSlotIds must order by slotId, or else backend will core
+        Set<Slot> intersectSlots = new TreeSet<>(Comparator.comparing(Slot::getExprId));
+        RoaringBitmap operativeSlotIds = context.operativeSlotIds;
+        for (Slot slot : olapScan.getOutput()) {
+            if (operativeSlotIds.contains(slot.getExprId().asInt())) {
+                intersectSlots.add(slot);
+            }
+        }
+
         OlapTable table = olapScan.getTable();
         if (KeysType.UNIQUE_KEYS.equals(table.getKeysType())
                 && !table.getTableProperty().getEnableUniqueKeyMergeOnWrite()
@@ -137,32 +151,49 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
                 }
             }
         }
-        return (Plan) olapScan.withOperativeSlots(intersectSlots);
+        for (NamedExpression virtualColumn : olapScan.getVirtualColumns()) {
+            intersectSlots.add(virtualColumn.toSlot());
+            intersectSlots.addAll(virtualColumn.getInputSlots());
+        }
+
+        return olapScan.withOperativeSlots(intersectSlots);
     }
 
     @Override
     public Plan visitLogicalCatalogRelation(LogicalCatalogRelation relation, DeriveContext context) {
-        Set<Slot> intersectSlots = new HashSet<>(relation.getOutput());
-        intersectSlots.retainAll(context.operativeSlots);
-        return (Plan) relation.withOperativeSlots(intersectSlots);
+        ImmutableSet.Builder<Slot> operandSlots = ImmutableSet.builder();
+        for (Slot slot : relation.getOutput()) {
+            if (context.operativeSlotIds.contains(slot.getExprId().asInt())) {
+                operandSlots.add(slot);
+            }
+        }
+        for (NamedExpression virtualColumn : relation.getVirtualColumns()) {
+            operandSlots.add(virtualColumn.toSlot());
+            operandSlots.addAll(virtualColumn.getInputSlots());
+        }
+        return relation.withOperativeSlots(operandSlots.build());
     }
 
     /**
      * DeriveContext
      */
     public static class DeriveContext {
-        public Set<Slot> operativeSlots;
+        public RoaringBitmap operativeSlotIds;
 
         public DeriveContext() {
-            this.operativeSlots = new HashSet<>();
+            this.operativeSlotIds = new RoaringBitmap();
         }
 
-        public void addOperativeSlot(Slot slot) {
-            operativeSlots.add(slot);
+        public void addOperativeSlot(NamedExpression slot) {
+            operativeSlotIds.add(slot.getExprId().asInt());
         }
 
-        public void addOperativeSlots(Set<Slot> slots) {
-            operativeSlots.addAll(slots);
+        public void addOperativeSlots(Expression exprTree) {
+            exprTree.foreach(child -> {
+                if (child instanceof Slot) {
+                    operativeSlotIds.add(((Slot) child).getExprId().asInt());
+                }
+            });
         }
     }
 }

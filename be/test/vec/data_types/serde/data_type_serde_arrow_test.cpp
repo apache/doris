@@ -130,7 +130,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                             mutable_nullable_vector->insert_default();
                         } else {
                             mutable_nullable_vector->insert(
-                                    Field::create_field<TYPE_INT>(int32(i)));
+                                    Field::create_field<TYPE_INT>(int32_t(i)));
                         }
                     }
                     auto data_type = vectorized::make_nullable(
@@ -164,10 +164,10 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                 Int32 val;
                 StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
                 i % 2 == 0 ? val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
-                                     "1234567.56", 11, type_desc->get_precision(),
+                                     "1234567.56", 10, type_desc->get_precision(),
                                      type_desc->get_scale(), &result)
                            : val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
-                                     "-1234567.56", 12, type_desc->get_precision(),
+                                     "-1234567.56", 11, type_desc->get_precision(),
                                      type_desc->get_scale(), &result);
                 EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
                 data.push_back(val);

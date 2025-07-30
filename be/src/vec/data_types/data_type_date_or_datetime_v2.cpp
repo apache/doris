@@ -42,6 +42,15 @@ class IColumn;
 } // namespace vectorized
 } // namespace doris
 
+// FIXME: This file contains widespread UB due to unsafe type-punning casts.
+//        These must be properly refactored to eliminate reliance on reinterpret-style behavior.
+//
+// Temporarily suppress GCC 15+ warnings on user-defined type casts to allow build to proceed.
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-user-defined"
+#endif
+
 namespace doris::vectorized {
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
@@ -240,6 +249,18 @@ void DataTypeDateTimeV2::cast_from_date_time(const Int64 from, UInt64& to) {
                                 from_value.hour(), from_value.minute(), from_value.second(), 0);
 }
 
+FieldWithDataType DataTypeDateTimeV2::get_field_with_data_type(const IColumn& column,
+                                                               size_t row_num) const {
+    const auto& column_data =
+            assert_cast<const ColumnDateTimeV2&, TypeCheckOnRelease::DISABLE>(column);
+    Field field;
+    column_data.get(row_num, field);
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type(),
+                              .precision = -1,
+                              .scale = static_cast<int>(get_scale())};
+}
+
 void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {
     to = from >> TIME_PART_LENGTH;
 }
@@ -253,3 +274,7 @@ DataTypePtr create_datetimev2(UInt64 scale_value) {
 }
 
 } // namespace doris::vectorized
+
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic pop
+#endif

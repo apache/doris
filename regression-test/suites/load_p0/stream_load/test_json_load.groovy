@@ -654,9 +654,9 @@ suite("test_json_load", "p0,nonConcurrent") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName =getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
+        def brokerName =getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
         def hdfs_file_path = uploadToHdfs "load_p0/stream_load/simple_object_json.json"
         def format = "json" 
 
@@ -928,6 +928,33 @@ suite("test_json_load", "p0,nonConcurrent") {
         
         sql "sync"
         qt_select31 "select * from ${testTable} order by id"
+
+    } finally {
+        // try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // support read "$."  as root with json type
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` json NULL,
+                `k3` json NULL,
+                `k4` json NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case30", 'false', 'true', 'json', '', '[\"$.k1\",\"$.\", \"$.\", \"$.k3\"]',
+                             '', '', '', 'test_read_root_path.json')
+        
+        sql "sync"
+        qt_select30 "select * from ${testTable} order by k1"
 
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${testTable}")

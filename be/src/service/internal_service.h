@@ -238,8 +238,6 @@ private:
                                     const std::function<void(RuntimeState*, Status*)>& cb =
                                             std::function<void(RuntimeState*, Status*)>());
 
-    Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
-
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,

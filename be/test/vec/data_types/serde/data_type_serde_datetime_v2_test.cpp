@@ -181,7 +181,7 @@ TEST_F(DataTypeDateTimeV2SerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 
@@ -189,8 +189,11 @@ TEST_F(DataTypeDateTimeV2SerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            auto* pdoc = JsonbDocument::checkAndCreateDocument(
-                    jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
+            JsonbDocument* pdoc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                            jsonb_writer.getOutput()->getSize(),
+                                                            &pdoc);
+            EXPECT_TRUE(st.ok()) << "Failed to create JsonbDocument: " << st;
             JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());

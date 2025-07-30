@@ -20,6 +20,7 @@
 #include "arrow/array/builder_nested.h"
 #include "common/status.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_struct.h"
@@ -32,14 +33,21 @@ namespace vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 
-std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String& name) const {
-    size_t size = elem_serdes_ptrs.size();
+std::string DataTypeStructSerDe::get_name() const {
+    size_t size = elem_names.size();
+    std::stringstream s;
+
+    s << "Struct(";
     for (size_t i = 0; i < size; ++i) {
-        if (elem_names[i] == name) {
-            return {i};
+        if (i != 0) {
+            s << ", ";
         }
+        s << elem_names[i] << ":";
+        s << elem_serdes_ptrs[i]->get_name();
     }
-    return std::nullopt;
+    s << ")";
+
+    return s.str();
 }
 
 Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -239,12 +247,12 @@ Status DataTypeStructSerDe::deserialize_column_from_json_vector(
 }
 
 void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena* mem_pool, int32_t col_id,
+                                                  Arena& arena, int32_t col_id,
                                                   int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
-    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    StringRef value = column.serialize_value_into_arena(row_num, arena, begin);
     result.writeStartBinary();
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();
@@ -317,8 +325,37 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
     return Status::OK();
 }
 
+Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                      JsonbWriter& writer) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(from_column);
+
+    if (!writer.writeStartObject()) {
+        return Status::InternalError("writeStartObject failed");
+    }
+
+    for (size_t i = 0; i < elem_serdes_ptrs.size(); ++i) {
+        // check key
+        if (elem_names[i].size() > std::numeric_limits<uint8_t>::max()) {
+            return Status::InternalError("key size exceeds max limit {} ", elem_names[i]);
+        }
+        // write key
+        if (!writer.writeKey(elem_names[i].data(), (uint8_t)elem_names[i].size())) {
+            return Status::InternalError("writeKey failed : {}", elem_names[i]);
+        }
+        // write value
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->serialize_column_to_jsonb(struct_column.get_column(i),
+                                                                       row_num, writer));
+    }
+
+    if (!writer.writeEndObject()) {
+        return Status::InternalError("writeEndObject failed");
+    }
+
+    return Status::OK();
+}
+
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
@@ -438,14 +475,14 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (auto row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                    row_id + 1, buffer_list));
+                    row_id + 1, arena));
         }
     }
 

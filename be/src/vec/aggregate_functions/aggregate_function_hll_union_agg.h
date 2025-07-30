@@ -20,7 +20,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <string>
@@ -34,7 +33,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -59,12 +57,12 @@ struct AggregateFunctionHLLData {
     void write(BufferWritable& buf) const {
         std::string result(dst_hll.max_serialized_size(), '0');
         result.resize(dst_hll.serialize((uint8_t*)result.c_str()));
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
         StringRef ref;
-        read_binary(ref, buf);
+        buf.read_binary(ref);
         dst_hll.deserialize(Slice(ref.data, ref.size));
     }
 
@@ -121,12 +119,12 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).add(columns[0], row_num);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -135,7 +133,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

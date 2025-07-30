@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
@@ -57,14 +56,6 @@ public abstract class ExternalScanNode extends ScanNode {
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        computeStats(analyzer);
-        computeColumnsFilter();
-        initBackendPolicy();
-    }
-
     // For Nereids
     @Override
     public void init() throws UserException {
@@ -77,21 +68,12 @@ public abstract class ExternalScanNode extends ScanNode {
         numNodes = backendPolicy.numBackends();
     }
 
-    public FederationBackendPolicy getBackendPolicy() {
-        return backendPolicy;
-    }
-
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
         }
         return scanRangeLocations;
-    }
-
-    @Override
-    public boolean needToCheckColumnPriv() {
-        return this.needCheckColumnPriv;
     }
 
     @Override

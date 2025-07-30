@@ -28,6 +28,10 @@ public class ProxyPattern<TYPE extends Plan> extends Pattern<TYPE> {
         this.pattern = pattern;
     }
 
+    public Pattern getPattern() {
+        return pattern;
+    }
+
     @Override
     public boolean matchPlanTree(Plan plan) {
         return pattern.matchPlanTree(plan);

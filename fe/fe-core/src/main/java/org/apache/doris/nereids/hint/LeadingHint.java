@@ -32,7 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -57,8 +57,6 @@ public class LeadingHint extends Hint {
     private List<String> normalizedParameters;
     private final List<String> tablelist = new ArrayList<>();
 
-    private final Map<Integer, DistributeHint> distributeHints = new HashMap<>();
-
     private final Map<RelationId, LogicalPlan> relationIdToScanMap = Maps.newLinkedHashMap();
 
     private final List<Pair<RelationId, String>> relationIdAndTableName = new ArrayList<>();
@@ -75,6 +73,8 @@ public class LeadingHint extends Hint {
 
     private Long totalBitmap = 0L;
 
+    private final Map<String, DistributeHint> strToHint = new HashMap<>();
+
     public LeadingHint(String hintName) {
         super(hintName);
     }
@@ -84,11 +84,13 @@ public class LeadingHint extends Hint {
      * @param hintName Leading
      * @param parameters table name mixed with left and right brace
      */
-    public LeadingHint(String hintName, List<String> parameters, String originalString) {
+    public LeadingHint(String hintName, List<String> parameters, String originalString,
+            Map<String, DistributeHint> strToHint) {
         super(hintName);
         this.originalString = originalString;
         addJoinParameters = insertJoinIntoParameters(parameters);
         normalizedParameters = parseIntoReversePolishNotation(addJoinParameters);
+        this.strToHint.putAll(strToHint);
     }
 
     /**
@@ -100,7 +102,7 @@ public class LeadingHint extends Hint {
         List<String> output = new ArrayList<>();
 
         for (String item : list) {
-            if (item.equals("shuffle") || item.equals("broadcast")) {
+            if (item.startsWith("broadcast") || item.startsWith("shuffle")) {
                 output.remove(output.size() - 1);
                 output.add(item);
                 continue;
@@ -129,7 +131,7 @@ public class LeadingHint extends Hint {
         List<String> s2 = new ArrayList<>();
 
         for (String item : list) {
-            if (!(item.equals("shuffle") || item.equals("broadcast") || item.equals("{")
+            if (!(item.startsWith("shuffle") || item.startsWith("broadcast") || item.equals("{")
                     || item.equals("}") || item.equals("join"))) {
                 tablelist.add(item);
                 s2.add(item);
@@ -142,12 +144,6 @@ public class LeadingHint extends Hint {
                 }
                 s1.pop();
             } else {
-                if (item.equals("shuffle")) {
-                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.SHUFFLE_RIGHT));
-                } else if (item.equals("broadcast")) {
-                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.BROADCAST_RIGHT));
-                }
-
                 while (s1.size() != 0 && !s1.peek().equals("{")) {
                     s2.add(s1.pop());
                 }
@@ -177,10 +173,20 @@ public class LeadingHint extends Hint {
         for (String parameter : addJoinParameters) {
             if (parameter.equals("{") || parameter.equals("}") || parameter.equals("[") || parameter.equals("]")) {
                 out.append(parameter + " ");
-            } else if (parameter.equals("shuffle") || parameter.equals("broadcast")) {
-                DistributeHint distributeHint = distributeHints.get(parameter.hashCode());
-                if (distributeHint.isSuccess()) {
-                    out.append(parameter + " ");
+            } else if (parameter.startsWith("shuffle") || parameter.startsWith("broadcast")) {
+                DistributeHint distributeHint = strToHint.get(parameter);
+                if (!distributeHint.isSuccess()) {
+                    continue;
+                }
+                if (distributeHint.distributeType.equals(DistributeType.SHUFFLE_RIGHT)) {
+                    out.append("shuffle");
+                    if (distributeHint.getSkewInfo() != null && distributeHint.isSuccessInSkewRewrite()) {
+                        out.append("_skew ");
+                    } else {
+                        out.append(" ");
+                    }
+                } else {
+                    out.append("broadcast ");
                 }
             } else if (parameter.equals("join")) {
                 continue;
@@ -506,22 +512,11 @@ public class LeadingHint extends Hint {
         return JoinType.INNER_JOIN;
     }
 
-    private DistributeHint getDistributeJoinHint(String distributeJoinType) {
-        DistributeHint distributeHint = null;
-        if (distributeJoinType.equals("join")) {
-            distributeHint = new DistributeHint(DistributeType.NONE);
-        } else if (distributeJoinType.equals("shuffle") || distributeJoinType.equals("broadcast")) {
-            distributeHint = distributeHints.get(distributeJoinType.hashCode());
-        }
-        distributeHint.setSuccessInLeading(true);
-        if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
-            ConnectContext.get().getStatementContext().addHint(distributeHint);
-        }
-        distributeHints.put(0, distributeHint);
-        return distributeHint;
-    }
-
     private LogicalPlan makeJoinPlan(LogicalPlan leftChild, LogicalPlan rightChild, String distributeJoinType) {
+        DistributeHint distributeHint = new DistributeHint(DistributeType.NONE);
+        if (!distributeJoinType.equals("join")) {
+            distributeHint = strToHint.get(distributeJoinType);
+        }
         List<Expression> conditions = getJoinConditions(
                 getFilters(), leftChild, rightChild);
         Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
@@ -540,7 +535,6 @@ public class LeadingHint extends Hint {
             return null;
         }
         // get joinType
-        DistributeHint distributeHint = getDistributeJoinHint(distributeJoinType);
         LogicalJoin logicalJoin = new LogicalJoin<>(joinType, pair.first,
                 pair.second,
                 distributeHint,
@@ -559,7 +553,7 @@ public class LeadingHint extends Hint {
     public Plan generateLeadingJoinPlan() {
         Stack<LogicalPlan> stack = new Stack<>();
         for (String item : normalizedParameters) {
-            if (item.equals("join") || item.equals("shuffle") || item.equals("broadcast")) {
+            if (item.equals("join") || item.startsWith("shuffle") || item.startsWith("broadcast")) {
                 LogicalPlan rightChild = stack.pop();
                 LogicalPlan leftChild = stack.pop();
                 LogicalPlan joinPlan = makeJoinPlan(leftChild, rightChild, item);
@@ -575,20 +569,16 @@ public class LeadingHint extends Hint {
         }
 
         LogicalJoin finalJoin = (LogicalJoin) stack.pop();
-        // we want all filters been remove
-        assert (filters.isEmpty());
+        // we want all filters been removed
+        if (Utils.enableAssert && !filters.isEmpty()) {
+            throw new IllegalStateException(
+                    "Leading hint process failed: filter should be empty, but meet: " + filters
+            );
+        }
         if (finalJoin != null) {
             this.setStatus(HintStatus.SUCCESS);
         }
         return finalJoin;
-    }
-
-    private DistributeHint getJoinHint(Integer index) {
-        if (distributeHints.get(index) == null) {
-            return new DistributeHint(DistributeType.NONE);
-        }
-        distributeHints.get(index).setSuccessInLeading(true);
-        return distributeHints.get(index);
     }
 
     private List<Expression> getJoinConditions(List<Pair<Long, Expression>> filters,
@@ -602,16 +592,6 @@ public class LeadingHint extends Hint {
                 joinConditions.add(filterPair.second);
                 filters.remove(i);
             }
-        }
-        return joinConditions;
-    }
-
-    private List<Expression> getLastConditions(List<Pair<Long, Expression>> filters) {
-        List<Expression> joinConditions = new ArrayList<>();
-        for (int i = filters.size() - 1; i >= 0; i--) {
-            Pair<Long, Expression> filterPair = filters.get(i);
-            joinConditions.add(filterPair.second);
-            filters.remove(i);
         }
         return joinConditions;
     }

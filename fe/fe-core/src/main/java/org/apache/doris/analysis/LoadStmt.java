@@ -17,10 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -30,12 +27,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
-import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -135,6 +132,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     public static final String KEY_SKIP_LINES = "skip_lines";
     public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     public static final String PARTIAL_COLUMNS = "partial_columns";
+    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_behavior";
 
     public static final String KEY_COMMENT = "comment";
 
@@ -186,6 +184,12 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);
+                }
+            })
+            .put(PARTIAL_UPDATE_NEW_KEY_POLICY, new Function<String, TPartialUpdateNewRowPolicy>() {
+                @Override
+                public @Nullable TPartialUpdateNewRowPolicy apply(@Nullable String s) {
+                    return TPartialUpdateNewRowPolicy.valueOf(s.toUpperCase());
                 }
             })
             .put(TIMEZONE, new Function<String, String>() {
@@ -381,6 +385,16 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             }
         }
 
+        // partial update new key policy
+        final String partialUpdateNewKeyPolicyProperty = properties.get(PARTIAL_UPDATE_NEW_KEY_POLICY);
+        if (partialUpdateNewKeyPolicyProperty != null) {
+            if (!partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("append")
+                    && !partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("error")) {
+                throw new DdlException(PARTIAL_UPDATE_NEW_KEY_POLICY + " should be one of [append, error], but found "
+                        + partialUpdateNewKeyPolicyProperty);
+            }
+        }
+
         // time zone
         final String timezone = properties.get(TIMEZONE);
         if (timezone != null) {
@@ -413,10 +427,10 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         if (!isMysqlLoad) {
-            label.analyze(analyzer);
+            label.analyze();
         }
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {
             throw new AnalysisException("No data file in load statement.");
@@ -429,21 +443,12 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             if (brokerDesc == null && resourceDesc == null && !isMysqlLoad) {
                 dataDescription.setIsHadoopLoad(true);
             }
-            String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
-            dataDescription.analyze(fullDbName);
 
             if (dataDescription.isLoadFromTable()) {
                 isLoadFromTable = true;
             }
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(fullDbName);
-            OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
-                    && table.getKeysType() != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
-            }
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && !table.hasDeleteSign()) {
-                throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
-            }
+
+
             if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
                     String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
@@ -620,12 +625,6 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
                         }
                     }
                 }
-            }
-            //should add connectivity test
-            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties())
-                    .connectivityTest(filePaths);
-            if (!connectivityTest) {
-                throw new UserException("Failed to access object storage, message=connectivity test failed");
             }
         }
     }

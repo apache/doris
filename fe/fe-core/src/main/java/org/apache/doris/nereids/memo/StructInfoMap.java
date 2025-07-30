@@ -65,7 +65,7 @@ public class StructInfoMap {
         }
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
             refresh(group, cascadesContext, new HashSet<>());
-            group.getstructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
+            group.getStructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(
@@ -104,7 +104,7 @@ public class StructInfoMap {
     private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children, BitSet tableMap) {
         List<Plan> childrenPlan = new ArrayList<>();
         for (int i = 0; i < children.size(); i++) {
-            StructInfoMap structInfoMap = groupExpression.child(i).getstructInfoMap();
+            StructInfoMap structInfoMap = groupExpression.child(i).getStructInfoMap();
             BitSet childMap = children.get(i);
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair
                     = structInfoMap.getGroupExpressionWithChildren(childMap);
@@ -121,7 +121,7 @@ public class StructInfoMap {
      *
      */
     public void refresh(Group group, CascadesContext cascadesContext, Set<Integer> refreshedGroup) {
-        StructInfoMap structInfoMap = group.getstructInfoMap();
+        StructInfoMap structInfoMap = group.getStructInfoMap();
         refreshedGroup.add(group.getGroupId().asInt());
         long memoVersion = cascadesContext.getMemo().getRefreshVersion();
         if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
@@ -138,12 +138,12 @@ public class StructInfoMap {
                 continue;
             }
             for (Group child : groupExpression.children()) {
-                StructInfoMap childStructInfoMap = child.getstructInfoMap();
+                StructInfoMap childStructInfoMap = child.getStructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
                     childStructInfoMap.refresh(child, cascadesContext, refreshedGroup);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
-                childrenTableMap.add(child.getstructInfoMap().getTableMaps());
+                childrenTableMap.add(child.getStructInfoMap().getTableMaps());
             }
             // if one same groupExpression have refreshed, continue
             BitSet oneOfGroupExpressionTableSet = new BitSet();

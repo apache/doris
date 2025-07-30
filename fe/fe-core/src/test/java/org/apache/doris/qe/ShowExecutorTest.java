@@ -19,11 +19,8 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.HelpStmt;
-import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowProcedureStmt;
-import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -38,7 +35,6 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
@@ -247,7 +243,6 @@ public class ShowExecutorTest {
         ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         ctx.setConnectScheduler(scheduler);
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
-        ctx.setQualifiedUser("testUser");
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
 
         new Expectations(ctx) {
@@ -302,7 +297,6 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDbPriv() throws Exception {
-        AccessTestUtil.fetchAdminAnalyzer(false);
         ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
         ShowDatabasesCommand command = new ShowDatabasesCommand(null, null, null);
         command.doRun(ctx, new StmtExecutor(ctx, ""));
@@ -389,46 +383,6 @@ public class ShowExecutorTest {
     }
 
     @Test
-    public void testShowVariable() throws AnalysisException {
-        // Mock variable
-        VariableMgr variableMgr = new VariableMgr();
-        List<List<String>> rows = Lists.newArrayList();
-        rows.add(Lists.newArrayList("var1", "abc"));
-        rows.add(Lists.newArrayList("var2", "abc"));
-        new Expectations(variableMgr) {
-            {
-                VariableMgr.dump((SetType) any, (SessionVariable) any, (PatternMatcher) any);
-                minTimes = 0;
-                result = rows;
-
-                VariableMgr.dump((SetType) any, (SessionVariable) any, null);
-                minTimes = 0;
-                result = rows;
-            }
-        };
-
-        ShowVariablesStmt stmt = new ShowVariablesStmt(SetType.SESSION, "var%");
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("var1", resultSet.getString(0));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("var2", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
-
-        stmt = new ShowVariablesStmt(SetType.SESSION, null);
-        executor = new ShowExecutor(ctx, stmt);
-        resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("var1", resultSet.getString(0));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("var2", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
     public void testShowTableVerbose() throws Exception {
         ShowTableCommand command = new ShowTableCommand("testDb",
                 null, true, PlanType.SHOW_TABLES);
@@ -443,7 +397,7 @@ public class ShowExecutorTest {
     @Test
     public void testShowView() throws UserException {
         ctx.setEnv(env);
-        ctx.setQualifiedUser("testUser");
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
         TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "testDb", "testTbl");
         ShowViewCommand command = new ShowViewCommand("testDb", tableNameInfo);
         ShowResultSet resultSet = null;
@@ -454,18 +408,6 @@ public class ShowExecutorTest {
         }
 
         Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
-    public void testShowAuthors() throws AnalysisException {
-        ShowAuthorStmt stmt = new ShowAuthorStmt();
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertEquals(3, resultSet.getMetaData().getColumnCount());
-        Assert.assertEquals("Name", resultSet.getMetaData().getColumn(0).getName());
-        Assert.assertEquals("Location", resultSet.getMetaData().getColumn(1).getName());
-        Assert.assertEquals("Comment", resultSet.getMetaData().getColumn(2).getName());
     }
 
     @Test

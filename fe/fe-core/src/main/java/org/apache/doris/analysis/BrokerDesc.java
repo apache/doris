@@ -18,8 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -158,36 +156,8 @@ public class BrokerDesc extends StorageDesc implements Writable {
         Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
-        name = Text.readString(in);
-        int size = in.readInt();
-        properties = Maps.newHashMap();
-        for (int i = 0; i < size; ++i) {
-            final String key = Text.readString(in);
-            final String val = Text.readString(in);
-            properties.put(key, val);
-        }
-        if (MapUtils.isNotEmpty(properties)) {
-            try {
-                this.storageProperties = StorageProperties.createPrimary(properties);
-                this.storageType = StorageBackend.StorageType.valueOf(storageProperties.getStorageName());
-            } catch (RuntimeException e) {
-                // Currently ignored: these properties might be broker-specific.
-                // Support for broker properties will be added in the future.
-                LOG.warn("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
-                this.storageType = StorageBackend.StorageType.BROKER;
-            }
-
-        }
-    }
-
     public static BrokerDesc read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), BrokerDesc.class);
-        }
-        BrokerDesc desc = new BrokerDesc();
-        desc.readFields(in);
-        return desc;
+        return GsonUtils.GSON.fromJson(Text.readString(in), BrokerDesc.class);
     }
 
     public String toSql() {

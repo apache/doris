@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.hudi.source;
 
+import org.apache.doris.datasource.ExternalTable;
+
+import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -36,7 +39,7 @@ public abstract class HudiPartitionProcessor {
 
     public abstract void cleanDatabasePartitions(String dbName);
 
-    public abstract void cleanTablePartitions(String dbName, String tblName);
+    public abstract void cleanTablePartitions(ExternalTable dorisTable);
 
     public String[] getPartitionColumns(HoodieTableMetaClient tableMetaClient) {
         return tableMetaClient.getTableConfig().getPartitionFields().get();
@@ -96,8 +99,8 @@ public abstract class HudiPartitionProcessor {
                 } else {
                     partitionValue = partitionPath;
                 }
-                // TODO: In hive, the specific characters like '=', '/' will be url encoded
-                return Collections.singletonList(partitionValue);
+                // In hive, the specific characters like '=', '/' will be url encoded
+                return Collections.singletonList(FileUtils.unescapePathName(partitionValue));
             } else {
                 // If the partition column size is not equal to the partition fragments size
                 // and the partition column size > 1, we do not know how to map the partition
@@ -117,9 +120,9 @@ public abstract class HudiPartitionProcessor {
             for (int i = 0; i < partitionFragments.length; i++) {
                 String prefix = partitionColumns.get(i) + "=";
                 if (partitionFragments[i].startsWith(prefix)) {
-                    partitionValues.add(partitionFragments[i].substring(prefix.length()));
+                    partitionValues.add(FileUtils.unescapePathName(partitionFragments[i].substring(prefix.length())));
                 } else {
-                    partitionValues.add(partitionFragments[i]);
+                    partitionValues.add(FileUtils.unescapePathName(partitionFragments[i]));
                 }
             }
             return partitionValues;

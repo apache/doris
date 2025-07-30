@@ -18,24 +18,24 @@
 package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergVendedCredentialsProvider;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -103,7 +103,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private ConcurrentHashMap.KeySetView<Object, Boolean> partitionPathSet;
     private boolean isPartitionedTable;
     private int formatVersion;
-    private PreExecutionAuthenticator preExecutionAuthenticator;
+    private ExecutionAuthenticator preExecutionAuthenticator;
     private TableScan icebergTableScan;
 
     // for test
@@ -123,7 +123,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
-            source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange);
+            source = new IcebergHMSSource((HMSExternalTable) table, desc);
         } else if (table instanceof IcebergExternalTable) {
             String catalogType = ((IcebergExternalTable) table).getIcebergCatalogType();
             switch (catalogType) {
@@ -150,8 +150,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         partitionPathSet = ConcurrentHashMap.newKeySet();
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
-        preExecutionAuthenticator = source.getCatalog().getPreExecutionAuthenticator();
+        preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
         super.doInitialize();
+        ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
     }
 
     @Override
@@ -176,7 +177,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
-                LocationPath locationPath = new LocationPath(deleteFilePath, icebergSplit.getConfig());
+                LocationPath locationPath = LocationPath.of(deleteFilePath, icebergSplit.getConfig());
                 deleteFileDesc.setPath(locationPath.toStorageLocation().toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
@@ -317,7 +318,8 @@ public class IcebergScanNode extends FileQueryScanNode {
             partitionPathSet.add(structLike.toString());
         }
         String originalPath = fileScanTask.file().path().toString();
-        LocationPath locationPath = new LocationPath(originalPath, source.getCatalog().getProperties());
+        LocationPath locationPath = LocationPath.of(originalPath,
+                source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
         IcebergSplit split = new IcebergSplit(
                 locationPath,
                 fileScanTask.start(),
@@ -325,7 +327,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 fileScanTask.file().fileSizeInBytes(),
                 new String[0],
                 formatVersion,
-                source.getCatalog().getProperties(),
+                source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
                 new ArrayList<>(),
                 originalPath);
         if (!fileScanTask.deletes().isEmpty()) {
@@ -487,18 +489,12 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() throws UserException {
-        return source.getCatalog().getCatalogProperty().getHadoopProperties();
-    }
-
-    @Override
-    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
-        String aggFunctionName = aggExpr.getFnName().getFunction().toUpperCase();
-        return "COUNT".equals(aggFunctionName);
-    }
-
-    @Override
-    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
-        return !col.isAllowNull();
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
+        return IcebergVendedCredentialsProvider.getBackendLocationProperties(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                icebergTable
+        );
     }
 
     @VisibleForTesting

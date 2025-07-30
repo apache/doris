@@ -20,9 +20,11 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -77,6 +79,14 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         }
         authConf = AuthenticationConfig.getKerberosConfig(conf);
         hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authConf);
+        initPreExecutionAuthenticator();
+    }
+
+    @Override
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (executionAuthenticator == null) {
+            executionAuthenticator = new HadoopExecutionAuthenticator(hadoopAuthenticator);
+        }
     }
 
     public String getCatalogType() {
@@ -128,23 +138,26 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonTable(String dbName, String tblName) {
+    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> catalog.getTable(Identifier.create(dbName, tblName)));
+            return hadoopAuthenticator.doAs(() -> catalog.getTable(
+                    Identifier.create(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName())));
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
-                    + dbName + "." + tblName + ", because " + e.getMessage(), e);
+                    + nameMapping.getLocalDbName() + "." + nameMapping.getLocalTblName() + ", because "
+                    + e.getMessage(), e);
         }
     }
 
-    public List<Partition> getPaimonPartitions(String dbName, String tblName) {
+    public List<Partition> getPaimonPartitions(NameMapping nameMapping) {
         makeSureInitialized();
         try {
             return hadoopAuthenticator.doAs(() -> {
                 List<Partition> partitions = new ArrayList<>();
                 try {
-                    partitions = catalog.listPartitions(Identifier.create(dbName, tblName));
+                    partitions = catalog.listPartitions(
+                            Identifier.create(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
                 } catch (Catalog.TableNotExistException e) {
                     LOG.warn("TableNotExistException", e);
                 }
@@ -152,7 +165,25 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
             });
         } catch (IOException e) {
             throw new RuntimeException("Failed to get Paimon table partitions:" + getName() + "."
-                + dbName + "." + tblName + ", because " + e.getMessage(), e);
+                    + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName()
+                    + ", because " + e.getMessage(), e);
+        }
+    }
+
+    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping, String queryType) {
+        return getPaimonSystemTable(nameMapping, null, queryType);
+    }
+
+    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping, String branch,
+            String queryType) {
+        makeSureInitialized();
+        try {
+            return hadoopAuthenticator.doAs(() -> catalog.getTable(new Identifier(nameMapping.getRemoteDbName(),
+                    nameMapping.getRemoteTblName(), branch, queryType)));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get Paimon system table:" + getName() + "."
+                    + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + "$" + queryType
+                    + ", because " + e.getMessage(), e);
         }
     }
 

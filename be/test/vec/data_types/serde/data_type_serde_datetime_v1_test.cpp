@@ -22,7 +22,6 @@
 
 #include <cstddef>
 #include <iostream>
-#include <limits>
 #include <type_traits>
 
 #include "testutil/test_util.h"
@@ -34,11 +33,12 @@
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/serde/data_type_date64_serde.h"
+#include "vec/data_types/serde/data_type_date_or_datetime_serde.h"
+
 namespace doris::vectorized {
 static std::string test_data_dir;
 
-static auto serde_date_v1 = std::make_shared<DataTypeDate64SerDe<>>();
+static auto serde_date_v1 = std::make_shared<DataTypeDateSerDe<>>();
 static auto serde_datetime_v1 = std::make_shared<DataTypeDateTimeSerDe>(0);
 
 static ColumnDateTime::MutablePtr column_datetime_v1_0;
@@ -71,6 +71,7 @@ public:
         std::cout << "loading test dataset done" << std::endl;
     }
 };
+
 TEST_F(DataTypeDateTimeV1SerDeTest, serdes) {
     auto test_func = [](const auto& serde, const auto& source_column) {
         using SerdeType = decltype(serde);
@@ -155,7 +156,7 @@ TEST_F(DataTypeDateTimeV1SerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 
@@ -163,8 +164,11 @@ TEST_F(DataTypeDateTimeV1SerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            auto* pdoc = JsonbDocument::checkAndCreateDocument(
-                    jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
+            JsonbDocument* pdoc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                            jsonb_writer.getOutput()->getSize(),
+                                                            &pdoc);
+            ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
             JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());

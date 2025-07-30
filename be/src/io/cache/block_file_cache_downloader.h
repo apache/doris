@@ -92,7 +92,7 @@ private:
     // tablet id -> inflight block num of tablet
     std::unordered_map<int64_t, int64_t> _inflight_tablets;
 
-    static inline constexpr size_t _max_size {10240};
+    static inline constexpr size_t _max_size {102400};
 };
 
 } // namespace doris::io

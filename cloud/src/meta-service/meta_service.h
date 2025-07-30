@@ -28,10 +28,11 @@
 #include <type_traits>
 
 #include "common/config.h"
+#include "common/stats.h"
 #include "cpp/sync_point.h"
 #include "meta-service/delete_bitmap_lock_white_list.h"
-#include "meta-service/txn_kv.h"
 #include "meta-service/txn_lazy_committer.h"
+#include "meta-store/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
@@ -47,6 +48,19 @@ static constexpr int COMPACTION_WITHOUT_LOCK_DELETE_BITMAP_LOCK_ID = -3;
 void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
                          const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
                          std::string& msg, GetRowsetResponse* response);
+
+// for wrapping stateful lambda to run in bthread
+static void* run_bthread_work(void* arg) {
+    auto f = reinterpret_cast<std::function<void()>*>(arg);
+    (*f)();
+    delete f;
+    return nullptr;
+}
+
+[[maybe_unused]] inline static bool is_job_delete_bitmap_lock_id(int64_t lock_id) {
+    return lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID ||
+           lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID;
+}
 
 class MetaServiceImpl : public cloud::MetaService {
 public:
@@ -173,6 +187,18 @@ public:
     void drop_partition(::google::protobuf::RpcController* controller,
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override;
+
+    void prepare_restore_job(::google::protobuf::RpcController* controller,
+                             const RestoreJobRequest* request, RestoreJobResponse* response,
+                             ::google::protobuf::Closure* done) override;
+
+    void commit_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override;
+
+    void finish_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override;
 
     void get_tablet_stats(::google::protobuf::RpcController* controller,
                           const GetTabletStatsRequest* request, GetTabletStatsResponse* response,
@@ -320,6 +346,26 @@ public:
 
     void get_delete_bitmap_lock_version(std::string& use_version, std::string& instance_id);
 
+    void begin_snapshot(::google::protobuf::RpcController* controller,
+                        const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
+                        ::google::protobuf::Closure* done) override;
+
+    void commit_snapshot(::google::protobuf::RpcController* controller,
+                         const CommitSnapshotRequest* request, CommitSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override;
+
+    void abort_snapshot(::google::protobuf::RpcController* controller,
+                        const AbortSnapshotRequest* request, AbortSnapshotResponse* response,
+                        ::google::protobuf::Closure* done) override;
+
+    void list_snapshot(::google::protobuf::RpcController* controller,
+                       const ListSnapshotRequest* request, ListSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
+    void clone_instance(::google::protobuf::RpcController* controller,
+                        const CloneInstanceRequest* request, CloneInstanceResponse* response,
+                        ::google::protobuf::Closure* done) override;
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
@@ -329,35 +375,59 @@ private:
                                        const GetDeleteBitmapUpdateLockRequest* request,
                                        GetDeleteBitmapUpdateLockResponse* response,
                                        std::string& instance_id, std::string& lock_key,
-                                       std::string lock_use_version);
+                                       std::string lock_use_version, KVStats& stats);
 
     void get_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
                                           const GetDeleteBitmapUpdateLockRequest* request,
                                           GetDeleteBitmapUpdateLockResponse* response,
                                           ::google::protobuf::Closure* done,
                                           std::string& instance_id, MetaServiceCode& code,
-                                          std::string& msg, std::stringstream& ss);
+                                          std::string& msg, std::stringstream& ss, KVStats& stats);
 
     void get_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
                                           const GetDeleteBitmapUpdateLockRequest* request,
                                           GetDeleteBitmapUpdateLockResponse* response,
                                           ::google::protobuf::Closure* done,
                                           std::string& instance_id, MetaServiceCode& code,
-                                          std::string& msg, std::stringstream& ss);
+                                          std::string& msg, std::stringstream& ss, KVStats& stats);
 
     void remove_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
                                              const RemoveDeleteBitmapUpdateLockRequest* request,
                                              RemoveDeleteBitmapUpdateLockResponse* response,
                                              ::google::protobuf::Closure* done,
                                              std::string& instance_id, MetaServiceCode& code,
-                                             std::string& msg, std::stringstream& ss);
+                                             std::string& msg, std::stringstream& ss,
+                                             KVStats& stats);
 
     void remove_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
                                              const RemoveDeleteBitmapUpdateLockRequest* request,
                                              RemoveDeleteBitmapUpdateLockResponse* response,
                                              ::google::protobuf::Closure* done,
                                              std::string& instance_id, MetaServiceCode& code,
-                                             std::string& msg, std::stringstream& ss);
+                                             std::string& msg, std::stringstream& ss,
+                                             KVStats& stats);
+
+    void update_table_version(Transaction* txn, std::string_view instance_id, int64_t db_id,
+                              int64_t table_id);
+
+    bool is_version_read_enabled(std::string_view instance_id) const;
+    bool is_version_write_enabled(std::string_view instance_id) const;
+
+    void commit_txn_immediately(
+            const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+            std::string& msg, const std::string& instance_id, int64_t db_id,
+            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+            TxnErrorCode& err, KVStats& stats);
+
+    void commit_txn_eventually(
+            const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+            std::string& msg, const std::string& instance_id, int64_t db_id,
+            const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+            KVStats& stats);
+
+    void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse* response,
+                                 MetaServiceCode& code, std::string& msg,
+                                 const std::string& instance_id, KVStats& stats);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
@@ -536,6 +606,24 @@ public:
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::drop_partition, controller, request, response, done);
+    }
+
+    void prepare_restore_job(::google::protobuf::RpcController* controller,
+                             const RestoreJobRequest* request, RestoreJobResponse* response,
+                             ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::prepare_restore_job, controller, request, response, done);
+    }
+
+    void commit_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_restore_job, controller, request, response, done);
+    }
+
+    void finish_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::finish_restore_job, controller, request, response, done);
     }
 
     void get_tablet_stats(::google::protobuf::RpcController* controller,
@@ -749,6 +837,36 @@ public:
         impl_->get_delete_bitmap_lock_version(use_version, instance_id);
     }
 
+    void begin_snapshot(::google::protobuf::RpcController* controller,
+                        const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
+                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::begin_snapshot, controller, request, response, done);
+    }
+
+    void commit_snapshot(::google::protobuf::RpcController* controller,
+                         const CommitSnapshotRequest* request, CommitSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_snapshot, controller, request, response, done);
+    }
+
+    void abort_snapshot(::google::protobuf::RpcController* controller,
+                        const AbortSnapshotRequest* request, AbortSnapshotResponse* response,
+                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_snapshot, controller, request, response, done);
+    }
+
+    void list_snapshot(::google::protobuf::RpcController* controller,
+                       const ListSnapshotRequest* request, ListSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::list_snapshot, controller, request, response, done);
+    }
+
+    void clone_instance(::google::protobuf::RpcController* controller,
+                        const CloneInstanceRequest* request, CloneInstanceResponse* response,
+                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::clone_instance, controller, request, response, done);
+    }
+
 private:
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
@@ -763,8 +881,12 @@ private:
         static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
 
         using namespace std::chrono;
-
         brpc::ClosureGuard done_guard(done);
+
+        // life span of this defer MUST be longer than `done`
+        std::unique_ptr<int, std::function<void(int*)>> defer_injection(
+                (int*)(0x01), [&, this](int*) { idempotent_injection(method, req, resp); });
+
         if (!config::enable_txn_store_retry) {
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
             if (DCHECK_IS_ON()) {
@@ -831,6 +953,44 @@ private:
                          << ", code: " << MetaServiceCode_Name(code)
                          << ", msg: " << resp->status().msg();
             bthread_usleep(duration_ms * 1000);
+        }
+    }
+
+    template <typename Request, typename Response>
+    void idempotent_injection(MetaServiceMethod<Request, Response> method, const Request* requ,
+                              Response* resp) {
+        if (!config::enable_idempotent_request_injection) return;
+
+        using namespace std::chrono;
+        auto s = system_clock::now();
+        static std::mt19937_64 rng(duration_cast<milliseconds>(s.time_since_epoch()).count());
+        // clang-format off
+        // FIXME(gavin): make idempotent_request_replay_exclusion configurable via HTTP
+        static auto exclusion = []{ std::istringstream iss(config::idempotent_request_replay_exclusion); std::string e; std::unordered_set<std::string> r;
+            while (std::getline(iss, e, ',')) { r.insert(e); } return r;
+        }();
+        auto f = new std::function<void()>([s, req = *requ, res = *resp, method, this]() mutable { // copy and capture
+            auto dist = std::uniform_int_distribution(-config::idempotent_request_replay_delay_range_ms,
+                                                      config::idempotent_request_replay_delay_range_ms);
+            int64_t sleep_ms = config::idempotent_request_replay_delay_base_ms + dist(rng);
+            LOG(INFO) << " request_name=" << req.GetDescriptor()->name()
+                      << " response_name=" << res.GetDescriptor()->name()
+                      << " queue_ts=" << duration_cast<milliseconds>(s.time_since_epoch()).count()
+                      << " now_ts=" << duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()
+                      << " idempotent_request_replay_delay_base_ms=" << config::idempotent_request_replay_delay_base_ms
+                      << " idempotent_request_replay_delay_range_ms=" << config::idempotent_request_replay_delay_range_ms
+                      << " idempotent_request_replay_delay_ms=" << sleep_ms
+                      << " request=" << req.ShortDebugString();
+            if (sleep_ms < 0 || exclusion.count(req.GetDescriptor()->name())) return;
+            brpc::Controller ctrl;
+            bthread_usleep(sleep_ms * 1000);
+            (impl_.get()->*method)(&ctrl, &req, &res, brpc::DoNothing());
+        });
+        // clang-format on
+        bthread_t bid;
+        if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
+            LOG(WARNING) << "failed to bthread_start_background, run in current thread";
+            run_bthread_work(f);
         }
     }
 

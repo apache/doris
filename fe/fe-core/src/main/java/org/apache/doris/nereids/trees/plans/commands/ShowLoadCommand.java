@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -102,6 +101,14 @@ public class ShowLoadCommand extends ShowCommand {
     private boolean isStreamLoad;
 
     /**
+     * StreamLoadState
+     */
+    public enum StreamLoadState {
+        SUCCESS,
+        FAIL
+    }
+
+    /**
      * constructor for show load
      */
     public ShowLoadCommand(Expression wildWhere, List<OrderKey> orderKeys, long limit, long offset, String dbName) {
@@ -163,14 +170,14 @@ public class ShowLoadCommand extends ShowCommand {
         return org.apache.doris.load.loadv2.JobState.valueOf(stateValue);
     }
 
-    private ShowStreamLoadStmt.StreamLoadState getStreamLoadState() {
+    private StreamLoadState getStreamLoadState() {
         if (Strings.isNullOrEmpty(stateValue)) {
             return null;
         }
 
-        ShowStreamLoadStmt.StreamLoadState state = null;
+        StreamLoadState state = null;
         try {
-            state = ShowStreamLoadStmt.StreamLoadState.valueOf(stateValue);
+            state = StreamLoadState.valueOf(stateValue);
         } catch (Exception e) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -367,7 +374,7 @@ public class ShowLoadCommand extends ShowCommand {
 
             try {
                 if (isStreamLoad) {
-                    ShowStreamLoadStmt.StreamLoadState.valueOf(stateValue);
+                    StreamLoadState.valueOf(stateValue);
                 } else {
                     LoadJob.JobState.valueOf(stateValue);
                 }

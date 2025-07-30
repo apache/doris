@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DataSortInfo;
@@ -37,6 +36,8 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.common.util.CopyUtil;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.AnalysisException;
@@ -45,7 +46,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -435,28 +435,27 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null, null, null); // indexes is null by default
+                null, null); // indexes is null by default
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, List<Index> indexes) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null, null, indexes);
+                null, indexes);
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
-            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt,
-            Analyzer analyzer) {
+            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
-                keysType, origStmt, analyzer, null); // indexes is null by default
+                keysType, origStmt, null); // indexes is null by default
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt,
-            Analyzer analyzer, List<Index> indexes) {
+            List<Index> indexes) {
         // Nullable when meta comes from schema change log replay.
         // The replay log only save the index id, so we need to get name by id.
         if (indexName == null) {
@@ -481,7 +480,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion, schemaHash,
                 shortKeyColumnCount, storageType, keysType, origStmt, indexes, getQualifiedDbName());
         try {
-            indexMeta.parseStmt(analyzer);
+            indexMeta.parseStmt();
         } catch (Exception e) {
             LOG.warn("parse meta stmt failed", e);
         }
@@ -519,18 +518,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return;
         }
         HashDistributionInfo distributionInfo = (HashDistributionInfo) defaultDistributionInfo;
-        Set<String> originalColumnsNames =
-                distributionInfo.getDistributionColumns()
-                        .stream()
-                        .map(Column::getName)
-                        .collect(Collectors.toSet());
-
-        List<Column> newDistributionColumns = getBaseSchema()
+        List<Column> newDistributionColumns = distributionInfo.getDistributionColumns()
                 .stream()
-                .filter(column -> originalColumnsNames.contains(column.getName()))
+                .map(Column::getName)
+                .map(this::getBaseColumn)
                 .map(Column::new)
                 .collect(Collectors.toList());
-        distributionInfo.setDistributionColumns(newDistributionColumns);
 
         getPartitions()
                 .stream()
@@ -906,8 +899,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     long newTabletId = env.getNextId();
                     Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
                     idx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
-
                     // replicas
+                    if (Config.isCloudMode()) {
+                        long newReplicaId = Env.getCurrentEnv().getNextId();
+                        Replica replica = new CloudReplica(newReplicaId, null, ReplicaState.NORMAL,
+                                visibleVersion, schemaHash, db.getId(), id, partition.getId(), idx.getId(), i);
+                        newTablet.addReplica(replica, true /* is restore */);
+                        continue;
+                    }
                     try {
                         Map<Tag, List<Long>> tag2beIds = null;
                         if (isColocateTable() && !createNewColocateGroup) {
@@ -949,6 +948,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
             // reset partition id
             partition.setIdForRestore(entry.getKey());
+
+            if (Config.isCloudMode()) {
+                // convert partition to cloud partition
+                CloudPartition cloudPartition = CopyUtil.copyToChild(partition, CloudPartition.class);
+                if (cloudPartition != null) {
+                    cloudPartition.setTableId(id);
+                    cloudPartition.setDbId(db.getId());
+                }
+                idToPartition.put(entry.getKey(), cloudPartition);
+            }
         }
 
         // we have added these index to memory, only need to persist here
@@ -1766,7 +1775,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
-            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false, false);
         }
         if (rowCount > 0) {
             return dataSize / rowCount;
@@ -1906,127 +1915,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        this.state = OlapTableState.valueOf(Text.readString(in));
-
-        // indices's schema
-        int counter = in.readInt();
-        // tmp index meta list
-        List<MaterializedIndexMeta> tmpIndexMetaList = Lists.newArrayList();
-        for (int i = 0; i < counter; i++) {
-            String indexName = Text.readString(in);
-            long indexId = in.readLong();
-            this.indexNameToId.put(indexName, indexId);
-            MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
-            indexIdToMeta.put(indexId, indexMeta);
-
-            // HACK: the index id in MaterializedIndexMeta is not equals to the index id
-            // saved in OlapTable, because the table restore from snapshot is not reset
-            // the MaterializedIndexMeta correctly.
-            if (indexMeta.getIndexId() != indexId) {
-                LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
-                        + " to the index saved in table {} ({}), reset it to {}",
-                        indexMeta.getIndexId(), indexName, name, id, indexId);
-                indexMeta.resetIndexIdForRestore(indexId, null, null);
-            }
-        }
-
-        // partition and distribution info
-        keysType = KeysType.valueOf(Text.readString(in));
-
-        // useless code see pr 3036
-        // add the correct keys type in tmp index meta
-        for (MaterializedIndexMeta indexMeta : tmpIndexMetaList) {
-            indexMeta.setKeysType(keysType);
-            indexIdToMeta.put(indexMeta.getIndexId(), indexMeta);
-        }
-
-        PartitionType partType = PartitionType.valueOf(Text.readString(in));
-        if (partType == PartitionType.UNPARTITIONED) {
-            partitionInfo = SinglePartitionInfo.read(in);
-        } else if (partType == PartitionType.RANGE) {
-            partitionInfo = RangePartitionInfo.read(in);
-        } else if (partType == PartitionType.LIST) {
-            partitionInfo = ListPartitionInfo.read(in);
-        } else {
-            throw new IOException("invalid partition type: " + partType);
-        }
-
-        DistributionInfoType distriType = DistributionInfoType.valueOf(Text.readString(in));
-        if (distriType == DistributionInfoType.HASH) {
-            defaultDistributionInfo = HashDistributionInfo.read(in);
-        } else if (distriType == DistributionInfoType.RANDOM) {
-            defaultDistributionInfo = RandomDistributionInfo.read(in);
-        } else {
-            throw new IOException("invalid distribution type: " + distriType);
-        }
-
-        int partitionCount = in.readInt();
-        for (int i = 0; i < partitionCount; ++i) {
-            Partition partition = Partition.read(in);
-            idToPartition.put(partition.getId(), partition);
-            nameToPartition.put(partition.getName(), partition);
-        }
-
-        if (in.readBoolean()) {
-            int bfColumnCount = in.readInt();
-            bfColumns = Sets.newHashSet();
-            for (int i = 0; i < bfColumnCount; i++) {
-                bfColumns.add(Text.readString(in));
-            }
-
-            bfFpp = in.readDouble();
-        }
-
-        if (in.readBoolean()) {
-            colocateGroup = Text.readString(in);
-        }
-        baseIndexId = in.readLong();
-
-        // read indexes
-        if (in.readBoolean()) {
-            this.indexes = TableIndexes.read(in);
-        }
-        // tableProperty
-        if (in.readBoolean()) {
-            tableProperty = TableProperty.read(in);
-        }
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124) {
-            // autoIncrementGenerator
-            if (in.readBoolean()) {
-                autoIncrementGenerator = AutoIncrementGenerator.read(in);
-                autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
-            }
-        }
-
-        if (isAutoBucket()) {
-            defaultDistributionInfo.markAutoBucket();
-        }
-
-        // temp partitions
-        tempPartitions = TempPartitions.read(in);
-        RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
-        if (tempRangeInfo != null) {
-            for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
-                this.partitionInfo.addPartition(partitionId, true,
-                        tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
-                        tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId),
-                        tempRangeInfo.getIsMutable(partitionId));
-            }
-        }
-        tempPartitions.unsetPartitionInfo();
-
-        // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
-        // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
-        // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
-        rebuildFullSchema();
-    }
-
     @Override
     public void gsonPostProcess() throws IOException {
 
@@ -2050,8 +1938,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             nameToPartition.put(partition.getName(), partition);
         }
 
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124
-                    && autoIncrementGenerator != null) {
+        if (autoIncrementGenerator != null) {
             autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
         }
         if (isAutoBucket()) {
@@ -2158,11 +2045,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public static OlapTable read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            OlapTable t = new OlapTable();
-            t.readFields(in);
-            return t;
-        }
         return GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
     }
 
@@ -2553,8 +2435,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildMinLoadReplicaNum();
     }
 
+    public int getPartitionTotalReplicasNum(long partitionId) {
+        return partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+    }
+
     public int getLoadRequiredReplicaNum(long partitionId) {
-        int totalReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+        int totalReplicaNum = getPartitionTotalReplicasNum(partitionId);
         int minLoadReplicaNum = getMinLoadReplicaNum();
         if (minLoadReplicaNum > 0) {
             return Math.min(minLoadReplicaNum, totalReplicaNum);
@@ -2939,6 +2825,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
+    public void setStorageDictPageSize(long storageDictPageSize) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE,
+                Long.valueOf(storageDictPageSize).toString());
+        tableProperty.buildStorageDictPageSize();
+    }
+
+    public long storageDictPageSize() {
+        if (tableProperty != null) {
+            return tableProperty.storageDictPageSize();
+        }
+        return PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
+    }
+
     public void setStorageFormat(TStorageFormat storageFormat) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, storageFormat.name());
@@ -3205,8 +3105,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             try {
                 ConnectContext connectContext = new ConnectContext();
                 connectContext.setDatabase(dbName);
-                Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
-                meta.parseStmt(analyzer);
+                meta.parseStmt();
             } catch (IOException e) {
                 LOG.info(e);
             }

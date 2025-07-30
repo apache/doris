@@ -83,6 +83,7 @@ public:
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+    Status init_schema_reader() override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
@@ -204,8 +205,8 @@ private:
     // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
     bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
     void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
-    void _process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
-                                   size_t cur_row_count, bool* valid);
+    void _set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
+                               size_t cur_row_count, bool* valid);
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
@@ -258,9 +259,7 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
 
-    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
     RuntimeProfile::Counter* _read_timer = nullptr;
-    RuntimeProfile::Counter* _file_read_timer = nullptr;
 
     // ======SIMD JSON======
     // name mapping

@@ -67,6 +67,8 @@ public class ColumnDefinition {
     private int clusterKeyId = -1;
     private Optional<GeneratedColumnDesc> generatedColumnDesc = Optional.empty();
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
+    // if add hidden column, must set enableAddHiddenColumn true
+    private boolean enableAddHiddenColumn = false;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment) {
@@ -286,7 +288,14 @@ public class ColumnDefinition {
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType) {
         try {
-            FeNameFormat.checkColumnName(name);
+            // if enableAddHiddenColumn is true, can add hidden column.
+            // So does not check if the column name starts with __DORIS_
+            if (enableAddHiddenColumn) {
+                FeNameFormat.checkColumnNameBypassHiddenColumn(name);
+            } else {
+                FeNameFormat.checkColumnName(name);
+            }
+
             FeNameFormat.checkColumnCommentLength(comment);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
@@ -487,7 +496,7 @@ public class ColumnDefinition {
             }
         }
 
-        if (type.isTimeLikeType()) {
+        if (type.isTimeType()) {
             throw new AnalysisException("Time type is not supported for olap table");
         }
         validateGeneratedColumnInfo();
@@ -523,43 +532,90 @@ public class ColumnDefinition {
         return column;
     }
 
-    // hidden column
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newDeleteSignColumnDefinition() {
-        return new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, null, false,
-                Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris delete flag hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, null,
+                false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
+                "doris delete flag hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newDeleteSignColumnDefinition(AggregateType aggregateType) {
-        return new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, aggregateType, false,
-                Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris delete flag hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false,
+                        aggregateType, false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
+                "doris delete flag hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newSequenceColumnDefinition(DataType type) {
-        return new ColumnDefinition(Column.SEQUENCE_COL, type, false, null, true,
-                Optional.empty(), "sequence column hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.SEQUENCE_COL, type, false, null,
+                true, Optional.empty(),
+                "sequence column hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newSequenceColumnDefinition(DataType type, AggregateType aggregateType) {
-        return new ColumnDefinition(Column.SEQUENCE_COL, type, false, aggregateType, true,
-                Optional.empty(), "sequence column hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.SEQUENCE_COL, type, false, aggregateType,
+                true, Optional.empty(),
+                "sequence column hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newRowStoreColumnDefinition(AggregateType aggregateType) {
-        return new ColumnDefinition(Column.ROW_STORE_COL, StringType.INSTANCE, false, aggregateType, false,
-                Optional.of(new DefaultValue("")), "doris row store hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.ROW_STORE_COL, StringType.INSTANCE, false,
+                        aggregateType, false, Optional.of(new DefaultValue("")),
+                "doris row store hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newVersionColumnDefinition(AggregateType aggregateType) {
-        return new ColumnDefinition(Column.VERSION_COL, BigIntType.INSTANCE, false, aggregateType, false,
-                Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris version hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.VERSION_COL, BigIntType.INSTANCE, false,
+                    aggregateType, false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
+                "doris version hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
-    // used in CreateTableInfo.validate(), specify the default value as DefaultValue.NULL_DEFAULT_VALUE
-    // becasue ColumnDefinition.validate() will check that bitmap type column don't set default value
-    // and then set the default value of that column to bitmap_empty()
+    /**
+     * used in CreateTableInfo.validate(), specify the default value as DefaultValue.NULL_DEFAULT_VALUE
+     * becasue ColumnDefinition.validate() will check that bitmap type column don't set default value
+     * and then set the default value of that column to bitmap_empty()
+     */
     public static ColumnDefinition newSkipBitmapColumnDef(AggregateType aggregateType) {
-        return new ColumnDefinition(Column.SKIP_BITMAP_COL, BitmapType.INSTANCE, false, aggregateType, false,
-                Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE), "doris skip bitmap hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.SKIP_BITMAP_COL, BitmapType.INSTANCE, false,
+                aggregateType, false, Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE),
+                "doris skip bitmap hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
     public Optional<GeneratedColumnDesc> getGeneratedColumnDesc() {
@@ -572,6 +628,10 @@ public class ColumnDefinition {
 
     public void addGeneratedColumnsThatReferToThis(List<String> list) {
         generatedColumnsThatReferToThis.addAll(list);
+    }
+
+    public void setEnableAddHiddenColumn(boolean enableAddHiddenColumn) {
+        this.enableAddHiddenColumn = enableAddHiddenColumn;
     }
 
     private void validateGeneratedColumnInfo() {

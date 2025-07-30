@@ -44,7 +44,7 @@ public:
 
     static TReportExecStatusParams create_report_exec_status_params(
             const TUniqueId& q_id,
-            std::unordered_map<int32, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
+            std::unordered_map<int32_t, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
                     fragment_id_to_profile,
             std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profile, bool is_done);
 
@@ -55,6 +55,7 @@ public:
 
     // used for backend_active_tasks
     void get_active_be_tasks_block(vectorized::Block* block);
+    Status get_query_statistics(const std::string& query_id, TQueryStatistics* query_stats);
 
     // used for MemoryReclamation
     void get_tasks_resource_context(std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs);

@@ -29,11 +29,12 @@
 
 #include "absl/strings/substitute.h"
 #include "common/status.h"
-#include "gutil/endian.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
 #include "util/slice.h"
+#include "vec/common/endian.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
 
 namespace doris {
@@ -82,48 +83,22 @@ template <FieldType field_type>
 class KeyCoderTraits<
         field_type,
         typename std::enable_if<
-                std::is_integral<typename CppTypeTraits<field_type>::CppType>::value ||
-                field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
+                IsIntegral<typename CppTypeTraits<field_type>::CppType>::value ||
                 vectorized::IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
 
-private:
-    // Swap value's endian from/to big endian
-    static UnsignedCppType swap_big_endian(UnsignedCppType val) {
-        if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256) {
-            return BigEndian::FromHost256(val);
-        } else {
-            switch (sizeof(UnsignedCppType)) {
-            case 1:
-                return val;
-            case 2:
-                return BigEndian::FromHost16(val);
-            case 4:
-                return BigEndian::FromHost32(val);
-            case 8:
-                return BigEndian::FromHost64(val);
-            case 16:
-                return BigEndian::FromHost128(val);
-            default:
-                throw Exception(Status::FatalError("Invalid type to big endian, type={}, size={}",
-                                                   int(field_type), sizeof(UnsignedCppType)));
-            }
-        }
-    }
-
-public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // swap MSB to encode integer
-        if (std::is_signed<CppType>::value) {
+        if (IsSigned<CppType>::value) {
             unsigned_val ^=
                     (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
         }
         // make it bigendian
-        unsigned_val = swap_big_endian(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
 
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
@@ -141,8 +116,8 @@ public:
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = swap_big_endian(unsigned_val);
-        if (std::is_signed<CppType>::value) {
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
+        if (IsSigned<CppType>::value) {
             unsigned_val ^=
                     (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
         }
@@ -164,7 +139,7 @@ public:
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // make it bigendian
-        unsigned_val = BigEndian::FromHost24(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
 
@@ -179,7 +154,7 @@ public:
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost24(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();
@@ -198,7 +173,7 @@ public:
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // make it bigendian
-        unsigned_val = BigEndian::FromHost32(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
 
@@ -214,7 +189,7 @@ public:
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost32(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();
@@ -233,7 +208,7 @@ public:
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // make it bigendian
-        unsigned_val = BigEndian::FromHost64(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
 
@@ -249,7 +224,7 @@ public:
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost64(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();

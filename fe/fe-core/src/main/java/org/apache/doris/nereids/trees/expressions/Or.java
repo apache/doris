@@ -43,6 +43,7 @@ public class Or extends CompoundPredicate {
 
     public Or(List<Expression> children) {
         super(children, "OR");
+        Preconditions.checkArgument(children.size() >= 2);
     }
 
     @Override

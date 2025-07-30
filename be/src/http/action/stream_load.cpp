@@ -153,6 +153,9 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
+    if (!ctx->data_saved_path.empty()) {
+        _exec_env->load_path_mgr()->clean_tmp_files(ctx->data_saved_path);
+    }
 }
 
 Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
@@ -429,13 +432,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         ctx->pipe = pipe;
         RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx));
     } else {
-        RETURN_IF_ERROR(_data_saved_path(http_req, &request.path));
+        RETURN_IF_ERROR(_data_saved_path(http_req, &request.path, ctx->body_bytes));
         auto file_sink = std::make_shared<MessageBodyFileSink>(request.path);
         RETURN_IF_ERROR(file_sink->open());
         request.__isset.path = true;
         request.fileType = TFileType::FILE_LOCAL;
         request.__set_file_size(ctx->body_bytes);
         ctx->body_sink = file_sink;
+        ctx->data_saved_path = request.path;
     }
     if (!http_req->header(HTTP_COLUMNS).empty()) {
         request.__set_columns(http_req->header(HTTP_COLUMNS));
@@ -688,6 +692,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                     unique_key_update_mode_str);
         }
     }
+
     if (http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty() &&
         !http_req->header(HTTP_PARTIAL_COLUMNS).empty()) {
         // only consider `partial_columns` parameter when `unique_key_update_mode` is not set
@@ -696,6 +701,24 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             // for backward compatibility
             request.__set_partial_update(true);
         }
+    }
+
+    if (!http_req->header(HTTP_PARTIAL_UPDATE_NEW_ROW_POLICY).empty()) {
+        static const std::map<std::string, TPartialUpdateNewRowPolicy::type> policy_map {
+                {"APPEND", TPartialUpdateNewRowPolicy::APPEND},
+                {"ERROR", TPartialUpdateNewRowPolicy::ERROR}};
+
+        auto policy_name = http_req->header(HTTP_PARTIAL_UPDATE_NEW_ROW_POLICY);
+        std::transform(policy_name.begin(), policy_name.end(), policy_name.begin(),
+                       [](unsigned char c) { return std::toupper(c); });
+        auto it = policy_map.find(policy_name);
+        if (it == policy_map.end()) {
+            return Status::InvalidArgument(
+                    "Invalid partial_update_new_key_behavior {}, must be one of {'APPEND', "
+                    "'ERROR'}",
+                    policy_name);
+        }
+        request.__set_partial_update_new_key_policy(it->second);
     }
 
     if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
@@ -775,9 +798,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
 }
 
-Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path) {
+Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path,
+                                          int64_t file_bytes) {
     std::string prefix;
-    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(req->param(HTTP_DB_KEY), "", &prefix));
+    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(req->param(HTTP_DB_KEY), "", &prefix,
+                                                             file_bytes));
     timeval tv;
     gettimeofday(&tv, nullptr);
     struct tm tm;

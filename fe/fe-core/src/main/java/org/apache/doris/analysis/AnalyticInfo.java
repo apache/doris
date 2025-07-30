@@ -84,55 +84,6 @@ public final class AnalyticInfo extends AggregateInfoBase {
     }
 
     /**
-     * Creates complete AnalyticInfo for analyticExprs, including tuple descriptors and
-     * smaps.
-     */
-    public static AnalyticInfo create(ArrayList<Expr> analyticExprs, Analyzer analyzer) {
-        Preconditions.checkState(analyticExprs != null && !analyticExprs.isEmpty());
-        Expr.removeDuplicates(analyticExprs);
-        AnalyticInfo result = new AnalyticInfo(analyticExprs);
-        result.createTupleDescs(analyzer);
-
-        // The tuple descriptors are logical. Their slots are remapped to physical tuples
-        // during plan generation.
-        result.outputTupleDesc.setIsMaterialized(false);
-        result.intermediateTupleDesc.setIsMaterialized(false);
-
-        // Populate analyticTupleSmap_
-        Preconditions.checkState(analyticExprs.size() == result.outputTupleDesc.getSlots().size());
-        for (int i = 0; i < analyticExprs.size(); ++i) {
-            result.analyticTupleSmap.put(result.analyticExprs.get(i),
-                    new SlotRef(result.outputTupleDesc.getSlots().get(i)));
-            result.outputTupleDesc.getSlots().get(i).setSourceExpr(result.analyticExprs.get(i));
-        }
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("analytictuple=" + result.outputTupleDesc.debugString());
-            LOG.debug("analytictuplesmap=" + result.analyticTupleSmap.debugString());
-            LOG.debug("analytic info:\n" + result.debugString());
-        }
-        return result;
-    }
-
-    /**
-     * Creates the intermediate and output tuple descriptors. If no agg expr has an
-     * intermediate type different from its output type, then only the output tuple
-     * descriptor is created and the intermediate tuple is set to the output tuple.
-     * TODO: Rethink we really need to use Analyticinfo be subclass of AggregateInfoBase,
-     * it seems only use the aggregateExprs
-     */
-    protected void createTupleDescs(Analyzer analyzer) {
-        // Create the intermediate tuple desc first, so that the tuple ids are increasing
-        // from bottom to top in the plan tree.
-        intermediateTupleDesc = createTupleDesc(analyzer, false);
-        if (requiresIntermediateTuple(aggregateExprs, false)) {
-            outputTupleDesc = createTupleDesc(analyzer, true);
-        } else {
-            outputTupleDesc = intermediateTupleDesc;
-        }
-    }
-
-    /**
      * Returns the intersection of the partition exprs of all the
      * analytic functions.
      */
@@ -154,23 +105,6 @@ public final class AnalyticInfo extends AggregateInfoBase {
             }
         }
         return result;
-    }
-
-    @Override
-    public void materializeRequiredSlots(Analyzer analyzer, ExprSubstitutionMap smap) {
-        materializedSlots.clear();
-        List<Expr> exprs = Lists.newArrayList();
-        for (int i = 0; i < analyticExprs.size(); ++i) {
-            SlotDescriptor outputSlotDesc = outputTupleDesc.getSlots().get(i);
-            if (!outputSlotDesc.isMaterialized()) {
-                continue;
-            }
-            intermediateTupleDesc.getSlots().get(i).setIsMaterialized(true);
-            exprs.add(analyticExprs.get(i));
-            materializedSlots.add(i);
-        }
-        List<Expr> resolvedExprs = Expr.substituteList(exprs, smap, analyzer, false);
-        analyzer.materializeSlots(resolvedExprs);
     }
 
     /**

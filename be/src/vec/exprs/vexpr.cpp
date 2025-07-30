@@ -37,6 +37,7 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -47,8 +48,10 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
+#include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
 #include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
@@ -56,7 +59,6 @@
 #include "vec/exprs/vmatch_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
-#include "vec/exprs/vtuple_is_null_predicate.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -182,7 +184,9 @@ bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
     auto is_a_slot = std::any_of(children.begin(), children.end(),
                                  [](const auto& child) { return is_acting_on_a_slot(*child); });
 
-    return is_a_slot ? true : (expr.node_type() == TExprNodeType::SLOT_REF);
+    return is_a_slot ? true
+                     : (expr.node_type() == TExprNodeType::SLOT_REF ||
+                        expr.node_type() == TExprNodeType::VIRTUAL_SLOT_REF);
 }
 
 VExpr::VExpr(const TExprNode& node)
@@ -279,7 +283,12 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             break;
         }
         case TExprNodeType::SLOT_REF: {
-            expr = VSlotRef::create_shared(expr_node);
+            if (expr_node.slot_ref.__isset.is_virtual_slot && expr_node.slot_ref.is_virtual_slot) {
+                expr = VirtualSlotRef::create_shared(expr_node);
+                expr->_node_type = TExprNodeType::VIRTUAL_SLOT_REF;
+            } else {
+                expr = VSlotRef::create_shared(expr_node);
+            }
             break;
         }
         case TExprNodeType::COLUMN_REF: {
@@ -327,10 +336,6 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::INFO_FUNC: {
             expr = VInfoFunc::create_shared(expr_node);
-            break;
-        }
-        case TExprNodeType::TUPLE_IS_NULL_PRED: {
-            expr = VTupleIsNullPredicate::create_shared(expr_node);
             break;
         }
         default:
@@ -628,7 +633,7 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
     // Pre-allocate vectors based on an estimated or known size
-    std::vector<segment_v2::InvertedIndexIterator*> iterators;
+    std::vector<segment_v2::IndexIterator*> iterators;
     std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName arguments;

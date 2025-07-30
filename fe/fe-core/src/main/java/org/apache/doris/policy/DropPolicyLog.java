@@ -17,9 +17,7 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -82,22 +80,6 @@ public class DropPolicyLog implements Writable {
         this.policyName = policyName;
         this.user = user;
         this.roleName = roleName;
-    }
-
-    /**
-     * Generate delete logs through stmt.
-     **/
-    public static DropPolicyLog fromDropStmt(DropPolicyStmt stmt) throws AnalysisException {
-        switch (stmt.getType()) {
-            case STORAGE:
-                return new DropPolicyLog(stmt.getType(), stmt.getPolicyName());
-            case ROW:
-                return new DropPolicyLog(stmt.getTableName().getCtl(), stmt.getTableName().getDb(),
-                        stmt.getTableName().getTbl(), stmt.getType(),
-                        stmt.getPolicyName(), stmt.getUser(), stmt.getRoleName());
-            default:
-                throw new AnalysisException("Invalid policy type: " + stmt.getType().name());
-        }
     }
 
     @Override

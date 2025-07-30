@@ -181,8 +181,8 @@ public:
         }
 
         ColumnPtr rhs_column = nullptr;
-        uint8* __restrict rhs_data_column = nullptr;
-        uint8* __restrict rhs_null_map = nullptr;
+        uint8_t* __restrict rhs_data_column = nullptr;
+        uint8_t* __restrict rhs_null_map = nullptr;
         bool rhs_is_nullable = false;
         bool rhs_all_true = false;
         bool rhs_all_false = false;
@@ -229,7 +229,7 @@ public:
         };
 
         auto create_null_map_column = [&](ColumnPtr& null_map_column,
-                                          uint8* __restrict null_map_data) {
+                                          uint8_t* __restrict null_map_data) {
             if (null_map_data == nullptr) {
                 null_map_column = ColumnUInt8::create(size, 0);
                 null_map_data = assert_cast<ColumnUInt8*>(null_map_column->assume_mutable().get())
@@ -373,11 +373,11 @@ public:
     bool is_compound_predicate() const override { return true; }
 
 private:
-    static inline constexpr uint8 apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+    static inline constexpr uint8_t apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> && false) is false, (true && NULL) is NULL
         return (l_null & r_null) | (r_null & (l_null ^ a)) | (l_null & (r_null ^ b));
     }
-    static inline constexpr uint8 apply_or_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+    static inline constexpr uint8_t apply_or_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> || true) is true, (false || NULL) is NULL
         return (l_null & r_null) | (r_null & (r_null ^ a)) | (l_null & (l_null ^ b));
     }
@@ -387,8 +387,8 @@ private:
                                    [](const VExprSPtr& arg) -> bool { return arg->is_constant(); });
     }
 
-    std::pair<uint8*, uint8*> _get_raw_data_and_null_map(ColumnPtr column,
-                                                         bool has_nullable_column) const {
+    std::pair<uint8_t*, uint8_t*> _get_raw_data_and_null_map(ColumnPtr column,
+                                                             bool has_nullable_column) const {
         if (has_nullable_column) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column->assume_mutable().get());
             auto* data_column =

@@ -31,6 +31,8 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -171,7 +173,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfNotSet();
         if (!isValidEndpoint(getEndpoint())) {
@@ -192,22 +194,43 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (endpoint == null || endpoint.isEmpty()) {
             throw new IllegalArgumentException("endpoint is required");
         }
-        Matcher matcher = endpointPattern().matcher(endpoint.toLowerCase());
-        if (matcher.find()) {
-            String region = matcher.group(1);
-            if (StringUtils.isBlank(region)) {
-                throw new IllegalArgumentException("Invalid endpoint format: " + endpoint);
-            }
-            setRegion(region);
+        Optional<String> regionOptional = extractRegion(endpoint);
+        if (regionOptional.isPresent()) {
+            setRegion(regionOptional.get());
             return;
         }
         throw new IllegalArgumentException("Not a valid region, and cannot be parsed from endpoint: " + endpoint);
     }
 
-    protected abstract Pattern endpointPattern();
+    public Optional<String> extractRegion(String endpoint) {
+        for (Pattern pattern : endpointPatterns()) {
+            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
+            if (matcher.matches()) {
+                // Check all possible groups for region (group 1, 2, or 3)
+                for (int i = 1; i <= matcher.groupCount(); i++) {
+                    String group = matcher.group(i);
+                    if (StringUtils.isNotBlank(group)) {
+                        return Optional.of(group);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    protected abstract Set<Pattern> endpointPatterns();
 
     private boolean isValidEndpoint(String endpoint) {
-        return endpointPattern().matcher(endpoint).matches();
+        if (StringUtils.isBlank(endpoint)) {
+            return false;
+        }
+        for (Pattern pattern : endpointPatterns()) {
+            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
+            if (matcher.matches()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void setEndpointIfNotSet() {
@@ -230,6 +253,12 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
         return S3PropertyUtils.validateAndGetUri(loadProps);
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        throw new UnsupportedOperationException("Hadoop storage config initialization is not"
+                + " supported for S3 compatible storage.");
     }
 
     @Override
