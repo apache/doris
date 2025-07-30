@@ -70,9 +70,9 @@ public class CreateMap extends ScalarFunction
                     valueExpressions.add(children.get(i));
                 }
             }
-            Array keyArr = new Array().withChildren(keyExpressions);
+            Array keyArr = new Array(keyExpressions);
             DataType keyType = ((ArrayType) keyArr.getDataType()).getItemType();
-            Array valueArr = new Array().withChildren(valueExpressions);
+            Array valueArr = new Array(valueExpressions);
             DataType valueType = ((ArrayType) valueArr.getDataType()).getItemType();
             return MapType.of(keyType, valueType);
         }
