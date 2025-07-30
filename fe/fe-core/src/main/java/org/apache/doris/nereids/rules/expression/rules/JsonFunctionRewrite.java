@@ -91,14 +91,14 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
 
     private static <T extends ScalarFunction> Expression rewriteJsonArrayArguments(T function) {
         return MoreFieldsThread.keepFunctionSignature(false, () -> {
-            List<Expression> convectedChildren = new ArrayList<Expression>();
-            function.children().forEach(child -> {
+            List<Expression> convectedChildren = new ArrayList<>();
+            for (Expression child : function.children()) {
                 if (child.getDataType() instanceof JsonType) {
                     convectedChildren.add(child);
                 } else {
                     convectedChildren.add(new ToJson(child));
                 }
-            });
+            }
             return function.withChildren(convectedChildren);
         });
     }
