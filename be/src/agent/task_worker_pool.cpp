@@ -790,7 +790,6 @@ void alter_cloud_index_callback(CloudStorageEngine& engine, const TAgentTaskRequ
     auto tablet_ptr = engine.tablet_mgr().get_tablet(alter_inverted_index_rq.tablet_id);
     if (tablet_ptr != nullptr) {
         EngineCloudIndexChangeTask engine_task(engine, req.alter_inverted_index_req);
-        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     } else {
         status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
