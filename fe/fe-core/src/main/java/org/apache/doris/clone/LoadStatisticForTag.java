@@ -362,6 +362,10 @@ public class LoadStatisticForTag {
         if (optSrcBeStat.isPresent()) {
             srcBeStat = optSrcBeStat.get();
         } else {
+            if (LOG.isDebugEnabled()) {
+                LOG.info("migrate {}(size: {}) from {} to {} failed, tag: {}, medium: {}, src BE stat does not exist.",
+                        tabletId, tabletSize, srcBeId, destBeId, tag, medium);
+            }
             return false;
         }
 
@@ -371,10 +375,19 @@ public class LoadStatisticForTag {
         if (optDestBeStat.isPresent()) {
             destBeStat = optDestBeStat.get();
         } else {
+            if (LOG.isDebugEnabled()) {
+                LOG.info("migrate {}(size: {}) from {} to {} failed, tag: {}, medium: {}, dest BE stat does not exist.",
+                        tabletId, tabletSize, srcBeId, destBeId, tag, medium);
+            }
             return false;
         }
 
         if (!srcBeStat.hasMedium(medium) || !destBeStat.hasMedium(medium)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.info("migrate {}(size: {}) from {} to {} failed, tag: {}, medium: {}, "
+                        + "src or dest BE does not have medium.",
+                        tabletId, tabletSize, srcBeId, destBeId, tag, medium);
+            }
             return false;
         }
 
