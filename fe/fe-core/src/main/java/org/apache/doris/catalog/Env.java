@@ -4826,11 +4826,6 @@ public class Env {
         catalogIf.dropTable(dbName, tableName, true, false, ifExists, false);
     }
 
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-                                      Long recycleTime) {
-        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
-    }
-
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
                                 Long recycleTime) throws MetaNotFoundException {
         getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
