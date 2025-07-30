@@ -66,6 +66,7 @@ suite("agg_strategy") {
         qt_agg_distinct_satisfy_dst_key_with_other_func "explain shape plan select count(distinct id), sum(dst_key2), avg(dst_key2) from t_gbykey_10_dstkey_10_1000_id group by gby_key order by 1,2,3"
 
         qt_agg_distinct_without_gby_key "explain shape plan select count(distinct dst_key1) from t_gbykey_10_dstkey_10_1000_id"
+        //这个使用的是final multi_distinct + sum0
         qt_agg_distinct_without_gby_key_satisfy_dst_key "explain shape plan select count(distinct id) from t_gbykey_10_dstkey_10_1000_id"
         qt_agg_distinct_without_gby_key_with_other_func "explain shape plan select count(distinct dst_key1),sum(dst_key1) from t_gbykey_10_dstkey_10_1000_id"
         qt_agg_distinct_without_gby_key_satisfy_dst_key_with_other_func "explain shape plan select count(distinct id),avg(dst_key1) from t_gbykey_10_dstkey_10_1000_id"
