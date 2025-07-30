@@ -179,6 +179,20 @@ suite("test_time_round") {
     qt_select "select month_floor(dt, p, o) from dbround where id > 3 order by id;"
     qt_select_quarter1 "select quarter_ceil(dt, p, o) from dbround where id > 3 order by id;"
     qt_select_quarter2 "select quarter_floor(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select_quarter3 "select quarter_ceil(dt, o) from dbround where id > 3 order by id;"
+    qt_select_quarter4 "select quarter_floor(dt, o) from dbround where id > 3 order by id;"
+    qt_select_quarter5 "select quarter_ceil(dt, 1, '1999-12-31') from dbround where id > 3 order by id;"
+    qt_select_quarter6 "select quarter_floor(dt, 1, '1999-12-31') from dbround where id > 3 order by id;"
+    qt_select_quarter7 "select quarter_ceil(dt, 2) from dbround where id > 3 order by id;"
+    qt_select_quarter8 "select quarter_floor(dt, 2) from dbround where id > 3 order by id;"
+    qt_select_quarter9 "select quarter_ceil(dt, '2000-02-01') from dbround where id > 3 order by id;"
+    qt_select_quarter10 "select quarter_floor(dt, '2000-02-01') from dbround where id > 3 order by id;"
+    qt_select_quarter11 "select quarter_ceil(dt) from dbround where id > 3 order by id;"
+    qt_select_quarter12 "select quarter_floor(dt) from dbround where id > 3 order by id;"
+    qt_select_quarter13 "select quarter_ceil(cast(dt as date)) from dbround where id > 3 order by id;"
+    qt_select_quarter14 "select quarter_floor(cast(dt as date)) from dbround where id > 3 order by id;"
+    qt_select_quarter15 "select quarter_ceil(cast(dt as date), p) from dbround where id > 3 order by id;"
+    qt_select_quarter16 "select quarter_floor(cast(dt as date), p) from dbround where id > 3 order by id;"
     qt_select "select day_ceil(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select day_floor(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select hour_ceil(dt, p, o) from dbround where id > 3 order by id;"
@@ -229,4 +243,47 @@ suite("test_time_round") {
     testFoldConst("select quarter_floor('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')")
     qt_select "select year_ceil('2019-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
     qt_select "select year_floor('2019-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
+
+    // quarter's many test
+    qt_sql "select quarter_floor('2020-12-12')"
+    qt_sql "select quarter_ceil('2020-12-12')"
+    qt_sql "select quarter_floor('2020-12-12', 1)"
+    qt_sql "select quarter_floor('2020-12-12', 2)"
+    qt_sql "select quarter_floor('2020-12-12', 3)"
+    qt_sql "select quarter_floor('2020-12-12', 4)"
+    qt_sql "select quarter_floor('2020-12-12', 6)"
+    qt_sql "select quarter_floor('2020-12-12', 10)"
+    qt_sql "select quarter_floor('2020-12-12', 12)"
+    qt_sql "select quarter_ceil('2020-12-12', 1)"
+    qt_sql "select quarter_ceil('2020-12-12', 2)"
+    qt_sql "select quarter_ceil('2020-12-12', 3)"
+    qt_sql "select quarter_ceil('2020-12-12', 4)"
+    qt_sql "select quarter_ceil('2020-12-12', 6)"
+    qt_sql "select quarter_ceil('2020-12-12', 10)"
+    qt_sql "select quarter_ceil('2020-12-12', 12)"
+    qt_sql "select quarter_floor('2020-12-12', '2020-01-01')"
+    qt_sql "select quarter_floor('2020-12-12', '2020-02-01')"
+    qt_sql "select quarter_ceil('2020-12-12', '2020-01-01')"
+    qt_sql "select quarter_ceil('2020-12-12', '2020-02-01')"
+
+    testFoldConst("select quarter_floor('2020-12-12')")
+    testFoldConst("select quarter_ceil('2020-12-12')")
+    testFoldConst("select quarter_floor('2020-12-12', 1)")
+    testFoldConst("select quarter_floor('2020-12-12', 2)")
+    testFoldConst("select quarter_floor('2020-12-12', 3)")
+    testFoldConst("select quarter_floor('2020-12-12', 4)")
+    testFoldConst("select quarter_floor('2020-12-12', 6)")
+    testFoldConst("select quarter_floor('2020-12-12', 10)")
+    testFoldConst("select quarter_floor('2020-12-12', 12)")
+    testFoldConst("select quarter_ceil('2020-12-12', 1)")
+    testFoldConst("select quarter_ceil('2020-12-12', 2)")
+    testFoldConst("select quarter_ceil('2020-12-12', 3)")
+    testFoldConst("select quarter_ceil('2020-12-12', 4)")
+    testFoldConst("select quarter_ceil('2020-12-12', 6)")
+    testFoldConst("select quarter_ceil('2020-12-12', 10)")
+    testFoldConst("select quarter_ceil('2020-12-12', 12)")
+    testFoldConst("select quarter_floor('2020-12-12', '2020-01-01')")
+    testFoldConst("select quarter_floor('2020-12-12', '2020-02-01')")
+    testFoldConst("select quarter_ceil('2020-12-12', '2020-01-01')")
+    testFoldConst("select quarter_ceil('2020-12-12', '2020-02-01')")
 }
