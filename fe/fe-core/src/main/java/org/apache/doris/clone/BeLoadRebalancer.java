@@ -337,6 +337,16 @@ public class BeLoadRebalancer extends Rebalancer {
         // select a replica as source
         boolean setSource = false;
         for (Replica replica : replicas) {
+            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
+            if (be == null) {
+                throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                        "backend is dropped: " + replica.getBackendIdWithoutException());
+            }
+            if (!be.getLocationTag().equals(tabletCtx.getTag())) {
+                // prevent selected src replica has different tag with tabletCtx's tag
+                // otherwise it could lead to schedule fail
+                continue;
+            }
             PathSlot slot = backendsWorkingSlots.get(replica.getBackendIdWithoutException());
             if (slot == null) {
                 continue;
