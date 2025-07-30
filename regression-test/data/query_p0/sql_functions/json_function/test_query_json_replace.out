@@ -59,3 +59,21 @@ null
 {"data":{"array":["1","2"],"map":{"x":"y"},"struct":{"name":"2","age":1},"json":{"a":"b"}}}
 {"data":{"array":["1","2","3","3"],"map":{"x":"y"},"struct":{"name":"a","age":1},"json":{"a":"b"}}}
 
+-- !replace1 --
+2
+
+-- !replace2 --
+1
+
+-- !replace3 --
+{"k":2}
+
+-- !replace4 --
+{"k":1}
+
+-- !replace5 --
+{"k":null}
+
+-- !replace6 --
+\N
+
