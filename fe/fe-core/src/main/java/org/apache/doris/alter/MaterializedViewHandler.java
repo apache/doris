@@ -937,8 +937,13 @@ public class MaterializedViewHandler extends AlterHandler {
         }
 
         // 2. check if rollup index already exists
-        if (olapTable.hasMaterializedIndex(rollupIndexName)) {
-            throw new DdlException("Rollup index[" + rollupIndexName + "] already exists");
+        olapTable.readLock();
+        try {
+            if (olapTable.hasMaterializedIndex(rollupIndexName)) {
+                throw new DdlException("Rollup index[" + rollupIndexName + "] already exists");
+            }
+        } finally {
+            olapTable.readUnlock();
         }
 
         // 3. check if rollup columns are valid
