@@ -32,3 +32,16 @@
 {"id":6,"label":[null,"LC","LC","LC","LC"],"field":["V6_3",null,"V6_3",null,"V6_3"]}
 {"id":7,"label":[null,"LC","LC","LC","LC"],"field":["V7_3",null,"V7_3",null,"V7_3"]}
 
+-- !sql_cast_string_to_json --
+{"k1":1,"k2":"2"}
+
+-- !sql_cast_string_to_json --
+232323
+
+-- !sql_json_from_string --
+1	{"k1":1,"k2":"2"}
+2	232323
+3	\N
+4	\N
+5	{"k1":1,"k2":"2","k3":{"k4":4},"k5":[1,2,3]}
+
