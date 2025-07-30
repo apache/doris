@@ -769,4 +769,13 @@ TEST_F(DataTypeDecimalTest, SerdeArrowTest) {
     test_func(dt_decimal256_3_ptr, column_decimal256_3);
 }
 
+TEST_F(DataTypeDecimalTest, GetFieldWithDataTypeTest) {
+    auto column_decimal128v3_1 = dt_decimal128v3_1.create_column();
+    Field field_decimal128v3_1 =
+            Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(1234567890, 0));
+    column_decimal128v3_1->insert(field_decimal128v3_1);
+    EXPECT_EQ(dt_decimal128v3_1.get_field_with_data_type(*column_decimal128v3_1, 0).field,
+              field_decimal128v3_1);
+}
+
 } // namespace doris::vectorized
