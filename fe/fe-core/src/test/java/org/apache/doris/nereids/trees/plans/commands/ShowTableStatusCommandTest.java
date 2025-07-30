@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -30,6 +28,9 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
+
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -76,7 +77,7 @@ public class ShowTableStatusCommandTest {
                 result = catalog;
 
                 accessManager.checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
-                    PrivPredicate.SHOW);
+                        PrivPredicate.SHOW);
                 minTimes = 0;
                 result = true;
             }
@@ -85,11 +86,11 @@ public class ShowTableStatusCommandTest {
                 new StringLiteral(CatalogMocker.TEST_DB_NAME));
 
         ShowTableStatusCommand command = new ShowTableStatusCommand(CatalogMocker.TEST_DB_NAME,
-            InternalCatalog.INTERNAL_CATALOG_NAME);
+                InternalCatalog.INTERNAL_CATALOG_NAME);
         Assertions.assertDoesNotThrow(() -> command.validate(ctx));
 
         ShowTableStatusCommand command2 = new ShowTableStatusCommand(CatalogMocker.TEST_DB_NAME,
-            InternalCatalog.INTERNAL_CATALOG_NAME, "%example%", equalTo);
+                InternalCatalog.INTERNAL_CATALOG_NAME, "%example%", equalTo);
         Assertions.assertDoesNotThrow(() -> command2.validate(ctx));
     }
 
@@ -122,13 +123,13 @@ public class ShowTableStatusCommandTest {
                 result = catalog;
 
                 accessManager.checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
-                    PrivPredicate.SHOW);
+                        PrivPredicate.SHOW);
                 minTimes = 0;
                 result = false;
             }
         };
         EqualTo equalTo = new EqualTo(new UnboundSlot("name"),
-            new StringLiteral(CatalogMocker.TEST_DB_NAME));
+                new StringLiteral(CatalogMocker.TEST_DB_NAME));
 
         ShowTableStatusCommand command = new ShowTableStatusCommand("", InternalCatalog.INTERNAL_CATALOG_NAME);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(ctx));
@@ -137,7 +138,7 @@ public class ShowTableStatusCommandTest {
         Assertions.assertThrows(AnalysisException.class, () -> command1.validate(ctx));
 
         ShowTableStatusCommand command2 = new ShowTableStatusCommand(CatalogMocker.TEST_DB_NAME,
-            InternalCatalog.INTERNAL_CATALOG_NAME, "%example%", equalTo);
+                InternalCatalog.INTERNAL_CATALOG_NAME, "%example%", equalTo);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(ctx));
     }
 }
