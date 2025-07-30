@@ -1364,7 +1364,7 @@ private:
     static Status compute_previous_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
         int delta = (dtv.weekday() + 1 - week_day + 7) % 7;
         delta = (delta == 0) ? 7 : delta;
-        dtv.date_sub_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, delta, false));
+        dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, -delta, false));
         return Status::OK();
     }
 
