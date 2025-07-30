@@ -4,6 +4,28 @@
 2	1243.500
 3	24453.325
 
+-- !sql_window_null --
+0	\N	be	\N
+12	\N	be	\N
+6	\N	but	\N
+11	\N	did	\N
+14	\N	go	\N
+15	\N	go	\N
+7	\N	had	\N
+13	\N	it	\N
+19	\N	look	\N
+9	\N	not	\N
+10	\N	of	\N
+16	\N	right	\N
+17	\N	say	\N
+3	\N	she	\N
+8	\N	she	\N
+4	\N	some	\N
+5	\N	there	\N
+18	\N	we	\N
+2	\N	well	\N
+1	\N	who	\N
+
 -- !sql_window_muti1 --
 a
 a
