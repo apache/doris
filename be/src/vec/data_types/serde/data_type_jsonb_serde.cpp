@@ -340,6 +340,11 @@ Status DataTypeJsonbSerDe::deserialize_column_from_jsonb(IColumn& column,
     col.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
     return Status::OK();
 }
+Status DataTypeJsonbSerDe::from_string(StringRef& str, IColumn& column,
+                                       const FormatOptions& options) const {
+    auto slice = str.to_slice();
+    return deserialize_one_cell_from_json(column, slice, options);
+}
 
 } // namespace vectorized
 } // namespace doris

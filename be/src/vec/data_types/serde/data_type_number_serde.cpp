@@ -601,43 +601,6 @@ Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
     return Status::OK();
 }
 
-template <PrimitiveType PT, bool is_strict_mode>
-bool read_number_text_impl(StringRef& str, typename PrimitiveTypeTraits<PT>::ColumnItemType& val) {
-    if constexpr (PT == TYPE_BOOLEAN) {
-        return try_read_bool_text(val, str);
-    }
-    // else if constexpr (){
-
-    // }
-
-    DCHECK(false);
-    return false;
-}
-
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
-                                           const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
-    typename PrimitiveTypeTraits<T>::ColumnItemType val;
-    if (!read_number_text_impl<T, false>(str, val)) {
-        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
-    }
-    column_data.insert_value(val);
-    return Status::OK();
-}
-
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
-                                                       const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
-    typename PrimitiveTypeTraits<T>::ColumnItemType val;
-    if (!read_number_text_impl<T, true>(str, val)) {
-        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
-    }
-    column_data.insert_value(val);
-    return Status::OK();
-}
-
 template <PrimitiveType PT>
 bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x, const StringRef& str_ref,
                     CastParameters& params) {
@@ -651,6 +614,34 @@ bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x, const S
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "try_parse_impl not implemented for type: {}", type_to_string(PT));
     }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                           const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
+    CastParameters params;
+    params.is_strict = false;
+    if (!try_parse_impl<T>(val, str, params)) {
+        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
+    }
+    column_data.insert_value(val);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                       const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
+    CastParameters params;
+    params.is_strict = true;
+    if (!try_parse_impl<T>(val, str, params)) {
+        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
+    }
+    column_data.insert_value(val);
+    return Status::OK();
 }
 
 template <PrimitiveType T>

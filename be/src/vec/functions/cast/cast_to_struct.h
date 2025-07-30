@@ -28,7 +28,7 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
                                   const DataTypeStruct& to_type) {
     // support CAST AS Struct from string
     if (is_string_type(from_type->get_primitive_type())) {
-        return cast_from_string_to_generic;
+        return cast_from_string_to_complex_type;
     }
 
     // only support CAST AS Struct from struct or string types
