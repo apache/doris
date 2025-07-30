@@ -31,11 +31,13 @@
 #include "common/stats.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "meta_service.h"
 
 // Empty string not is not processed
@@ -688,7 +690,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                             const FinishTabletJobRequest* request,
                             FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                             std::string& instance_id, std::string& job_key, bool& need_commit,
-                            std::string& use_version, bool is_versioned_read) {
+                            std::string& use_version, bool is_version_write_enabled) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -696,6 +698,10 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     int64_t index_id = request->job().idx().index_id();
     int64_t partition_id = request->job().idx().partition_id();
     int64_t tablet_id = request->job().idx().tablet_id();
+
+    CompactionLogPB compaction_log;
+    compaction_log.set_tablet_id(tablet_id);
+
     if (recorded_job.compaction().empty()) {
         SS << "there is no running compaction, tablet_id=" << tablet_id;
         msg = ss.str();
@@ -858,6 +864,12 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         code = MetaServiceCode::INVALID_ARGUMENT;
         return;
     }
+
+    if (is_version_write_enabled) {
+        stats->set_num_compaction_rowsets(compaction.num_output_segments() -
+                                          compaction.num_input_segments());
+    }
+
     auto stats_key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     auto stats_val = stats->SerializeAsString();
 
@@ -939,6 +951,9 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     auto rs_start = meta_rowset_key({instance_id, tablet_id, start});
     auto rs_end = meta_rowset_key({instance_id, tablet_id, end + 1});
 
+    compaction_log.set_start_version(start);
+    compaction_log.set_end_version(end);
+
     std::unique_ptr<RangeGetIterator> it;
     int num_rowsets = 0;
     DORIS_CLOUD_DEFER {
@@ -984,6 +999,11 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             recycle_rowset.set_creation_time(now);
             recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
             recycle_rowset.set_type(RecycleRowsetPB::COMPACT);
+
+            if (is_version_write_enabled) {
+                compaction_log.add_recycle_rowsets()->CopyFrom(recycle_rowset);
+            }
+
             auto recycle_val = recycle_rowset.SerializeAsString();
             txn->put(recycle_key, recycle_val);
             INSTANCE_LOG(INFO) << "put recycle rowset, tablet_id=" << tablet_id
@@ -1071,6 +1091,11 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     int64_t version = compaction.output_versions(0);
     auto rowset_key = meta_rowset_key({instance_id, tablet_id, version});
     txn->put(rowset_key, tmp_rowset_val);
+    if (is_version_write_enabled) {
+        std::string meta_rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_id, tablet_id, version});
+        versioned_put(txn.get(), meta_rowset_compact_key, tmp_rowset_val);
+    }
     INSTANCE_LOG(INFO) << "put rowset meta, tablet_id=" << tablet_id
                        << " rowset_key=" << hex(rowset_key);
 
@@ -1088,6 +1113,22 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                                         ? recorded_job.schema_change().alter_version()
                                         : -1);
     need_commit = true;
+
+    if (!compaction_log.recycle_rowsets().empty() && is_version_write_enabled) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_compaction()->Swap(&compaction_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg)
+                    .tag("instance_id", instance_id)
+                    .tag("table_id", request->job().idx().table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
+    }
 }
 
 void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
@@ -1095,7 +1136,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                const FinishTabletJobRequest* request,
                                FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                                std::string& instance_id, std::string& job_key, bool& need_commit,
-                               std::string& use_version, bool is_versioned_read) {
+                               std::string& use_version, bool is_version_write_enabled) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -1577,15 +1618,16 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                 delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
         LOG(INFO) << "finish_tablet_job instance_id=" << instance_id
                   << " use_version=" << use_version;
+        bool is_version_write = is_version_write_enabled(instance_id);
         if (!request->job().compaction().empty()) {
             // Process compaction commit
             process_compaction_job(code, msg, ss, txn, request, response, recorded_job, instance_id,
-                                   job_key, need_commit, use_version, is_versioned_read);
+                                   job_key, need_commit, use_version, is_version_write);
         } else if (request->job().has_schema_change()) {
             // Process schema change commit
             process_schema_change_job(code, msg, ss, txn, request, response, recorded_job,
                                       instance_id, job_key, need_commit, use_version,
-                                      is_versioned_read);
+                                      is_version_write);
         }
 
         if (!need_commit) return;
