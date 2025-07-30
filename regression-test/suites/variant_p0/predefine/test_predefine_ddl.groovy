@@ -105,8 +105,7 @@ suite("test_predefine_ddl", "p0") {
         sql """ alter table ${tableName} modify column var variant<'ab' : string> NULL """
         exception("Can not modify variant column with children")
     }
-    
-    sql """ alter table test_ddl_table add column var2 variant<'ab' : string> NULL """
+
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (

@@ -36,10 +36,10 @@ suite("regression_test_variant_predefine_multi_var", "variant_type"){
     sql """INSERT INTO ${table_name} SELECT *, '{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}' FROM numbers("number" = "203") where number > 100"""
     sql """INSERT INTO ${table_name} SELECT *, '{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}' FROM numbers("number" = "411") where number > 200"""
     trigger_and_wait_compaction(table_name, "cumulative")
-    sql """alter table ${table_name} add column v2 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double  default null,
+    sql """alter table ${table_name} add column v2 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double ,
                 properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\", \"variant_enable_typed_paths_to_sparse\" = \"${enable_typed_paths_to_sparse}\")> default null"""
     sql """INSERT INTO ${table_name} select k, v, v from ${table_name}"""
-    sql """alter table ${table_name} add column v3 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double  default null,
+    sql """alter table ${table_name} add column v3 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double,
             properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\", \"variant_enable_typed_paths_to_sparse\" = \"${enable_typed_paths_to_sparse}\")> default null"""
     sql """INSERT INTO ${table_name} select k, v, v, v from ${table_name}"""
     sql "alter table ${table_name} add column ss string default null"
