@@ -245,7 +245,7 @@ public class MTMVTask extends AbstractTask {
                 if (mtmv.getIncrementalRefresh()) {
                     Set<BaseTableInfo> baseTables = relation.getBaseTablesOneLevel();
                     if (baseTables.size() != 1) {
-                        throw new RuntimeException("Only support incremental refresh for single table MTMV");
+                        throw new JobException("Only support incremental refresh for single table MTMV");
                     }
                     BaseTableInfo baseTableInfo = baseTables.iterator().next();
                     MTMVSnapshotIf mvSnapshot = mtmv.getRefreshSnapshot().getMVSnapshot(mtmv.getName(), baseTableInfo);

@@ -114,7 +114,6 @@ public class MTMV extends OlapTable {
         this.refreshSnapshot = new MTMVRefreshSnapshot();
         this.envInfo = new EnvInfo(-1L, -1L);
         mvRwLock = new ReentrantReadWriteLock(true);
-        this.incrementalRefresh = refreshInfo.getRefreshMethod() == MTMVRefreshEnum.RefreshMethod.INCREMENTAL;
     }
 
     @Override
@@ -224,7 +223,7 @@ public class MTMV extends OlapTable {
             }
             this.jobInfo.addHistoryTask(task);
             Set<String> partitionNames = getPartitionNames();
-            if (incrementalRefresh) {
+            if (getIncrementalRefresh()) {
                 partitionNames.add(this.name);
             }
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, partitionNames);
@@ -359,7 +358,7 @@ public class MTMV extends OlapTable {
     }
 
     public boolean getIncrementalRefresh() {
-        return incrementalRefresh;
+        return getRefreshInfo().getRefreshMethod() == MTMVRefreshEnum.RefreshMethod.INCREMENTAL;
     }
 
     /**
