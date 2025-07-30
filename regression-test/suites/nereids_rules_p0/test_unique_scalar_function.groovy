@@ -74,4 +74,215 @@ suite('test_unique_scalar_function') {
     qt_merge_project_5 '''
         explain shape plan select a as b, a + 10 as c from (select id + random(1, 10) as a from t1) t
         '''
+
+    def tbl = "unique_scalar_function_tbl1"
+    sql "drop table if exists ${tbl} force"
+    sql "create table ${tbl} (k int, a double) properties('replication_num' = '1')"
+
+    // test no aggregate
+    sql """
+            select random(),  random(), random() - random()
+        """
+
+    sql """
+           select a + random(), a + random()
+           from ${tbl}
+        """
+
+    sql """
+            select a + random(), a + random()
+            from ${tbl}
+            where a + random() > 1.5
+        """
+
+    sql """
+            select a + random(), a + random(), sum(a + random()) over(), sum(a + random()) over()
+            from ${tbl}
+        """
+
+    sql """
+            select a + random(), a + random()
+            from ${tbl}
+            qualify sum(a +random()) over (partition by a + random()) > 1.5 and sum(a + random()) over() > 1.5
+        """
+
+    sql """
+            select a + random(), a + random(), sum(a + random()) over (partition by a + random())
+            from ${tbl}
+            qualify sum(a +random()) over (partition by a + random()) > 1.5 and sum(a + random()) over() > 1.5
+        """
+
+    sql """
+            select a + random(), a + random(), sum(a + random()) over (partition by a + random())
+            from ${tbl}
+            order by a + random(), a + random(), sum(a+random()), sum(a+random())
+        """
+
+    // test one row to global aggregate
+    sql """
+            select random(), random(), sum(random()), sum(random()), sum(random()) over(), sum(random()) over()
+        """
+
+    // test project to global aggregate
+    sql """
+            select random(), random(), sum(a + random()), sum(a + random())
+            from ${tbl}
+        """
+
+    sql """
+            select random(), random()
+            from ${tbl}
+            having random() > 0.5 and random() > 0.5
+        """
+
+    sql """
+            select random(), random()
+            from ${tbl}
+            having random() > 0.5 and random() > 0.5 and sum(random()) > 0.5 and sum(random()) > 0.5
+        """
+
+    sql """
+           select random(), random(), sum(a + random()), sum(a + random())
+           from ${tbl}
+           having random() > 0.5 and sum(random()) > 0.5
+           order by random(), sum(a + random())
+        """
+
+    // test distinct project to aggregate
+    sql """
+            select distinct random(), random()
+        """
+
+    sql """
+            select distinct random(), random(), sum(random()), sum(random())
+        """
+
+    sql """
+            select distinct a + random(), a + random()
+            from ${tbl}
+            order by a + random()
+        """
+
+    // test with group by
+    sql """
+            select random(), random(), sum(random()), sum(random())
+            from ${tbl}
+            group by random()
+        """
+
+    sql """
+            select random(), random(), sum(random()), sum(random())
+            from ${tbl}
+            group by random()
+            having random() > 0.5
+        """
+
+    sql """
+            select random(), random(), abs(random()), sum(random()), sum(random())
+            from ${tbl}
+            group by random()
+            having random() > 0.5
+            order by random()
+        """
+
+    sql """
+            select a + random(), a + random(), sum(a + random()), sum(a + random())
+            from ${tbl}
+            group by a
+        """
+
+    sql """
+            select a + random(), a + random(), sum(a + random()), sum(a + random())
+            from ${tbl}
+            group by a
+            having a + random() > 0.5
+        """
+
+    sql """
+            select a + random(), a + random(), abs(a + random()), sum(a + random()), sum(a + random())
+            from ${tbl}
+            group by a
+            having a + random() > 0.5
+            order by a + random()
+        """
+
+    sql """
+            select a + random(), a + random(), sum(a + random()), sum(a + random())
+            from ${tbl}
+            group by a + random()
+        """
+
+    sql """
+            select a + random(), a + random(), sum(a + random()), sum(a + random())
+            from ${tbl}
+            group by a + random()
+            having a + random() > 0.5
+        """
+
+    sql """
+            select a + random(), a + random(), abs(a + random()), sum(a + random()), sum(a + random())
+            from ${tbl}
+            group by a + random()
+            having a + random() > 0.5
+            order by a + random()
+        """
+
+    sql """
+            select a + random(), a + random(), sum(a + random()), sum(a + random())
+            from ${tbl}
+            group by a + random(), a + random()
+        """
+
+    sql """
+            select a + random(), a + random(), sum(a + random()), sum(a + random())
+            from ${tbl}
+            group by a + random(), a + random()
+            having a + random() > 0.5
+        """
+
+    sql """
+            select a + random(), a + random(), abs(a + random()), sum(a + random()), sum(a + random())
+            from ${tbl}
+            group by a + random(), a + random()
+            having a + random() > 0.5
+            order by a + random()
+        """
+
+    sql """
+            select a + random(), a + random() + 1, sum(a + random()), sum(a + random() + 1)
+            from ${tbl}
+            group by a + random(), a + random() + 1
+        """
+
+    sql """
+            select a + random(), a + random() + 1, sum(a + random()), sum(a + random() + 1)
+            from ${tbl}
+            group by a + random(), a + random() + 1
+            having a + random() > 0.5
+        """
+
+    sql """
+            select a + random(), a + random() + 1, abs(a + random()), sum(a + random()), sum(a + random() + 1)
+            from ${tbl}
+            group by a + random(), a + random() + 1
+            having a + random() > 0.5
+            order by a + random()
+        """
+
+    sql """
+            select a + random(), a + random() + 1, sum(a + random()), sum(a + random() + 1)
+            from ${tbl}
+            group by a + random(), a + random() + 1
+            having a + random() + 1 > 0.5
+        """
+
+    sql """
+            select a + random(), a + random() + 1, abs(a + random()), sum(a + random()), sum(a + random() + 1)
+            from ${tbl}
+            group by a + random(), a + random() + 1
+            having a + random() + 1 > 0.5
+            order by a + random() + 1
+        """
+
+    // test with repeat
 }

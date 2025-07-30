@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -514,6 +516,14 @@ public class ExpressionUtils {
             }
         }
         return replaceExprs.build();
+    }
+
+    /**
+     * set ignore unique id for unique scalar functions
+     */
+    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+        return expression.rewriteDownShortCircuit(e ->
+                e instanceof UniqueScalarFunction ? ((UniqueScalarFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
@@ -1185,5 +1195,24 @@ public class ExpressionUtils {
         }
         shapeBuilder.append(")");
         return shapeBuilder.toString();
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Collection<? extends Expression> expressions) {
+        for (Expression expression : expressions) {
+            if (hasNonWindowAggregateFunction(expression)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Expression expression) {
+        return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
     }
 }
