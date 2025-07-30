@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.Authenticator;
@@ -32,6 +33,7 @@ import org.apache.doris.mysql.authenticate.password.PasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,6 +96,11 @@ public class LdapAuthenticator implements Authenticator {
         String userName = ClusterNamespace.getNameFromFullName(qualifiedUser);
         if (LOG.isDebugEnabled()) {
             LOG.debug("user:{}", userName);
+        }
+
+        if (StringUtils.isEmpty(password) && !LdapConfig.ldap_allow_empty_password) {
+            ErrorReport.report(ErrorCode.ERR_EMPTY_PASSWORD);
+            return AuthenticateResponse.failedResponse;
         }
 
         // check user password by ldap server.

@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
@@ -142,5 +143,19 @@ public class LdapAuthenticatorTest {
     @Test
     public void testGetPasswordResolver() {
         Assert.assertTrue(ldapAuthenticator.getPasswordResolver() instanceof ClearPasswordResolver);
+    }
+
+    @Test
+    public void testEmptyPassword() throws IOException {
+        setCheckPassword(true);
+        setGetUserInDoris(true);
+        AuthenticateRequest request = new AuthenticateRequest(USER_NAME, new ClearPassword(""), IP);
+        LdapConfig.ldap_allow_empty_password = true;
+        AuthenticateResponse response = ldapAuthenticator.authenticate(request);
+        Assert.assertTrue(response.isSuccess());
+        LdapConfig.ldap_allow_empty_password = false;
+        response = ldapAuthenticator.authenticate(request);
+        Assert.assertFalse(response.isSuccess());
+        LdapConfig.ldap_allow_empty_password = true;
     }
 }
