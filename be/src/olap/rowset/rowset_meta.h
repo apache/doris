@@ -348,6 +348,9 @@ public:
 
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
 
+    // for cloud only
+    int64_t visible_time_ms() const { return _rowset_meta_pb.visible_time_ms(); }
+
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
 
