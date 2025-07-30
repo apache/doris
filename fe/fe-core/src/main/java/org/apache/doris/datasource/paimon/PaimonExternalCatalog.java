@@ -190,7 +190,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
             }
             return hadoopAuthenticator.doAs(() -> catalog.getTable(identifier));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get Paimon  table:" + getName() + "."
+            throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
                     + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName()
                     + ", " + e.getMessage(), e);
         }
