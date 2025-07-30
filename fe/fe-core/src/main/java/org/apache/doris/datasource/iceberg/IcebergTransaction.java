@@ -78,7 +78,7 @@ public class IcebergTransaction implements Transaction {
     public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
         ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
         try {
-            ops.getPreExecutionAuthenticator().execute(() -> {
+            ops.getExecutionAuthenticator().execute(() -> {
                 // create and start the iceberg transaction
                 this.table = IcebergUtils.getIcebergTable(dorisTable);
                 // check branch
@@ -107,7 +107,7 @@ public class IcebergTransaction implements Transaction {
             LOG.info("iceberg table {} insert table finished!", nameMapping.getFullLocalName());
         }
         try {
-            ops.getPreExecutionAuthenticator().execute(() -> {
+            ops.getExecutionAuthenticator().execute(() -> {
                 //create and start the iceberg transaction
                 TUpdateMode updateMode = TUpdateMode.APPEND;
                 if (insertCtx != null) {

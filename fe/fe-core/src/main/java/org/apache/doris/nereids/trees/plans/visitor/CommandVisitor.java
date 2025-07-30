@@ -178,6 +178,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateFunctionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
@@ -951,6 +952,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCharsetCommand(ShowCharsetCommand showCharsetCommand, C context) {
         return visitCommand(showCharsetCommand, context);
+    }
+
+    default R visitShowCreateLoadCommand(ShowCreateLoadCommand showCreateLoadCommand, C context) {
+        return visitCommand(showCreateLoadCommand, context);
     }
 
     default R visitDropWorkloadPolicyCommand(DropWorkloadPolicyCommand dropWorkloadPolicyCommand, C context) {

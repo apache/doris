@@ -2811,7 +2811,11 @@ auto assert_column_vector_get_bool_callback = [](auto x, const MutableColumnPtr&
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& data = col_vec_src->get_data();
     for (size_t i = 0; i != src_size; ++i) {
-        EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
+        if constexpr (is_decimal(PType)) {
+            EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i].value);
+        } else {
+            EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
+        }
     }
 };
 template <PrimitiveType PType>

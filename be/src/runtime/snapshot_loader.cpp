@@ -740,15 +740,10 @@ Status SnapshotHttpDownloader::download() {
     return Status::OK();
 }
 
-SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
-                               const TNetworkAddress& broker_addr,
-                               const std::map<std::string, std::string>& prop)
-        : _engine(engine),
-          _env(env),
-          _job_id(job_id),
-          _task_id(task_id),
-          _broker_addr(broker_addr),
-          _prop(prop) {
+BaseSnapshotLoader::BaseSnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+                                       const TNetworkAddress& broker_addr,
+                                       const std::map<std::string, std::string>& prop)
+        : _env(env), _job_id(job_id), _task_id(task_id), _broker_addr(broker_addr), _prop(prop) {
     _resource_ctx = ResourceContext::create_shared();
     TUniqueId tid;
     tid.hi = _job_id;
@@ -760,7 +755,7 @@ SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_
     _resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
 }
 
-Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
+Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type) {
         S3Conf s3_conf;
         S3URI s3_uri(location);
@@ -782,7 +777,10 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
     return Status::OK();
 }
 
-SnapshotLoader::~SnapshotLoader() = default;
+SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
+                               const TNetworkAddress& broker_addr,
+                               const std::map<std::string, std::string>& prop)
+        : BaseSnapshotLoader(env, job_id, task_id, broker_addr, prop), _engine(engine) {}
 
 Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_dest_path,
                               std::map<int64_t, std::vector<std::string>>* tablet_files) {
@@ -1285,25 +1283,6 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     return status;
 }
 
-Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t tablet_id,
-                                          std::string* new_file_name) {
-    // eg:
-    // 10007.hdr
-    // 10007_2_2_0_0.idx
-    // 10007_2_2_0_0.dat
-    if (_end_with(file_name, ".hdr")) {
-        std::stringstream ss;
-        ss << tablet_id << ".hdr";
-        *new_file_name = ss.str();
-        return Status::OK();
-    } else if (_end_with(file_name, ".idx") || _end_with(file_name, ".dat")) {
-        *new_file_name = file_name;
-        return Status::OK();
-    } else {
-        return Status::InternalError("invalid tablet file name: {}", file_name);
-    }
-}
-
 Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::string& src_path,
                                                                      int64_t* tablet_id,
                                                                      int32_t* schema_hash) {
@@ -1371,8 +1350,27 @@ Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_p
     return Status::OK();
 }
 
-Status SnapshotLoader::_get_tablet_id_from_remote_path(const std::string& remote_path,
-                                                       int64_t* tablet_id) {
+Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t tablet_id,
+                                          std::string* new_file_name) {
+    // eg:
+    // 10007.hdr
+    // 10007_2_2_0_0.idx
+    // 10007_2_2_0_0.dat
+    if (_end_with(file_name, ".hdr")) {
+        std::stringstream ss;
+        ss << tablet_id << ".hdr";
+        *new_file_name = ss.str();
+        return Status::OK();
+    } else if (_end_with(file_name, ".idx") || _end_with(file_name, ".dat")) {
+        *new_file_name = file_name;
+        return Status::OK();
+    } else {
+        return Status::InternalError("invalid tablet file name: {}", file_name);
+    }
+}
+
+Status BaseSnapshotLoader::_get_tablet_id_from_remote_path(const std::string& remote_path,
+                                                           int64_t* tablet_id) {
     // eg:
     // bos://xxx/../__tbl_10004/__part_10003/__idx_10004/__10005
     size_t pos = remote_path.find_last_of("_");
@@ -1390,8 +1388,8 @@ Status SnapshotLoader::_get_tablet_id_from_remote_path(const std::string& remote
 
 // only return CANCELLED if FE return that job is cancelled.
 // otherwise, return OK
-Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t finished_num,
-                                     int32_t total_num, TTaskType::type type) {
+Status BaseSnapshotLoader::_report_every(int report_threshold, int* counter, int32_t finished_num,
+                                         int32_t total_num, TTaskType::type type) {
     ++*counter;
     if (*counter <= report_threshold) {
         return Status::OK();
@@ -1431,8 +1429,8 @@ Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t
     return Status::OK();
 }
 
-Status SnapshotLoader::_list_with_checksum(const std::string& dir,
-                                           std::map<std::string, FileStat>* md5_files) {
+Status BaseSnapshotLoader::_list_with_checksum(const std::string& dir,
+                                               std::map<std::string, FileStat>* md5_files) {
     bool exists = true;
     std::vector<io::FileInfo> files;
     RETURN_IF_ERROR(_remote_fs->list(dir, true, &files, &exists));

@@ -48,8 +48,8 @@ public class DropEncryptKeyStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
 
         // check operation privilege
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -57,7 +57,7 @@ public class DropEncryptKeyStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         // analyze encryptkey name
-        encryptKeyName.analyze(analyzer);
+        encryptKeyName.analyze();
         encryptKeySearchDesc = new EncryptKeySearchDesc(encryptKeyName);
     }
 

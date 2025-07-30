@@ -151,7 +151,7 @@ Status OlapScanLocalState::_init_profile() {
     _stats_rp_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsZoneMapRuntimePredicateFiltered", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
-    _dict_filtered_counter = ADD_COUNTER(_segment_profile, "RowsDictFiltered", TUnit::UNIT);
+    _dict_filtered_counter = ADD_COUNTER(_segment_profile, "SegmentDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
     _conditions_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
@@ -362,6 +362,12 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     bool has_cpu_limit = state()->query_options().__isset.resource_limit &&
                          state()->query_options().resource_limit.__isset.cpu_limit;
 
+    // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
+    // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
+    // for example, if a table is select userid,count(*) from base table.
+    // And the user send a query like select userid,count(*) from base table group by userid.
+    // then the storage layer do not need do aggregation, it could just return the partial agg data, because the compute layer will do aggregation.
+    // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
@@ -618,6 +624,37 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                 _scan_ranges.size());
     }
     _prepared = true;
+    return Status::OK();
+}
+
+Status OlapScanLocalState::open(RuntimeState* state) {
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    for (const auto& pair : p._slot_id_to_slot_desc) {
+        const SlotDescriptor* slot_desc = pair.second;
+        std::shared_ptr<doris::TExpr> virtual_col_expr = slot_desc->get_virtual_column_expr();
+        if (virtual_col_expr) {
+            std::shared_ptr<doris::vectorized::VExprContext> virtual_column_expr_ctx;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*virtual_col_expr,
+                                                                virtual_column_expr_ctx));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.intermediate_row_desc()));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
+
+            _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
+            _slot_id_to_col_type[slot_desc->id()] = slot_desc->get_data_type_ptr();
+            int col_pos = p.intermediate_row_desc().get_column_id(slot_desc->id());
+            if (col_pos < 0) {
+                return Status::InternalError(
+                        "Invalid virtual slot, can not find its information. Slot desc:\n{}\nRow "
+                        "desc:\n{}",
+                        slot_desc->debug_string(), p.row_desc().debug_string());
+            } else {
+                _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
+            }
+        }
+    }
+
+    RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
+
     return Status::OK();
 }
 

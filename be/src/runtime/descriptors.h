@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/port.h>
@@ -89,6 +90,11 @@ public:
     const std::string& col_default_value() const { return _col_default_value; }
     PrimitiveType col_type() const;
 
+    std::shared_ptr<doris::TExpr> get_virtual_column_expr() const {
+        // virtual_column_expr need do prepare.
+        return virtual_column_expr;
+    }
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
@@ -124,6 +130,8 @@ private:
 
     const bool _is_auto_increment;
     const std::string _col_default_value;
+
+    std::shared_ptr<doris::TExpr> virtual_column_expr = nullptr;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);

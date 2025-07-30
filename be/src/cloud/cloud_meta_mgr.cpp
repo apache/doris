@@ -362,6 +362,8 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, GetSchemaDictRequest>) {
         return fmt::format(" index_id={}", req.index_id());
+    } else if constexpr (is_any_v<Request, RestoreJobRequest>) {
+        return fmt::format(" tablet_id={}", req.tablet_id());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -575,7 +577,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 std::uniform_int_distribution<uint32_t> u(20, 200);
                 std::uniform_int_distribution<uint32_t> u1(500, 1000);
                 uint32_t duration_ms = tried >= 100 ? u(rng) : u1(rng);
-                std::this_thread::sleep_for(milliseconds(duration_ms));
+                bthread_usleep(duration_ms * 1000);
                 LOG_INFO("failed to get rowset meta")
                         .tag("reason", cntl.ErrorText())
                         .tag("tablet_id", tablet_id)
@@ -1050,11 +1052,18 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     // Replace schema dictionary keys based on the rowset's index ID to maintain schema consistency.
     CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
     // if not enable dict cache, then directly return true to avoid refresh
-    bool replaced =
+    Status replaced_st =
             config::variant_use_cloud_schema_dict_cache
                     ? engine.get_schema_cloud_dictionary_cache().replace_schema_to_dict_keys(
                               rs_meta_pb.index_id(), req.mutable_rowset_meta())
-                    : true;
+                    : Status::OK();
+    // if the replaced_st is not ok and alse not NotFound, then we need to just return the replaced_st
+    VLOG_DEBUG << "replace schema to dict keys, replaced_st: " << replaced_st.to_string()
+               << ", replaced_st.is<ErrorCode::NOT_FOUND>(): "
+               << replaced_st.is<ErrorCode::NOT_FOUND>();
+    if (!replaced_st.ok() && !replaced_st.is<ErrorCode::NOT_FOUND>()) {
+        return replaced_st;
+    }
     Status st = retry_rpc("commit rowset", req, &resp, &MetaService_Stub::commit_rowset);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
@@ -1068,7 +1077,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     // If dictionary replacement fails, it may indicate that the local schema dictionary is outdated.
     // Refreshing the dictionary here ensures that the rowset metadata is updated with the latest schema definitions,
     // which is critical for maintaining consistency between the rowset and its corresponding schema.
-    if (!replaced) {
+    if (replaced_st.is<ErrorCode::NOT_FOUND>()) {
         RETURN_IF_ERROR(
                 engine.get_schema_cloud_dictionary_cache().refresh_dict(rs_meta_pb.index_id()));
     }
@@ -1214,6 +1223,38 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
+}
+
+Status CloudMetaMgr::prepare_restore_job(const TabletMetaPB& tablet_meta) {
+    VLOG_DEBUG << "prepare restore job, tablet_id: " << tablet_meta.tablet_id();
+    RestoreJobRequest req;
+    RestoreJobResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet_meta.tablet_id());
+    req.set_expiration(config::snapshot_expire_time_sec);
+
+    doris_tablet_meta_to_cloud(req.mutable_tablet_meta(), std::move(tablet_meta));
+    return retry_rpc("prepare restore job", req, &resp, &MetaService_Stub::prepare_restore_job);
+}
+
+Status CloudMetaMgr::commit_restore_job(const int64_t tablet_id) {
+    VLOG_DEBUG << "commit restore job, tablet_id: " << tablet_id;
+    RestoreJobRequest req;
+    RestoreJobResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet_id);
+
+    return retry_rpc("commit restore job", req, &resp, &MetaService_Stub::commit_restore_job);
+}
+
+Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id) {
+    VLOG_DEBUG << "finish restore job, tablet_id: " << tablet_id;
+    RestoreJobRequest req;
+    RestoreJobResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet_id);
+
+    return retry_rpc("finish restore job", req, &resp, &MetaService_Stub::finish_restore_job);
 }
 
 Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode) {

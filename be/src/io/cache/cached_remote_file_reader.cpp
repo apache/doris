@@ -134,7 +134,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             // update stats increment in this reading procedure for file cache metrics
             FileCacheStatistics fcache_stats_increment;
             _update_stats(stats, &fcache_stats_increment, io_ctx->is_inverted_index);
-            io::FileCacheProfile::instance().update(&fcache_stats_increment);
+            io::FileCacheMetrics::instance().update(&fcache_stats_increment);
         }
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));

@@ -193,7 +193,6 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    bool get_bool(size_t n) const override { return bool(data[n]); }
     Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
 
     void clear() override { data.clear(); }
@@ -236,10 +235,8 @@ public:
 
     UInt32 get_scale() const { return scale; }
 
-    //TODO: use CppNativeType instead of value_type
-    value_type get_scale_multiplier() const;
-    CppNativeType get_intergral_part(size_t n) const { return data[n] / get_scale_multiplier(); }
-    CppNativeType get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
+    CppNativeType get_intergral_part(size_t n) const;
+    CppNativeType get_fractional_part(size_t n) const;
 
     void erase(size_t start, size_t length) override {
         if (start >= data.size() || length == 0) {

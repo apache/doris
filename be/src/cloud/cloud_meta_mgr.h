@@ -38,6 +38,7 @@ class StreamLoadContext;
 class CloudTablet;
 class TabletMeta;
 class TabletSchema;
+class TabletMetaPB;
 class RowsetMeta;
 
 namespace cloud {
@@ -91,6 +92,21 @@ public:
     Status abort_txn(const StreamLoadContext& ctx);
 
     Status precommit_txn(const StreamLoadContext& ctx);
+
+    /**
+     * Prepares a restore job for a tablet to meta-service
+     */
+    Status prepare_restore_job(const TabletMetaPB& tablet_meta);
+
+    /**
+     * Commits a restore job for a tablet to meta-service
+     */
+    Status commit_restore_job(const int64_t tablet_id);
+
+    /**
+     * Remove a restore job for a tablet from meta-service
+     */
+    Status finish_restore_job(const int64_t tablet_id);
 
     /**
      * Gets storage vault (storage backends) from meta-service

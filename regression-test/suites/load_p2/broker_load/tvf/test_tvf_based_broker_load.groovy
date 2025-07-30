@@ -266,6 +266,7 @@ suite("test_tvf_based_broker_load", "p2") {
                 def max_try_milli_secs = 60000
                 while (max_try_milli_secs > 0) {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+                    logger.info("Load result: $result")
                     if (result[0][2].equals("FINISHED")) {
                         
                         assertTrue(result[0][6].contains(task_info[0]))
