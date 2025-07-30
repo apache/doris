@@ -214,28 +214,30 @@ static int32_t get_single_replica_compaction_threads_num(size_t data_dirs_num) {
 }
 
 Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "unused_rowset_monitor_thread",
-            [this]() { this->_unused_rowset_monitor_thread_callback(); },
-            &_unused_rowset_monitor_thread));
+    _unused_rowset_monitor_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-unused_rowset_monitor_thread");
+        this->_unused_rowset_monitor_thread_callback();
+    });
     LOG(INFO) << "unused rowset monitor thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "evict_querying_rowset_thread",
-            [this]() { this->_evict_quring_rowset_thread_callback(); },
-            &_evict_quering_rowset_thread));
+    _evict_querying_rowset_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-evict_querying_rowset_thread");
+        this->_evict_quring_rowset_thread_callback();
+    });
     LOG(INFO) << "evict quering thread started";
 
     // start thread for monitoring the snapshot and trash folder
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "garbage_sweeper_thread",
-            [this]() { this->_garbage_sweeper_thread_callback(); }, &_garbage_sweeper_thread));
+    _garbage_sweeper_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-garbage_sweeper_thread");
+        this->_garbage_sweeper_thread_callback();
+    });
     LOG(INFO) << "garbage sweeper thread started";
 
     // start thread for monitoring the tablet with io error
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "disk_stat_monitor_thread",
-            [this]() { this->_disk_stat_monitor_thread_callback(); }, &_disk_stat_monitor_thread));
+    _disk_stat_monitor_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-disk_stat_monitor_thread");
+        this->_disk_stat_monitor_thread_callback();
+    });
     LOG(INFO) << "disk stat monitor thread started";
 
     // convert store map to vector
@@ -271,15 +273,16 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
                             .build(&_cold_data_compaction_thread_pool));
 
     // compaction tasks producer thread
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "compaction_tasks_producer_thread",
-            [this]() { this->_compaction_tasks_producer_callback(); },
-            &_compaction_tasks_producer_thread));
+    _compaction_tasks_producer_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-compaction_tasks_producer_thread");
+        this->_compaction_tasks_producer_callback();
+    });
     LOG(INFO) << "compaction tasks producer thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "_update_replica_infos_thread",
-            [this]() { this->_update_replica_infos_callback(); }, &_update_replica_infos_thread));
+    _update_replica_infos_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-update_replica_infos_thread");
+        this->_update_replica_infos_callback();
+    });
     LOG(INFO) << "tablet replicas info update thread started";
 
     int32_t max_checkpoint_thread_num = config::max_meta_checkpoint_threads;
@@ -290,25 +293,26 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
                             .set_max_threads(max_checkpoint_thread_num)
                             .build(&_tablet_meta_checkpoint_thread_pool));
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
-            [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
-            &_tablet_checkpoint_tasks_producer_thread));
+    _tablet_checkpoint_tasks_producer_thread = std::make_unique<std::thread>([this, data_dirs]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-tablet_checkpoint_tasks_producer_thread");
+        this->_tablet_checkpoint_callback(data_dirs);
+    });
     LOG(INFO) << "tablet checkpoint tasks producer thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "tablet_path_check_thread",
-            [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
+    _tablet_path_check_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-tablet_path_check_thread");
+        this->_tablet_path_check_callback();
+    });
     LOG(INFO) << "tablet path check thread started";
 
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
-            scoped_refptr<Thread> path_gc_thread;
-            RETURN_IF_ERROR(Thread::create(
-                    "StorageEngine", "path_gc_thread",
-                    [this, data_dir]() { this->_path_gc_thread_callback(data_dir); },
-                    &path_gc_thread));
+            std::shared_ptr<std::thread> path_gc_thread =
+                    std::make_shared<std::thread>([this, data_dir]() {
+                        pthread_setname_np(pthread_self(), "StorageEngine-path_gc_thread");
+                        this->_path_gc_thread_callback(data_dir);
+                    });
             _path_gc_threads.emplace_back(path_gc_thread);
         }
         LOG(INFO) << "path gc threads started. number:" << get_stores().size();
@@ -320,22 +324,22 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
                             .build(&_cooldown_thread_pool));
     LOG(INFO) << "cooldown thread pool started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "cooldown_tasks_producer_thread",
-            [this]() { this->_cooldown_tasks_producer_callback(); },
-            &_cooldown_tasks_producer_thread));
+    _cooldown_tasks_producer_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-cooldown_tasks_producer_thread");
+        this->_cooldown_tasks_producer_callback();
+    });
     LOG(INFO) << "cooldown tasks producer thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "remove_unused_remote_files_thread",
-            [this]() { this->_remove_unused_remote_files_callback(); },
-            &_remove_unused_remote_files_thread));
+    _remove_unused_remote_files_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-remove_unused_remote_files_thread");
+        this->_remove_unused_remote_files_callback();
+    });
     LOG(INFO) << "remove unused remote files thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "cold_data_compaction_producer_thread",
-            [this]() { this->_cold_data_compaction_producer_callback(); },
-            &_cold_data_compaction_producer_thread));
+    _cold_data_compaction_producer_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-cold_data_compaction_producer_thread");
+        this->_cold_data_compaction_producer_callback();
+    });
     LOG(INFO) << "cold data compaction producer thread started";
 
     // add tablet publish version thread pool
@@ -344,15 +348,16 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
                             .set_max_threads(config::tablet_publish_txn_max_thread)
                             .build(&_tablet_publish_txn_thread_pool));
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "async_publish_version_thread",
-            [this]() { this->_async_publish_callback(); }, &_async_publish_thread));
+    _async_publish_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-async_publish_version_thread");
+        this->_async_publish_callback();
+    });
     LOG(INFO) << "async publish thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "check_tablet_delete_bitmap_score_thread",
-            [this]() { this->_check_tablet_delete_bitmap_score_callback(); },
-            &_check_delete_bitmap_score_thread));
+    _check_delete_bitmap_score_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-check_tablet_delete_bitmap_score_thread");
+        this->_check_tablet_delete_bitmap_score_callback();
+    });
     LOG(INFO) << "check tablet delete bitmap score thread started";
 
     LOG(INFO) << "all storage engine's background threads are started.";
@@ -1623,25 +1628,25 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(_cold_data_compaction_thread_pool->submit_func([&,
-                                                                              t = std::move(
-                                                                                      tablet)]() {
-                {
-                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                    _cold_compaction_tablet_submitted.insert(t->tablet_id());
-                }
-                auto st = t->cooldown();
-                {
-                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                    _cold_compaction_tablet_submitted.erase(t->tablet_id());
-                }
-                if (!st.ok()) {
-                    // The cooldown of the replica may be relatively slow
-                    // resulting in a short period of time where following cannot be successful
-                    LOG_EVERY_N(WARNING, 5)
-                            << "failed to cooldown. tablet_id=" << t->tablet_id() << " err=" << st;
-                }
-            }));
+            static_cast<void>(
+                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
+                        {
+                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                            _cold_compaction_tablet_submitted.insert(t->tablet_id());
+                        }
+                        auto st = t->cooldown();
+                        {
+                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                            _cold_compaction_tablet_submitted.erase(t->tablet_id());
+                        }
+                        if (!st.ok()) {
+                            // The cooldown of the replica may be relatively slow
+                            // resulting in a short period of time where following cannot be successful
+                            LOG_EVERY_N(WARNING, 5)
+                                    << "failed to cooldown. tablet_id=" << t->tablet_id()
+                                    << " err=" << st;
+                        }
+                    }));
         }
     }
 }

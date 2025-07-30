@@ -22,7 +22,6 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/result_block_buffer.h"
 #include "util/cpu_info.h"
-#include "util/thread.h"
 #include "vec/core/block.h"
 #include "vec/sink/varrow_flight_result_writer.h"
 #include "vec/sink/vmysql_result_writer.h"

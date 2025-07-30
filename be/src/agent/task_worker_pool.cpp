@@ -562,7 +562,7 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         : _callback(std::move(callback)) {
     std::string normal_name = "Normal-" + name;
     for (int i = 0; i < normal_worker_count; ++i) {
-        _workers.emplace_back() = std::make_shared<std::thread>([this, &normal_name] {
+        _workers.emplace_back() = std::make_shared<std::thread>([this, normal_name] {
             pthread_setname_np(pthread_self(), normal_name.c_str());
             normal_loop();
         });
@@ -570,7 +570,7 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
 
     std::string high_prior_name = "HighPrior-" + name;
     for (int i = 0; i < high_prior_worker_count; ++i) {
-        _workers.emplace_back() = std::make_shared<std::thread>([this, &high_prior_name] {
+        _workers.emplace_back() = std::make_shared<std::thread>([this, high_prior_name] {
             pthread_setname_np(pthread_self(), high_prior_name.c_str());
             high_prior_loop();
         });
