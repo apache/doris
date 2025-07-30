@@ -557,7 +557,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("1000000000"), STRING("1")}, STRING("1000000000")},                   // int32
             {{STRING("1152921504606846976"), STRING("1")}, STRING("1152921504606846976")}, // int64
             {{STRING("6.18"), STRING("1")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")"), STRING("1")}, STRING(R"(abcd)")},                     // string
+            {{STRING(R"("abcd")"), STRING("1")}, STRING(R"(abcd)")},                       // string
             {{STRING("{}"), STRING("1")}, STRING("{}")}, // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("1")},
              STRING(R"({"k1":"v31","k2":300})")},                       // object
