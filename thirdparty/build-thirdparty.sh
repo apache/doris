@@ -165,6 +165,12 @@ if [[ "${CC}" == *gcc ]]; then
     warning_array_parameter='-Wno-array-parameter'
     warning_narrowing='-Wno-narrowing'
     warning_dangling_reference='-Wno-dangling-reference'
+
+    gcc_major_version=$("${CC}" -dumpversion | cut -d. -f1)
+    if [[ "${gcc_major_version}" -ge 15 ]]; then
+        warning_deprecated_literal_operator='-Wno-deprecated-literal-operator'
+    fi
+
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -758,10 +764,10 @@ build_mysql() {
     fi
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags='-static -pthread -lrt'
+        cflags='-static -pthread -lrt -std=gnu89'
         cxxflags='-static -pthread -lrt'
     else
-        cflags='-pthread'
+        cflags='-pthread -std=gnu89'
         cxxflags='-pthread'
     fi
 
@@ -875,7 +881,7 @@ build_cyrus_sasl() {
     check_if_source_exist "${CYRUS_SASL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
 
-    CFLAGS="-fPIC -Wno-implicit-function-declaration" \
+    CFLAGS="-fPIC -std=gnu89 -Wno-implicit-function-declaration" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LIBS="-lcrypto" \
@@ -919,7 +925,7 @@ build_odbc() {
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
-    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
+    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -std=gnu89 -Wno-implicit-function-declaration" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -1052,13 +1058,13 @@ build_arrow() {
         -DBoost_USE_STATIC_RUNTIME=ON \
         -DARROW_GFLAGS_USE_SHARED=OFF \
         -Dgflags_ROOT="${TP_INSTALL_DIR}" \
-        -DGLOG_ROOT="${TP_INSTALL_DIR}" \
-        -DRE2_ROOT="${TP_INSTALL_DIR}" \
+        -Dglog_ROOT="${TP_INSTALL_DIR}" \
+        -Dre2_ROOT="${TP_INSTALL_DIR}" \
         -DZLIB_SOURCE=SYSTEM \
         -DZLIB_LIBRARY="${TP_INSTALL_DIR}/lib/libz.a" -DZLIB_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DRapidJSON_SOURCE=SYSTEM \
         -DRapidJSON_ROOT="${TP_INSTALL_DIR}" \
-        -DORC_ROOT="${TP_INSTALL_DIR}" \
+        -Dorc_ROOT="${TP_INSTALL_DIR}" \
         -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
         -DARROW_LZ4_USE_SHARED=OFF \
@@ -1069,7 +1075,7 @@ build_arrow() {
         -Dzstd_SOURCE=SYSTEM \
         -DSnappy_LIB="${TP_INSTALL_DIR}/lib/libsnappy.a" -DSnappy_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DSnappy_SOURCE=SYSTEM \
-        -DBOOST_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
+        -DBoost_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
         -DARROW_JEMALLOC=OFF -DARROW_MIMALLOC=OFF \
         -DJEMALLOC_HOME="${TP_INSTALL_DIR}" \
         -DARROW_THRIFT_USE_SHARED=OFF \
@@ -1352,7 +1358,7 @@ build_aws_sdk() {
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
         -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
-        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
+        -DCMAKE_CXX_FLAGS="-Wno-nonnull ${warning_deprecated_literal_operator} -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 
@@ -1471,7 +1477,7 @@ build_krb5() {
         with_crypto_impl='--with-crypto-impl=openssl'
     fi
 
-    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
+    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include -std=gnu89" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
         ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
         --without-keyutils ${with_crypto_impl:+${with_crypto_impl}}
 
@@ -1531,6 +1537,9 @@ build_jemalloc_doris() {
         WITH_LG_PAGE=''
     fi
 
+    # It is not easy to remove `with-jemalloc-prefix`, which may affect the compatibility between third-party and old version codes.
+    # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
+    # Maybe can use alias instead of overwrite.
     CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
         --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
 
@@ -1744,7 +1753,7 @@ build_jsoncpp() {
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DJSONCPP_WITH_TESTS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1814,7 +1823,7 @@ build_azure() {
         AZURE_PORTS="vcpkg-custom-ports"
         AZURE_MANIFEST_DIR="."
 
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
         "${BUILD_SYSTEM}" -j "${PARALLEL}"
         "${BUILD_SYSTEM}" install
     fi
@@ -1880,6 +1889,66 @@ build_pugixml() {
 
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugixml.hpp" "${TP_INSTALL_DIR}/include/"
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
+}
+
+build_openblas() {
+    check_if_source_exist "${OPENBLAS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${OPENBLAS_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    OPENBLAS_CMAKE_OPTIONS=(
+        "-DCMAKE_PREFIX_PATH=${TP_INSTALL_DIR}"
+        "-DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR}"
+        "-DCMAKE_BUILD_TYPE=Release"
+        "-DBUILD_WITHOUT_LAPACK=OFF"
+        "-DNO_SHARED=TRUE"
+        "-DNO_AVX512=TRUE"
+        "-DC_LAPACK=TRUE"
+        "-DUSE_OPENMP=TRUE"
+        "-DBUILD_STATIC_LIBS=ON"
+        "-DNOFORTRAN=TRUE"
+        "-DBUILD_TESTING=OFF"
+        "-DBUILD_RELAPACK=ON"
+        "-DBUILD_BENCHMARKS=OFF"
+    )
+
+    echo "Building openblas at $(pwd) with cmake parameters: ${OPENBLAS_CMAKE_OPTIONS[*]}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" "${OPENBLAS_CMAKE_OPTIONS[@]}" ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+build_faiss() {
+    check_if_source_exist "${FAISS_SOURCE}"
+    echo "Building faiss ${FAISS_SOURCE}"
+    cd "${TP_SOURCE_DIR}"
+    # if faiss dir not exists, create a symlink to faiss source dir
+    # this symlink is necessary since faiss source code must be compiled in a directory named faiss.
+    if [[ ! -d "${TP_SOURCE_DIR}/faiss" ]]; then
+        ln -s "${FAISS_SOURCE}" faiss
+    fi
+    cd "${TP_SOURCE_DIR}/faiss"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    FAISS_CMAKE_OPTIONS=(
+        "-DDORIS_THIRD_LIB_INSTALL_DIR=${TP_INSTALL_DIR}"
+        "-DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR}"
+        "-DCMAKE_BUILD_TYPE=Release"
+        "-DFAISS_ENABLE_GPU=OFF"
+        "-DFAISS_ENABLE_PYTHON=OFF"
+    )
+
+    echo "Building faiss at $(pwd) with cmake parameters: ${FAISS_CMAKE_OPTIONS[*]}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" "${FAISS_CMAKE_OPTIONS[@]}" ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
