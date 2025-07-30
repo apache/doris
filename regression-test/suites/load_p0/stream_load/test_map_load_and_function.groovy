@@ -224,10 +224,10 @@ suite("test_map_load_and_function", "p0") {
     qt_select_map_contains_entry_dup17 "SELECT map_contains_entry(map('a', 1, 'b', 2, 'a', 3, 'c', 4, 'a', 5), 'a', 2)"
 
     // map_contains_entry: tests with time/date type
-    qt_select_map_contains_entry_date1 "SELECT map_contains_entry(map('2023-01-01', date('2023-01-01'), '2023-12-31', date('2023-12-31')), '2023-01-01', date('2023-01-01'))"
-    qt_select_map_contains_entry_date2 "SELECT map_contains_entry(map('2023-01-01', date('2023-01-01'), '2023-12-31', date('2023-12-31')), '2023-01-01', date('2023-01-02'))"
-    qt_select_map_contains_entry_date3 "SELECT map_contains_entry(map(date('2023-01-01'), 'start', date('2023-12-31'), 'end'), date('2023-01-01'), 'start')"
-    qt_select_map_contains_entry_date4 "SELECT map_contains_entry(map(date('2023-01-01'), 'start', date('2023-12-31'), 'end'), date('2023-01-01'), 'end')"
+    qt_select_map_contains_entry_date1 "SELECT map_contains_entry(map('2023-01-01', CAST('2023-01-01' AS DATE), '2023-12-31', CAST('2023-12-31' AS DATE)), '2023-01-01', CAST('2023-01-01' AS DATE))"
+    qt_select_map_contains_entry_date2 "SELECT map_contains_entry(map('2023-01-01', CAST('2023-01-01' AS DATE), '2023-12-31', CAST('2023-12-31' AS DATE)), '2023-01-01', CAST('2023-01-02' AS DATE))"
+    qt_select_map_contains_entry_date3 "SELECT map_contains_entry(map(CAST('2023-01-01' AS DATE), 'start', CAST('2023-12-31' AS DATE), 'end'), CAST('2023-01-01' AS DATE), 'start')"
+    qt_select_map_contains_entry_date4 "SELECT map_contains_entry(map(CAST('2023-01-01' AS DATE), 'start', CAST('2023-12-31' AS DATE), 'end'), CAST('2023-01-01' AS DATE), 'end')"
     qt_select_map_contains_entry_datetime1 "SELECT map_contains_entry(map('dt1', CAST('2023-01-01 10:30:00' AS DATETIME), 'dt2', CAST('2023-12-31 23:59:59' AS DATETIME)), 'dt1', CAST('2023-01-01 10:30:00' AS DATETIME))"
     qt_select_map_contains_entry_datetime2 "SELECT map_contains_entry(map('dt1', CAST('2023-01-01 10:30:00' AS DATETIME), 'dt2', CAST('2023-12-31 23:59:59' AS DATETIME)), 'dt1', CAST('2023-01-01 10:30:01' AS DATETIME))"
     qt_select_map_contains_entry_datetime3 "SELECT map_contains_entry(map(CAST('2023-01-01 10:30:00' AS DATETIME), 'morning', CAST('2023-12-31 23:59:59' AS DATETIME), 'night'), CAST('2023-01-01 10:30:00' AS DATETIME), 'morning')"
@@ -240,6 +240,38 @@ suite("test_map_load_and_function", "p0") {
     qt_select_map_contains_entry_datetimev2_2 "SELECT map_contains_entry(map('event1', CAST('2023-01-01 10:30:00.123' AS DATETIMEV2(3)), 'event2', CAST('2023-12-31 23:59:59.999' AS DATETIMEV2(3))), 'event1', CAST('2023-01-01 10:30:00.124' AS DATETIMEV2(3)))"
     qt_select_map_contains_entry_datetimev2_3 "SELECT map_contains_entry(map(CAST('2023-01-01 10:30:00.123' AS DATETIMEV2(3)), 'A', CAST('2023-12-31 23:59:59.999' AS DATETIMEV2(3)), 'B'), CAST('2023-01-01 10:30:00.123' AS DATETIMEV2(3)), 'A')"
     qt_select_map_contains_entry_datetimev2_4 "SELECT map_contains_entry(map(CAST('2023-01-01 10:30:00.123' AS DATETIMEV2(3)), 'A', CAST('2023-12-31 23:59:59.999' AS DATETIMEV2(3)), 'B'), CAST('2023-01-01 10:30:00.123' AS DATETIMEV2(3)), 'B')"
+
+    // map_contains_entry: test all type combination (N^2 auto-generated)
+    def allTypes = [
+        [type: "STRING", testKey: "'str1'", testValue: "'str2'"],
+        [type: "BOOLEAN", testKey: "true", testValue: "false"],
+        [type: "TINYINT", testKey: "CAST(1 AS TINYINT)", testValue: "CAST(2 AS TINYINT)"],
+        [type: "SMALLINT", testKey: "CAST(100 AS SMALLINT)", testValue: "CAST(200 AS SMALLINT)"],
+        [type: "INT", testKey: "CAST(1000 AS INT)", testValue: "CAST(2000 AS INT)"],
+        [type: "BIGINT", testKey: "CAST(10000 AS BIGINT)", testValue: "CAST(20000 AS BIGINT)"],
+        [type: "LARGEINT", testKey: "CAST(100000 AS LARGEINT)", testValue: "CAST(200000 AS LARGEINT)"],
+        [type: "FLOAT", testKey: "CAST(1.1 AS FLOAT)", testValue: "CAST(2.2 AS FLOAT)"],
+        [type: "DOUBLE", testKey: "CAST(10.1 AS DOUBLE)", testValue: "CAST(20.2 AS DOUBLE)"],
+        [type: "DATE", testKey: "CAST('2023-01-01' AS DATE)", testValue: "CAST('2023-12-31' AS DATE)"],
+        [type: "DATETIME", testKey: "CAST('2023-01-01 10:30:00' AS DATETIME)", testValue: "CAST('2023-12-31 23:59:59' AS DATETIME)"],
+        [type: "DATEV2", testKey: "datev2('2023-01-01')", testValue: "datev2('2023-12-31')"],
+        [type: "DATETIMEV2(3)", testKey: "CAST('2023-01-01 10:30:00.123' AS DATETIMEV2(3))", testValue: "CAST('2023-12-31 23:59:59.999' AS DATETIMEV2(3))"]
+    ]
+
+    def testCounter = 1
+    for (int i = 0; i < allTypes.size(); i++) {
+        for (int j = 0; j < allTypes.size(); j++) {
+            def keyType = allTypes[i]
+            def valueType = allTypes[j]
+            def testName = "qt_select_map_contains_entry_type_combo_${testCounter}"
+            def mapExpr = "map(${keyType.testKey}, ${valueType.testValue})"
+            def sqlQuery = "SELECT map_contains_entry(${mapExpr}, ${keyType.testKey}, ${valueType.testValue})"
+            
+            def sqlResult = sql sqlQuery
+            assertTrue(sqlResult[0][0], "MapContainsEntry: Combination ${testCounter} failed, KeyType: ${keyType.type}, ValueType: ${valueType.type}")
+            testCounter++
+        }
+    }
 
     // map_entries: basic tests
     qt_select_map_entries1 "SELECT map_entries(map('k11', 1000, 'k22', 2000))"
