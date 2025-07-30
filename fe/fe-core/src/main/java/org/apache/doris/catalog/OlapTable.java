@@ -525,6 +525,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 .map(Column::new)
                 .collect(Collectors.toList());
 
+        distributionInfo.setDistributionColumns(newDistributionColumns);
+
         getPartitions()
                 .stream()
                 .map(Partition::getDistributionInfo)
