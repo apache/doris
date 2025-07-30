@@ -582,7 +582,7 @@ suite("test_cast_from_json") {
 
     test {
         sql """
-        SELECT CAST(cast('{"key1" : [123.45,678.90] , "key2" : [12312313]}' as json) as STRUCT<key1:ARRAY<INT>, key2:ARRAY<BIGINT>>);
+        SELECT CAST(cast('{"key1" : [123.45,678.90] , "key2" : [12312313]}' as json) as STRUCT<key1:ARRAY<INT>>);
         """
         exception "INVALID_ARGUMENT"
     }
