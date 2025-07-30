@@ -345,6 +345,8 @@ Status ColumnReader::new_index_iterator(std::shared_ptr<IndexFileReader> index_f
                                         const TabletIndex* index_meta,
                                         const StorageReadOptions& read_options,
                                         std::unique_ptr<IndexIterator>* iterator) {
+    // NOTE: This method did NOT load index.
+    // It just create index reader if necessary.
     RETURN_IF_ERROR(_ensure_index_loaded(std::move(index_file_reader), index_meta));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
@@ -651,6 +653,7 @@ Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_rea
 
     if (index_meta->index_type() == IndexType::ANN) {
         _index_reader = std::make_shared<AnnIndexReader>(index_meta, index_file_reader);
+        LOG_INFO("Create ANN index reader, index_id: {}", index_meta->index_id());
     } else {
         if (is_string_type(type)) {
             if (should_analyzer) {
