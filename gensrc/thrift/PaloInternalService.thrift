@@ -731,7 +731,7 @@ struct TLLMResource {
   5: optional double temperature
   6: optional i64 max_tokens
   7: optional i64 max_retries
-  8: optional i64 retry_delay_ms
+  8: optional i64 retry_delay_second
   9: optional i64 timeout_ms
   10: optional string anthropic_version
 }

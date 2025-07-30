@@ -193,7 +193,7 @@ private:
                                const TLLMResource& config,
                                std::shared_ptr<LLMAdapter>& adapter) const {
         return HttpClient::execute_with_retry(
-                config.max_retries, config.retry_delay_ms,
+                config.max_retries, config.retry_delay_second,
                 [this, &request_body, &response, &config, &adapter](HttpClient* client) -> Status {
                     return this->do_send_request(client, request_body, response, config, adapter);
                 });

@@ -37,7 +37,7 @@ suite("test_llm_functions") {
                 'llm.temperature' = '0.7',
                 'llm.max_token' = '1024',
                 'llm.max_retries' = '3',
-                'llm.retry_delay_ms' = '1000',
+                'llm.retry_delay_second' = '1',
                 'llm.timeout_ms' = '30000',
                 'llm.validity_check' = 'false'
             );"""

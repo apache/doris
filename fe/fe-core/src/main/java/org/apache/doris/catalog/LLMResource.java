@@ -55,7 +55,7 @@ import java.util.Map;
  * 'llm.temperature' = '0.7',
  * 'llm.max_token' = '1024',
  * 'llm.max_retries' = '3',
- * 'llm.retry_delay_ms' = '1000',
+ * 'llm.retry_delay_second' = '1',
  * 'llm.timeout_ms' = '30000',
  * );
  * <p>
@@ -273,10 +273,10 @@ public class LLMResource extends Resource {
                                             + properties.get(LLMProperties.MAX_RETRIES));
         }
         try {
-            tLLMResource.setRetryDelayMs(Long.parseLong(properties.get(LLMProperties.RETRY_DELAY_MS)));
+            tLLMResource.setRetryDelaySecond(Long.parseLong(properties.get(LLMProperties.RETRY_DELAY_SECOND)));
         } catch (NumberFormatException e) {
-            throw new NumberFormatException("Failed to parse retry_delay_ms: "
-                                            + properties.get(LLMProperties.RETRY_DELAY_MS));
+            throw new NumberFormatException("Failed to parse retry_delay_second: "
+                                            + properties.get(LLMProperties.RETRY_DELAY_SECOND));
         }
         try {
             tLLMResource.setTimeoutMs(Long.parseLong(properties.get(LLMProperties.TIMEOUT_MS)));
