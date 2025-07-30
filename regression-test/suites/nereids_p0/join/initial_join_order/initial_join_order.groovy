@@ -24,12 +24,12 @@ suite("initial_join_order") {
         v varchar(50) NOT NULL COMMENT ""
         ) ENGINE=OLAP
         DUPLICATE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 2
+        DISTRIBUTED BY HASH(k) BUCKETS 29
         PROPERTIES ("replication_num" = "1");
 
         insert into t1 values (1, 'a');
 
-        alter table t1 modify column k set stats ('row_count'='1', 'ndv'='1', 'num_nulls'='0', 'min_value'='0');
+        alter table t1 modify column k set stats ('row_count'='1000', 'ndv'='1', 'num_nulls'='0', 'min_value'='0');
 
         drop table if exists t2;
         
@@ -38,11 +38,11 @@ suite("initial_join_order") {
         v varchar(50) NOT NULL COMMENT ""
         ) ENGINE=OLAP
         DUPLICATE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 2
+        DISTRIBUTED BY HASH(k) BUCKETS 57
         PROPERTIES ("replication_num" = "1");
 
         insert into t2 values (1, 'a');
-        alter table t2 modify column k set stats ('row_count'='100', 'ndv'='10', 'num_nulls'='0', 'min_value'='0');
+        alter table t2 modify column k set stats ('row_count'='1000000', 'ndv'='10', 'num_nulls'='0', 'min_value'='0');
 
         set runtime_filter_mode=off;
         set memo_max_group_expression_size=1;
@@ -54,30 +54,64 @@ suite("initial_join_order") {
         select * from t1 join t2 on t1.k = t2.k
     """
 
-    qt_outer """
-        explain shape plan
+    explain {
+        sql """
+        shape plan
         select * from t1 left join t2 on t1.k = t2.k
         """
+        contains "RIGHT_OUTER_JOIN"
+    }
 
-    // do not swap
-    qt_left_semi """
-        explain shape plan
-        select * from t1 left semi join t2 on t1.k = t2.k
-        """
+    // do not swap left semi
+    explain {
+        sql """
+            shape plan
+            select * from t1 left semi join t2 on t1.k = t2.k
+            """
+        contains "LEFT_SEMI_JOIN"
+    }
 
-    // do not swap
-    qt_left_anti """
-        explain shape plan
-        select * from t1 left anti join t2 on t1.k = t2.k
-        """
 
-    qt_right_semi """
-        explain shape plan
+    // do not swap left anti
+    explain {
+        sql """
+            shape plan
+            select * from t1 left anti join t2 on t1.k = t2.k
+            """
+        contains "LEFT_ANTI_JOIN"
+    }
+
+    explain {
+        sql """
+            shape plan
+            select * from t1 right semi join t2 on t1.k = t2.k
+            """
+        contains "LEFT_SEMI_JOIN"
+    }
+
+
+    explain {
+        sql """
+            shape plan
+            select * from t1 right anti join t2 on t1.k = t2.k
+            """
+        contains "LEFT_ANTI_JOIN"
+    }
+
+    explain {
+        sql """
+        shape plan
         select * from t1 right semi join t2 on t1.k = t2.k
         """
-
-    qt_right_anti """
-        explain shape plan
+        contains "LEFT_SEMI_JOIN"
+    }
+    
+    explain {
+        sql """
+        shape plan
         select * from t1 right anti join t2 on t1.k = t2.k
         """
+        contains "LEFT_ANTI_JOIN"
+    }
+    
 }
