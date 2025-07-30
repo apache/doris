@@ -158,6 +158,9 @@ public:
     // returns 0 for success otherwise error
     int recycle_rowsets();
 
+    // like `recycle_rowsets`, but for versioned rowsets.
+    int recycle_versioned_rowsets();
+
     // scan and recycle expired tmp rowsets:
     // 1. commit_rowset will produce tmp_rowset when finish upload data (load or compaction) to remote storage
     // returns 0 for success otherwise error
@@ -178,6 +181,11 @@ public:
      * @return 0 for success otherwise error
      */
     int recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
+
+    /**
+     * like `recycle_tablet`, but for versioned tablet
+     */
+    int recycle_versioned_tablet(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
 
     // scan and recycle useless partition version kv
     int recycle_versions();
@@ -288,6 +296,12 @@ private:
     // The log_key is constructed from the log_version and instance_id.
     // Both `operation_log` and `log_key` will be removed in the same transaction, to ensure atomicity.
     int recycle_operation_log(Versionstamp log_version, OperationLogPB operation_log);
+
+    // Recycle rowset meta and data, return 0 for success otherwise error
+    //
+    // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
+    int recycle_rowset_meta_and_data(std::string_view rowset_meta_key,
+                                     const RowsetMetaCloudPB& rowset_meta);
 
 private:
     std::atomic_bool stopped_ {false};
