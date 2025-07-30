@@ -490,7 +490,6 @@ private:
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_read_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_hit_size_metrics;
-    std::shared_ptr<bvar::Adder<size_t>> _total_small_hit_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_bytes_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_count_metrics;
@@ -506,7 +505,6 @@ private:
 
     std::shared_ptr<bvar::Adder<size_t>> _num_read_blocks;
     std::shared_ptr<bvar::Adder<size_t>> _num_hit_blocks;
-    std::shared_ptr<bvar::Adder<size_t>> _num_small_hit_blocks;
     std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
 
     std::shared_ptr<bvar::Status<double>> _hit_ratio;
