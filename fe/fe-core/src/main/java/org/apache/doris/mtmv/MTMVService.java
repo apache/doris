@@ -87,8 +87,13 @@ public class MTMVService implements EventListener {
     public void unregisterMTMV(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
         LOG.info("deregisterMTMV: " + mtmv.getName());
-        for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.unregisterMTMV(mtmv);
+        mtmv.writeMvLock();
+        try {
+            for (MTMVHookService mtmvHookService : hooks.values()) {
+                mtmvHookService.unregisterMTMV(mtmv);
+            }
+        } finally {
+            mtmv.writeMvUnlock();
         }
     }
 
@@ -147,8 +152,13 @@ public class MTMVService implements EventListener {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
         Objects.requireNonNull(task, "task can not be null");
         LOG.info("refreshComplete: " + mtmv.getName());
-        for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.refreshComplete(mtmv, cache, task);
+        mtmv.writeMvLock();
+        try {
+            for (MTMVHookService mtmvHookService : hooks.values()) {
+                mtmvHookService.refreshComplete(mtmv, cache, task);
+            }
+        } finally {
+            mtmv.writeMvUnlock();
         }
     }
 
