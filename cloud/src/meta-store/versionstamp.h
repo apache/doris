@@ -24,6 +24,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace doris::cloud {
@@ -82,6 +83,32 @@ public:
 
     consteval static Versionstamp max() {
         return {{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}};
+    }
+
+    constexpr static Versionstamp next(Versionstamp v) {
+        if (v == max()) {
+            return v; // If it's already the maximum, return it as is
+        }
+
+        uint16_t new_order = v.order() + 1;
+        if (new_order == 0) {
+            // If the order wraps around, increment the version
+            return Versionstamp(v.version() + 1, new_order);
+        }
+        return Versionstamp(v.version(), new_order);
+    }
+
+    constexpr static Versionstamp prev(Versionstamp v) {
+        if (v == min()) {
+            return v; // If it's already the minimum, return it as is
+        }
+
+        uint16_t new_order = v.order() - 1;
+        if (new_order == std::numeric_limits<uint16_t>::max()) {
+            // If the order wraps around, decrement the version
+            return Versionstamp(v.version() - 1, new_order);
+        }
+        return Versionstamp(v.version(), new_order);
     }
 
     constexpr std::strong_ordering operator<=>(const Versionstamp& other) const {
