@@ -87,6 +87,47 @@ suite('test_complextype_to_json', "query_p0") {
     """
 
     // array_agg result cast to json then combination to json_object
-    //qt_sql_arr_agg_cast """ select t.id, cast(t.label_name as json), cast(t.value_field as json) from (select id, array_agg(label_name) as label_name, array_agg(value_field) as value_field from test_agg_to_json group by id) t order by t.id; """
-    //qt_sql_arr_agg_cast_json_object """ select json_object("id", t.id, "label", cast(t.label_name as json), "field", cast(t.value_field as json)) from (select id, array_agg(label_name) as label_name, array_agg(value_field) as value_field from test_agg_to_json group by id) t order by t.id; """
+    qt_sql_arr_agg_cast """ select t.id, cast(t.label_name as json), cast(t.value_field as json) from (select id, array_agg(label_name) as label_name, array_agg(value_field) as value_field from test_agg_to_json group by id) t order by t.id; """
+    qt_sql_arr_agg_cast_json_object """ select json_object("id", t.id, "label", cast(t.label_name as json), "field", cast(t.value_field as json)) from (select id, array_agg(label_name) as label_name, array_agg(value_field) as value_field from test_agg_to_json group by id) t order by t.id; """
+
+
+    sql """
+        set enable_strict_cast = true;
+    """
+
+    // cast from string to json
+
+
+    qt_sql_cast_string_to_json """ select cast('{"k1":1, "k2":"2"}' as json) """
+    qt_sql_cast_string_to_json """ select cast('232323' as json) """
+
+
+
+    test {
+        sql """  SELECT CAST('{"invalid JSON' AS JSON); """
+        exception "INVALID_ARGUMENT"
+    }
+
+
+    sql """
+      CREATE TABLE IF NOT EXISTS test_json_from_string (
+          id INT not null,
+          j string  null
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+    """
+
+    sql """
+
+        INSERT INTO test_json_from_string VALUES
+        (1, '{"k1":1, "k2":"2"}'),
+        (2, '232323'),
+        (3, null),
+        (4, null),
+        (5, '{"k1":1, "k2":"2", "k3": {"k4": 4}, "k5": [1, 2, 3]}');
+    """
+    
+    qt_sql_json_from_string """ SELECT id, CAST(j AS JSON) FROM test_json_from_string ORDER BY id; """
 }

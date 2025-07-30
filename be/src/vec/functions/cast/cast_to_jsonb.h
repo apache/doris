@@ -16,6 +16,7 @@
 // under the License.
 
 #include "cast_base.h"
+#include "runtime/jsonb_value.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "vec/common/assert_cast.h"
@@ -159,13 +160,75 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
     };
 }
 
+struct ParseJsonbFromString {
+    static Status parse_json(const StringRef& str, ColumnString& column_string) {
+        JsonBinaryValue value;
+        auto st = (value.from_json_string(str.data, str.size));
+        if (!st.ok()) {
+            return Status::InvalidArgument("Failed to parse json string: {}, error: {}",
+                                           str.to_string(), st.msg());
+        }
+        column_string.insert_data(value.value(), value.size());
+        return Status::OK();
+    }
+
+    static Status execute_non_strict(const ColumnString& col_from, size_t size,
+                                     ColumnPtr& column_result) {
+        auto col_to = ColumnString::create();
+        auto col_null = ColumnUInt8::create(size, 0);
+        auto& vec_null_map_to = col_null->get_data();
+        for (size_t i = 0; i < size; ++i) {
+            Status st = parse_json(col_from.get_data_at(i), *col_to);
+            vec_null_map_to[i] = !st.ok();
+            if (!st.ok()) {
+                col_to->insert_default();
+            }
+        }
+        column_result = ColumnNullable::create(std::move(col_to), std::move(col_null));
+        return Status::OK();
+    }
+
+    static Status execute_strict(const ColumnString& col_from, const NullMap::value_type* null_map,
+                                 size_t size, ColumnPtr& column_result) {
+        auto col_to = ColumnString::create();
+        for (size_t i = 0; i < size; ++i) {
+            if (null_map && null_map[i]) {
+                col_to->insert_default();
+                continue;
+            }
+            RETURN_IF_ERROR(parse_json(col_from.get_data_at(i), *col_to));
+        }
+        column_result = std::move(col_to);
+        return Status::OK();
+    }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map) {
+        const auto& col_from =
+                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+        const auto size = col_from.size();
+
+        ColumnPtr column_result;
+        if (context->enable_strict_mode()) {
+            RETURN_IF_ERROR(execute_strict(col_from, null_map, size, column_result));
+
+        } else {
+            RETURN_IF_ERROR(execute_non_strict(col_from, size, column_result));
+        }
+        block.get_by_position(result).column = std::move(column_result);
+
+        return Status::OK();
+    }
+};
+
 // create cresponding jsonb value with type to_type
 // use jsonb writer to create jsonb value
 WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
                                          bool string_as_jsonb_string) {
     // parse string as jsonb
     if (is_string_type(from_type->get_primitive_type()) && !string_as_jsonb_string) {
-        return cast_from_string_to_generic;
+        return ParseJsonbFromString::execute;
     }
 
     return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
