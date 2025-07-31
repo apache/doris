@@ -34,6 +34,7 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "util/runtime_profile.h"
 
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
@@ -138,7 +139,10 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 }
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
-        const std::string& search_str, const std::map<std::string, std::string>& properties) {
+        OlapReaderStatistics* stats, const std::string& search_str,
+        const std::map<std::string, std::string>& properties) {
+    SCOPED_RAW_TIMER(&stats->inverted_index_analyzer_timer);
+
     InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
             get_custom_analyzer_string_from_properties(properties),
             get_inverted_index_parser_type_from_string(

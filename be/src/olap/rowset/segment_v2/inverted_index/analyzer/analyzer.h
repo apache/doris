@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 
@@ -46,7 +47,8 @@ public:
                                                     lucene::analysis::Analyzer* analyzer);
 
     static std::vector<TermInfo> get_analyse_result(
-            const std::string& search_str, const std::map<std::string, std::string>& properties);
+            OlapReaderStatistics* stats, const std::string& search_str,
+            const std::map<std::string, std::string>& properties);
 
     static bool should_analyzer(const std::map<std::string, std::string>& properties);
 };
