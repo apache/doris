@@ -100,13 +100,4 @@ public class Lcm extends ScalarFunction
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitLcm(this, context);
     }
-
-    // @Override
-    // public FunctionSignature getSignature() {
-    //     if (processedSignature == null) {
-    //         // pass the completed search and get of boundFunction
-    //         processedSignature = super.getSignature();
-    //     }
-    //     return processedSignature;
-    // }
 }
