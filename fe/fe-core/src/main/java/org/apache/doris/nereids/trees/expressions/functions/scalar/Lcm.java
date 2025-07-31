@@ -58,6 +58,7 @@ public class Lcm extends ScalarFunction
         super("lcm", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
     private Lcm(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
