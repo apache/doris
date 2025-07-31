@@ -400,9 +400,18 @@ int main(int argc, char** argv) {
     google::ParseCommandLineFlags(&argc, &argv, true);
     // ATTN: MUST init before LOG
     doris::init_glog("be");
-
+    bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
     StdoutLogSink sink;
-    google::AddLogSink(&sink);
+    if (log_to_console) {
+        if (config::enable_file_logger) {
+            // will output log to be.info and output log to stdout
+            google::AddLogSink(&sink);
+        } else {
+            // enable_file_logger is false, will only output log to stdout
+            // Not output to stderr because be.out will output log to stderr
+            FLAGS_logtostdout = true;
+        }
+    }
 
     LOG(INFO) << doris::get_version_string(false);
 

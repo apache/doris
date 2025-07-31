@@ -97,15 +97,6 @@ bool init_glog(const char* basename) {
         return true;
     }
 
-    bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
-    if (log_to_console) {
-        if (config::enable_file_logger) {
-            FLAGS_alsologtostderr = true;
-        } else {
-            FLAGS_logtostderr = true;
-        }
-    }
-
     // don't log to stderr except fatal level
     // so fatal log can output to be.out .
     FLAGS_stderrthreshold = google::FATAL;
