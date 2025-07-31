@@ -307,13 +307,23 @@ public:
                                    const BatchGetOptions& opts = BatchGetOptions()) = 0;
 
     /**
-     * @brief like `batch_get`, but it scans the keys in batches.
+     * @brief Batch scan for the first key-value pair starting from each given key.
      *
-     * @param res output param for the results, each element is an optional value, which contains a key and value pair.
-     * @param keys the keys to start scanning from.
-     * @param opts options for batch scan, such as `reverse` and `snapshot`.
+     * For each key in the input keys, this function starts scanning from that key (inclusive)
+     * in the direction specified by `opts.reverse` (forward by default) and returns the first
+     * key-value pair encountered. If no key is found (i.e., scanning reaches the end without
+     * finding any key), the corresponding result is an empty optional.
      *
-     * @return If all keys are successfully retrieved, return TXN_OK. Otherwise, return the code of the first occurring error
+     * The function scans keys in batches and is more efficient than scanning each key individually.
+     *
+     * @param[out] res The output vector of optionals. Each element corresponds to the same index as in the input keys.
+     *                  If a key-value pair is found, the element will contain the pair; otherwise, it will be std::nullopt.
+     * @param[in] keys The list of keys from which to start the scan for each corresponding search.
+     * @param[in] opts Options such as `reverse` and `snapshot`. If `reverse` is true, the scan is in the backward direction.
+     *
+     * @return TXN_OK if all scans completed successfully. If any error occurs during the scanning,
+     *         the function stops immediately and returns the error code of the first error encountered.
+     *         Note: The output vector `res` may be partially filled when an error occurs.
      */
     virtual TxnErrorCode batch_scan(
             std::vector<std::optional<std::pair<std::string, std::string>>>* res,
