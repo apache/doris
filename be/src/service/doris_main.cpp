@@ -403,7 +403,7 @@ int main(int argc, char** argv) {
     bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
     StdoutLogSink sink;
     if (log_to_console) {
-        if (config::enable_file_logger) {
+        if (doris::config::enable_file_logger) {
             // will output log to be.info and output log to stdout
             google::AddLogSink(&sink);
         } else {
