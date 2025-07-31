@@ -188,6 +188,8 @@ protected:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::unique_ptr<io::IOContext> _io_ctx;
 
+    // Whether to fill partition columns from path, default is true.
+    bool _fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
