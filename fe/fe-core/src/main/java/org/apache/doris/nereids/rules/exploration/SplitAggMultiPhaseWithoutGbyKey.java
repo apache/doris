@@ -141,20 +141,22 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
                         AggregateFunction aggFunc = localAggExpr.getFunction();
                         Slot childSlot = alias.toSlot();
                         if (aggFunc instanceof MultiDistinction) {
-                            Map<Class<? extends AggregateFunction>, Supplier<AggregateFunction>> functionMap = ImmutableMap.of(
-                                    MultiDistinctCount.class, () -> new Sum0(childSlot),
-                                    MultiDistinctSum.class, () -> new Sum(childSlot),
-                                    MultiDistinctSum0.class, () -> new Sum0(childSlot),
-                                    MultiDistinctGroupConcat.class, () -> new GroupConcat(childSlot));
+                            Map<Class<? extends AggregateFunction>, Supplier<AggregateFunction>> functionMap =
+                                    ImmutableMap.of(
+                                        MultiDistinctCount.class, () -> new Sum0(childSlot),
+                                        MultiDistinctSum.class, () -> new Sum(childSlot),
+                                        MultiDistinctSum0.class, () -> new Sum0(childSlot),
+                                        MultiDistinctGroupConcat.class, () -> new GroupConcat(childSlot));
                             return new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param);
                         } else {
-                            Map<Class<? extends AggregateFunction>, Supplier<AggregateFunction>> functionMap = ImmutableMap.of(
-                                    Count.class, () -> new Sum0(childSlot),
-                                    Sum.class, () -> new Sum(childSlot),
-                                    Sum0.class, () -> new Sum0(childSlot),
-                                    Min.class, () -> new Min(childSlot),
-                                    Max.class, () -> new Max(childSlot),
-                                    GroupConcat.class, () -> new GroupConcat(childSlot));
+                            Map<Class<? extends AggregateFunction>, Supplier<AggregateFunction>> functionMap =
+                                    ImmutableMap.of(
+                                        Count.class, () -> new Sum0(childSlot),
+                                        Sum.class, () -> new Sum(childSlot),
+                                        Sum0.class, () -> new Sum0(childSlot),
+                                        Min.class, () -> new Min(childSlot),
+                                        Max.class, () -> new Max(childSlot),
+                                        GroupConcat.class, () -> new GroupConcat(childSlot));
                             return new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param, childSlot);
                         }
                     } else {

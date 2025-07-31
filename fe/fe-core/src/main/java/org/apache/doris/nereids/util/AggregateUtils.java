@@ -46,6 +46,7 @@ public class AggregateUtils {
         return function;
     }
 
+    /**countDistinctMultiExprToCountIf*/
     public static Expression countDistinctMultiExprToCountIf(Count count) {
         Set<Expression> arguments = ImmutableSet.copyOf(count.getArguments());
         Expression countExpr = count.getArgument(arguments.size() - 1);
