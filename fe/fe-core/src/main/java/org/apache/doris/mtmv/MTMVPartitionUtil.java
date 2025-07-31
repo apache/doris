@@ -541,7 +541,7 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    private static MTMVRefreshPartitionSnapshot generatePartitionSnapshot(MTMVRefreshContext context,
+    public static MTMVRefreshPartitionSnapshot generatePartitionSnapshot(MTMVRefreshContext context,
             Set<BaseTableInfo> baseTables, Set<String> relatedPartitionNames, boolean incremental)
             throws AnalysisException {
         MTMV mtmv = context.getMtmv();

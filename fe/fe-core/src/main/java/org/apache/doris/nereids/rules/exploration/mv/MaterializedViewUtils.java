@@ -20,14 +20,20 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
@@ -83,6 +89,7 @@ import org.apache.paimon.table.Table;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -101,6 +108,38 @@ public class MaterializedViewUtils {
     public static final String MIN = "min";
     public static final String MAX = "max";
     public static final String SUM = "sum";
+
+    public static BaseTableInfo getIncrementalMVBaseTable(MTMV mtmv) {
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
+        if (baseTables.size() != 1) {
+            throw new RuntimeException("Only support incremental refresh for single table mv");
+        }
+        return baseTables.iterator().next();
+    }
+
+    public static MTMVSnapshotIf getIncrementalMVSnapshotInfo(MTMV mtmv) {
+        BaseTableInfo baseTableInfo = getIncrementalMVBaseTable(mtmv);
+        return mtmv.getRefreshSnapshot().getMVSnapshot(mtmv.getName(), baseTableInfo);
+    }
+
+    public static MTMVSnapshotIf getIncrementalMVTableSnapshotInfo(MTMV mtmv,
+            Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots) {
+        BaseTableInfo baseTableInfo = getIncrementalMVBaseTable(mtmv);
+        return execPartitionSnapshots.get(mtmv.getName())
+                .getTableSnapshot(baseTableInfo);
+    }
+
+    /**
+     * get incremental mv table snapshot
+     */
+    public static MTMVSnapshotIf getIncrementalMVTableSnapshotInfo(MTMV mtmv) throws AnalysisException {
+        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv);
+        BaseTableInfo baseTableInfo = getIncrementalMVBaseTable(mtmv);
+        MTMVRefreshPartitionSnapshot mtmvRefreshPartitionSnapshot = MTMVPartitionUtil.generatePartitionSnapshot(
+                context, mtmv.getRelation().getBaseTablesOneLevel(),
+                Collections.singleton(mtmv.getName()), true);
+        return mtmvRefreshPartitionSnapshot.getTableSnapshot(baseTableInfo);
+    }
 
     /**
      * paimon mv agg keys and functions

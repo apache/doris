@@ -116,14 +116,16 @@ public class PaimonMetadataCache {
         // snapshotId and schemaId
         Long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
         long latestSchemaId = 0L;
+        long snapshotCreateTime = 0L;
         Optional<Snapshot> optionalSnapshot = table.latestSnapshot();
         if (optionalSnapshot.isPresent()) {
             latestSnapshotId = optionalSnapshot.get().id();
             latestSchemaId = table.snapshot(latestSnapshotId).schemaId();
+            snapshotCreateTime = optionalSnapshot.get().timeMillis();
             snapshotTable =
                 table.copy(Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), latestSnapshotId.toString()));
         }
-        return new PaimonSnapshot(latestSnapshotId, latestSchemaId, snapshotTable);
+        return new PaimonSnapshot(latestSnapshotId, latestSchemaId, snapshotCreateTime, snapshotTable);
     }
 
     public void invalidateCatalogCache(long catalogId) {

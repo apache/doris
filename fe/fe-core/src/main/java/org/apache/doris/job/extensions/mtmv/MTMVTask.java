@@ -57,6 +57,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvUtils;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -443,14 +444,10 @@ public class MTMVTask extends AbstractTask {
         public void prepare(MTMVRefreshContext context,
                 Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots) throws Exception {
             params = new HashMap<>();
-            Set<BaseTableInfo> baseTables = relation.getBaseTablesOneLevel();
-            if (baseTables.size() != 1) {
-                throw new JobException("Only support incremental refresh for single table MTMV");
-            }
-            BaseTableInfo baseTableInfo = baseTables.iterator().next();
-            MTMVSnapshotIf mvSnapshot = mtmv.getRefreshSnapshot().getMVSnapshot(mtmv.getName(), baseTableInfo);
+            MTMVSnapshotIf mvSnapshot = MaterializedViewUtils.getIncrementalMVSnapshotInfo(mtmv);
             mvSnapshotId = Optional.ofNullable(mvSnapshot).map(MTMVSnapshotIf::getSnapshotVersion).orElse(0L);
             params.put(TableScanParams.READ_MODE, TableScanParams.INCREMENTAL_READ);
+
             if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL
                     && (taskContext.isComplete() || !CollectionUtils.isEmpty(taskContext.getPartitions()))) {
                 params.put(TableScanParams.DORIS_START_SNAPSHOT_ID, String.valueOf(this.mvSnapshotId));
@@ -458,8 +455,8 @@ public class MTMVTask extends AbstractTask {
                 // incremental refresh
                 execPartitionSnapshots.putAll(MTMVPartitionUtil.generatePartitionSnapshots(context,
                         relation.getBaseTablesOneLevel(), Collections.singleton(mtmv.getName()), true));
-                tableSnapshotId = execPartitionSnapshots.get(mtmv.getName())
-                        .getTableSnapshot(baseTableInfo).getSnapshotVersion();
+                tableSnapshotId = MaterializedViewUtils.getIncrementalMVTableSnapshotInfo(mtmv, execPartitionSnapshots)
+                        .getSnapshotVersion();
                 // The first data synchronization, based on a full update from the latest snapshot
                 if (mvSnapshotId == 0L) {
                     params.put(TableScanParams.DORIS_START_SNAPSHOT_ID, String.valueOf(tableSnapshotId));

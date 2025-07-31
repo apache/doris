@@ -23,12 +23,14 @@ public class PaimonSnapshot {
     public static long INVALID_SNAPSHOT_ID = -1;
     private final long snapshotId;
     private final long schemaId;
+    private final long timestamp;
     private final Table table;
 
-    public PaimonSnapshot(long snapshotId, long schemaId, Table table) {
+    public PaimonSnapshot(long snapshotId, long schemaId, long timestamp, Table table) {
         this.snapshotId = snapshotId;
         this.schemaId = schemaId;
         this.table = table;
+        this.timestamp = timestamp;
     }
 
     public long getSnapshotId() {
@@ -37,6 +39,10 @@ public class PaimonSnapshot {
 
     public long getSchemaId() {
         return schemaId;
+    }
+
+    public long getTimestamp() {
+        return timestamp;
     }
 
     public Table getTable() {
