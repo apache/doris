@@ -636,11 +636,6 @@ Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
                     elem_serdes_ptrs[field_pos], struct_column.get_column(field_pos),
                     field_value[field_pos], options);
             st != Status::OK()) {
-            // only test now
-            // 这里的回滚其实没有必要啊
-            // 如果在非严格模式下，from_string会在错误时插入null值
-            // 在严格模式下，from_string会返回错误， 直接就报错了。
-            // 过去有这个回滚的逻辑，是因为可能返回错误了，外面直接把这个设置了一个null了。
             // we should do column revert if error
             for (size_t j = 0; j < field_pos; j++) {
                 struct_column.get_column(j).pop_back(1);

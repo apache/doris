@@ -21,6 +21,12 @@
 namespace doris::vectorized {
 
 struct ComplexTypeDeserializeUtil {
+    // SplitResult is used to store the result of splitting a string by a delimiter.
+    // It contains the element as a StringRef and the delimiter used for splitting.
+    // For example, if the input string is "a,b,c" and the delimiter is ',',
+    // the SplitResult will contain three elements: {"a", ','}, {"b", ','}, {"c", }.
+    // If the input string is "a:b,c:d" and the delimiter is ';' or ','
+    // the SplitResult will contain two elements: {"a", ':'}, {"b", ','}, {"c", ':'}, {"d", }.
     struct SplitResult {
         StringRef element;
         char delimiter = 0;
@@ -53,7 +59,8 @@ struct ComplexTypeDeserializeUtil {
                 if (last_pos != pos) {
                     elements.push_back({StringRef(str.data + last_pos, pos - last_pos), delimiter});
                 } else {
-                    elements.push_back({StringRef(), delimiter});
+                    /// TODO: It's best that our StringRef is a nullptr data here.
+                    elements.push_back({StringRef(str.data + last_pos, 0), delimiter});
                 }
                 last_pos = pos + 1;
             }
