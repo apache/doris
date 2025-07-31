@@ -50,10 +50,6 @@ public class ArrayMap extends ScalarFunction
         super("array_map", arg);
     }
 
-    public ArrayMap(List<Expression> arg) {
-        super("array_map", arg);
-    }
-
     /** constructor for withChildren and reuse signature */
     private ArrayMap(ScalarFunctionParams functionParams) {
         super(functionParams);
