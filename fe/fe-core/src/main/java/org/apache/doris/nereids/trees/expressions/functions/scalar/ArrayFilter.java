@@ -52,6 +52,10 @@ public class ArrayFilter extends ScalarFunction
         }
     }
 
+    public ArrayFilter(Expression arg1, Expression arg2) {
+        super("array_filter", arg1, arg2);
+    }
+
     /** constructor for withChildren and reuse signature */
     private ArrayFilter(ScalarFunctionParams functionParams) {
         super(functionParams);
