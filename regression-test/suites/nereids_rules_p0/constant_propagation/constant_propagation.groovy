@@ -202,6 +202,28 @@ suite('constant_propagation') {
        from t1 join t2 on t1.a = t2.x * 10 join t3 on t2.x = t3.a where t1.a = 10
     '''
 
+    // NOTICE: the result should  '[[null], [null]]', but be return '[[true], [true]]'
+    explain_and_result  'join_10', '''
+        select 1  in (select null from t2)
+        from t1;
+    '''
+
+    // NOTICE: the result should  '[[null], [null]]', but be return '[[false], [false]]'
+    explain_and_result  'join_11', '''
+        select 1 not in (select null from t2)
+        from t1;
+    '''
+
+    explain_and_result 'join_12', '''
+        select t1.a
+        from t1 where t1.a in (select t3.a from t3 where t3.b = 10);
+    '''
+
+    explain_and_result 'join_13', '''
+        select t1.a
+        from t1 where t1.a not in (select t3.a from t3 where t3.b = 10);
+    '''
+
     explain_and_result 'subquery_1', '''
        select a, x
        from (select a from t1 where a = 1) s1, (select x from t2 where x = 1) s2

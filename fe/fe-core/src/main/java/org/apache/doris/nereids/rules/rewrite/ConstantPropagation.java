@@ -232,6 +232,13 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         // So we only combine the hash conjuncts and other conjuncts.
         join = visitChildren(this, join, context);
 
+        boolean userInnerInfer = false;
+        // for NULL_AWARE_LEFT_ANTI_JOIN, NULL can not be treated as FALSE, so don't extract their constant relations.
+        // for example: NULL_AWARE_LEFT_ANTI join on a < 1 and a > 10,  if a is null, the join conditions is null
+        // and don't output the row.
+        // The join type may change. For example PhysicalPlanTranslator may convert LEFT_ANTI_JOIN and LEFT_SEMI_JOIN
+        // to NULL_AWARE_XX_JOIN, for safety, we don't extract inner constant relations for Join.
+
         List<Expression> newHashJoinConjuncts = join.getHashJoinConjuncts();
         List<Expression> newOtherJoinConjuncts = join.getOtherJoinConjuncts();
         List<Expression> hashOtherConjuncts = Lists.newArrayListWithExpectedSize(
@@ -241,7 +248,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         if (!hashOtherConjuncts.isEmpty()) {
             Expression oldHashOtherPredicate = ExpressionUtils.and(hashOtherConjuncts);
             Expression newHashOtherPredicate
-                    = replaceConstantsAndRewriteExpr(join, oldHashOtherPredicate, true, context);
+                    = replaceConstantsAndRewriteExpr(join, oldHashOtherPredicate, userInnerInfer, context);
             if (!isExprEqualIgnoreOrder(oldHashOtherPredicate, newHashOtherPredicate)) {
                 // TODO: code from FindHashConditionForJoin
                 Pair<List<Expression>, List<Expression>> pair
@@ -263,7 +270,8 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
             // TODO: we may extract more constant relations from hash conjuncts,
             //       then we may make mark join conjuncts more simplify.
             Expression oldMarkPredicate = ExpressionUtils.and(join.getMarkJoinConjuncts());
-            Expression newMarkPredicate = replaceConstantsAndRewriteExpr(join, oldMarkPredicate, true, context);
+            Expression newMarkPredicate = replaceConstantsAndRewriteExpr(join, oldMarkPredicate,
+                    userInnerInfer, context);
             newMarkJoinConjuncts = ExpressionUtils.extractConjunction(newMarkPredicate);
             if (Sets.newHashSet(newMarkJoinConjuncts).equals(Sets.newHashSet(join.getMarkJoinConjuncts()))) {
                 newMarkJoinConjuncts = join.getMarkJoinConjuncts();

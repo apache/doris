@@ -318,7 +318,7 @@ PhysicalResultSink
 
 -- !infer3 --
 PhysicalResultSink
---hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.id = 1) and (t2.id = 1))
+--hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.id = 1))
 ----PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
 
@@ -345,7 +345,7 @@ PhysicalResultSink
 
 -- !infer6 --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=((t1.id = 1) and (t1.name = 'bob'))
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=((t1.id = 1))
 ----PhysicalOlapScan[t1]
 ----filter((t2.id = 1) and (t2.name = 'bob'))
 ------PhysicalOlapScan[t2]

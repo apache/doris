@@ -96,10 +96,11 @@ PhysicalResultSink
 
 -- !join_2_shape --
 PhysicalResultSink
---NestedLoopJoin[LEFT_OUTER_JOIN]
-----PhysicalProject[t1.a]
-------PhysicalOlapScan[t1]
-----PhysicalEmptyRelation
+--PhysicalProject[t1.a, t2.x]
+----NestedLoopJoin[LEFT_OUTER_JOIN]a IS NULL
+------PhysicalProject[a IS NULL AS `a IS NULL`, t1.a]
+--------PhysicalOlapScan[t1]
+------PhysicalEmptyRelation
 
 -- !join_2_result --
 1	\N
@@ -107,11 +108,12 @@ PhysicalResultSink
 
 -- !join_3_shape --
 PhysicalResultSink
---NestedLoopJoin[FULL_OUTER_JOIN]FALSE
-----PhysicalProject[t1.a]
-------PhysicalOlapScan[t1]
-----PhysicalProject[t2.x]
-------PhysicalOlapScan[t2]
+--PhysicalProject[t1.a, t2.x]
+----NestedLoopJoin[FULL_OUTER_JOIN](a = 1)(x = 2)(t1.a > t2.x)
+------PhysicalProject[(a = 1) AS `(a = 1)`, t1.a]
+--------PhysicalOlapScan[t1]
+------PhysicalProject[(x = 2) AS `(x = 2)`, t2.x]
+--------PhysicalOlapScan[t2]
 
 -- !join_3_result --
 \N	1
@@ -149,10 +151,10 @@ PhysicalResultSink
 -- !join_6_shape --
 PhysicalResultSink
 --PhysicalProject[t1.a, t2.x]
-----NestedLoopJoin[FULL_OUTER_JOIN](a = 10)(x = 1)
-------PhysicalProject[(a = 10) AS `(a = 10)`, t1.a]
+----hashJoin[FULL_OUTER_JOIN] hashCondition=((expr_cast(a as BIGINT) = expr_(cast(x as BIGINT) * 10))) otherCondition=((t2.x = 1))
+------PhysicalProject[cast(a as BIGINT) AS `expr_cast(a as BIGINT)`, t1.a]
 --------PhysicalOlapScan[t1]
-------PhysicalProject[(x = 1) AS `(x = 1)`, t2.x]
+------PhysicalProject[(cast(x as BIGINT) * 10) AS `expr_(cast(x as BIGINT) * 10)`, t2.x]
 --------PhysicalOlapScan[t2]
 
 -- !join_6_result --
@@ -202,6 +204,56 @@ PhysicalResultSink
 
 -- !join_9_result --
 10	1	1
+
+-- !join_10_shape --
+PhysicalResultSink
+--PhysicalProject[$c$1 AS `1  in (select null from t2)`]
+----NestedLoopJoin[LEFT_SEMI_JOIN] otherCondition=() markCondition=(NULL)
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[t1]
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[t2]
+
+-- !join_10_result --
+true
+true
+
+-- !join_11_shape --
+PhysicalResultSink
+--PhysicalProject[$c$1 AS `1 not in (select null from t2)`]
+----NestedLoopJoin[LEFT_ANTI_JOIN] otherCondition=() markCondition=(NULL)
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[t1]
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[t2]
+
+-- !join_11_result --
+false
+false
+
+-- !join_12_shape --
+PhysicalResultSink
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.a = t3.a)) otherCondition=() build RFs:RF0 a->[a]
+----PhysicalProject[t1.a]
+------PhysicalOlapScan[t1] apply RFs: RF0
+----PhysicalProject[t3.a]
+------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.b = 10))
+--------PhysicalOlapScan[t3]
+
+-- !join_12_result --
+1
+
+-- !join_13_shape --
+PhysicalResultSink
+--hashJoin[NULL_AWARE_LEFT_ANTI_JOIN] hashCondition=((t1.a = t3.a)) otherCondition=()
+----PhysicalProject[t1.a]
+------PhysicalOlapScan[t1]
+----PhysicalProject[t3.a]
+------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.b = 10))
+--------PhysicalOlapScan[t3]
+
+-- !join_13_result --
+10
 
 -- !subquery_1_shape --
 PhysicalResultSink
