@@ -72,7 +72,6 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                 field.set(ret, field.get(job));
             }
         }
-        ret.initAnalyzer();
         return ret;
     }
 
@@ -234,7 +233,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(), null,
                                     tbl.storagePageSize(),
-                                    tbl.storageDictPageSize());
+                                    tbl.storageDictPageSize(), true);
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);

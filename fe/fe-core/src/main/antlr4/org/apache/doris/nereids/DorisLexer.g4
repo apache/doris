@@ -20,10 +20,6 @@
 lexer grammar DorisLexer;
 
 @members {
-  /**
-   * When true, parser should throw ParseExcetion for unclosed bracketed comment.
-   */
-  public boolean has_unclosed_bracketed_comment = false;
   public boolean isNoBackslashEscapes = false;
 
   /**
@@ -46,16 +42,6 @@ lexer grammar DorisLexer;
     } else {
       return true;
     }
-  }
-
-  /**
-   * This method will be called when the character stream ends and try to find out the
-   * unclosed bracketed comment.
-   * If the method be called, it means the end of the entire character stream match,
-   * and we set the flag and fail later.
-   */
-  public void markUnclosedComment() {
-    has_unclosed_bracketed_comment = true;
   }
 }
 
@@ -120,6 +106,7 @@ BITOR: 'BITOR';
 BITXOR: 'BITXOR';
 BLOB: 'BLOB';
 BOOLEAN: 'BOOLEAN';
+BOTH: 'BOTH';
 BRANCH: 'BRANCH';
 BRIEF: 'BRIEF';
 BROKER: 'BROKER';
@@ -274,6 +261,7 @@ GRAPH: 'GRAPH';
 GROUP: 'GROUP';
 GROUPING: 'GROUPING';
 GROUPS: 'GROUPS';
+GROUP_CONCAT: 'GROUP_CONCAT';
 HASH: 'HASH';
 HASH_MAP: 'HASH_MAP';
 HAVING: 'HAVING';
@@ -329,6 +317,7 @@ LAST: 'LAST';
 LATERAL: 'LATERAL';
 LDAP: 'LDAP';
 LDAP_ADMIN_PASSWORD: 'LDAP_ADMIN_PASSWORD';
+LEADING: 'LEADING';
 LEFT: 'LEFT';
 LESS: 'LESS';
 LEVEL: 'LEVEL';
@@ -483,6 +472,7 @@ SCHEMAS: 'SCHEMAS';
 SECOND: 'SECOND';
 SELECT: 'SELECT';
 SEMI: 'SEMI';
+SEPARATOR: 'SEPARATOR';
 SERIALIZABLE: 'SERIALIZABLE';
 SESSION: 'SESSION';
 SESSION_USER: 'SESSION_USER';
@@ -536,6 +526,7 @@ TINYINT: 'TINYINT';
 TO: 'TO';
 TOKENIZER: 'TOKENIZER';
 TOKEN_FILTER: 'TOKEN_FILTER';
+TRAILING: 'TRAILING';
 TRANSACTION: 'TRANSACTION';
 TRASH: 'TRASH';
 TREE: 'TREE';
@@ -618,10 +609,8 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    : {!isNoBackslashEscapes}? '\'' ('\\'. | '\'\'' | ~('\'' | '\\'))* '\''
-    | {isNoBackslashEscapes}? '\'' ('\'\'' | ~('\''))* '\''
-    | {!isNoBackslashEscapes}?'"' ( '\\'. | '""' | ~('"'| '\\'))* '"'
-    | {isNoBackslashEscapes}?'"' ('""' | ~('"'))* '"'
+    :  '\'' ( {!isNoBackslashEscapes}? '\\'. | '\'\'' | {!isNoBackslashEscapes}? ~('\'' | '\\') | {isNoBackslashEscapes}? ~('\''))* '\''
+    | '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
     ;
 
 LEADING_STRING
@@ -693,7 +682,7 @@ SIMPLE_COMMENT
     ;
 
 BRACKETED_COMMENT
-    : COMMENT_START ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(2)
+    : COMMENT_START ( BRACKETED_COMMENT | . )*? '*/' -> channel(2)
     ;
 
 

@@ -66,6 +66,7 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
@@ -74,6 +75,9 @@ public:
         DCHECK(node.__isset.string_literal);
         return Field::create_field<TYPE_STRING>(node.string_literal.value);
     }
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 
     bool equals(const IDataType& rhs) const override;
 

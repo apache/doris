@@ -124,6 +124,7 @@ class Config {
     public boolean withOutLoadData
     public boolean runNonConcurrent
     public String caseNamePrefix
+    public String validateBackupPrefix
     public boolean isSmokeTest
     public String multiClusterBes
     public String metaServiceToken
@@ -171,6 +172,7 @@ class Config {
     Config(
             String s3Source,
             String caseNamePrefix,
+            String validateBackupPrefix,
             String defaultDb, 
             String jdbcUrl, 
             String jdbcUser,
@@ -224,6 +226,7 @@ class Config {
             String cloudVersion) {
         this.s3Source = s3Source
         this.caseNamePrefix = caseNamePrefix
+        this.validateBackupPrefix = validateBackupPrefix
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -509,6 +512,7 @@ class Config {
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
         config.runNonConcurrent = Boolean.parseBoolean(cmd.getOptionValue(runNonConcurrentOpt, "True"))
         config.caseNamePrefix = cmd.getOptionValue(caseNamePrefixOpt, config.caseNamePrefix)
+        config.validateBackupPrefix = cmd.getOptionValue(validateBackupPrefixOpt, config.validateBackupPrefix)
         config.dryRun = cmd.hasOption(dryRunOpt)
         config.isSmokeTest = cmd.hasOption(isSmokeTestOpt)
 
@@ -517,6 +521,7 @@ class Config {
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
         log.info("runNonConcurrent is ${config.runNonConcurrent}".toString())
         log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
+        log.info("validateBackupPrefix is ${config.validateBackupPrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
         def s3SourceList = ["aliyun", "aliyun-internal", "tencent", "huawei", "azure", "gcp"]
         if (s3SourceList.contains(config.s3Source)) {
@@ -549,6 +554,7 @@ class Config {
         def config = new Config(
             configToString(obj.s3Source),
             configToString(obj.caseNamePrefix),
+            configToString(obj.validateBackupPrefix),
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
             configToString(obj.jdbcUser),
@@ -756,6 +762,11 @@ class Config {
         if (config.caseNamePrefix == null) {
             config.caseNamePrefix = ""
             log.info("set caseNamePrefix to '' because not specify.".toString())
+        }
+
+        if (config.validateBackupPrefix == null) {
+            config.validateBackupPrefix = "doris_validate_backup"
+            log.info("set validateBackupPrefix to 'doris_validate_backup' because not specify.".toString())
         }
 
         if (config.defaultDb == null) {

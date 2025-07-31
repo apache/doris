@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -262,6 +263,21 @@ MutableColumnPtr DataTypeStruct::create_column() const {
         tuple_columns[i] = elems[i]->create_column();
     }
     return ColumnStruct::create(std::move(tuple_columns));
+}
+
+Status DataTypeStruct::check_column(const IColumn& column) const {
+    const auto* column_struct = DORIS_TRY(check_column_nested_type<ColumnStruct>(column));
+    if (elems.size() != column_struct->tuple_size()) {
+        return Status::InvalidArgument(
+                "ColumnStruct has {} elements, but DataTypeStruct has {} elements",
+                column_struct->tuple_size(), elems.size());
+    }
+    for (size_t i = 0; i < elems.size(); ++i) {
+        const auto& elem = elems[i];
+        const auto& child_column = column_struct->get_column(i);
+        RETURN_IF_ERROR(elem->check_column(child_column));
+    }
+    return Status::OK();
 }
 
 Field DataTypeStruct::get_default() const {

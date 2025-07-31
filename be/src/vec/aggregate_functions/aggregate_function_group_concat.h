@@ -29,7 +29,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/io/io_helper.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

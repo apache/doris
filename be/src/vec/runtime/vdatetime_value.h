@@ -771,7 +771,8 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone);
+    bool from_date_str_base(const char* date_str, size_t len,
+                            const cctz::time_zone* local_time_zone);
 
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
@@ -913,8 +914,8 @@ public:
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, int len, int scale = -1, bool convert_zero = false);
-    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
+    bool from_date_str(const char* str, size_t len, int scale = -1, bool convert_zero = false);
+    bool from_date_str(const char* str, size_t len, const cctz::time_zone& local_time_zone,
                        int scale = -1, bool convert_zero = false);
 
     // Convert this value to string
@@ -1341,6 +1342,7 @@ public:
                 }
                 date_v2_value_.hour_ = val;
             } else {
+                //TODO: use static_assert since we already upgrade to newer clang
                 DCHECK(false) << "shouldn't set for date";
             }
         } else if constexpr (unit == TimeUnit::MINUTE) {
@@ -1436,7 +1438,7 @@ private:
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);
 
-    bool from_date_str_base(const char* date_str, int len, int scale,
+    bool from_date_str_base(const char* date_str, size_t len, int scale,
                             const cctz::time_zone* local_time_zone, bool convert_zero);
 
     // Used to construct from int value

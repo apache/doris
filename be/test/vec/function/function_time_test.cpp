@@ -202,7 +202,7 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
                 {{std::string("2022-05-24 12:34:56.789")}, DECIMAL64(1653366896, 789, 3)},
                 {{Null()}, Null()}};
         static_cast<void>(
-                check_function<DataTypeDecimal64, true, 3, 13>(func_name, input_types, data_set));
+                check_function<DataTypeDecimal64, true>(func_name, input_types, data_set, 3, 13));
     }
 
     {
@@ -211,7 +211,7 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
                 {{std::string("2022-05-24 12:34:56.789123")}, DECIMAL64(1653366896, 789123, 6)},
                 {{Null()}, Null()}};
         static_cast<void>(
-                check_function<DataTypeDecimal64, true, 6, 16>(func_name, input_types, data_set));
+                check_function<DataTypeDecimal64, true>(func_name, input_types, data_set, 6, 16));
     }
 
     // test out of range
@@ -223,7 +223,7 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
                 {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 0, 0)},
         };
         static_cast<void>(
-                check_function<DataTypeDecimal64, true, 0, 1>(func_name, input_types, data_set));
+                check_function<DataTypeDecimal64, true>(func_name, input_types, data_set, 0, 1));
     }
     // negative case
     {
@@ -232,8 +232,8 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
                 {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999, 3)},
                 {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999, 3)},
         };
-        static_cast<void>(check_function<DataTypeDecimal64, true, 0, 1>(func_name, input_types,
-                                                                        data_set, false, true));
+        static_cast<void>(check_function<DataTypeDecimal64, true>(func_name, input_types, data_set,
+                                                                  0, 1, false, true));
     }
 }
 
@@ -366,8 +366,8 @@ TEST(VTimestampFunctionsTest, years_add_test) {
     {
         DataSet data_set = {{{std::string("2020-05-23 00:00:00"), 8000}, Null()}};
 
-        static_cast<void>(
-                check_function<DataTypeDateTime, true>(func_name, input_types, data_set, true));
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set,
+                                                                 -1, -1, true));
     }
 }
 
@@ -389,8 +389,8 @@ TEST(VTimestampFunctionsTest, years_sub_test) {
     {
         DataSet data_set = {{{std::string("2020-05-23 00:00:00"), 3000}, Null()}};
 
-        static_cast<void>(
-                check_function<DataTypeDateTime, true>(func_name, input_types, data_set, true));
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set,
+                                                                 -1, -1, true));
     }
 }
 
@@ -1088,8 +1088,8 @@ TEST(VTimestampFunctionsTest, years_add_v2_test) {
 
         DataSet data_set = {{{std::string("2020-05-23"), 8000}, Null()}};
 
-        static_cast<void>(
-                check_function<DataTypeDateV2, true>(func_name, input_types, data_set, true));
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set, -1,
+                                                               -1, true));
     }
 
     {
@@ -1110,8 +1110,8 @@ TEST(VTimestampFunctionsTest, years_add_v2_test) {
 
         DataSet data_set = {{{std::string("2020-05-23 00:00:11.123"), 8000}, Null()}};
 
-        static_cast<void>(
-                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, true));
+        static_cast<void>(check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set,
+                                                                   -1, -1, true));
     }
 }
 
@@ -1133,8 +1133,8 @@ TEST(VTimestampFunctionsTest, years_sub_v2_test) {
 
         DataSet data_set = {{{std::string("2020-05-23"), 3000}, Null()}};
 
-        static_cast<void>(
-                check_function<DataTypeDateV2, true>(func_name, input_types, data_set, true));
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set, -1,
+                                                               -1, true));
     }
 
     {
@@ -1155,8 +1155,8 @@ TEST(VTimestampFunctionsTest, years_sub_v2_test) {
 
         DataSet data_set = {{{std::string("2020-05-23 00:00:11.123"), 3000}, Null()}};
 
-        static_cast<void>(
-                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, true));
+        static_cast<void>(check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set,
+                                                                   -1, -1, true));
     }
 }
 
@@ -1185,7 +1185,7 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
                             {{Null(), 4}, Null()}};
 
         static_cast<void>(
-                check_function<DataTypeDateTimeV2, true, 3>(func_name, input_types, data_set));
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 3));
     }
 
     // eq
@@ -1198,7 +1198,7 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
                              std::string("2020-09-23 00:00:11.12")}};
 
         static_cast<void>(
-                check_function<DataTypeDateTimeV2, true, 4>(func_name, input_types, data_set));
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 4));
     }
     // negative case
     {
@@ -1213,8 +1213,8 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
                  std::string("2020-09-23 00:00:11.1234")},
         };
 
-        static_cast<void>(check_function<DataTypeDateTimeV2, true, 4>(func_name, input_types,
-                                                                      data_set, false, true));
+        static_cast<void>(check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set,
+                                                                   4, -1, false, true));
     }
 }
 

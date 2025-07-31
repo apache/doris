@@ -21,13 +21,14 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
+#include "util/to_string.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
-#include "vec/functions/cast/function_cast.h"
+#include "vec/functions/cast/cast_to_basic_number_common.h"
+#include "vec/functions/cast/cast_to_boolean.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -127,26 +128,26 @@ template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions& options) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
-    ReadBuffer rb(slice.data, slice.size);
+    StringRef str_ref {slice.data, slice.size};
     if constexpr (T == TYPE_IPV6) {
         // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");
     } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
         typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
-        if (!read_float_text_fast_impl(val, rb)) {
+        if (!try_read_float_text(val, str_ref)) {
             return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (T == TYPE_BOOLEAN) {
         // Note: here we should handle the bool type
         typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
-        if (!try_read_bool_text(val, rb)) {
+        if (!try_read_bool_text(val, str_ref)) {
             return Status::InvalidArgument("parse boolean fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (is_int_or_bool(T)) {
         typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
-        if (!read_int_text_impl(val, rb)) {
+        if (!try_read_int_text(val, str_ref)) {
             return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
@@ -177,7 +178,7 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     } else if constexpr (T == TYPE_FLOAT) {
         // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
         char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, buf);
+        int len = to_buffer(data, MAX_FLOAT_STR_LENGTH + 2, buf);
         bw.write(buf, len);
     } else if constexpr (is_int_or_bool(T) ||
                          std::numeric_limits<
@@ -226,11 +227,11 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     col_data.emplace_back(Int128()); // Int128() is NULL
                 } else {
                     Int128 val = 0;
-                    ReadBuffer rb(raw_data, raw_data_len);
-                    if (!read_int_text_impl(val, rb)) {
+                    StringRef str_ref(raw_data, raw_data_len);
+                    if (!try_read_int_text(val, str_ref)) {
                         return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                              "parse number fail, string: '{}'",
-                                             std::string(rb.position(), rb.count()).c_str());
+                                             std::string(str_ref.data, str_ref.size).c_str());
                     }
                     col_data.emplace_back(val);
                 }
@@ -418,7 +419,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                    const IColumn& column, const NullMap* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch,
                                                    int64_t start, int64_t end,
-                                                   std::vector<StringRef>& buffer_list) const {
+                                                   vectorized::Arena& arena) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 
     if constexpr (T == TYPE_LARGEINT) { // largeint
@@ -433,16 +434,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
             }
         }
         // Allocate continues memory based on calculated size
-        char* ptr = (char*)malloc(total_size);
+        char* ptr = arena.alloc(total_size);
         if (!ptr) {
             return Status::InternalError(
                     "malloc memory {} error when write variant column data to orc file.",
                     total_size);
         }
-        StringRef bufferRef;
-        bufferRef.data = ptr;
-        bufferRef.size = total_size;
-        buffer_list.emplace_back(bufferRef);
         // Second pass: fill the data and update the batch
         size_t offset = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
@@ -456,8 +453,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
                             offset, len, total_size);
                 }
                 // do not use strcpy here, because this buffer is not null-terminated
-                memcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str(), len);
-                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+                memcpy(ptr + offset, value_str.c_str(), len);
+                cur_batch->data[row_id] = ptr + offset;
                 cur_batch->length[row_id] = len;
                 offset += len;
             }
@@ -608,6 +605,21 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& 
     return Status::OK();
 }
 
+template <PrimitiveType PT>
+bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x, const StringRef& str_ref,
+                    CastParameters& params) {
+    if constexpr (is_float_or_double(PT)) {
+        return try_read_float_text(x, str_ref);
+    } else if constexpr (PT == TYPE_BOOLEAN) {
+        return CastToBool::from_string(str_ref, x, params);
+    } else if constexpr (is_int(PT)) {
+        return CastToInt::from_string(str_ref, x, params);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "try_parse_impl not implemented for type: {}", type_to_string(PT));
+    }
+}
+
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
                                                  const FormatOptions& options) const {
@@ -622,12 +634,14 @@ Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, Column
     const ColumnString::Chars* chars = &str.get_chars();
     const IColumn::Offsets* offsets = &str.get_offsets();
 
+    CastParameters params;
+    params.is_strict = false;
     for (size_t i = 0; i < size; ++i) {
         size_t next_offset = (*offsets)[i];
         size_t string_size = next_offset - current_offset;
 
-        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-        null_map[i] = !try_parse_impl<DataTypeNumber<T>, false>(vec_to[i], read_buffer, nullptr);
+        StringRef str_ref(&(*chars)[current_offset], string_size);
+        null_map[i] = !try_parse_impl<T>(vec_to[i], str_ref, params);
         current_offset = next_offset;
     }
     return Status::OK();
@@ -679,7 +693,8 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
 
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
-
+    CastParameters params;
+    params.is_strict = true;
     for (size_t i = 0; i < size; ++i) {
         if (null_map && null_map[i]) {
             continue;
@@ -687,8 +702,8 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
         size_t next_offset = (*offsets)[i];
         size_t string_size = next_offset - current_offset;
 
-        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-        if (!try_parse_impl<DataTypeNumber<T>, true>(vec_to[i], read_buffer, nullptr)) {
+        StringRef str_ref(&(*chars)[current_offset], string_size);
+        if (!try_parse_impl<T>(vec_to[i], str_ref, params)) {
             return Status::InvalidArgument(
                     "parse number fail, string: '{}'",
                     std::string((char*)&(*chars)[current_offset], string_size));

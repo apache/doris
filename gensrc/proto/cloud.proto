@@ -441,6 +441,7 @@ message TxnInfoPB {
     // for transaction load, used for recycler
     repeated int64 sub_txn_ids = 18;
     // TODO: There are more fields TBD
+    optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
 }
 
 // For check txn conflict and txn timeout
@@ -510,6 +511,23 @@ message RecycleStagePB {
     optional string instance_id = 1;
     optional string reason = 2;
     optional StagePB stage = 3;
+}
+
+message RestoreJobCloudPB {
+    enum State {
+        UNKNOWN = 0;
+        PREPARED = 1;
+        DROPPED = 2;
+    }
+    optional int64 tablet_id = 1;
+    optional int64 creation_time = 2;
+    optional int64 expiration = 3; // expiration timestamp
+    optional doris.TabletMetaCloudPB tablet_meta = 4;
+    optional State state = 5;
+    optional int64 total_rowset_num = 6;
+    optional int64 total_row_num = 7;
+    optional int64 total_segment_num = 8;
+    optional int64 total_disk_size = 9;
 }
 
 message JobRecyclePB {
@@ -635,7 +653,7 @@ message CompactionLogPB {
 }
 
 message CommitTxnLogPB {
-    optional int64 table_id = 1;
+    repeated int64 table_ids = 1;
     map<int64, int64> partition_version_map = 2;
     map<int64, int64> tablet_to_partition_map = 3;
 
@@ -661,9 +679,10 @@ message CommitPartitionLogPB {
 message DropPartitionLogPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
-    optional int64 partition_id = 4;
-    optional RecyclePartitionPB recycle_partition = 5;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+    optional int64 expiration = 5; // expiration timestamp
+    optional bool update_table_version = 6;
 }
 
 message DropIndexLogPB {
@@ -1228,9 +1247,22 @@ message PartitionRequest {
     optional int64 db_id = 6;
     optional bool need_update_table_version = 7;
     optional string request_ip = 8;
+    repeated int64 partition_versions = 9;
 }
 
 message PartitionResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message RestoreJobRequest {
+    optional string cloud_unique_id = 1;
+    optional int64 tablet_id = 2;
+    optional doris.TabletMetaCloudPB tablet_meta = 3;
+    optional int64 expiration = 4;
+    optional string request_ip = 5;
+}
+
+message RestoreJobResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
@@ -1733,6 +1765,7 @@ message GetDeleteBitmapUpdateLockRequest {
     optional bool require_compaction_stats = 7 [default = false];
     repeated TabletIndexPB tablet_indexes = 8;
     optional string request_ip = 9;
+    optional bool urgent = 10;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
@@ -1914,6 +1947,10 @@ service MetaService {
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
     // DEPRECATED
     rpc update_tablet_schema(UpdateTabletSchemaRequest) returns (UpdateTabletSchemaResponse);
+
+    rpc prepare_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc commit_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc finish_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
 
     rpc get_tablet(GetTabletRequest) returns (GetTabletResponse);
     rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);

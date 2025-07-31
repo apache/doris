@@ -253,7 +253,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {
             "攒批写 EditLog。", "Batch EditLog writing"})
-    public static boolean enable_batch_editlog = false;
+    public static boolean enable_batch_editlog = true;
 
     @ConfField(description = {"元数据同步的容忍延迟时间，单位为秒。如果元数据的延迟超过这个值，非主 FE 会停止提供服务",
             "The toleration delay time of meta data synchronization, in seconds. "
@@ -560,7 +560,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"是否启用并行发布版本",
             "Whether to enable parallel publish version"})
-    public static boolean enable_parallel_publish_version = false;
+    public static boolean enable_parallel_publish_version = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
@@ -1700,6 +1700,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static long backup_handler_update_interval_millis = 3000;
 
+
+    /**
+     * Whether to enable cloud restore job.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {"是否开启存算分离恢复功能。",
+        "Whether to enable cloud restore job."}, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_cloud_restore_job = false;
+
     /**
      * Control the default max num of the instance for a user.
      */
@@ -1968,9 +1976,6 @@ public class Config extends ConfigBase {
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = true;
-
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_wg_memory_sum_limit = true;
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
@@ -2267,7 +2272,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg"})
+    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg", "external"})
     public static String fuzzy_test_type = "";
 
     /**
@@ -3473,6 +3478,18 @@ public class Config extends ConfigBase {
             + "For example: auto_start_ignore_db_names=__internal_schema, information_schema"
             })
     public static String[] auto_start_ignore_resume_db_names = {"__internal_schema", "information_schema"};
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_mow_load_force_take_ms_lock = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_load_force_take_ms_lock_threshold_ms = 500;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_base = 20;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

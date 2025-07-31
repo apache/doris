@@ -62,15 +62,6 @@ TEST(ColumnConstTest, TestFilter) {
     }
 }
 
-TEST(ColumnConstTest, TestReplicate) {
-    auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
-    auto column_const = ColumnConst::create(column_data, 3);
-    IColumn::Offsets offsets = {1, 2, 3};
-    auto res = column_const->replicate(offsets);
-    EXPECT_EQ(res->size(), 3);
-    EXPECT_EQ(assert_cast<const ColumnConst&>(*res).get_data_column_ptr()->get_int(0), 7);
-}
-
 TEST(ColumnConstTest, TestPermutation) {
     {
         auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
@@ -111,7 +102,40 @@ TEST(ColumnConstTest, get_and_insert) {
     auto column_const = ColumnConst::create(column_data, 3);
     EXPECT_EQ(column_const->get_data_column().get_int(0), 7);
 
-    auto dummy_column = ColumnHelper::create_column<DataTypeInt64>({1});
+    {
+        auto dummy_column = ColumnHelper::create_column<DataTypeInt64>({6});
+        try {
+            column_const->insert_range_from(*dummy_column, 0, 5);
+            EXPECT_FALSE(true);
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        }
+
+        try {
+            column_const->insert_many_from(*dummy_column, 0, 5);
+            EXPECT_FALSE(true);
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        }
+
+        try {
+            column_const->insert_from(*dummy_column, 0);
+            EXPECT_FALSE(true);
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        }
+
+        try {
+            std::vector<uint32_t> indices = {0, 1, 2, 3, 4};
+            column_const->insert_indices_from(*dummy_column, indices.data(),
+                                              indices.data() + indices.size());
+            EXPECT_FALSE(true);
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        }
+    }
+
+    auto dummy_column = ColumnConst::create(column_data, 3);
     column_const->insert_range_from(*dummy_column, 0, 5);
     EXPECT_EQ(column_const->size(), 8);
 

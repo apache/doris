@@ -25,14 +25,6 @@ suite("test_account_management_user_auth","p0,auth_call") {
     String dbName = 'test_account_management_user_auth_db'
     String user_derive = 'test_account_management_user_derive_user'
 
-    //cloud-mode
-    if (isCloudMode()) {
-        def clusters = sql " SHOW CLUSTERS; "
-        assertTrue(!clusters.isEmpty())
-        def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
-    }
-
     try_sql("DROP USER ${user}")
     try_sql("DROP USER ${user_derive}")
     try_sql """drop database if exists ${dbName}"""
@@ -40,6 +32,14 @@ suite("test_account_management_user_auth","p0,auth_call") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+    }
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {

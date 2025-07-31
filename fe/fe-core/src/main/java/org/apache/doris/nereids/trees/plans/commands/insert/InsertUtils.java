@@ -601,15 +601,9 @@ public class InsertUtils {
                 }
                 return (NamedExpression) defualtValueExpression;
             } else {
-                try {
-                    return new Alias(Literal.of(column.getDefaultValue())
-                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
-                            column.getName());
-                } catch (Exception ignored) {
-                    return new Alias(Literal.of(column.getDefaultValue())
-                            .deprecatingCheckedCastTo(DataType.fromCatalogType(column.getType())),
-                            column.getName());
-                }
+                return new Alias(Literal.of(column.getDefaultValue())
+                        .checkedCastWithFallback(DataType.fromCatalogType(column.getType())),
+                        column.getName());
             }
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e);

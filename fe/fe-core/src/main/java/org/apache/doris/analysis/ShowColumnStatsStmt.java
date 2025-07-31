@@ -112,11 +112,11 @@ public class ShowColumnStatsStmt extends ShowStmt implements NotFallbackInParser
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        tableName.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
+        tableName.analyze();
         if (partitionNames != null) {
-            partitionNames.analyze(analyzer);
+            partitionNames.analyze();
         }
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {

@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
@@ -139,8 +138,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
 
-    private Analyzer analyzer;
-
     protected RollupJobV2() {
         super(JobType.ROLLUP);
     }
@@ -169,7 +166,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
 
         this.origStmt = origStmt;
-        initAnalyzer();
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
@@ -200,18 +196,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     public String getBaseIndexName() {
         return baseIndexName;
-    }
-
-    protected void initAnalyzer() throws AnalysisException {
-        ConnectContext connectContext = new ConnectContext();
-        Database db;
-        try {
-            db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        } catch (MetaNotFoundException e) {
-            throw new AnalysisException("error happens when parsing create materialized view stmt: " + origStmt, e);
-        }
-        connectContext.setDatabase(db.getFullName());
-        analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
     }
 
     protected void createRollupReplica() throws AlterCancelException {
@@ -379,7 +363,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
-                rollupKeysType, origStmt, analyzer != null ? new Analyzer(analyzer) : analyzer, null);
+                rollupKeysType, origStmt, null);
         tbl.rebuildFullSchema();
     }
 

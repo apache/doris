@@ -123,6 +123,7 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
         }
         // Test LoadStreamStub skip send segment
         load_with_injection("LoadStreamStub.skip_send_segment")
+        load_with_injection("VTabletWriterV2._check_streams_finish.close_stream_failed")
 
         sql """ set enable_memtable_on_sink_node=false """
     }

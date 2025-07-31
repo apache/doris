@@ -72,6 +72,9 @@
 //
 // 0x01 "storage_vault" ${instance_id} "vault" ${resource_id}                              -> StorageVaultPB
 //
+// 0x01 "job" ${instance_id} "restore_tablet" ${tablet_id}                             -> RestoreJobCloudPB
+// 0x01 "job" ${instance_id} "restore_rowset" ${tablet_id} ${version}                  -> RowsetMetaCloudPB
+//
 // 0x02 "system" "meta-service" "registry"                                                 -> MetaServiceRegistryPB
 // 0x02 "system" "meta-service" "arn_info"                                                 -> RamUserPB
 // 0x02 "system" "meta-service" "encryption_key_info"                                      -> EncryptionKeyInfoPB
@@ -312,6 +315,11 @@ using LogKeyInfo = BasicKeyInfo<49, std::tuple<std::string>>;
 
 } // namespace versioned
 
+//                                                      0:instance_id  1:tablet_id
+using JobRestoreTabletKeyInfo = BasicKeyInfo<50, std::tuple<std::string, int64_t>>;
+//                                                      0:instance_id  1:tablet_id  2:version
+using JobRestoreRowsetKeyInfo = BasicKeyInfo<51, std::tuple<std::string, int64_t,     int64_t>>;
+
 void instance_key(const InstanceKeyInfo& in, std::string* out);
 static inline std::string instance_key(const InstanceKeyInfo& in) { std::string s; instance_key(in, &s); return s; }
 
@@ -382,6 +390,11 @@ static inline std::string stats_tablet_num_rowsets_key(const StatsTabletKeyInfo&
 static inline std::string stats_tablet_num_segs_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_num_segs_key(in, &s); return s; }
 static inline std::string stats_tablet_index_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_index_size_key(in, &s); return s; }
 static inline std::string stats_tablet_segment_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_segment_size_key(in, &s); return s; }
+
+void job_restore_tablet_key(const JobRestoreTabletKeyInfo& in, std::string* out);
+static inline std::string job_restore_tablet_key(const JobRestoreTabletKeyInfo& in) { std::string s; job_restore_tablet_key(in, &s); return s; }
+void job_restore_rowset_key(const JobRestoreRowsetKeyInfo& in, std::string* out);
+static inline std::string job_restore_rowset_key(const JobRestoreRowsetKeyInfo& in) { std::string s; job_restore_rowset_key(in, &s); return s; }
 
 void job_recycle_key(const JobRecycleKeyInfo& in, std::string* out);
 void job_check_key(const JobRecycleKeyInfo& in, std::string* out);

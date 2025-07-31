@@ -24,17 +24,12 @@ import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
-import org.apache.doris.analysis.CleanLabelStmt;
-import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateIndexPolicyStmt;
@@ -43,7 +38,6 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
@@ -63,19 +57,16 @@ import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
-import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
@@ -100,9 +91,7 @@ public class DdlExecutor {
      **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
         checkDdlStmtSupported(ddlStmt);
-        if (ddlStmt instanceof CreateDbStmt) {
-            env.createDb((CreateDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropDbStmt) {
+        if (ddlStmt instanceof DropDbStmt) {
             env.dropDb((DropDbStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFunctionStmt) {
             env.createFunction((CreateFunctionStmt) ddlStmt);
@@ -120,8 +109,6 @@ public class DdlExecutor {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             env.alterTable((AlterTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterViewStmt) {
-            env.alterView((AlterViewStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {
@@ -167,12 +154,6 @@ public class DdlExecutor {
             env.recoverTable((RecoverTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RecoverPartitionStmt) {
             env.recoverPartition((RecoverPartitionStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateViewStmt) {
-            env.createView((CreateViewStmt) ddlStmt);
-        } else if (ddlStmt instanceof BackupStmt) {
-            env.backup((BackupStmt) ddlStmt);
-        } else if (ddlStmt instanceof RestoreStmt) {
-            env.restore((RestoreStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRepositoryStmt) {
             env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
@@ -214,14 +195,10 @@ public class DdlExecutor {
             env.getCatalogMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {
             env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
-        } else if (ddlStmt instanceof CleanLabelStmt) {
-            env.getLoadManager().cleanLabel(((CleanLabelStmt) ddlStmt).getDb(), ((CleanLabelStmt) ddlStmt).getLabel());
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
             RefreshCatalogStmt refreshCatalogStmt = (RefreshCatalogStmt) ddlStmt;
             env.getRefreshManager()
                     .handleRefreshCatalog(refreshCatalogStmt.getCatalogName(), refreshCatalogStmt.isInvalidCache());
-        } else if (ddlStmt instanceof CleanProfileStmt) {
-            ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
@@ -230,8 +207,6 @@ public class DdlExecutor {
             executeCopyStmt(env, (CopyStmt) ddlStmt);
         } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
             env.getStorageVaultMgr().setDefaultStorageVault((SetDefaultStorageVaultStmt) ddlStmt);
-        } else if (ddlStmt instanceof UnsetDefaultStorageVaultStmt) {
-            env.getStorageVaultMgr().unsetDefaultStorageVault();
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
@@ -325,13 +300,6 @@ public class DdlExecutor {
         // check stmt has been supported in cloud mode
         if (Config.isNotCloudMode()) {
             return;
-        }
-
-        if (ddlStmt instanceof BackupStmt
-                || ddlStmt instanceof RestoreStmt
-                || ddlStmt instanceof DropRepositoryStmt) {
-            LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
-            throw new DdlException("Unsupported operation");
         }
     }
 }

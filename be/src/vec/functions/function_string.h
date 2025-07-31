@@ -3125,41 +3125,6 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
     return result;
 }
 
-// Note string value must be valid decimal string which contains two digits after the decimal point
-static inline StringRef do_format_round(FunctionContext* context, const std::string& value,
-                                        Int32 decimal_places) {
-    bool is_positive = (value[0] != '-');
-    int32_t result_len =
-            value.size() +
-            (value.size() - (is_positive ? (decimal_places + 2) : (decimal_places + 3))) / 3;
-    StringRef result = context->create_temp_string_val(result_len);
-    char* result_data = const_cast<char*>(result.data);
-    if (!is_positive) {
-        *result_data = '-';
-    }
-    for (int i = value.size() - (decimal_places + 2), j = result_len - (decimal_places + 2); i >= 0;
-         i = i - 3) {
-        *(result_data + j) = *(value.data() + i);
-        if (i - 1 < 0) {
-            break;
-        }
-        *(result_data + j - 1) = *(value.data() + i - 1);
-        if (i - 2 < 0) {
-            break;
-        }
-        *(result_data + j - 2) = *(value.data() + i - 2);
-        if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
-            *(result_data + j - 3) = ',';
-            j -= 4;
-        } else {
-            j -= 3;
-        }
-    }
-    memcpy(result_data + result_len - (decimal_places + 1),
-           value.data() + value.size() - (decimal_places + 1), (decimal_places + 1));
-    return result;
-};
-
 } // namespace FormatRound
 
 struct MoneyFormatDoubleImpl {
@@ -3305,6 +3270,44 @@ struct FormatRoundDoubleImpl {
         return {std::make_shared<DataTypeFloat64>(), std::make_shared<vectorized::DataTypeInt32>()};
     }
 
+    static std::string add_thousands_separator(const std::string& formatted_num) {
+        //  Find the position of the decimal point
+        size_t dot_pos = formatted_num.find('.');
+        if (dot_pos == std::string::npos) {
+            dot_pos = formatted_num.size();
+        }
+
+        // Handle the integer part
+        int start = (formatted_num[0] == '-') ? 1 : 0;
+        int digit_count = dot_pos - start;
+
+        // There is no need to add commas.
+        if (digit_count <= 3) {
+            return formatted_num;
+        }
+
+        std::string result;
+
+        if (start == 1) result += '-';
+
+        // Add the integer part (with comma)
+        int first_group = digit_count % 3;
+        if (first_group == 0) first_group = 3;
+        result.append(formatted_num, start, first_group);
+
+        for (size_t i = start + first_group; i < dot_pos; i += 3) {
+            result += ',';
+            result.append(formatted_num, i, 3);
+        }
+
+        // Add the decimal part (keep as it is)
+        if (dot_pos != formatted_num.size()) {
+            result.append(formatted_num, dot_pos);
+        }
+
+        return result;
+    }
+
     template <bool is_const>
     static Status execute(FunctionContext* context, ColumnString* result_column,
                           const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
@@ -3322,9 +3325,14 @@ struct FormatRoundDoubleImpl {
             // round to `decimal_places` decimal places
             double value = MathFunctions::my_double_round(data_column->get_element(i),
                                                           decimal_places, false, false);
-            StringRef str = FormatRound::do_format_round(
-                    context, fmt::format("{:.{}f}", value, decimal_places), decimal_places);
-            result_column->insert_data(str.data, str.size);
+            std::string formatted_value = fmt::format("{:.{}f}", value, decimal_places);
+            if (std::isfinite(value)) {
+                result_column->insert_value(add_thousands_separator(formatted_value));
+            } else {
+                // if value is not finite, we just insert the original formatted value
+                // e.g. "inf", "-inf", "nan"
+                result_column->insert_value(formatted_value);
+            }
         }
         return Status::OK();
     }

@@ -212,6 +212,7 @@ import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.FunctionArgumentsContext;
 import org.apache.doris.nereids.DorisParser.FunctionIdentifierContext;
+import org.apache.doris.nereids.DorisParser.GroupConcatContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
@@ -333,6 +334,7 @@ import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
 import org.apache.doris.nereids.DorisParser.ShowAllPropertiesContext;
 import org.apache.doris.nereids.DorisParser.ShowAlterTableContext;
 import org.apache.doris.nereids.DorisParser.ShowAnalyzeContext;
+import org.apache.doris.nereids.DorisParser.ShowAnalyzeTaskContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackupContext;
@@ -351,6 +353,7 @@ import org.apache.doris.nereids.DorisParser.ShowConvertLscContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateCatalogContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateDatabaseContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateFunctionContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateLoadContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
@@ -438,11 +441,11 @@ import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableSnapshotContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TabletListContext;
+import org.apache.doris.nereids.DorisParser.TrimContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UninstallPluginContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UnlockTablesContext;
-import org.apache.doris.nereids.DorisParser.UnsupportedContext;
 import org.apache.doris.nereids.DorisParser.UnsupportedStartTransactionContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
@@ -723,6 +726,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
@@ -743,6 +747,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateFunctionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
@@ -833,7 +838,6 @@ import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
-import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
@@ -1216,7 +1220,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             SelectHintContext selectHintContext = (SelectHintContext) selectHintContexts.get(0);
             Map<String, String> parameterNames = Maps.newLinkedHashMap();
             for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
-                String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
+                String hintName = hintStatement.hintName().getText().toLowerCase(Locale.ROOT);
                 if (!hintName.equalsIgnoreCase("set_var")) {
                     throw new AnalysisException("only set_var hint is allowed in: " + ctx.getText());
                 }
@@ -1273,6 +1277,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("tableName and tableId cannot both be null");
         }
         Optional<String> labelName = (ctx.labelName == null) ? Optional.empty() : Optional.of(ctx.labelName.getText());
+        Optional<String> branchName = Optional.empty();
+        if (ctx.optSpecBranch() != null) {
+            branchName = Optional.of(ctx.optSpecBranch().name.getText());
+        }
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         // TODO visit partitionSpecCtx
         LogicalPlan plan = visitQuery(ctx.query());
@@ -1301,7 +1309,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         LogicalPlan command;
         if (isOverwrite) {
-            command = new InsertOverwriteTableCommand(sink, labelName, cte);
+            command = new InsertOverwriteTableCommand(sink, labelName, cte, branchName);
         } else {
             if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()
                     && sink.child() instanceof InlineTable
@@ -1311,7 +1319,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 //  Now handle it as `insert into select`(a separate load job), should fix it as the legacy.
                 command = new BatchInsertIntoTableCommand(sink);
             } else {
-                command = new InsertIntoTableCommand(sink, labelName, Optional.empty(), cte);
+                command = new InsertIntoTableCommand(sink, labelName, Optional.empty(), cte, true, branchName);
             }
         }
         return withExplain(command, ctx.explain());
@@ -1920,7 +1928,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> labelParts = visitMultipartIdentifier(ctx.lableName);
         String labelName = null;
         String labelDbName = null;
-        if (ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
+        if (ConnectContext.get() != null && ConnectContext.get().getDatabase() != null
+                && ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
             throw new AnalysisException("Current database is not set.");
         } else if (labelParts.size() == 1) {
             labelName = labelParts.get(0);
@@ -3023,50 +3032,84 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitFunctionCallExpression(DorisParser.FunctionCallExpressionContext ctx) {
+    public Expression visitGroupConcat(GroupConcatContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = Lists.newArrayList();
             params.addAll(visit(ctx.expression(), Expression.class));
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
-            boolean isSkew = ctx.identifier() != null && ctx.identifier().getText().equalsIgnoreCase("skew");
-
-            List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
-            if (!unboundStars.isEmpty()) {
-                if (ctx.functionIdentifier().dbName == null && functionName.equalsIgnoreCase("count")) {
-                    if (unboundStars.size() > 1) {
-                        throw new ParseException(
-                                "'*' can only be used once in conjunction with COUNT: " + functionName, ctx);
-                    }
-                    if (!unboundStars.get(0).getQualifier().isEmpty()) {
-                        throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
-                    }
-                    if (ctx.windowSpec() != null) {
-                        return withWindowSpec(ctx.windowSpec(), new Count());
-                    }
-                    return new Count();
-                }
-                throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
-            } else {
-                String dbName = null;
-                if (ctx.functionIdentifier().dbName != null) {
-                    dbName = ctx.functionIdentifier().dbName.getText();
-                }
-                UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params, isSkew);
-                if (ctx.windowSpec() != null) {
-                    if (isDistinct
-                            && !("count".equalsIgnoreCase(functionName))
-                            && !("sum".equalsIgnoreCase(functionName))
-                            && !("group_concat".equalsIgnoreCase(functionName))) {
-                        throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
-                    }
-                    return withWindowSpec(ctx.windowSpec(), function);
-                }
-                return function;
-            }
+            return processUnboundFunction(ctx, null, "group_concat", isDistinct, params,
+                    ctx.windowSpec(), ctx.identifier());
         });
+    }
+
+    @Override
+    public Object visitTrim(TrimContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Expression> params = visit(ctx.expression(), Expression.class);
+            params = Lists.reverse(params);
+            String name = "trim";
+            if (ctx.LEADING() != null) {
+                name = "ltrim";
+            } else if (ctx.TRAILING() != null) {
+                name = "rtrim";
+            }
+            return processUnboundFunction(ctx, null, name, false, params, null, null);
+        });
+    }
+
+    @Override
+    public Expression visitFunctionCallExpression(DorisParser.FunctionCallExpressionContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            String dbName = null;
+            if (ctx.functionIdentifier().dbName != null) {
+                dbName = ctx.functionIdentifier().dbName.getText();
+            }
+            String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
+            boolean isDistinct = ctx.DISTINCT() != null;
+            List<Expression> params = Lists.newArrayList();
+            params.addAll(visit(ctx.funcExpression(), Expression.class));
+            List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
+            params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
+            return processUnboundFunction(ctx, dbName, functionName, isDistinct, params,
+                    ctx.windowSpec(), ctx.identifier());
+        });
+    }
+
+    private Expression processUnboundFunction(ParserRuleContext ctx, String dbName, String functionName,
+            boolean isDistinct, List<Expression> params,
+            WindowSpecContext windowContext, IdentifierContext hintContext) {
+        List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
+        if (!unboundStars.isEmpty()) {
+            if (dbName == null && functionName.equalsIgnoreCase("count")) {
+                if (unboundStars.size() > 1) {
+                    throw new ParseException(
+                            "'*' can only be used once in conjunction with COUNT: " + functionName, ctx);
+                }
+                if (!unboundStars.get(0).getQualifier().isEmpty()) {
+                    throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
+                }
+                if (windowContext != null) {
+                    return withWindowSpec(windowContext, new Count());
+                }
+                return new Count();
+            }
+            throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
+        } else {
+            boolean isSkew = hintContext != null && hintContext.getText().equalsIgnoreCase("skew");
+            UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params, isSkew);
+            if (windowContext != null) {
+                if (isDistinct
+                        && !("count".equalsIgnoreCase(functionName))
+                        && !("sum".equalsIgnoreCase(functionName))
+                        && !("group_concat".equalsIgnoreCase(functionName))) {
+                    throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
+                }
+                return withWindowSpec(windowContext, function);
+            }
+            return function;
+        }
     }
 
     /**
@@ -3304,13 +3347,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         DataType dataType = array.expectedInputTypes().get(0);
         return items.stream()
-                .map(item -> {
-                    try {
-                        return item.checkedCastTo(dataType);
-                    } catch (Exception ignored) {
-                        return item.deprecatingCheckedCastTo(dataType);
-                    }
-                })
+                .map(item -> item.checkedCastWithFallback(dataType))
                 .map(Literal.class::cast)
                 .collect(ImmutableList.toImmutableList());
     }
@@ -4096,7 +4133,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         hints.add(new SelectHintUseMv("NO_USE_MV", getTableList(hintStatement.tableList), false));
                         continue;
                     }
-                    String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
+                    String hintName = hintStatement.hintName().getText().toLowerCase(Locale.ROOT);
                     switch (hintName) {
                         case "set_var":
                             Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
@@ -4193,8 +4230,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (hintContext instanceof SelectHintContext) {
                     SelectHintContext preAggOnHintContext = (SelectHintContext) hintContext;
                     if (preAggOnHintContext.hintStatement != null
-                            && preAggOnHintContext.hintStatement.hintName != null) {
-                        String text = preAggOnHintContext.hintStatement.hintName.getText();
+                            && preAggOnHintContext.hintStatement.hintName() != null) {
+                        String text = preAggOnHintContext.hintStatement.hintName().getText();
                         if (text.equalsIgnoreCase("PREAGGOPEN")) {
                             newPlan = new LogicalPreAggOnHint<>(newPlan);
                             break;
@@ -4642,6 +4679,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowCreateLoad(ShowCreateLoadContext ctx) {
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String labelName = null;
+        String labelDbName = null;
+        if (ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
+            throw new AnalysisException("Current database is not set.");
+        } else if (labelParts.size() == 1) {
+            labelName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            labelDbName = labelParts.get(0);
+            labelName = labelParts.get(1);
+        } else if (labelParts.size() == 3) {
+            labelDbName = labelParts.get(1);
+            labelName = labelParts.get(2);
+        } else {
+            throw new AnalysisException("labelParts in load should be [ctl.][db.]label");
+        }
+        LabelNameInfo jobLabelInfo = new LabelNameInfo(labelDbName, labelName);
+        return new ShowCreateLoadCommand(jobLabelInfo);
+    }
+
+    @Override
     public Object visitCallProcedure(CallProcedureContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         FuncNameInfo procedureName = new FuncNameInfo(nameParts);
@@ -4718,11 +4777,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         long id = Long.parseLong(ctx.id.getText());
 
         return ParserUtils.withOrigin(ctx, () -> new DropCatalogRecycleBinCommand(idType, id));
-    }
-
-    @Override
-    public Object visitUnsupported(UnsupportedContext ctx) {
-        return UnsupportedCommand.INSTANCE;
     }
 
     @Override
@@ -4848,6 +4902,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowAuthors(ShowAuthorsContext ctx) {
         return new ShowAuthorsCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowAnalyzeTask(ShowAnalyzeTaskContext ctx) {
+        long jobId = Long.parseLong(ctx.jobId.getText());
+        return new ShowAnalyzeTaskCommand(jobId);
     }
 
     @Override

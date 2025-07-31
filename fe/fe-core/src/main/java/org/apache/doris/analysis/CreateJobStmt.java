@@ -107,10 +107,10 @@ public class CreateJobStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         checkAuth();
-        labelName.analyze(analyzer);
+        labelName.analyze();
         String dbName = labelName.getDbName();
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         // check its insert stmt,currently only support insert stmt

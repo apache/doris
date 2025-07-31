@@ -18,11 +18,16 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 import java.util.Map;
 import java.util.Objects;
@@ -49,11 +54,13 @@ public class COSProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"cos.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
+            required = false,
             description = "The access key of COS.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"cos.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+            required = false,
             description = "The secret key of COS.")
     protected String secretKey = "";
 
@@ -69,6 +76,22 @@ public class COSProperties extends AbstractS3CompatibleProperties {
 
     protected COSProperties(Map<String, String> origProps) {
         super(Type.COS, origProps);
+    }
+
+    @Override
+    public void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        // Check if credentials are provided properly - either both or neither
+        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
+            return;
+        }
+        // Allow anonymous access if both access_key and secret_key are empty
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return;
+        }
+        // If only one is provided, it's an error
+        throw new StoragePropertiesException(
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
@@ -92,4 +115,32 @@ public class COSProperties extends AbstractS3CompatibleProperties {
         return ENDPOINT_PATTERN;
     }
 
+    @Override
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
+        AwsCredentialsProvider credentialsProvider = super.getAwsCredentialsProvider();
+        if (credentialsProvider != null) {
+            return credentialsProvider;
+        }
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            // For anonymous access (no credentials required)
+            return AnonymousCredentialsProvider.create();
+        }
+        return null;
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig.set("fs.cos.impl", "org.apache.hadoop.fs.CosFileSystem");
+        hadoopStorageConfig.set("fs.cosn.impl", "org.apache.hadoop.fs.CosFileSystem");
+        hadoopStorageConfig.set("fs.AbstractFileSystem.cos.impl", "org.apache.hadoop.fs.Cos");
+        hadoopStorageConfig.set("fs.cos.secretId", accessKey);
+        hadoopStorageConfig.set("fs.cos.secretKey", secretKey);
+        hadoopStorageConfig.set("fs.cos.region", region);
+        hadoopStorageConfig.set("fs.cos.endpoint", endpoint);
+        hadoopStorageConfig.set("fs.cos.connection.timeout", connectionTimeoutS);
+        hadoopStorageConfig.set("fs.cos.connection.request.timeout", requestTimeoutS);
+        hadoopStorageConfig.set("fs.cos.connection.maximum", maxConnections);
+        hadoopStorageConfig.set("fs.cos.use.path.style", usePathStyle);
+    }
 }

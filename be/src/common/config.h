@@ -340,6 +340,18 @@ DECLARE_Int32(be_service_threads);
 DECLARE_mInt32(pipeline_status_report_interval);
 // Time slice for pipeline task execution (ms)
 DECLARE_mInt32(pipeline_task_exec_time_slice);
+
+// task executor min concurrency per task
+DECLARE_mInt32(task_executor_min_concurrency_per_task);
+// task executor max concurrency per task
+DECLARE_mInt32(task_executor_max_concurrency_per_task);
+// task task executor inital split max concurrency per task, later concurrency may be adjusted dynamically
+DECLARE_mInt32(task_executor_initial_max_concurrency_per_task);
+// Enable task executor in internal table scan.
+DECLARE_Bool(enable_task_executor_in_internal_table);
+// Enable task executor in external table scan.
+DECLARE_Bool(enable_task_executor_in_external_table);
+
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
@@ -699,6 +711,8 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
+
+DECLARE_mInt64(min_write_buffer_size_for_partial_update);
 // max parallel flush task per memtable writer
 DECLARE_mInt32(memtable_flush_running_count_limit);
 
@@ -1374,9 +1388,6 @@ DECLARE_Int32(workload_group_metrics_interval_ms);
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
-// Remove predicate that is always true for a segment.
-DECLARE_Bool(ignore_always_true_predicate_for_segment);
-
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
 
@@ -1574,6 +1585,7 @@ DECLARE_Bool(enable_table_size_correctness_check);
 DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 
 DECLARE_mInt32(compaction_num_per_round);
+DECLARE_mInt32(max_automatic_compaction_num_per_round);
 
 DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
 DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
@@ -1609,6 +1621,9 @@ DECLARE_mBool(random_segments_key_bounds_truncation);
 DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
 
 DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
+
+// p0, daily, rqg, external
+DECLARE_String(fuzzy_test_type);
 
 #ifdef BE_TEST
 // test s3
