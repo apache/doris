@@ -311,7 +311,7 @@ struct Checker {
         ;
 
 // This method is in logging.cc in glog.
-extern void ColoredWriteToStdout(LogSeverity severity, const char* message, size_t len);
+extern void ColoredWriteToStdout(google::LogSeverity severity, const char* message, size_t len);
 // GLog has flags FLAGS_logtostderr, FLAGS_logtostdout, FLAGS_alsologtostderr. But not
 // has flags like FLAGS_alsologtostdout. We need to log BE.INFO into stdout for k8s usage.
 // Because log stack trace need to use stderr to output the log to be.out.
