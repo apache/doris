@@ -43,7 +43,12 @@ public class SignBit extends ScalarFunction
     /**
      * constructor with 1 argument.
      */
-    public SignBit(ScalarFunctionParams functionParams) {
+    public SignBit(Expression arg) {
+        super("signbit", arg);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private SignBit(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
 
