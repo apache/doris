@@ -15,46 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/scoped_cleanup.h"
+import org.apache.doris.regression.util.PromethuesChecker
 
-#include <gtest/gtest-message.h>
-#include <gtest/gtest-test-part.h>
-
-#include <memory>
-
-#include "gtest/gtest_pred_impl.h"
-
-namespace doris {
-
-TEST(ScopedCleanup, TestCleanup) {
-    int var = 0;
-    {
-        auto saved = var;
-        auto cleanup = MakeScopedCleanup([&]() { var = saved; });
-        var = 42;
+suite('test_metrics_format') {
+    if (!isCloudMode()) {
+        log.info("not cloud mode just return")
+        return
     }
-    EXPECT_EQ(0, var);
-}
-
-TEST(ScopedCleanup, TestCleanupMacro) {
-    int var = 0;
-    {
-        auto saved = var;
-        SCOPED_CLEANUP({ var = saved; });
-        var = 42;
+    def get_meta_service_metric = { check_func ->
+        httpTest {
+            op "get"
+            endpoint context.config.metaServiceHttpAddress
+            uri "/brpc_metrics"
+            check check_func
+        }
     }
-    EXPECT_EQ(0, var);
-}
 
-TEST(ScopedCleanup, TestCancelCleanup) {
-    int var = 0;
-    {
-        auto saved = var;
-        auto cleanup = MakeScopedCleanup([&]() { var = saved; });
-        var = 42;
-        cleanup.cancel();
+    get_meta_service_metric.call {
+        respCode, body ->
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            Boolean res = PromethuesChecker.check(out)
+            assertTrue(res)
     }
-    EXPECT_EQ(42, var);
 }
-
-} // namespace doris

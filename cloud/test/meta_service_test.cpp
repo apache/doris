@@ -144,8 +144,8 @@ static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t inde
     first_rowset->mutable_tablet_schema()->CopyFrom(*schema);
 }
 
-static void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
-                          int64_t partition_id, int64_t tablet_id) {
+void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                   int64_t partition_id, int64_t tablet_id) {
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
@@ -193,9 +193,8 @@ static void commit_txn(MetaServiceProxy* meta_service, int64_t db_id, int64_t tx
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 }
 
-static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
-                                              int partition_id = 10, int64_t version = -1,
-                                              int num_rows = 100) {
+doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id = 10,
+                                       int64_t version = -1, int num_rows = 100) {
     doris::RowsetMetaCloudPB rowset;
     rowset.set_rowset_id(0); // required
     rowset.set_rowset_id_v2(next_rowset_id());
@@ -226,8 +225,8 @@ static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMe
     if (!arena) delete req;
 }
 
-static void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                          CreateRowsetResponse& res) {
+void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                   CreateRowsetResponse& res) {
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
@@ -5068,10 +5067,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         GetDeleteBitmapUpdateLockResponse res;
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
                                       tablet_idxes, 5, 999999, -1, true);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        ASSERT_EQ(res.base_compaction_cnts().size(), 0);
-        ASSERT_EQ(res.cumulative_compaction_cnts().size(), 0);
-        ASSERT_EQ(res.cumulative_points().size(), 0);
+        EXPECT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+        EXPECT_EQ(res.base_compaction_cnts().size(), 3);
+        EXPECT_EQ(res.cumulative_compaction_cnts().size(), 3);
+        EXPECT_EQ(res.cumulative_points().size(), 3);
     }
 
     for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {

@@ -605,8 +605,39 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         cids.insert(entry.first);
     }
 
-    size_t pre_size = 0;
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_dict_ns);
+        /// Low cardinality optimization is currently not very stable, so to prevent data corruption,
+        /// we are temporarily disabling its use in data compaction.
+        // TODO: enable it in not only ReaderTyper::READER_QUERY but also other reader types.
+        if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
+            RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
+            for (auto cid : cids) {
+                if (!_segment->can_apply_predicate_safely(cid,
+                                                          _opts.col_id_to_predicates.at(cid).get(),
+                                                          *_schema, _opts.io_ctx.reader_type)) {
+                    continue;
+                }
+                DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+                RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_dict(
+                        _opts.col_id_to_predicates.at(cid).get(), &dict_row_ranges));
 
+                if (dict_row_ranges.is_empty()) {
+                    break;
+                }
+            }
+
+            if (dict_row_ranges.is_empty()) {
+                RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
+                                               condition_row_ranges);
+                _opts.stats->segment_dict_filtered++;
+                _opts.stats->filtered_segment_number++;
+                return Status::OK();
+            }
+        }
+    }
+
+    size_t pre_size = 0;
     {
         SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_bf_ns);
         // first filter data by bloom filter index
@@ -699,32 +730,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                        condition_row_ranges);
         _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
         _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
-    }
-
-    {
-        SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_dict_ns);
-        /// Low cardinality optimization is currently not very stable, so to prevent data corruption,
-        /// we are temporarily disabling its use in data compaction.
-        if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
-            RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
-            for (auto cid : cids) {
-                if (!_segment->can_apply_predicate_safely(cid,
-                                                          _opts.col_id_to_predicates.at(cid).get(),
-                                                          *_schema, _opts.io_ctx.reader_type)) {
-                    continue;
-                }
-                RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
-                DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-                RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_dict(
-                        _opts.col_id_to_predicates.at(cid).get(), &tmp_row_ranges));
-                RowRanges::ranges_intersection(dict_row_ranges, tmp_row_ranges, &dict_row_ranges);
-            }
-
-            pre_size = condition_row_ranges->count();
-            RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
-                                           condition_row_ranges);
-            _opts.stats->rows_dict_filtered += (pre_size - condition_row_ranges->count());
-        }
     }
 
     return Status::OK();

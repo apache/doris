@@ -68,7 +68,8 @@ suite("test_query_json_insert", "query,arrow_flight_sql") {
               `k0` int(11) not null,
               `k1` array<string> NULL,
               `k3` struct<name:string, age:int> NULL,
-              `k4` json NULL
+              `k4` json NULL,
+              `path` text NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`k0`)
             COMMENT "OLAP"
@@ -79,14 +80,49 @@ suite("test_query_json_insert", "query,arrow_flight_sql") {
             "storage_format" = "V2"
             );
         """
-    sql "insert into ${tableName} values(1,null,null,null);"
-    sql "insert into ${tableName} values(2, array('a','b'), named_struct('name','a','age',1), '{\"a\":\"b\"}');"
-    sql """insert into ${tableName} values(3, array('"a"', '"b"'), named_struct('name','"a"','age', 1), '{\"c\":\"d\"}');"""
-    sql """insert into ${tableName} values(4, array(1,2),  named_struct('name', 2, 'age',1), '{\"a\":\"b\"}');"""
-    sql """insert into ${tableName} values(5, array(1,2,3,3),  named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
+    sql """
+        insert into ${tableName} values
+                (1,null,null,null, null),
+                (2, array('a','b'), named_struct('name','a','age',1), '{\"a\":\"b\"}', '\$[0]'),
+                (3, array('"a"', '"b"'), named_struct('name','"a"','age', 1), '{\"c\":\"d\"}', '\$.*.array'),
+                (4, array(1,2),  named_struct('name', 2, 'age',1), '{\"a\":\"b\"}', '\$.data.key1'),
+                (5, array(1,2,3,3),  named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}', '\$.data.key2'),
+                (6, array(3,3,4,4),  named_struct('name',\"aa\",'age',11), '{\"aa\":\"bb\"}', '\$.*.key2');
+    """
+
     qt_sql2 """select json_insert('{"data": {}}', 
                               '\$.data.array', k1, 
                               '\$.data.struct', k3, 
                               '\$.data.json', k4) from ${tableName} order by k0;"""
-    sql "DROP TABLE ${tableName};"
+    qt_sql3 """select json_insert('{"data": {}}', path, k1) from ${tableName} where k0 != 3 and k0 != 6 order by k0;"""
+    qt_sql4 """select * from ${tableName} order by k0;"""
+
+    test {
+        sql """select json_insert('{"data": {}}', path, k1) from ${tableName} order by k0;"""
+        exception "In this situation, path expressions may not contain the * and ** tokens"
+    }
+
+    test {
+        sql """select json_insert('{"data": {}}', path, k1) from ${tableName} where k0 != 3 order by k0;"""
+        exception "In this situation, path expressions may not contain the * and ** tokens"
+    }
+
+    // sql "DROP TABLE ${tableName};"
+
+    qt_insert1 """select json_insert('1', '\$[0]', 2);"""
+    qt_insert2 """select json_insert('1', '\$[1]', 2);"""
+    qt_insert3 """select json_insert('{"k": 1}', '\$.k[0]', 2);"""
+    qt_insert4 """select json_insert('{"k": 1}', '\$.k[1]', 2);"""
+    qt_insert5 """select json_insert('{"k": 1}', '\$.k[1]', NULL);"""
+    qt_insert6 """select json_insert('{"k": 1}', NULL, 2);"""
+
+    test {
+        sql "select json_insert('1', '\$.*', 4);"
+        exception "In this situation, path expressions may not contain the * and ** tokens"
+    }
+
+    test {
+        sql "select json_insert('1', '\$.', 4);"
+        exception "Json path error: Invalid Json Path for value"
+    }
 }

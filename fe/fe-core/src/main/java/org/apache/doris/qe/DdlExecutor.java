@@ -28,7 +28,6 @@ import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
-import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
@@ -68,7 +67,6 @@ import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
@@ -201,8 +199,6 @@ public class DdlExecutor {
             RefreshCatalogStmt refreshCatalogStmt = (RefreshCatalogStmt) ddlStmt;
             env.getRefreshManager()
                     .handleRefreshCatalog(refreshCatalogStmt.getCatalogName(), refreshCatalogStmt.isInvalidCache());
-        } else if (ddlStmt instanceof CleanProfileStmt) {
-            ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),

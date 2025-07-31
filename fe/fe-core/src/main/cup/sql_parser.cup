@@ -1239,13 +1239,6 @@ refresh_stmt ::=
     :}
     ;
 
-clean_stmt ::=
-    KW_CLEAN KW_ALL KW_PROFILE
-    {:
-        RESULT = new CleanProfileStmt();
-    :}
-    ;
-
 // plugin statement
 install_plugin_stmt ::=
     KW_INSTALL KW_PLUGIN KW_FROM ident_or_text:source opt_properties:properties
@@ -3574,19 +3567,6 @@ show_param ::=
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
         RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames, cached);
-    :}
-    /* show analyze job */
-    | KW_ANALYZE opt_table_name:tbl opt_wild_where
-    {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, false);
-    :}
-    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where
-    {:
-        RESULT = new ShowAnalyzeStmt(jobId, parser.where);
-    :}
-    | KW_AUTO KW_ANALYZE opt_table_name:tbl opt_wild_where
-    {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:

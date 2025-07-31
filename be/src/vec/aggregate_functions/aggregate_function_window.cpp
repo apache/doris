@@ -26,7 +26,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
