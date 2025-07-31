@@ -439,22 +439,10 @@ Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
 Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
                                           const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-
-    if (_nesting_level >= 2 && str.size == 4 && str.data[0] == 'n' && str.data[1] == 'u' &&
-        str.data[2] == 'l' && str.data[3] == 'l') {
-        null_column.insert_data(nullptr, 0);
-        return Status::OK();
-    } else if (_nesting_level == 1 && str.size == 2 && str.data[0] == '\\' && str.data[1] == 'N') {
-        null_column.insert_data(nullptr, 0);
-        return Status::OK();
-    }
-
-    auto str_without_quote = str.trim_quote();
-    auto st =
-            nested_serde->from_string(str_without_quote, null_column.get_nested_column(), options);
+    auto st = nested_serde->from_string(str, null_column.get_nested_column(), options);
     if (!st.ok()) {
         // fill null if fail
-        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+        null_column.insert_default();
         return Status::OK();
     }
     // fill not null if success
@@ -469,20 +457,10 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
 Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                       const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-
-    if (_nesting_level >= 2 && str.size == 4 && str.data[0] == 'n' && str.data[1] == 'u' &&
-        str.data[2] == 'l' && str.data[3] == 'l') {
-        null_column.insert_data(nullptr, 0);
-        return Status::OK();
-    } else if (_nesting_level == 1 && str.size == 2 && str.data[0] == '\\' && str.data[1] == 'N') {
-        null_column.insert_data(nullptr, 0);
-        return Status::OK();
-    }
-
-    auto str_without_quote = str.trim_quote();
-
-    return nested_serde->from_string_strict_mode(str_without_quote, null_column.get_nested_column(),
-                                                 options);
+    RETURN_IF_ERROR(nested_serde->from_string(str, null_column.get_nested_column(), options));
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
 }
 } // namespace vectorized
 } // namespace doris
