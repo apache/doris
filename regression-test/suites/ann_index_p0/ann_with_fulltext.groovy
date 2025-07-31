@@ -16,6 +16,26 @@
 // under the License.
 
 suite("ann_with_fulltext") {
+    if (isCloudMode()) {
+        // Test that ANN index creation fails in cloud mode
+        test {
+            sql """
+                create table ann_with_fulltext (
+                    id int not null,
+                    embedding array<float> not null,
+                    comment String not null,
+                    value int null,
+                    INDEX idx_comment(`comment`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for comment',
+                    INDEX ann_embedding(`embedding`) USING ANN PROPERTIES("index_type"="hnsw","metric_type"="l2_distance","dim"="8")
+                ) duplicate key (`id`) 
+                distributed by hash(`id`) buckets 1
+                properties("replication_num"="1");
+            """
+            exception "ANN index is not supported in cloud mode"
+        }
+        return
+    }
+    
     sql "drop table if exists ann_with_fulltext"
     
     sql """
@@ -53,6 +73,10 @@ suite("ann_with_fulltext") {
     """
 
     qt_q2 """
+        select * from ann_with_fulltext where comment match_any "illustrates comments answers";
+    """
+
+    qt_q3 """
         select *, l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) as dist from ann_with_fulltext where comment match_any "illustrates comments answers"  order by dist limit 2
     """
     

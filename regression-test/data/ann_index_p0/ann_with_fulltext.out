@@ -15,6 +15,11 @@
 0	[39.906116, 10.495334, 54.08394, 88.67262, 55.243687, 10.162686, 36.335983, 38.684258]	This example illustrates how subtle differences can influence perception. It's more about interpretation than right or wrong.	100
 
 -- !q2 --
+0	[39.906116, 10.495334, 54.08394, 88.67262, 55.243687, 10.162686, 36.335983, 38.684258]	This example illustrates how subtle differences can influence perception. It's more about interpretation than right or wrong.	100
+1	[62.759315, 97.15586, 25.832521, 39.604908, 88.76715, 72.64085, 9.688437, 17.721428]	Thanks for all the comments, good and bad. They help us refine our test. Keep in mind that we're attempting to figure you out in 40 pairs of pictures. We did this so that lots of people could take it, just to introduce the idea.<p>A <i>real</i> test would have more like 200 pairs, which is what the YC founders took when we assessed their attributes in the first place.	101
+9	[76.197945, 60.623528, 84.229805, 31.652937, 71.82595, 48.04684, 71.29212, 30.282396]	This task isn’t about right answers, but about consistency in your judgments over time.	109
+
+-- !q3 --
 0	[39.906116, 10.495334, 54.08394, 88.67262, 55.243687, 10.162686, 36.335983, 38.684258]	This example illustrates how subtle differences can influence perception. It's more about interpretation than right or wrong.	100	81.69190979003906
 9	[76.197945, 60.623528, 84.229805, 31.652937, 71.82595, 48.04684, 71.29212, 30.282396]	This task isn’t about right answers, but about consistency in your judgments over time.	109	122.17068481445312
 

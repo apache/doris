@@ -16,6 +16,30 @@
 // under the License.
 
 suite("insert_with_invalid_array") {
+    if (isCloudMode()) {
+        // Test that ANN index creation fails in cloud mode
+        test {
+            sql """
+                CREATE TABLE insert_with_invalid_array (
+                    id INT NOT NULL COMMENT "",
+                    vec ARRAY<FLOAT> NOT NULL COMMENT "",
+                    INDEX ann_idx (vec) USING ANN PROPERTIES(
+                        "index_type" = "hnsw",
+                        "metric_type" = "l2_distance",
+                        "dim" = "3"
+                    )
+                ) ENGINE=OLAP
+                DUPLICATE KEY(id) COMMENT "OLAP"
+                DISTRIBUTED BY HASH(id) BUCKETS AUTO
+                PROPERTIES (
+                    "replication_num" = "1"
+                );
+            """
+            exception "ANN index is not supported in cloud mode"
+        }
+        return
+    }
+    
     sql "drop table if exists insert_with_invalid_array"
     test {
         sql """

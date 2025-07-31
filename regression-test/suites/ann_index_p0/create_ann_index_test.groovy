@@ -16,6 +16,30 @@
 // under the License.
 
 suite("create_ann_index_test") {
+    if (isCloudMode()) {
+        // Test that ANN index creation fails in cloud mode
+        test {
+            sql """
+                CREATE TABLE `tbl_not_null` (
+                  `id` int NOT NULL COMMENT "",
+                  `embedding` array<float> NOT NULL COMMENT "",
+                  INDEX ann_idx (embedding) USING ANN PROPERTIES(
+                      "index_type" = "hnsw",
+                      "metric_type" = "l2_distance",
+                      "dim" = "128"
+                  )
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`id`) COMMENT "OLAP"
+                DISTRIBUTED BY HASH(`id`) BUCKETS 2
+                PROPERTIES (
+                  "replication_num" = "1"
+                );
+            """
+            exception "ANN index is not supported in cloud mode"
+        }
+        return
+    }
+    
     // Test that CREATE INDEX for ANN is not supported
     sql "drop table if exists tbl_not_null"
     sql """

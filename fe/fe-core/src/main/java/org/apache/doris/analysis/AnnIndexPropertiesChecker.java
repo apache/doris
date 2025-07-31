@@ -17,12 +17,17 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import java.util.Map;
 
 public class AnnIndexPropertiesChecker {
     public static void checkProperties(Map<String, String> properties) {
+        if (Config.isCloudMode()) {
+            throw new AnalysisException("ANN index is not supported in cloud mode");
+        }
+
         String type = null;
         String metric = null;
         String dim = null;

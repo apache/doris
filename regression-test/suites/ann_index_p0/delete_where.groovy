@@ -16,6 +16,31 @@
 // under the License.
 
 suite("delete_where_with_ann") {
+    if (isCloudMode()) {
+        // Test that ANN index creation fails in cloud mode
+        test {
+            sql """
+                CREATE TABLE delete_where_with_ann (
+                    id INT NOT NULL COMMENT "",
+                    vec ARRAY<FLOAT> NOT NULL COMMENT "",
+                    value INT NULL COMMENT "",
+                    INDEX ann_idx (vec) USING ANN PROPERTIES(
+                        "index_type" = "hnsw",
+                        "metric_type" = "l2_distance",
+                        "dim" = "3"
+                    )
+                ) ENGINE=OLAP
+                DUPLICATE KEY(id) COMMENT "OLAP"
+                DISTRIBUTED BY HASH(id) BUCKETS AUTO
+                PROPERTIES (
+                    "replication_num" = "1"
+                );
+            """
+            exception "ANN index is not supported in cloud mode"
+        }
+        return
+    }
+    
     sql "drop table if exists delete_where_with_ann"
     test {
         sql """
