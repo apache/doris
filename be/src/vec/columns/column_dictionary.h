@@ -179,11 +179,6 @@ public:
                                "permute not supported in ColumnDictionary");
     }
 
-    [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "replicate not supported in ColumnDictionary");
-    }
-
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = assert_cast<vectorized::ColumnString*>(col_ptr);
         _strings.resize(sel_size);

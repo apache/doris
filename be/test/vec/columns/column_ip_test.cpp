@@ -245,16 +245,6 @@ TEST_F(ColumnIPTest, ReserveTest) {
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_reserve_callback);
 }
 
-TEST_F(ColumnIPTest, ReplicateTest) {
-    // insert from data csv and assert insert result
-    MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
-
-    load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_replicate_callback);
-}
-
 TEST_F(ColumnIPTest, ReplaceColumnTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
