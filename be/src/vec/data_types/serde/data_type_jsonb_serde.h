@@ -66,10 +66,6 @@ public:
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, vectorized::Arena& arena) const override;
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override;
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
@@ -89,5 +85,6 @@ private:
 
 void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
                                 rapidjson::Document::AllocatorType& allocator);
+
 } // namespace vectorized
 } // namespace doris

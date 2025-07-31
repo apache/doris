@@ -21,8 +21,6 @@
 #include <arrow/array/array_binary.h>
 #include <arrow/array/builder_base.h>
 #include <arrow/array/builder_binary.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
 
 #include "common/status.h"
 #include "data_type_serde.h"
@@ -212,12 +210,6 @@ public:
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, vectorized::Arena& arena) const override;
-
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override;
-
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
     template <bool is_binary_format>

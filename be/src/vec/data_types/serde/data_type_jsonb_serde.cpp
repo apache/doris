@@ -17,10 +17,6 @@
 
 #include "data_type_jsonb_serde.h"
 
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -183,6 +179,35 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
     return Status::OK();
 }
 
+Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                                              int64_t end) const {
+    const auto& string_column = assert_cast<const ColumnString&>(column);
+    result.mutable_string_value()->Reserve(cast_set<int>(end - start));
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::JSONB);
+    for (size_t row_num = start; row_num < end; ++row_num) {
+        const auto& string_ref = string_column.get_data_at(row_num);
+        if (string_ref.size > 0) {
+            result.add_string_value(
+                    JsonbToJson::jsonb_to_json_string(string_ref.data, string_ref.size));
+        } else {
+            result.add_string_value(NULL_IN_CSV_FOR_ORDINARY_TYPE);
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& column_string = assert_cast<ColumnString&>(column);
+    column_string.reserve(column_string.size() + arg.string_value_size());
+    JsonBinaryValue value;
+    for (int i = 0; i < arg.string_value_size(); ++i) {
+        RETURN_IF_ERROR(value.from_json_string(arg.string_value(i)));
+        column_string.insert_data(value.value(), value.size());
+    }
+    return Status::OK();
+}
+
 void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
                                 rapidjson::Document::AllocatorType& allocator) {
     // convert type of jsonb to rapidjson::Value
@@ -248,69 +273,6 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
         CHECK(false) << "unkown type " << static_cast<int>(val.type);
         break;
     }
-}
-
-Status DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                                  rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& mem_pool, int64_t row_num) const {
-    const auto& data = assert_cast<const ColumnString&>(column);
-    const auto jsonb_val = data.get_data_at(row_num);
-    if (jsonb_val.empty()) {
-        return Status::OK();
-    }
-    JsonbValue* val = JsonbDocument::createValue(jsonb_val.data, jsonb_val.size);
-    if (val == nullptr) {
-        return Status::InternalError("Failed to get json document from jsonb");
-    }
-    rapidjson::Value value;
-    convert_jsonb_to_rapidjson(*val, value, allocator);
-    if (val->isObject() && result.IsObject()) {
-        JsonFunctions::merge_objects(result, value, allocator);
-    } else {
-        result = std::move(value);
-    }
-    return Status::OK();
-}
-
-Status DataTypeJsonbSerDe::read_one_cell_from_json(IColumn& column,
-                                                   const rapidjson::Value& result) const {
-    // TODO improve performance
-    auto& col = assert_cast<ColumnString&>(column);
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    result.Accept(writer);
-    JsonBinaryValue jsonb_value;
-    RETURN_IF_ERROR(jsonb_value.from_json_string(buffer.GetString(), buffer.GetLength()));
-    col.insert_data(jsonb_value.value(), jsonb_value.size());
-    return Status::OK();
-}
-Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
-                                              int64_t end) const {
-    const auto& string_column = assert_cast<const ColumnString&>(column);
-    result.mutable_string_value()->Reserve(cast_set<int>(end - start));
-    auto* ptype = result.mutable_type();
-    ptype->set_id(PGenericType::JSONB);
-    for (size_t row_num = start; row_num < end; ++row_num) {
-        const auto& string_ref = string_column.get_data_at(row_num);
-        if (string_ref.size > 0) {
-            result.add_string_value(
-                    JsonbToJson::jsonb_to_json_string(string_ref.data, string_ref.size));
-        } else {
-            result.add_string_value(NULL_IN_CSV_FOR_ORDINARY_TYPE);
-        }
-    }
-    return Status::OK();
-}
-
-Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& column_string = assert_cast<ColumnString&>(column);
-    column_string.reserve(column_string.size() + arg.string_value_size());
-    JsonBinaryValue value;
-    for (int i = 0; i < arg.string_value_size(); ++i) {
-        RETURN_IF_ERROR(value.from_json_string(arg.string_value(i)));
-        column_string.insert_data(value.value(), value.size());
-    }
-    return Status::OK();
 }
 
 Status DataTypeJsonbSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,

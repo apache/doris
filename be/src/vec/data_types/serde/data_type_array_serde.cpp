@@ -286,47 +286,6 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
     result.writeEndBinary();
 }
 
-Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                                  rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& arena, int64_t row_num) const {
-    auto res = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = res.first;
-    row_num = res.second;
-
-    const auto& data_column = assert_cast<const ColumnArray&>(*ptr);
-    const auto& offsets = data_column.get_offsets();
-
-    size_t offset = offsets[row_num - 1];
-    size_t next_offset = offsets[row_num];
-
-    const IColumn& nested_column = data_column.get_data();
-    result.SetArray();
-    for (size_t i = offset; i < next_offset; ++i) {
-        rapidjson::Value val;
-        RETURN_IF_ERROR(
-                nested_serde->write_one_cell_to_json(nested_column, val, allocator, arena, i));
-        result.PushBack(val, allocator);
-    }
-    return Status::OK();
-}
-
-Status DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
-                                                   const rapidjson::Value& result) const {
-    auto& column_array = static_cast<ColumnArray&>(column);
-    auto& offsets_data = column_array.get_offsets();
-    auto& nested_data = column_array.get_data();
-    if (!result.IsArray()) {
-        column_array.insert_default();
-        return Status::OK();
-    }
-    // TODO this is slow should improve performance
-    for (const rapidjson::Value& v : result.GetArray()) {
-        RETURN_IF_ERROR(nested_serde->read_one_cell_from_json(nested_data, v));
-    }
-    offsets_data.emplace_back(result.GetArray().Size());
-    return Status::OK();
-}
-
 void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());

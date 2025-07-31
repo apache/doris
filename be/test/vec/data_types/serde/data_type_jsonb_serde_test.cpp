@@ -223,22 +223,6 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             EXPECT_EQ(st, Status::OK()) << "Failed to write column to orc: " << st;
             EXPECT_EQ(orc_batch->numElements, row_count - 1);
         }
-        {
-            // test write_one_cell_to_json/read_one_cell_from_json
-            rapidjson::Document doc;
-            doc.SetObject();
-            Arena mem_pool;
-            for (int row_idx = 0; row_idx < row_count - 1; ++row_idx) {
-                auto st = serde.write_one_cell_to_json(*source_column, doc, doc.GetAllocator(),
-                                                       mem_pool, row_idx);
-                EXPECT_TRUE(st.ok()) << "Failed to write one cell to json: " << st;
-            }
-            MutableColumnPtr deser_column = source_column->clone_empty();
-            for (int row_idx = 0; row_idx < row_count - 1; ++row_idx) {
-                auto st = serde.read_one_cell_from_json(*deser_column, doc);
-                EXPECT_TRUE(st.ok()) << "Failed to read one cell from json: " << st;
-            }
-        }
     };
     test_func(*serde_jsonb, column_jsonb);
 }

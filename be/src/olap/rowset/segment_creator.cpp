@@ -113,12 +113,6 @@ Status SegmentFlusher::close() {
     return _seg_files.close();
 }
 
-bool SegmentFlusher::need_buffering() {
-    // buffering variants for schema change
-    return _context.write_type == DataWriteType::TYPE_SCHEMA_CHANGE &&
-           _context.tablet_schema->num_variant_columns() > 0;
-}
-
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                                  const vectorized::Block* block, size_t row_offset,
                                  size_t row_num) {
@@ -356,18 +350,6 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
-    if (_segment_flusher.need_buffering()) {
-        RETURN_IF_ERROR(_buffer_block.merge(*block));
-        if (_buffer_block.allocated_bytes() > config::write_buffer_size) {
-            LOG(INFO) << "directly flush a single block " << _buffer_block.rows() << " rows"
-                      << ", block size " << _buffer_block.bytes() << " block allocated_size "
-                      << _buffer_block.allocated_bytes();
-            vectorized::Block block = _buffer_block.to_block();
-            RETURN_IF_ERROR(flush_single_block(&block));
-            _buffer_block.clear();
-        }
-        return Status::OK();
-    }
 
     if (_flush_writer == nullptr) {
         RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
@@ -391,14 +373,6 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
 }
 
 Status SegmentCreator::flush() {
-    if (_buffer_block.rows() > 0) {
-        vectorized::Block block = _buffer_block.to_block();
-        LOG(INFO) << "directly flush a single block " << block.rows() << " rows"
-                  << ", block size " << block.bytes() << " block allocated_size "
-                  << block.allocated_bytes();
-        RETURN_IF_ERROR(flush_single_block(&block));
-        _buffer_block.clear();
-    }
     if (_flush_writer == nullptr) {
         return Status::OK();
     }

@@ -337,31 +337,6 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_one_cell_to_json(
-        const IColumn& column, rapidjson::Value& result,
-        rapidjson::Document::AllocatorType& allocator, Arena& mem_pool, int64_t row_num) const {
-    const auto& col = assert_cast<const ColumnType&>(column);
-    const auto& data_ref = col.get_data_at(row_num);
-    result.SetString(data_ref.data, cast_set<rapidjson::SizeType>(data_ref.size));
-    return Status::OK();
-}
-
-template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::read_one_cell_from_json(
-        IColumn& column, const rapidjson::Value& result) const {
-    auto& col = assert_cast<ColumnType&>(column);
-    if (!result.IsString()) {
-        rapidjson::StringBuffer buffer;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        result.Accept(writer);
-        col.insert_data(buffer.GetString(), buffer.GetSize());
-        return Status::OK();
-    }
-    col.insert_data(result.GetString(), result.GetStringLength());
-    return Status::OK();
-}
-
-template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(const IColumn& from_column,
                                                                       int64_t row_num,
                                                                       JsonbWriter& writer) const {

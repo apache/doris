@@ -407,35 +407,6 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
-Status DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column,
-                                                     rapidjson::Value& result,
-                                                     rapidjson::Document::AllocatorType& allocator,
-                                                     Arena& mem_pool, int64_t row_num) const {
-    const auto& col = static_cast<const ColumnNullable&>(column);
-    const auto& nested_col = col.get_nested_column();
-    if (col.is_null_at(row_num)) {
-        result.SetNull();
-    } else {
-        RETURN_IF_ERROR(nested_serde->write_one_cell_to_json(nested_col, result, allocator,
-                                                             mem_pool, row_num));
-    }
-    return Status::OK();
-}
-
-Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
-                                                      const rapidjson::Value& result) const {
-    auto& col = static_cast<ColumnNullable&>(column);
-    auto& nested_col = col.get_nested_column();
-    if (result.IsNull()) {
-        col.insert_default();
-    } else {
-        // TODO sanitize data
-        RETURN_IF_ERROR(nested_serde->read_one_cell_from_json(nested_col, result));
-        col.get_null_map_column().get_data().push_back(0);
-    }
-    return Status::OK();
-}
-
 Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
                                           const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);

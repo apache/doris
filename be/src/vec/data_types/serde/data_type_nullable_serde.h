@@ -105,12 +105,9 @@ public:
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override;
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
-
     virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
+
+    const DataTypeSerDeSPtr& get_nested_serde() const { return nested_serde; }
 
 private:
     template <bool is_binary_format>
