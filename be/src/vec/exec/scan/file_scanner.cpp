@@ -602,6 +602,9 @@ Status FileScanner::_cast_to_input_block(Block* block) {
 }
 
 Status FileScanner::_fill_columns_from_path(size_t rows) {
+    if (!_fill_partition_from_path) {
+        return Status::OK();
+    }
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : _partition_col_descs) {
         auto doris_column = _src_block_ptr->get_by_name(kv.first).column;
@@ -1332,7 +1335,12 @@ Status FileScanner::_set_fill_or_truncate_columns(bool need_to_get_parsed_schema
     }
 
     RETURN_IF_ERROR(_generate_missing_columns());
-    RETURN_IF_ERROR(_cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs));
+    if (_fill_partition_from_path) {
+        RETURN_IF_ERROR(_cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs));
+    } else {
+        // If the partition columns are not from path, we only fill the missing columns.
+        RETURN_IF_ERROR(_cur_reader->set_fill_columns({}, _missing_col_descs));
+    }
     if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
         fmt::memory_buffer col_buf;
         for (auto& col : _missing_cols) {
@@ -1540,10 +1548,16 @@ Status FileScanner::_init_expr_ctxes() {
             _row_id_column_iterator_pair.second = _default_val_row_desc->get_column_id(slot_id);
             continue;
         }
-        if (slot_info.is_file_slot) {
+        if (partition_name_to_key_index_map.find(it->second->col_name()) ==
+            partition_name_to_key_index_map.end()) {
             _file_slot_descs.emplace_back(it->second);
             _file_col_names.push_back(it->second->col_name());
         } else {
+            if (slot_info.is_file_slot) {
+                // If there is slot which is both a partition column and a file column,
+                // we should not fill the partition column from path.
+                _fill_partition_from_path = false;
+            }
             _partition_slot_descs.emplace_back(it->second);
             if (_is_load) {
                 auto iti = full_src_index_map.find(slot_id);
