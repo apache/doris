@@ -1491,7 +1491,7 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     int64_t seg_id = 1234567890;
     auto index_file_writer = std::make_unique<segment_v2::InvertedIndexFileWriter>(
             fs, index_path, rowset_id, seg_id, InvertedIndexStorageFormatPB::V2,
-            std::move(file_writer), false);
+            std::move(file_writer));
     EXPECT_TRUE(index_file_writer->close().ok());
 }
 
