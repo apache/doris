@@ -53,6 +53,12 @@ enum CHECK_TYPE {
     CHECK_JOB,
 };
 
+struct TableInfo {
+    int64_t db_id;
+    int64_t table_id;
+    int64_t visible_version;
+};
+
 struct TabletInfo {
     int64_t db_id;
     int64_t table_id;
@@ -76,6 +82,16 @@ struct PartitionInfo {
     int64_t partition_id;
     int64_t tablet_id;
     int64_t visible_version;
+
+    // clang-format off
+    std::string debug_string() const {
+        return "db id: " + std::to_string(db_id) + 
+               " table id: " + std::to_string(table_id) +
+               " partition id: " + std::to_string(partition_id) +
+               " tablet id: " + std::to_string(tablet_id) +
+               " visible version: " + std::to_string(visible_version);
+    }
+    // clang-format on
 };
 
 class MetaChecker {
@@ -93,8 +109,8 @@ public:
     bool handle_check_fdb_by_fe_meta(MYSQL* conn);
 
 private:
-    void init_tablet_info_from_fe_meta(MYSQL* conn, std::vector<TabletInfo>& tablets,
-                                       std::map<int64_t, PartitionInfo>& partitions);
+    void init_tablet_and_partition_info_from_fe_meta(MYSQL* conn, std::vector<TabletInfo>& tablets,
+                                                     std::map<int64_t, PartitionInfo>& partitions);
 
     bool scan_and_handle_kv(std::string& start_key, const std::string& end_key,
                             std::function<int(std::string_view, std::string_view)>);
@@ -104,6 +120,10 @@ private:
     bool do_meta_tablet_key_check(MYSQL* conn);
 
     bool do_meta_schema_key_check(MYSQL* conn);
+
+    bool do_version_partition_key_check(MYSQL* conn);
+
+    bool do_version_table_key_check(MYSQL* conn);
 
     bool do_meta_tablet_index_key_inverted_check(MYSQL* conn,
                                                  const std::vector<TabletInfo>& tablets);
@@ -132,9 +152,8 @@ bool MetaChecker::handle_check_fe_meta_by_fdb<CHECK_STATS>(MYSQL* conn) = delete
 template <>
 bool MetaChecker::handle_check_fe_meta_by_fdb<CHECK_TXN>(MYSQL* conn) = delete;
 
-// not implemented yet
 template <>
-bool MetaChecker::handle_check_fe_meta_by_fdb<CHECK_VERSION>(MYSQL* conn) = delete;
+bool MetaChecker::handle_check_fe_meta_by_fdb<CHECK_VERSION>(MYSQL* conn);
 
 // not implemented yet
 template <>
@@ -151,9 +170,8 @@ bool MetaChecker::handle_check_fdb_by_fe_meta<CHECK_STATS>(MYSQL* conn) = delete
 template <>
 bool MetaChecker::handle_check_fdb_by_fe_meta<CHECK_TXN>(MYSQL* conn) = delete;
 
-// not implemented yet
 template <>
-bool MetaChecker::handle_check_fdb_by_fe_meta<CHECK_VERSION>(MYSQL* conn) = delete;
+bool MetaChecker::handle_check_fdb_by_fe_meta<CHECK_VERSION>(MYSQL* conn);
 
 // not implemented yet
 template <>

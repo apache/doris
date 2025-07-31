@@ -356,6 +356,108 @@ bool MetaChecker::do_meta_schema_key_check(MYSQL* conn) {
     return check_res;
 }
 
+bool MetaChecker::do_version_partition_key_check(MYSQL* conn) {
+    std::vector<PartitionInfo> partitions_info;
+    bool check_res = true;
+
+    // scan and collect tablet_idx
+    std::string start_key;
+    std::string end_key;
+    partition_version_key({instance_id_, 0, 0, 0}, &start_key);
+    partition_version_key({instance_id_, INT64_MAX, 0, 0}, &end_key);
+    scan_and_handle_kv(
+            start_key, end_key,
+            [&partitions_info](std::string_view key, std::string_view value) -> int {
+                VersionPB partition_version;
+                if (!partition_version.ParseFromArray(value.data(), value.size())) {
+                    LOG(WARNING) << "malformed tablet index value";
+                    return -1;
+                }
+                auto k1 = key;
+                k1.remove_prefix(1);
+                // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+                decode_key(&k1, &out);
+                DCHECK_EQ(out.size(), 6) << key;
+                auto db_id = std::get<int64_t>(std::get<0>(out[3]));
+                auto table_id = std::get<int64_t>(std::get<0>(out[4]));
+                auto partition_id = std::get<int64_t>(std::get<0>(out[5]));
+                partitions_info.emplace_back(
+                        PartitionInfo {.db_id = db_id,
+                                       .table_id = table_id,
+                                       .partition_id = partition_id,
+                                       .visible_version = partition_version.version()});
+                return 0;
+            });
+
+    for (const auto& partition_info : partitions_info) {
+        if (!db_meta_.contains(partition_info.db_id)) {
+            // clang-format off
+            LOG(WARNING) << "partition_info.db_id not found in fe meta, "
+                         << "db_id = "<< partition_info.db_id
+                         << "partition meta: " << partition_info.debug_string();
+            // clang-format on
+            continue;
+        }
+        std::string db_name = db_meta_.at(partition_info.db_id);
+        if (db_name == "__internal_schema" || db_name == "information_schema" ||
+            db_name == "mysql") {
+            continue;
+        }
+
+        if (mysql_select_db(conn, db_name.c_str())) {
+            LOG(WARNING) << "mysql select db error, db_name: " << db_name
+                         << " error: " << mysql_error(conn);
+            continue;
+        }
+
+        MYSQL_RES* result;
+        std::string sql_stmt = fmt::format("show partitions from {} where PartitionId = \"{}\"",
+                                           db_name, partition_info.partition_id);
+        mysql_query(conn, sql_stmt.c_str());
+
+        result = mysql_store_result(conn);
+        if (result) {
+            MYSQL_ROW row = mysql_fetch_row(result);
+            if (partition_info.visible_version != atoll(row[2])) {
+                LOG(WARNING) << "check failed, fdb meta: " << partition_info.debug_string()
+                             << " fe partition visible: " << atoll(row[2]);
+                check_res = false;
+            }
+            mysql_free_result(result);
+        } else {
+            LOG(WARNING) << "check failed, fdb meta: " << partition_info.debug_string()
+                         << " fe partition not found";
+            check_res = false;
+        }
+    }
+
+    return check_res;
+}
+
+bool MetaChecker::do_version_table_key_check(MYSQL* conn) {
+    return true;
+}
+
+template <>
+bool MetaChecker::handle_check_fe_meta_by_fdb<CHECK_VERSION>(MYSQL* conn) {
+    bool check_res = true;
+    if (!do_version_partition_key_check(conn)) {
+        check_res = false;
+        LOG(WARNING) << "do_version_partition_key_check failed";
+    } else {
+        LOG(INFO) << "do_version_partition_key_check success";
+    }
+
+    if (!do_version_table_key_check(conn)) {
+        check_res = false;
+        LOG(WARNING) << "do_version_table_key_check failed";
+    } else {
+        LOG(INFO) << "do_version_table_key_check success";
+    }
+    return check_res;
+}
+
 template <>
 bool MetaChecker::handle_check_fe_meta_by_fdb<CHECK_META>(MYSQL* conn) {
     bool check_res = true;
@@ -592,7 +694,7 @@ bool MetaChecker::handle_check_fdb_by_fe_meta<CHECK_META>(MYSQL* conn) {
     std::vector<TabletInfo> tablets;
     std::map<int64_t, PartitionInfo> partitions;
 
-    init_tablet_info_from_fe_meta(conn, tablets, partitions);
+    init_tablet_and_partition_info_from_fe_meta(conn, tablets, partitions);
 
     bool check_res = true;
     // check MetaTabletIdxKey
@@ -717,8 +819,9 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
     LOG(INFO) << "meta check finish";
 }
 
-void MetaChecker::init_tablet_info_from_fe_meta(MYSQL* conn, std::vector<TabletInfo>& tablets,
-                                                std::map<int64_t, PartitionInfo>& partitions) {
+void MetaChecker::init_tablet_and_partition_info_from_fe_meta(
+        MYSQL* conn, std::vector<TabletInfo>& tablets,
+        std::map<int64_t, PartitionInfo>& partitions) {
     // init tablet info, partition info
     std::map<std::string, std::vector<std::string>> db_to_tables;
     std::string sql_stmt = "show databases";
