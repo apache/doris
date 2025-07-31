@@ -194,18 +194,19 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                      << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
         if (config::enable_auto_clone_on_compaction_missing_version) {
+            int64_t max_version = tablet()->max_version_unlocked();
             LOG_INFO("cumulative compaction submit missing rowset clone task.")
                     .tag("tablet_id", _tablet->tablet_id())
-                    .tag("version", missing_versions.back().first)
+                    .tag("max_version", max_version)
                     .tag("replica_id", tablet()->replica_id())
                     .tag("partition_id", _tablet->partition_id())
                     .tag("table_id", _tablet->table_id());
-            Status st = _engine.submit_clone_task(tablet(), missing_versions.back().first);
+            Status st = _engine.submit_clone_task(tablet(), max_version);
             if (!st) {
                 LOG_WARNING("cumulative compaction failed to submit missing rowset clone task.")
                         .tag("st", st.msg())
                         .tag("tablet_id", _tablet->tablet_id())
-                        .tag("version", missing_versions.back().first)
+                        .tag("max_version", max_version)
                         .tag("replica_id", tablet()->replica_id())
                         .tag("partition_id", _tablet->partition_id())
                         .tag("table_id", _tablet->table_id());
