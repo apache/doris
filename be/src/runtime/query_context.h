@@ -370,7 +370,8 @@ private:
     std::string _load_error_url;
 
     // file cache context holders
-    std::vector<io::BlockFileCache::QueryFileCacheContextHolderPtr> _query_file_cache_context_holders;
+    std::vector<io::BlockFileCache::QueryFileCacheContextHolderPtr>
+            _query_file_cache_context_holders;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

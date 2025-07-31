@@ -195,8 +195,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                             "file_cache_num_hit_blocks");
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
-    _num_query_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                                "file_cache_num_query_removed_blocks");
+    _num_query_removed_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_num_query_removed_blocks");
 
     _num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
@@ -306,7 +306,8 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_contex
         return nullptr;
     }
 
-    LOG(INFO) << "BlockFileCache::get_or_set_query_context called for query_id: " << print_id(query_id);
+    LOG(INFO) << "BlockFileCache::get_or_set_query_context called for query_id: "
+              << print_id(query_id);
     auto context = get_query_context(query_id, cache_lock);
     if (context) {
         return context;
@@ -1045,9 +1046,9 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
     };
 
     LOG(DEBUG) << "Starting query context eviction scan: queue_size=" << queue_size
-                << ", max_queue_size=" << max_size
-                << ", query_cache_size=" << query_context_cache_size
-                << ", query_id=" << print_id(context.query_id);
+               << ", max_queue_size=" << max_size
+               << ", query_cache_size=" << query_context_cache_size
+               << ", query_id=" << print_id(context.query_id);
     /// Select the cache from the LRU queue held by query for expulsion.
     for (auto iter = query_context->queue().begin(); iter != query_context->queue().end(); iter++) {
         if (!is_overflow()) {
@@ -1096,18 +1097,19 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
 
     if (is_overflow()) {
         LOG(DEBUG) << "Query context eviction insufficient, trying to evict from other queues: "
-                  << "removed_size=" << removed_size
-                  << ", ghost_remove_size=" << ghost_remove_size
-                  << ", needed=" << size;
-                  
-        bool other_queue_success = config::file_cache_query_limit_enable_evict_from_other_queue ? 
-            try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock) : false;
+                   << "removed_size=" << removed_size << ", ghost_remove_size=" << ghost_remove_size
+                   << ", needed=" << size;
+
+        bool other_queue_success = config::file_cache_query_limit_enable_evict_from_other_queue
+                                           ? try_reserve_from_other_queue(context.cache_type, size,
+                                                                          cur_time, cache_lock)
+                                           : false;
         if (!other_queue_success) {
             LOG(DEBUG) << "Failed to reserve space after exhausting all eviction strategies: "
-                         << "query_limit_enable_evict_from_other_queue=" << config::file_cache_query_limit_enable_evict_from_other_queue 
-                        << ", hash=" << hash.to_string()
-                        << ", offset=" << offset
-                        << ", size=" << size;
+                       << "query_limit_enable_evict_from_other_queue="
+                       << config::file_cache_query_limit_enable_evict_from_other_queue
+                       << ", hash=" << hash.to_string() << ", offset=" << offset
+                       << ", size=" << size;
             return false;
         }
     }
@@ -2445,7 +2447,7 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
 
     stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
     stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
-    
+
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
     stats["total_read_counts"] = (double)_num_read_blocks->get_value();
