@@ -42,11 +42,9 @@
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
-#include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"

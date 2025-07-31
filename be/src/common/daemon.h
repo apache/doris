@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "util/countdown_latch.h"
-#include "util/thread.h"
 
 namespace doris {
 
@@ -48,6 +47,6 @@ private:
     void calculate_workload_group_metrics_thread();
 
     CountDownLatch _stop_background_threads_latch;
-    std::vector<scoped_refptr<Thread>> _threads;
+    std::vector<std::shared_ptr<std::thread>> _threads;
 };
 } // namespace doris

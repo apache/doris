@@ -147,23 +147,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RefCountedThreadSafe);
 };
 
-//
-// A thread-safe wrapper for some piece of data so we can place other
-// things in scoped_refptrs<>.
-//
-template <typename T>
-class RefCountedData : public doris::RefCountedThreadSafe<doris::RefCountedData<T>> {
-public:
-    RefCountedData() : data() {}
-    RefCountedData(const T& in_value) : data(in_value) {}
-
-    T data;
-
-private:
-    friend class doris::RefCountedThreadSafe<doris::RefCountedData<T>>;
-    ~RefCountedData() {}
-};
-
 } // namespace doris
 
 //

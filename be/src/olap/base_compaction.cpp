@@ -32,7 +32,6 @@
 #include "olap/tablet.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
-#include "util/thread.h"
 #include "util/trace.h"
 
 namespace doris {

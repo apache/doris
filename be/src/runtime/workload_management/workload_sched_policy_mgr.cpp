@@ -28,14 +28,10 @@ void WorkloadSchedPolicyMgr::start(ExecEnv* exec_env) {
     _stop_latch.reset(1);
     _exec_env = exec_env;
 
-    Status st;
-    st = Thread::create(
-            "workload", "workload_scheduler", [this]() { this->_schedule_workload(); }, &_thread);
-    if (!st.ok()) {
-        LOG(WARNING) << "create workload scheduler thread failed";
-    } else {
-        LOG(INFO) << "start workload scheduler ";
-    }
+    _thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "Workload-workload_scheduler");
+        this->_schedule_workload();
+    });
 }
 
 void WorkloadSchedPolicyMgr::stop() {

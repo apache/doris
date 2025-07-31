@@ -87,7 +87,6 @@
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
 #include "util/runtime_profile.h"
-#include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
@@ -314,17 +313,16 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
+    _cancel_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "FragmentMgr-cancel_timeout_plan_fragment");
+        this->cancel_worker();
+    });
 
-    auto s = Thread::create(
-            "FragmentMgr", "cancel_timeout_plan_fragment", [this]() { this->cancel_worker(); },
-            &_cancel_thread);
-    CHECK(s.ok()) << s.to_string();
-
-    s = ThreadPoolBuilder("FragmentMgrAsyncWorkThreadPool")
-                .set_min_threads(config::fragment_mgr_async_work_pool_thread_num_min)
-                .set_max_threads(config::fragment_mgr_async_work_pool_thread_num_max)
-                .set_max_queue_size(config::fragment_mgr_async_work_pool_queue_size)
-                .build(&_thread_pool);
+    auto s = ThreadPoolBuilder("FragmentMgrAsyncWorkThreadPool")
+                     .set_min_threads(config::fragment_mgr_async_work_pool_thread_num_min)
+                     .set_max_threads(config::fragment_mgr_async_work_pool_thread_num_max)
+                     .set_max_queue_size(config::fragment_mgr_async_work_pool_queue_size)
+                     .build(&_thread_pool);
     CHECK(s.ok()) << s.to_string();
 }
 

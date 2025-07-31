@@ -41,7 +41,6 @@
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
-#include "util/thread.h"
 #include "util/threadpool.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/core/block.h"

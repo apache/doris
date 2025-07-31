@@ -26,7 +26,6 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
-#include <ostream>
 #include <utility>
 
 #include "arrow/type_fwd.h"
@@ -34,7 +33,6 @@
 #include "runtime/result_block_buffer.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
-#include "util/thread.h"
 #include "util/uid_util.h"
 #include "vec/sink/varrow_flight_result_writer.h"
 #include "vec/sink/vmysql_result_writer.h"
@@ -61,9 +59,10 @@ void ResultBufferMgr::stop() {
 }
 
 Status ResultBufferMgr::init() {
-    RETURN_IF_ERROR(Thread::create(
-            "ResultBufferMgr", "cancel_timeout_result", [this]() { this->cancel_thread(); },
-            &_clean_thread));
+    _clean_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "ResultBufferMgr-cancel_timeout_result");
+        this->cancel_thread();
+    });
     return Status::OK();
 }
 

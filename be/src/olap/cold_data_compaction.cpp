@@ -38,7 +38,6 @@
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
-#include "util/thread.h"
 #include "util/trace.h"
 #include "util/uid_util.h"
 

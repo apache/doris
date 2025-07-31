@@ -41,7 +41,6 @@
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "runtime/exec_env.h"
-#include "util/thread.h"
 
 namespace doris {
 
@@ -77,15 +76,12 @@ Status LoadPathMgr::init() {
 
     _idx = 0;
     _reserved_hours = std::max<int64_t>(config::load_data_reserve_hours, 1L);
-    RETURN_IF_ERROR(Thread::create(
-            "LoadPathMgr", "clean_expired_temp_path",
-            [this]() {
-                // TODO(zc): add this thread to cgroup for control resource it use
-                while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(3600))) {
-                    this->clean();
-                }
-            },
-            &_clean_thread));
+    _clean_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "LoadPathMgr-clean_expired_temp_path");
+        while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(3600))) {
+            this->clean();
+        }
+    });
     return Status::OK();
 }
 

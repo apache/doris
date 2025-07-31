@@ -28,7 +28,6 @@
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/scoped_cleanup.h"
-#include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/uid_util.h"
 #include "vec/exec/executor/time_sharing/multilevel_split_queue.h"

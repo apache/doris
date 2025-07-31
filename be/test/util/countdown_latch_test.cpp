@@ -26,8 +26,6 @@
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/ref_counted.h"
-#include "util/thread.h"
 #include "util/threadpool.h"
 
 namespace doris {

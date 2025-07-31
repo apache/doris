@@ -82,9 +82,11 @@ Status WalManager::init() {
     RETURN_IF_ERROR(_init_wal_dirs_conf());
     RETURN_IF_ERROR(_init_wal_dirs());
     RETURN_IF_ERROR(_init_wal_dirs_info());
-    return Thread::create(
-            "WalMgr", "replay_wal", [this]() { static_cast<void>(this->_replay_background()); },
-            &_replay_thread);
+    _replay_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "WalMgr-replay_wal");
+        static_cast<void>(this->_replay_background());
+    });
+    return Status::OK();
 }
 
 Status WalManager::_init_wal_dirs_conf() {
@@ -158,13 +160,12 @@ Status WalManager::_init_wal_dirs_info() {
 #endif
     }
 #ifndef BE_TEST
-    return Thread::create(
-            "WalMgr", "update_wal_dir_info",
-            [this]() { static_cast<void>(this->_update_wal_dir_info_thread()); },
-            &_update_wal_dirs_info_thread);
-#else
-    return Status::OK();
+    _update_wal_dirs_info_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "WalMgr-update_wal_dir_info");
+        static_cast<void>(this->_update_wal_dir_info_thread());
+    });
 #endif
+    return Status::OK();
 }
 
 void WalManager::add_wal_queue(int64_t table_id, int64_t wal_id) {

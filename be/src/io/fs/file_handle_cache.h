@@ -25,13 +25,13 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <thread>
 
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs.h"
 #include "util/aligned_new.h"
 #include "util/lru_multi_cache.inline.h"
-#include "util/thread.h"
 
 namespace doris::io {
 
@@ -188,7 +188,7 @@ private:
 
     /// Thread to check for unused file handles to evict. This thread will exit when
     /// the _shut_down_promise is set.
-    scoped_refptr<Thread> _eviction_thread;
+    std::unique_ptr<std::thread> _eviction_thread;
     std::atomic<bool> _is_shut_down = {false};
 };
 

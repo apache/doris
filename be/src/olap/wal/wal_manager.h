@@ -30,16 +30,9 @@
 #include <unordered_map>
 
 #include "common/config.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
 #include "olap/wal/wal_dirs_info.h"
-#include "olap/wal/wal_reader.h"
 #include "olap/wal/wal_table.h"
-#include "olap/wal/wal_writer.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/stream_load_context.h"
-#include "util/thread.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -127,11 +120,11 @@ private:
 
     // wal back pressure
     std::vector<std::string> _wal_dirs;
-    scoped_refptr<Thread> _update_wal_dirs_info_thread;
+    std::unique_ptr<std::thread> _update_wal_dirs_info_thread;
     std::unique_ptr<WalDirsInfo> _wal_dirs_info;
 
     // replay wal
-    scoped_refptr<Thread> _replay_thread;
+    std::unique_ptr<std::thread> _replay_thread;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
 
     std::shared_mutex _table_lock;

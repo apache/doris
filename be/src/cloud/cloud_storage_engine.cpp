@@ -278,27 +278,29 @@ Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
 }
 
 Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
-    RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "refresh_s3_info_thread",
-            [this]() { this->_refresh_storage_vault_info_thread_callback(); },
-            &_bg_threads.emplace_back()));
+    _bg_threads.emplace_back() = std::make_shared<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "CloudStorageEngine-refresh_s3_info_thread");
+        this->_refresh_storage_vault_info_thread_callback();
+    });
     LOG(INFO) << "refresh s3 info thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "vacuum_stale_rowsets_thread",
-            [this]() { this->_vacuum_stale_rowsets_thread_callback(); },
-            &_bg_threads.emplace_back()));
+    _bg_threads.emplace_back() = std::make_shared<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "CloudStorageEngine-vacuum_stale_rowsets_thread");
+        this->_vacuum_stale_rowsets_thread_callback();
+    });
     LOG(INFO) << "vacuum stale rowsets thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "sync_tablets_thread",
-            [this]() { this->_sync_tablets_thread_callback(); }, &_bg_threads.emplace_back()));
+    _bg_threads.emplace_back() = std::make_shared<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "CloudStorageEngine-sync_tablets_thread");
+        this->_sync_tablets_thread_callback();
+    });
     LOG(INFO) << "sync tablets thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "evict_querying_rowset_thread",
-            [this]() { this->_evict_quring_rowset_thread_callback(); },
-            &_evict_quering_rowset_thread));
+    _evict_querying_rowset_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(),
+                           "CloudStorageEngine-evict_quring_rowset_thread_callback");
+        this->_evict_quring_rowset_thread_callback();
+    });
     LOG(INFO) << "evict quering thread started";
 
     // add calculate tablet delete bitmap task thread pool
@@ -321,23 +323,22 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
                             .set_min_threads(cumu_thread_num)
                             .set_max_threads(cumu_thread_num)
                             .build(&_cumu_compaction_thread_pool));
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "compaction_tasks_producer_thread",
-            [this]() { this->_compaction_tasks_producer_callback(); },
-            &_bg_threads.emplace_back()));
+    _bg_threads.emplace_back() = std::make_shared<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-compaction_tasks_producer_thread");
+        this->_compaction_tasks_producer_callback();
+    });
     LOG(INFO) << "compaction tasks producer thread started,"
               << " base thread num " << base_thread_num << " cumu thread num " << cumu_thread_num;
-
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "lease_compaction_thread",
-            [this]() { this->_lease_compaction_thread_callback(); }, &_bg_threads.emplace_back()));
-
+    _bg_threads.emplace_back() = std::make_shared<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-lease_compaction_thread");
+        this->_lease_compaction_thread_callback();
+    });
     LOG(INFO) << "lease compaction thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "check_tablet_delete_bitmap_score_thread",
-            [this]() { this->_check_tablet_delete_bitmap_score_callback(); },
-            &_bg_threads.emplace_back()));
+    _bg_threads.emplace_back() = std::make_shared<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "StorageEngine-check_tablet_delete_bitmap_score_thread");
+        this->_check_tablet_delete_bitmap_score_callback();
+    });
     LOG(INFO) << "check tablet delete bitmap score thread started";
 
     return Status::OK();

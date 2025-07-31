@@ -36,7 +36,6 @@
 #include "service/brpc.h"
 #include "util/binary_cast.hpp"
 #include "util/brpc_client_cache.h"
-#include "util/thread.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"

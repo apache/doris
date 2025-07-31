@@ -31,7 +31,6 @@
 #include "olap/tablet_meta.h"
 #include "service/backend_options.h"
 #include "util/debug_points.h"
-#include "util/thread.h"
 #include "util/uuid_generator.h"
 #include "vec/columns/column.h"
 

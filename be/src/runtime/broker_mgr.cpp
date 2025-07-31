@@ -36,17 +36,16 @@
 #include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
 #include "util/metrics.h"
-#include "util/thread.h"
 
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(broker_count, MetricUnit::NOUNIT);
 
 BrokerMgr::BrokerMgr(ExecEnv* exec_env) : _exec_env(exec_env), _stop_background_threads_latch(1) {
-    CHECK(Thread::create(
-                  "BrokerMgr", "ping_worker", [this]() { this->ping_worker(); }, &_ping_thread)
-                  .ok());
-
+    _ping_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "BrokerMgr-ping_worker");
+        this->ping_worker();
+    });
     REGISTER_HOOK_METRIC(broker_count, [this]() {
         // std::lock_guard<std::mutex> l(_mutex);
         return _broker_set.size();

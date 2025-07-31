@@ -21,6 +21,7 @@
 
 #include "io/fs/file_handle_cache.h"
 
+#include <memory>
 #include <thread>
 #include <tuple>
 
@@ -139,8 +140,11 @@ FileHandleCache::~FileHandleCache() {
 }
 
 Status FileHandleCache::init() {
-    return Thread::create("file-handle-cache", "File Handle Timeout",
-                          &FileHandleCache::_evict_handles_loop, this, &_eviction_thread);
+    _eviction_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "FileHandleCache-eviction");
+        this->_evict_handles_loop();
+    });
+    return Status::OK();
 }
 
 Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fname, int64_t mtime,

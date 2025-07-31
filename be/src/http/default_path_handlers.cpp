@@ -45,7 +45,6 @@
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
-#include "util/thread.h"
 
 using std::vector;
 using std::shared_ptr;

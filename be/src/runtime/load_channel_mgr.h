@@ -20,8 +20,6 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <stdint.h>
 
-#include <condition_variable>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -33,8 +31,6 @@
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/load_channel.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/thread_context.h"
 #include "util/countdown_latch.h"
 #include "util/uid_util.h"
 
@@ -100,7 +96,7 @@ protected:
 
     CountDownLatch _stop_background_threads_latch;
     // thread to clean timeout load channels
-    scoped_refptr<Thread> _load_channels_clean_thread;
+    std::unique_ptr<std::thread> _load_channels_clean_thread;
     Status _start_load_channels_clean();
 };
 

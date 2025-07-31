@@ -29,7 +29,6 @@
 #include "runtime/result_queue_mgr.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
-#include "util/thread.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -39,10 +38,10 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(active_scan_context_count, MetricUnit::NOUNIT
 ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     // start the reaper thread for gc the expired context
-    CHECK(Thread::create(
-                  "ExternalScanContextMgr", "gc_expired_context",
-                  [this]() { this->gc_expired_context(); }, &_keep_alive_reaper)
-                  .ok());
+    _keep_alive_reaper = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "ExternalScanContextMgr-gc_expired_context");
+        this->gc_expired_context();
+    });
 
     REGISTER_HOOK_METRIC(active_scan_context_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);

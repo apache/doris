@@ -43,13 +43,11 @@ CloudTxnDeleteBitmapCache::~CloudTxnDeleteBitmapCache() {
 }
 
 Status CloudTxnDeleteBitmapCache::init() {
-    auto st = Thread::create(
-            "CloudTxnDeleteBitmapCache", "clean_txn_dbm_thread",
-            [this]() { this->_clean_thread_callback(); }, &_clean_thread);
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to create thread for CloudTxnDeleteBitmapCache, error: " << st;
-    }
-    return st;
+    _clean_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "CloudTxnDeleteBitmapCache-clean_txn_dbm_thread");
+        _clean_thread_callback();
+    });
+    return Status::OK();
 }
 
 Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
