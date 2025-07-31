@@ -80,6 +80,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     private final boolean hasPushed;
     private final AggregateParam aggregateParam;
     private final Optional<List<Expression>> partitionExpressions;
+
     /**
      * Desc: Constructor for LogicalAggregate.
      */
