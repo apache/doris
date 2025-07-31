@@ -38,7 +38,7 @@ suite ("k1s2m3") {
     sql "insert into d_table select 3,-3,null,'c';"
 
     sql """alter table d_table modify column mv_k1 set stats ('row_count'='6');"""
-    createMV("create materialized view k1s2m3 as select mv_k1,sum(mv_k2*mv_k3) from d_table group by mv_k1;")
+    createMV("create materialized view k1s2m3 as select mv_k1 as a1,sum(mv_k2*mv_k3) as a2 from d_table group by mv_k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table(mv_k4,mv_k2) values('d',4);"
@@ -61,7 +61,7 @@ suite ("k1s2m3") {
 
     qt_select_mv2 "select mv_k1,sum(mv_k2*mv_k3) from d_table group by mv_k1 order by mv_k1;"
 
-    createMV("create materialized view kdup321 as select mv_k3,mv_k2,mv_k1 from d_table;")
+    createMV("create materialized view kdup321 as select mv_k3 as a3,mv_k2 as a4,mv_k1 as a5 from d_table;")
     
     sql "analyze table d_table"
     // kdup321 prefix index
@@ -72,15 +72,15 @@ suite ("k1s2m3") {
     qt_select_star "select * from d_table order by mv_k1;"
 
     test {
-        sql "create materialized view k1s2m3 as select mv_K1,sum(mv_k2*mv_k3)+1 from d_table group by mv_k1;"
+        sql "create materialized view k1s2m3 as select mv_K1 as b1,sum(mv_k2*mv_k3)+1 as b2 from d_table group by mv_k1;"
         exception "cannot be included outside aggregate"
     }
     test {
-        sql "create materialized view k1s2m3 as select mv_K1,abs(sum(mv_k2*mv_k3)+1) from d_table group by mv_k1;"
+        sql "create materialized view k1s2m3 as select mv_K1 as b3,abs(sum(mv_k2*mv_k3)+1) as b4 from d_table group by mv_k1;"
         exception "cannot be included outside aggregate"
     }
     test {
-        sql "create materialized view k1s2m3 as select mv_K1,sum(abs(sum(mv_k2*mv_k3)+1)) from d_table group by mv_k1;"
+        sql "create materialized view k1s2m3 as select mv_K1 as b5,sum(abs(sum(mv_k2*mv_k3)+1)) as b6 from d_table group by mv_k1;"
         exception "aggregate function cannot contain aggregate parameters"
     }
 }

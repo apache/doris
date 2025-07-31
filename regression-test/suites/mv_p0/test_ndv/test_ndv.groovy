@@ -33,7 +33,7 @@ suite ("test_ndv") {
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view user_tags_mv as select user_id, ndv(tag_id) from user_tags group by user_id;")
+    createMV("create materialized view user_tags_mv as select user_id as x, ndv(tag_id) from user_tags group by user_id;")
 
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
