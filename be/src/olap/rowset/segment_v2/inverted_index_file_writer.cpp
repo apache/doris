@@ -130,8 +130,7 @@ Status InvertedIndexFileWriter::add_into_searcher_cache() {
             std::make_unique<InvertedIndexFileReader>(_fs, _index_path_prefix, _storage_format);
     auto st = inverted_index_file_reader->init();
     if (!st.ok()) {
-        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr) {
+        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
             //StreamSinkFileWriter not found file is normal.
             return Status::OK();
         }
@@ -187,7 +186,8 @@ Status InvertedIndexFileWriter::close() {
     _closed = true;
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
-        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
+            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr) {
             return _idx_v2_writer->close();
         }
         return Status::OK();
