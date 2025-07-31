@@ -305,7 +305,10 @@ private:
         /// Pointer to file block is always hold by the cache itself.
         /// Apart from pointer in cache, it can be hold by cache users, when they call
         /// getorSet(), but cache users always hold it via FileBlocksHolder.
-        bool releasable() const { return file_block.use_count() == 1; }
+        bool releasable() const {
+            return (file_block.use_count() == 1 ||
+                    (file_block.use_count() == 2 && file_block->_owned_by_cached_reader));
+        }
 
         size_t size() const { return file_block->_block_range.size(); }
 

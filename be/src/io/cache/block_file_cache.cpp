@@ -2211,6 +2211,7 @@ std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128W
     if (_files.contains(hash)) {
         for (auto& [offset, cell] : _files[hash]) {
             if (cell.file_block->state() == FileBlock::State::DOWNLOADED) {
+                cell.file_block->_owned_by_cached_reader = true;
                 offset_to_block.emplace(offset, cell.file_block);
                 use_cell(cell, nullptr,
                          need_to_move(cell.file_block->cache_type(), FileCacheType::DISPOSABLE),
