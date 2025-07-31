@@ -34,7 +34,7 @@
 #define SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(timeout, stream)                       \
     using namespace std::chrono_literals;                                               \
     auto VARNAME_LINENUM(scoped_simple_trace) = doris::MonotonicMicros();               \
-    Defer trace_defer = [&] {                                                                 \
+    Defer trace_defer = [&] {                                                           \
         auto VARNAME_LINENUM(timeout_us) =                                              \
                 std::chrono::duration_cast<std::chrono::microseconds>(timeout).count(); \
         auto VARNAME_LINENUM(cost_us) =                                                 \
