@@ -115,16 +115,95 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_DECIMAL64;
     case PrimitiveType::TYPE_DECIMAL128I:
         return FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
+    case PrimitiveType::TYPE_DECIMAL256:
+        return FieldType::OLAP_FIELD_TYPE_DECIMAL256;
     case PrimitiveType::TYPE_JSONB:
         return FieldType::OLAP_FIELD_TYPE_JSONB;
     case PrimitiveType::TYPE_VARIANT:
         return FieldType::OLAP_FIELD_TYPE_VARIANT;
+    case PrimitiveType::TYPE_IPV4:
+        return FieldType::OLAP_FIELD_TYPE_IPV4;
+    case PrimitiveType::TYPE_IPV6:
+        return FieldType::OLAP_FIELD_TYPE_IPV6;
     case PrimitiveType::TYPE_LAMBDA_FUNCTION:
         return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
     case PrimitiveType::TYPE_AGG_STATE:
         return FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     default:
         return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+    }
+}
+
+PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
+    switch (type) {
+    case FieldType::OLAP_FIELD_TYPE_UNKNOWN:
+        return PrimitiveType::INVALID_TYPE;
+    case FieldType::OLAP_FIELD_TYPE_NONE:
+        return PrimitiveType::TYPE_NULL;
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
+        return PrimitiveType::TYPE_BOOLEAN;
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
+        return PrimitiveType::TYPE_TINYINT;
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+        return PrimitiveType::TYPE_SMALLINT;
+    case FieldType::OLAP_FIELD_TYPE_INT:
+        return PrimitiveType::TYPE_INT;
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
+        return PrimitiveType::TYPE_BIGINT;
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
+        return PrimitiveType::TYPE_LARGEINT;
+    case FieldType::OLAP_FIELD_TYPE_FLOAT:
+        return PrimitiveType::TYPE_FLOAT;
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
+        return PrimitiveType::TYPE_DOUBLE;
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+        return PrimitiveType::TYPE_VARCHAR;
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+        return PrimitiveType::TYPE_STRING;
+    case FieldType::OLAP_FIELD_TYPE_DATE:
+        return PrimitiveType::TYPE_DATE;
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
+        return PrimitiveType::TYPE_DATETIME;
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+        return PrimitiveType::TYPE_CHAR;
+    case FieldType::OLAP_FIELD_TYPE_STRUCT:
+        return PrimitiveType::TYPE_STRUCT;
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
+        return PrimitiveType::TYPE_ARRAY;
+    case FieldType::OLAP_FIELD_TYPE_MAP:
+        return PrimitiveType::TYPE_MAP;
+    case FieldType::OLAP_FIELD_TYPE_HLL:
+        return PrimitiveType::TYPE_HLL;
+    case FieldType::OLAP_FIELD_TYPE_BITMAP:
+        return PrimitiveType::TYPE_BITMAP;
+    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
+        return PrimitiveType::TYPE_QUANTILE_STATE;
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
+        return PrimitiveType::TYPE_DATEV2;
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+        return PrimitiveType::TYPE_DATETIMEV2;
+    case FieldType::OLAP_FIELD_TYPE_TIMEV2:
+        return PrimitiveType::TYPE_TIMEV2;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+        return PrimitiveType::TYPE_DECIMAL32;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+        return PrimitiveType::TYPE_DECIMAL64;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
+        return PrimitiveType::TYPE_DECIMAL128I;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        return PrimitiveType::TYPE_DECIMAL256;
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+        return PrimitiveType::TYPE_IPV4;
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        return PrimitiveType::TYPE_IPV6;
+    case FieldType::OLAP_FIELD_TYPE_JSONB:
+        return PrimitiveType::TYPE_JSONB;
+    case FieldType::OLAP_FIELD_TYPE_VARIANT:
+        return PrimitiveType::TYPE_VARIANT;
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
+        return PrimitiveType::TYPE_AGG_STATE;
+    default:
+        return PrimitiveType::INVALID_TYPE;
     }
 }
 
@@ -596,17 +675,12 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         // set path info for variant root column, to prevent from missing
         _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
     }
-    for (const auto& column_pb : column.sparse_columns()) {
-        TabletColumn new_column;
-        new_column.init_from_pb(column_pb);
-        _sparse_cols.emplace_back(std::make_shared<TabletColumn>(std::move(new_column)));
-        _num_sparse_columns++;
-    }
 }
 
 TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
                                                               const std::vector<std::string>& paths,
-                                                              int32_t parent_unique_id) {
+                                                              int32_t parent_unique_id,
+                                                              int32_t max_subcolumns_count) {
     TabletColumn subcol;
     subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     subcol.set_is_nullable(true);
@@ -615,6 +689,7 @@ TabletColumn TabletColumn::create_materialized_variant_column(const std::string&
     vectorized::PathInData path(root, paths);
     subcol.set_path_info(path);
     subcol.set_name(path.get_path());
+    subcol.set_variant_max_subcolumns_count(max_subcolumns_count);
     return subcol;
 }
 
@@ -676,10 +751,6 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
             column->set_length(INT_MAX);
         }
         column->set_index_length(0);
-    }
-    for (auto& col : _sparse_cols) {
-        ColumnPB* sparse_column = column->add_sparse_columns();
-        col->to_schema_pb(sparse_column);
     }
 }
 
@@ -922,11 +993,6 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     }
     _num_columns++;
     _num_virtual_columns = _vir_col_idx_to_unique_id.size();
-}
-
-void TabletColumn::append_sparse_column(TabletColumn column) {
-    _sparse_cols.push_back(std::make_shared<TabletColumn>(column));
-    _num_sparse_columns++;
 }
 
 void TabletSchema::append_index(TabletIndex&& index) {
@@ -1366,19 +1432,9 @@ const std::vector<TabletColumnPtr>& TabletSchema::columns() const {
     return _cols;
 }
 
-const std::vector<TabletColumnPtr>& TabletColumn::sparse_columns() const {
-    return _sparse_cols;
-}
-
 const TabletColumn& TabletSchema::column(size_t ordinal) const {
     DCHECK(ordinal < _num_columns) << "ordinal:" << ordinal << ", _num_columns:" << _num_columns;
     return *_cols[ordinal];
-}
-
-const TabletColumn& TabletColumn::sparse_column_at(size_t ordinal) const {
-    DCHECK(ordinal < _sparse_cols.size())
-            << "ordinal:" << ordinal << ", _num_columns:" << _sparse_cols.size();
-    return *_sparse_cols[ordinal];
 }
 
 const TabletColumn& TabletSchema::column_by_uid(int32_t col_unique_id) const {
@@ -1471,6 +1527,34 @@ const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
         return _indexes[it->second].get();
     }
     return nullptr;
+}
+
+// TODO(lihangyu): real multi indexes
+std::vector<const TabletIndex*> TabletSchema::inverted_indexs(
+        int32_t col_unique_id, const std::string& suffix_path) const {
+    const auto* index = inverted_index(col_unique_id, suffix_path);
+    if (index == nullptr) {
+        return {};
+    }
+    return {index};
+}
+
+// TODO(lihangyu): real multi indexes
+std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn& col) const {
+    const auto* index = inverted_index(col);
+    if (index == nullptr) {
+        return {};
+    }
+    return {index};
+}
+
+// TODO(lihangyu): real multi indexes
+void TabletSchema::update_index(const TabletColumn& column, const IndexType& index_type,
+                                std::vector<TabletIndex>&& indexes) {
+    if (indexes.empty()) {
+        return;
+    }
+    update_index(column, index_type, std::move(indexes));
 }
 
 const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {

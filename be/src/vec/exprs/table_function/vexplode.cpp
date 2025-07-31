@@ -46,7 +46,8 @@ Status VExplodeTableFunction::_process_init_variant(Block* block, int value_colu
     // explode variant array
     auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
     auto column = column_without_nullable->convert_to_full_column_if_const();
-    const auto& variant_column = assert_cast<const ColumnVariant&>(*column);
+    auto& variant_column = assert_cast<ColumnVariant&>(*(column->assume_mutable()));
+    variant_column.finalize();
     _detail.output_as_variant = true;
     if (!variant_column.is_null_root()) {
         _array_column = variant_column.get_root();

@@ -248,13 +248,8 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
-                    Segment::ColumnIdentifier {
-                            .unique_id = _schema->column(cid)->unique_id(),
-                            .parent_unique_id = _schema->column(cid)->parent_unique_id(),
-                            .path = _schema->column(cid)->path(),
-                            .is_nullable = _schema->column(cid)->is_nullable()},
-                    false);
+            vectorized::DataTypePtr storage_type =
+                    _segment->get_data_type_of(_schema->column(cid)->get_desc(), false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();

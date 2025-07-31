@@ -49,15 +49,18 @@ namespace doris::vectorized {
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
-#ifndef BE_TEST
-    // This is a known problem.
-    // We often do not consider the nullable attribute of array's data column in beut.
-    // Considering that beut is just a test, it will not be checked at present, but this problem needs to be considered in the future.
-    if (!data->is_nullable()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "nested_column must be nullable, but got {}", data->get_name());
-    }
-#endif
+    // TODO(lihangyu) : we need to check the nullable attribute of array's data column.
+    // but currently ColumnMap<ColumnString, ColumnString> is used to store sparse data of variant type,
+    // so I temporarily disable this check.
+    // #ifndef BE_TEST
+    //     // This is a known problem.
+    //     // We often do not consider the nullable attribute of array's data column in beut.
+    //     // Considering that beut is just a test, it will not be checked at present, but this problem needs to be considered in the future.
+    //     if (!data->is_nullable() && check_nullable) {
+    //         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+    //                                "nested_column must be nullable, but got {}", data->get_name());
+    //     }
+    // #endif
 
     data = data->convert_to_full_column_if_const();
     offsets = offsets->convert_to_full_column_if_const();
