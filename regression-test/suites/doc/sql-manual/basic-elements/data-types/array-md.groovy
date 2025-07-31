@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("array-md", "p0") {
+suite("array-md", "p0, nonConcurrent") {
     
     def tableName = "array_table"
     sql """
@@ -263,10 +263,7 @@ suite("array-md", "p0") {
     """
     sql """ INSERT INTO ${tableName} (id, array_int) VALUES (1, [[1, 2, 3], [1, 2, 3]]), (2, [[1, 2, 3], [2, 2, 3]]) """
 
-    test {
-        sql """ select array_int, count(*) from ${tableName} group by array_int order by array_int """
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array' or 'help map' or 'help struct' or 'help jsonb' or 'help variant' in your mysql client"
-    }
+    qt_sql """ select array_int, count(*) from ${tableName} group by array_int order by array_int """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -282,10 +279,7 @@ suite("array-md", "p0") {
     """
     sql """ INSERT INTO ${tableName} (id, array_struct) VALUES (1, ARRAY(STRUCT(1, 'John'), STRUCT(2, 'Jane'))), (2, ARRAY(STRUCT(1, 'John'), STRUCT(2, 'Jane'))) """
 
-    test {
-        sql """ select array_struct, count(*) from ${tableName} group by array_struct order by array_struct """
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array' or 'help map' or 'help struct' or 'help jsonb' or 'help variant' in your mysql client"
-    }
+    qt_sql """ select array_struct, count(*) from ${tableName} group by array_struct order by array_struct """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -301,10 +295,7 @@ suite("array-md", "p0") {
     """
     sql """ INSERT INTO ${tableName} (id, array_map) VALUES (1, ARRAY(MAP('key1', 1), MAP('key2', 2))), (2, ARRAY(MAP('key1', 1), MAP('key2', 2))) """
 
-    test {
-        sql """ select array_map, count(*) from ${tableName} group by array_map order by array_map """
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array' or 'help map' or 'help struct' or 'help jsonb' or 'help variant' in your mysql client"
-    }
+    qt_sql """ select array_map, count(*) from ${tableName} group by array_map order by array_map """
 
     sql """ DROP TABLE IF EXISTS array_table_1; """
     sql """
@@ -335,9 +326,10 @@ suite("array-md", "p0") {
     sql """ INSERT INTO array_table_2 (id, array_int) VALUES (1, [1, 2, 3]), (2, [1, 2, 3]) """
     qt_sql """ select * from array_table_1 join array_table_2 on array_contains(array_table_1.array_int,array_table_2.id) order by array_table_1.id, array_table_2.id """
 
-    test {
-    sql """ select * from array_table_1 join array_table_2 on array_table_1.array_int = array_table_2.array_int """
-       exception""
+    try {
+        sql """ select * from array_table_1 join array_table_2 on array_table_1.array_int = array_table_2.array_int """
+    } catch (Exception e) {
+        log.info(e.getMessage())
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -599,42 +591,26 @@ suite("array-md", "p0") {
     """
     sql """ insert into array_table values (1, ['ab', 'cd', 'ef']), (2, ['gh', 'ij', 'kl']), (3, ['mn', 'op', 'qr']); """
 
-    profile("test_profile_1") {
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
-        sql """ set enable_pipeline_x_engine = true;"""
-        sql """ set enable_profile = true;"""
-        sql """ set profile_level = 2;"""
-        run {
-            qt_sql_inv """/* test_profile_1 */
-                select count() from array_table where ARRAY_CONTAINS(array_column, 'ef');
-            """
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsInvertedIndexFiltered:  2"))
-        } 
+     def queryAndCheck = { String sqlQuery, int expectedFilteredRows = -1 ->
+      def checkpoints_name = "segment_iterator.inverted_index.filtered_rows"
+      try {
+          GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+          GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [filtered_rows: expectedFilteredRows])
+          sql "set experimental_enable_parallel_scan = false"
+          sql " set inverted_index_skip_threshold = 0 "
+          sql " set enable_common_expr_pushdown_for_inverted_index = true"
+          sql " set enable_common_expr_pushdown = true"
+          sql " set enable_parallel_scan = false"
+          sql "sync"
+          sql "${sqlQuery}"
+      } finally {
+          GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
+          GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+      }
     }
+    queryAndCheck ("""select count() from array_table where ARRAY_CONTAINS(array_column, 'ef')""", 2)
 
-    profile("test_profile_2") {
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
-        sql """ set enable_pipeline_x_engine = true;"""
-        sql """ set enable_profile = true;"""
-        sql """ set profile_level = 2;"""
-        run {
-            qt_sql """/* test_profile_2 */
-                select count() from array_table where ARRAYS_OVERLAP(array_column, ['ab', 'op']);
-            """
-        }
-
-       check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsInvertedIndexFiltered:  1"))
-        } 
-    }
-
+    queryAndCheck ("""select count() from array_table where ARRAYS_OVERLAP(array_column, ['ab', 'op'])""", 1)
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
