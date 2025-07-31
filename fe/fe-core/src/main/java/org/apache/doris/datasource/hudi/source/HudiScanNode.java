@@ -383,10 +383,9 @@ public class HudiScanNode extends HiveScanNode {
                     new StoragePath(partition.getPath()));
         }
 
-        Map<String, String> partitionValues = null;
-        if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-            partitionValues = HudiUtils.getPartitionInfoMap(hmsTable, partition);
-        }
+        final Map<String, String> partitionValues = sessionVariable.isEnableRuntimeFilterPartitionPrune()
+                ? HudiUtils.getPartitionInfoMap(hmsTable, partition)
+                : null;
 
         if (canUseNativeReader()) {
             fsView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
