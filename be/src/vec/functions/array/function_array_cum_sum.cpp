@@ -267,9 +267,10 @@ private:
             for (size_t pos = prev_offset; pos < cur_offset; ++pos) {
                 // treat null value as 0
                 if (src_null_map[pos]) {
-                    accumulated += 0;
+                    accumulated += typename PrimitiveTypeTraits<Result>::ColumnItemType(0);
                 } else {
-                    accumulated += typename PrimitiveTypeTraits<Result>::ColumnItemType(src_datas[pos]);
+                    accumulated +=
+                            typename PrimitiveTypeTraits<Result>::ColumnItemType(src_datas[pos]);
                 }
 
                 res_datas[pos] = accumulated;
