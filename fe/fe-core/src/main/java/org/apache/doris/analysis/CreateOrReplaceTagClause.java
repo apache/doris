@@ -40,7 +40,7 @@ public class CreateOrReplaceTagClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
 
     }
 

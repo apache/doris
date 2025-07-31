@@ -24,6 +24,7 @@ suite ("constant_genaration_random_mtmv_11", "constant_genaration_random_mtmv") 
     String table1 = "lineitem_constant_genaration_11"
     String table2 = "orders_constant_genaration_11"
     String mtmv_name = "constant_genaration_mtmv_11"
+    sql "set disable_nereids_rules='CONSTANT_PROPAGATION'"
 
     sql """
     drop table if exists ${table2}

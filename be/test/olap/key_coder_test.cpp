@@ -103,6 +103,60 @@ void test_integer_encode() {
     }
 }
 
+template <FieldType field_type>
+typename CppTypeTraits<field_type>::CppType decode_float(const std::string& encoded) {
+    Slice encoded_key(encoded);
+    typename CppTypeTraits<field_type>::CppType result;
+    uint8_t* ptr = reinterpret_cast<uint8_t*>(&result);
+    Status status = KeyCoderTraits<field_type>::decode_ascending(&encoded_key, sizeof(result), ptr);
+    EXPECT_TRUE(status.ok());
+    return result;
+}
+
+template <FieldType field_type>
+std::string encode_float(typename CppTypeTraits<field_type>::CppType value) {
+    std::string buf;
+    KeyCoderTraits<field_type>::full_encode_ascending(&value, &buf);
+    return buf;
+}
+
+template <FieldType field_type>
+void test_encode_decode(typename CppTypeTraits<field_type>::CppType value) {
+    std::string encoded = encode_float<field_type>(value);
+    typename CppTypeTraits<field_type>::CppType decoded = decode_float<field_type>(encoded);
+    EXPECT_EQ(value, decoded);
+}
+
+template <FieldType field_type>
+void test_ordering(typename CppTypeTraits<field_type>::CppType a,
+                   typename CppTypeTraits<field_type>::CppType b) {
+    std::string encoded_a = encode_float<field_type>(a);
+    std::string encoded_b = encode_float<field_type>(b);
+
+    bool a_is_nan = std::isnan(a);
+    bool b_is_nan = std::isnan(b);
+
+    if (a_is_nan && b_is_nan) {
+        EXPECT_EQ(encoded_a, encoded_b);
+    } else if (a_is_nan) {
+        EXPECT_GT(encoded_a, encoded_b);
+    } else if (b_is_nan) {
+        EXPECT_LT(encoded_a, encoded_b);
+    } else if (a < b) {
+        EXPECT_LT(encoded_a, encoded_b);
+    } else if (a > b) {
+        EXPECT_GT(encoded_a, encoded_b);
+    } else {
+        if (std::signbit(a) && !std::signbit(b)) {
+            EXPECT_LT(encoded_a, encoded_b);
+        } else if (!std::signbit(a) && std::signbit(b)) {
+            EXPECT_GT(encoded_a, encoded_b);
+        } else {
+            EXPECT_EQ(encoded_a, encoded_b);
+        }
+    }
+}
+
 TEST_F(KeyCoderTest, test_int) {
     test_integer_encode<FieldType::OLAP_FIELD_TYPE_TINYINT>();
     test_integer_encode<FieldType::OLAP_FIELD_TYPE_SMALLINT>();
@@ -289,6 +343,171 @@ TEST_F(KeyCoderTest, test_varchar) {
         EXPECT_EQ(5, check_slice.size);
         EXPECT_EQ(strncmp("12345", check_slice.data, 5), 0);
         */
+    }
+}
+
+TEST(KeyCoderTraitsTest, FloatEncodeDecode) {
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_FLOAT>(3.14f);
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_FLOAT>(-3.14f);
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_FLOAT>(0.0f);
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_FLOAT>(-0.0f);
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_FLOAT>(std::numeric_limits<float>::max());
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_FLOAT>(std::numeric_limits<float>::min());
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_FLOAT>(std::numeric_limits<float>::lowest());
+}
+
+TEST(KeyCoderTraitsTest, FloatOrdering) {
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(-1.0f, 1.0f);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(-2.0f, -1.0f);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(-0.0f, 0.0f);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(1.0f, 2.0f);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(0.0f, 0.0f);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(std::numeric_limits<float>::lowest(),
+                                                    std::numeric_limits<float>::max());
+}
+
+TEST(KeyCoderTraitsTest, DoubleEncodeDecode) {
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_DOUBLE>(3.1415926535);
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-3.1415926535);
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_DOUBLE>(0.0);
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-0.0);
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_DOUBLE>(std::numeric_limits<double>::max());
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_DOUBLE>(std::numeric_limits<double>::min());
+    test_encode_decode<FieldType::OLAP_FIELD_TYPE_DOUBLE>(std::numeric_limits<double>::lowest());
+}
+
+TEST(KeyCoderTraitsTest, DoubleOrdering) {
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-1.0, 1.0);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-2.0, -1.0);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-0.0, 0.0);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(1.0, 2.0);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(0.0, 0.0);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(std::numeric_limits<double>::lowest(),
+                                                     std::numeric_limits<double>::max());
+}
+
+TEST(KeyCoderTraitsTest, FloatSpecialValues) {
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_FLOAT>(
+                std::numeric_limits<float>::quiet_NaN());
+        EXPECT_EQ("FFC00000", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_FLOAT>(
+                std::numeric_limits<float>::infinity());
+        EXPECT_EQ("FF800000", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_FLOAT>(1.0f);
+        EXPECT_EQ("BF800000", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_FLOAT>(0.0f);
+        EXPECT_EQ("80000000", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_FLOAT>(-0.0f);
+        EXPECT_EQ("7FFFFFFF", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_FLOAT>(-1.0f);
+        EXPECT_EQ("407FFFFF", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_FLOAT>(
+                -std::numeric_limits<float>::infinity());
+        EXPECT_EQ("007FFFFF", hexdump(encoded.data(), encoded.size()));
+    }
+
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(-std::numeric_limits<float>::infinity(), -1.0f);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(-1.0f, -0.0f);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(-0.0f, 0.0f);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(0.0f, 1.0f);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(1.0f, std::numeric_limits<float>::infinity());
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(std::numeric_limits<float>::infinity(),
+                                                    std::numeric_limits<float>::quiet_NaN());
+    test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN(),
+                                                    std::numeric_limits<float>::quiet_NaN());
+}
+
+TEST(KeyCoderTraitsTest, DoubleSpecialValues) {
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_DOUBLE>(
+                std::numeric_limits<double>::quiet_NaN());
+        EXPECT_EQ("FFF8000000000000", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_DOUBLE>(
+                std::numeric_limits<double>::infinity());
+        EXPECT_EQ("FFF0000000000000", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_DOUBLE>(1.0);
+        EXPECT_EQ("BFF0000000000000", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_DOUBLE>(0.0);
+        EXPECT_EQ("8000000000000000", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-0.0);
+        EXPECT_EQ("7FFFFFFFFFFFFFFF", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-1.0);
+        EXPECT_EQ("400FFFFFFFFFFFFF", hexdump(encoded.data(), encoded.size()));
+    }
+    {
+        std::string encoded = encode_float<FieldType::OLAP_FIELD_TYPE_DOUBLE>(
+                -std::numeric_limits<double>::infinity());
+        EXPECT_EQ("000FFFFFFFFFFFFF", hexdump(encoded.data(), encoded.size()));
+    }
+
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-std::numeric_limits<double>::infinity(),
+                                                     -1.0);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-1.0, -0.0);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(-0.0, 0.0);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(0.0, 1.0);
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(1.0, std::numeric_limits<double>::infinity());
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(std::numeric_limits<double>::infinity(),
+                                                     std::numeric_limits<double>::quiet_NaN());
+    test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN(),
+                                                     std::numeric_limits<double>::quiet_NaN());
+}
+
+TEST(KeyCoderTraitsTest, FloatComprehensiveOrdering) {
+    std::vector<float> values = {-std::numeric_limits<float>::infinity(),
+                                 -100.0f,
+                                 -1.0f,
+                                 -0.0f,
+                                 0.0f,
+                                 1.0f,
+                                 100.0f,
+                                 std::numeric_limits<float>::infinity(),
+                                 std::numeric_limits<float>::quiet_NaN()};
+
+    for (size_t i = 0; i < values.size(); ++i) {
+        for (size_t j = 0; j < values.size(); ++j) {
+            test_ordering<FieldType::OLAP_FIELD_TYPE_FLOAT>(values[i], values[j]);
+        }
+    }
+}
+
+TEST(KeyCoderTraitsTest, DoubleComprehensiveOrdering) {
+    std::vector<double> values = {-std::numeric_limits<double>::infinity(),
+                                  -100.0,
+                                  -1.0,
+                                  -0.0,
+                                  0.0,
+                                  1.0,
+                                  100.0,
+                                  std::numeric_limits<double>::infinity(),
+                                  std::numeric_limits<double>::quiet_NaN()};
+
+    for (size_t i = 0; i < values.size(); ++i) {
+        for (size_t j = 0; j < values.size(); ++j) {
+            test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(values[i], values[j]);
+        }
     }
 }
 

@@ -141,11 +141,17 @@ void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskReques
 
 void download_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
 
+void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
+
 void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void release_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void release_snapshot_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
+
+void move_dir_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
 
 void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 

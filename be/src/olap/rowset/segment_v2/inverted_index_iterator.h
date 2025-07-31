@@ -46,7 +46,7 @@ public:
 
 private:
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
-                                        InvertedIndexQueryType query_type, uint32_t* count);
+                                        InvertedIndexQueryType query_type, size_t* count);
 
     InvertedIndexReaderPtr _index_reader;
 

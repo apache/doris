@@ -17,12 +17,14 @@
 
 #include "index_storage_format_v2.h"
 
+#include "common/cast_set.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 FileMetadata::FileMetadata(int64_t id, std::string suffix, std::string file, int64_t off,
                            int64_t len, lucene::store::Directory* dir)
@@ -119,8 +121,8 @@ std::vector<FileMetadata> IndexStorageFormatV2::prepare_file_metadata(int64_t& c
         for (const auto& file : sorted_files) {
             bool is_meta = false;
 
-            for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
-                if (file.filename.find(entry.first) != std::string::npos) {
+            for (const auto& file_info : InvertedIndexDescriptor::index_file_info_map) {
+                if (file.filename.find(file_info.first) != std::string::npos) {
                     meta_files.emplace_back(index_id, index_suffix, file.filename, 0, file.filesize,
                                             dir);
                     is_meta = true;
@@ -217,16 +219,16 @@ void IndexStorageFormatV2::write_index_headers_and_metadata(
 
         // Write the index ID and the number of files
         output->writeLong(index_id);
-        output->writeInt(static_cast<int32_t>(index_suffix.length()));
+        output->writeInt(cast_set<int32_t>(index_suffix.length()));
         output->writeBytes(reinterpret_cast<const uint8_t*>(index_suffix.data()),
-                           index_suffix.length());
-        output->writeInt(static_cast<int32_t>(files.size()));
+                           cast_set<int32_t>(index_suffix.length()));
+        output->writeInt(cast_set<int32_t>(files.size()));
 
         // Write file metadata
         for (const auto& file : files) {
-            output->writeInt(static_cast<int32_t>(file.filename.length()));
+            output->writeInt(cast_set<int32_t>(file.filename.length()));
             output->writeBytes(reinterpret_cast<const uint8_t*>(file.filename.data()),
-                               file.filename.length());
+                               cast_set<int32_t>(file.filename.length()));
             output->writeLong(file.offset);
             output->writeLong(file.length);
         }
@@ -244,3 +246,4 @@ void IndexStorageFormatV2::copy_files_data(lucene::store::IndexOutput* output,
 }
 
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

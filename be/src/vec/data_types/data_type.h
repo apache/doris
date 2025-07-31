@@ -35,7 +35,9 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
 #include "vec/core/types.h"
@@ -105,7 +107,8 @@ protected:
 
     template <typename Type>
     Status check_column_non_nested_type(const IColumn& column) const {
-        if (const auto* col = check_and_get_column_with_const<Type>(column)) {
+        if (check_and_get_column_with_const<Type>(column) != nullptr ||
+            check_and_get_column<ColumnNothing>(column) != nullptr) {
             return Status::OK();
         }
         return Status::InternalError("Column type {} is not compatible with data type {}",
@@ -210,6 +213,9 @@ public:
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
+
+    // Return wrapped field with precision and scale, only use in Variant type to get the detailed type info
+    virtual FieldWithDataType get_field_with_data_type(const IColumn& column, size_t row_num) const;
 
     [[nodiscard]] virtual UInt32 get_precision() const { return 0; }
     [[nodiscard]] virtual UInt32 get_scale() const { return 0; }

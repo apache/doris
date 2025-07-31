@@ -66,15 +66,15 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
     // Test casting from Float64
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
-        DataSet data_set = {{{(double)123456.0}, std::string("12:34:56.000")},
-                            {{(double)-123456.0}, std::string("-12:34:56.000")},
-                            {{(double)123.0}, std::string("00:01:23.000")},
-                            {{(double)6.99999}, std::string("00:00:07.000")},
-                            {{(double)-0.99}, std::string("-00:00:00.990")},
-                            {{(double)8501212.0}, Null()},
-                            {{(double)20001212.0}, Null()},
-                            {{(double)9000000.0}, Null()},
-                            {{(double)67.0}, Null()},
+        DataSet data_set = {{{123456.0}, std::string("12:34:56.000")},
+                            {{-123456.0}, std::string("-12:34:56.000")},
+                            {{123.0}, std::string("00:01:23.000")},
+                            {{6.99999}, std::string("00:00:07.000")},
+                            {{-0.99}, std::string("-00:00:00.990")},
+                            {{8501212.0}, Null()},
+                            {{20001212.0}, Null()},
+                            {{9000000.0}, Null()},
+                            {{67.0}, Null()},
                             {{Null()}, Null()}};
         check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 3);
     }

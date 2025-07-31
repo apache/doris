@@ -226,16 +226,6 @@ public:
         return _bytes_written;
     }
 
-    void add_write_tablets(int64_t tablet_id) {
-        std::lock_guard<bthread::Mutex> lock(_write_mutex);
-        _write_tablets.insert(tablet_id);
-    }
-
-    std::set<int64_t> write_tablets() {
-        std::lock_guard<bthread::Mutex> lock(_write_mutex);
-        return _write_tablets;
-    }
-
     Status check_cancel() {
         DBUG_EXECUTE_IF("LoadStreamStub._check_cancel.cancelled",
                         { return Status::InternalError("stream cancelled"); });
@@ -288,7 +278,6 @@ protected:
     bool _is_incremental = false;
 
     bthread::Mutex _write_mutex;
-    std::set<int64_t> _write_tablets;
     size_t _bytes_written = 0;
 };
 

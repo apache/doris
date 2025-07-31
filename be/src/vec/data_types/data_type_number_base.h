@@ -152,6 +152,9 @@ public:
         return std::make_shared<SerDeType>(nesting_level);
     };
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
 protected:
     template <typename Derived>
     void to_string_batch_impl(const IColumn& column, ColumnString& column_to) const {

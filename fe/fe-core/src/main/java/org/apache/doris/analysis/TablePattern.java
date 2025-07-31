@@ -103,14 +103,6 @@ public class TablePattern implements Writable, GsonPostProcessable {
         }
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (ctl == null) {
-            analyze(analyzer.getDefaultCatalog());
-        } else {
-            analyze(ctl);
-        }
-    }
-
     private void analyze(String catalogName) throws AnalysisException {
         if (isAnalyzed) {
             return;

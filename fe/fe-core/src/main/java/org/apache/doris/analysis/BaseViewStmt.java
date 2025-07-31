@@ -70,6 +70,6 @@ public class BaseViewStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze() throws AnalysisException, UserException {
     }
 }

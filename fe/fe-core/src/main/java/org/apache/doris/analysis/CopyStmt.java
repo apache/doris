@@ -31,7 +31,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
@@ -143,15 +142,13 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         if (this.optHints != null && this.optHints.containsKey(SessionVariable.CLOUD_CLUSTER)) {
             ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(this.optHints.get(SessionVariable.CLOUD_CLUSTER));
         }
         // generate a label
-        String labelName = "copy_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
-        label = new LabelName(tableName.getDb(), labelName);
-        label.analyze(analyzer);
+        label.analyze();
         // analyze stage
         analyzeStageName();
         this.userName = ClusterNamespace.getNameFromFullName(
