@@ -41,8 +41,8 @@ public class Even extends ScalarFunction
     /**
      * constructor with 1 argument.
      */
-    public Even(Expression arg) {
-        super("even", arg);
+    public Even(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -51,7 +51,7 @@ public class Even extends ScalarFunction
     @Override
     public Even withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Even(children.get(0));
+        return new Even(getFunctionParams(children));
     }
 
     @Override
