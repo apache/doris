@@ -36,6 +36,60 @@ static bool logging_initialized = false;
 
 static std::mutex logging_mutex;
 
+static StdoutLogSink stdout_log_sink;
+
+// Implement the custom log format: I20250118 10:53:06.239614 1318521 timezone_utils.cpp:115] Preloaded653 timezones.
+struct StdoutLogSink : google::LogSink {
+    void send(google::LogSeverity severity, const char* /*full_filename*/,
+              const char* base_filename, int line, const google::LogMessageTime& time,
+              const char* message, std::size_t message_len) override {
+        // 1.  Convert log severity to corresponding character (I/W/E/F)
+        char severity_char;
+        switch (severity) {
+        case google::GLOG_INFO:
+            severity_char = 'I';
+            break;
+        case google::GLOG_WARNING:
+            severity_char = 'W';
+            break;
+        case google::GLOG_ERROR:
+            severity_char = 'E';
+            break;
+        case google::GLOG_FATAL:
+            severity_char = 'F';
+            break;
+        default:
+            severity_char = '?';
+            break;
+        }
+
+        // 2. Get timestamp components
+        time_t t = time.time();
+        struct tm tm;
+        localtime_r(&t, &tm); // Thread-safe local time conversion
+
+        // Extract microseconds from the timestamp
+        int microseconds = static_cast<int>((time.usec() % 1000000));
+
+        // 3. Get process ID
+        pid_t pid = getpid();
+
+        // 格式：级别 + 日期 + 时间 + 进程ID + 文件名:行号] 消息
+        std::cout << severity_char << std::setfill('0') << std::setw(4) << tm.tm_year + 1900 // 年份
+                  << std::setw(2) << tm.tm_mon + 1             // 月份
+                  << std::setw(2) << tm.tm_mday                // 日期
+                  << " " << std::setw(2) << tm.tm_hour         // 小时
+                  << ":" << std::setw(2) << tm.tm_min          // 分钟
+                  << ":" << std::setw(2) << tm.tm_sec          // 秒
+                  << "." << std::setw(6) << microseconds       // 微秒
+                  << " " << pid                                // 进程ID
+                  << " " << base_filename                      // 文件名
+                  << ":" << line                               // 行号
+                  << "] " << std::string(message, message_len) // 日志消息
+                  << std::endl;
+    }
+};
+
 static bool iequals(const std::string& a, const std::string& b) {
     unsigned int sz = a.size();
     if (b.size() != sz) {
@@ -98,6 +152,17 @@ bool init_glog(const char* basename) {
     }
 
     bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
+    if (log_to_console) {
+        if (doris::config::enable_file_logger) {
+            // will output log to be.info and output log to stdout
+            google::AddLogSink(&stdout_log_sink);
+        } else {
+            // enable_file_logger is false, will only output log to stdout
+            // Not output to stderr because be.out will output log to stderr
+            FLAGS_logtostdout = true;
+        }
+    }
+
     // don't log to stderr except fatal level
     // so fatal log can output to be.out .
     FLAGS_stderrthreshold = google::FATAL;
@@ -205,6 +270,7 @@ bool init_glog(const char* basename) {
 
 void shutdown_logging() {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
+    google::RemoveLogSink(&stdcout_sink);
     google::ShutdownGoogleLogging();
 }
 

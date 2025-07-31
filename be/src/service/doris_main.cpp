@@ -310,20 +310,6 @@ struct Checker {
 #endif
         ;
 
-// This method is in logging.cc in glog.
-extern void ColoredWriteToStdout(google::LogSeverity severity, const char* message, size_t len);
-// GLog has flags FLAGS_logtostderr, FLAGS_logtostdout, FLAGS_alsologtostderr. But not
-// has flags like FLAGS_alsologtostdout. We need to log BE.INFO into stdout for k8s usage.
-// Because log stack trace need to use stderr to output the log to be.out.
-// And be.info need stdout to allow kubernetes to collect logs.
-struct StdoutLogSink : google::LogSink {
-    void send(google::LogSeverity severity, const char* /*full_filename*/,
-              const char* base_filename, int line, const google::LogMessageTime& /*time*/,
-              const char* message, std::size_t message_len) override {
-        ColoredWriteToStdout(severity, message, message_len);
-    }
-};
-
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
@@ -400,18 +386,6 @@ int main(int argc, char** argv) {
     google::ParseCommandLineFlags(&argc, &argv, true);
     // ATTN: MUST init before LOG
     doris::init_glog("be");
-    bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
-    StdoutLogSink sink;
-    if (log_to_console) {
-        if (doris::config::enable_file_logger) {
-            // will output log to be.info and output log to stdout
-            google::AddLogSink(&sink);
-        } else {
-            // enable_file_logger is false, will only output log to stdout
-            // Not output to stderr because be.out will output log to stderr
-            FLAGS_logtostdout = true;
-        }
-    }
 
     LOG(INFO) << doris::get_version_string(false);
 
