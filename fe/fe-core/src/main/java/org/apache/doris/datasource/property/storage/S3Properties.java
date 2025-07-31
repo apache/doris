@@ -27,7 +27,6 @@ import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
@@ -295,20 +294,5 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 WebIdentityTokenFileCredentialsProvider.create(),
                 ProfileCredentialsProvider.create(),
                 InstanceProfileCredentialsProvider.create());
-    }
-
-
-    @Override
-    public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = new Configuration();
-        hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        hadoopStorageConfig.set("fs.s3a.endpoint", endpoint);
-        hadoopStorageConfig.set("fs.s3a.access.key", accessKey);
-        hadoopStorageConfig.set("fs.s3a.secret.key", secretKey);
-        hadoopStorageConfig.set("fs.s3a.connection.maximum", s3ConnectionMaximum);
-        hadoopStorageConfig.set("fs.s3a.connection.request.timeout", s3ConnectionRequestTimeoutS);
-        hadoopStorageConfig.set("fs.s3a.connection.timeout", s3ConnectionTimeoutS);
-        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
     }
 }

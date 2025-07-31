@@ -25,7 +25,6 @@ import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
@@ -135,7 +134,7 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
 
     @Override
     public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = new Configuration();
+        super.initializeHadoopStorageConfig();
         hadoopStorageConfig.set("fs.obs.impl", "org.apache.hadoop.fs.obs.OBSFileSystem");
         hadoopStorageConfig.set("fs.obs.access.key", accessKey);
         hadoopStorageConfig.set("fs.obs.secret.key", secretKey);
