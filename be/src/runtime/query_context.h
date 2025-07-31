@@ -106,6 +106,16 @@ public:
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
 
+    int64_t get_remaining_query_time_seconds() const {
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (is_timeout(now)) {
+            return -1;
+        }
+        int64_t elapsed_seconds = _query_watcher.elapsed_time_seconds(now);
+        return _timeout_second - elapsed_seconds;
+    }
+
     void set_ready_to_execute(Status reason);
 
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }

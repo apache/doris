@@ -38,7 +38,6 @@ suite("test_llm_functions") {
                 'llm.max_token' = '1024',
                 'llm.max_retries' = '2',
                 'llm.retry_delay_second' = '3',
-                'llm.timeout_ms' = '30000',
                 'llm.validity_check' = 'false'
             );"""
     

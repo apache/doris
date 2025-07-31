@@ -60,7 +60,6 @@ public class LLMResourceTest {
     private String maxToken;
     private String maxRetries;
     private String retryDelaySecond;
-    private String timeoutMs;
     private Map<String, String> llmProperties;
 
     @Before
@@ -75,7 +74,6 @@ public class LLMResourceTest {
         maxToken = "2048";
         maxRetries = "5";
         retryDelaySecond = "2";
-        timeoutMs = "35000";
 
         llmProperties = new HashMap<>();
         llmProperties.put("type", type);
@@ -115,14 +113,12 @@ public class LLMResourceTest {
         Assert.assertEquals(LLMProperties.DEFAULT_MAX_TOKEN, llmResource.getProperty(LLMProperties.MAX_TOKEN));
         Assert.assertEquals(LLMProperties.DEFAULT_MAX_RETRIES, llmResource.getProperty(LLMProperties.MAX_RETRIES));
         Assert.assertEquals(LLMProperties.DEFAULT_RETRY_DELAY_SECOND, llmResource.getProperty(LLMProperties.RETRY_DELAY_SECOND));
-        Assert.assertEquals(LLMProperties.DEFAULT_TIMEOUT_MS, llmResource.getProperty(LLMProperties.TIMEOUT_MS));
 
         // with no default settings
         llmProperties.put(LLMProperties.TEMPERATURE, temperature);
         llmProperties.put(LLMProperties.MAX_TOKEN, maxToken);
         llmProperties.put(LLMProperties.MAX_RETRIES, maxRetries);
         llmProperties.put(LLMProperties.RETRY_DELAY_SECOND, retryDelaySecond);
-        llmProperties.put(LLMProperties.TIMEOUT_MS, timeoutMs);
 
         createResourceCommand = new CreateResourceCommand(
                 new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(llmProperties)));
@@ -139,7 +135,6 @@ public class LLMResourceTest {
         Assert.assertEquals(maxToken, llmResource.getProperty(LLMProperties.MAX_TOKEN));
         Assert.assertEquals(maxRetries, llmResource.getProperty(LLMProperties.MAX_RETRIES));
         Assert.assertEquals(retryDelaySecond, llmResource.getProperty(LLMProperties.RETRY_DELAY_SECOND));
-        Assert.assertEquals(timeoutMs, llmResource.getProperty(LLMProperties.TIMEOUT_MS));
     }
 
     @Test
@@ -258,7 +253,6 @@ public class LLMResourceTest {
         Assert.assertEquals(rLlmResource2.getProperty(LLMProperties.MAX_RETRIES), LLMProperties.DEFAULT_MAX_RETRIES);
         Assert.assertEquals(rLlmResource2.getProperty(LLMProperties.RETRY_DELAY_SECOND),
                             LLMProperties.DEFAULT_RETRY_DELAY_SECOND);
-        Assert.assertEquals(rLlmResource2.getProperty(LLMProperties.TIMEOUT_MS), LLMProperties.DEFAULT_TIMEOUT_MS);
 
         // 3. delete
         llmDis.close();

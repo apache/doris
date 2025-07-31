@@ -86,7 +86,7 @@ public:
         std::vector<RowResult> results(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             Status submit_status = thread_pool->submit_func(
-                    [this, i, &block, &arguments, &results, &adapter, &config]() {
+                    [this, i, &block, &arguments, &results, &adapter, &config, context]() {
                         RowResult& row_result = results[i];
 
                         try {
@@ -103,7 +103,8 @@ public:
 
                             // Execute a single LLM request and get the result
                             std::string result_str;
-                            status = execute_single_request(prompt, result_str, config, adapter);
+                            status = execute_single_request(prompt, result_str, config, adapter,
+                                                            context);
                             if (!status.ok()) {
                                 row_result.status = status;
                                 row_result.is_null = true;
@@ -176,10 +177,17 @@ private:
     // Executes the actual HTTP request
     Status do_send_request(HttpClient* client, const std::string& request_body,
                            std::string& response, const TLLMResource& config,
-                           std::shared_ptr<LLMAdapter>& adapter) const {
+                           std::shared_ptr<LLMAdapter>& adapter,
+                           FunctionContext* context) const {
         RETURN_IF_ERROR(client->init(config.endpoint));
 
-        client->set_timeout_ms(config.timeout_ms);
+        QueryContext* query_ctx = context->state()->get_query_ctx();
+        int64_t remaining_query_time = query_ctx->get_remaining_query_time_seconds();
+        if (remaining_query_time <= 0) {
+            return Status::InternalError("Query timeout exceeded before LLM request");
+        }
+
+        client->set_timeout_ms(remaining_query_time * 1000);
 
         if (!config.api_key.empty()) {
             RETURN_IF_ERROR(adapter->set_authentication(client));
@@ -190,19 +198,21 @@ private:
 
     // Sends the request with retry mechanism for handling transient failures
     Status send_request_to_llm(const std::string& request_body, std::string& response,
-                               const TLLMResource& config,
-                               std::shared_ptr<LLMAdapter>& adapter) const {
-        return HttpClient::execute_with_retry(
-                config.max_retries, config.retry_delay_second,
-                [this, &request_body, &response, &config, &adapter](HttpClient* client) -> Status {
-                    return this->do_send_request(client, request_body, response, config, adapter);
-                });
+                               const TLLMResource& config, std::shared_ptr<LLMAdapter>& adapter,
+                               const FunctionContext* context) const {
+        return HttpClient::execute_with_retry(config.max_retries, config.retry_delay_second,
+                                              [this, &request_body, &response, &config, &adapter,
+                                               context](HttpClient* client) -> Status {
+                                                  return this->do_send_request(client, request_body,
+                                                                               response, config,
+                                                                               adapter, context);
+                                              });
     }
 
     // Wrapper for executing a single LLM request
     Status execute_single_request(const std::string& input, std::string& result,
-                                  const TLLMResource& config,
-                                  std::shared_ptr<LLMAdapter>& adapter) const {
+                                  const TLLMResource& config, std::shared_ptr<LLMAdapter>& adapter,
+                                  const FunctionContext* context) const {
         std::vector<std::string> inputs = {input};
         std::vector<std::string> results;
 
@@ -211,7 +221,7 @@ private:
                 inputs, assert_cast<const Derived&>(*this).system_prompt, request_body));
 
         std::string response;
-        RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter));
+        RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
 
         Status status = adapter->parse_response(response, results);
         if (!status.ok()) {

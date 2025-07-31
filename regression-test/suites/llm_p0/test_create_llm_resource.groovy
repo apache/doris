@@ -113,7 +113,6 @@ suite("test_create_llm_resource") {
                 'llm.max_token' = '1024',
                 'llm.max_retries' = '3',
                 'llm.retry_delay_second' = '1',
-                'llm.timeout_ms' = '30000',
                 'llm.validity_check' = 'false'
             );"""
     def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""

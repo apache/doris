@@ -39,15 +39,13 @@ public class LLMProperties extends BaseProperties {
     public static final String MAX_TOKEN = "llm.max_token";
     public static final String MAX_RETRIES = "llm.max_retries";
     public static final String RETRY_DELAY_SECOND = "llm.retry_delay_second";
-    public static final String TIMEOUT_MS = "llm.timeout_ms";
     public static final String ANTHROPIC_VERSION = "llm.anthropic_version";
 
     // default_val
     public static final String DEFAULT_TEMPERATURE = "-1";
     public static final String DEFAULT_MAX_TOKEN = "-1";
     public static final String DEFAULT_MAX_RETRIES = "3";
-    public static final String DEFAULT_RETRY_DELAY_SECOND = "1";
-    public static final String DEFAULT_TIMEOUT_MS = "30000";
+    public static final String DEFAULT_RETRY_DELAY_SECOND = "0";
     public static final String DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
 
     public static final String VALIDITY_CHECK = "llm.validity_check";
@@ -93,7 +91,6 @@ public class LLMProperties extends BaseProperties {
         properties.putIfAbsent(LLMProperties.MAX_TOKEN, LLMProperties.DEFAULT_MAX_TOKEN);
         properties.putIfAbsent(LLMProperties.MAX_RETRIES, LLMProperties.DEFAULT_MAX_RETRIES);
         properties.putIfAbsent(LLMProperties.RETRY_DELAY_SECOND, LLMProperties.DEFAULT_RETRY_DELAY_SECOND);
-        properties.putIfAbsent(LLMProperties.TIMEOUT_MS, LLMProperties.DEFAULT_TIMEOUT_MS);
         properties.putIfAbsent(LLMProperties.ANTHROPIC_VERSION, LLMProperties.DEFAULT_ANTHROPIC_VERSION);
     }
 }
