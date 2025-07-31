@@ -36,15 +36,15 @@ import java.util.List;
  */
 public class SignBit extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList
-            .of(
-                    FunctionSignature.ret(BooleanType.INSTANCE).args(DoubleType.INSTANCE));
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BooleanType.INSTANCE).args(DoubleType.INSTANCE)
+    );
 
     /**
      * constructor with 1 argument.
      */
-    public SignBit(Expression arg) {
-        super("signbit", arg);
+    public SignBit(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -53,7 +53,7 @@ public class SignBit extends ScalarFunction
     @Override
     public SignBit withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new SignBit(children.get(0));
+        return new SignBit(getFunctionParams(children));
     }
 
     @Override
