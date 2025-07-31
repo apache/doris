@@ -20,6 +20,8 @@
 #include <glog/logging.h>
 
 #include <cstdint>
+#include <memory>
+#include <ostream>
 #include <utility>
 
 #include "common/status.h"
@@ -33,6 +35,7 @@ class JsonWriter;
 namespace vectorized {
 class IColumn;
 class Arena;
+class IDataType;
 
 class DataTypeArraySerDe : public DataTypeSerDe {
 public:
@@ -110,6 +113,9 @@ public:
     }
 
     DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
+
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
 
 private:
     template <bool is_binary_format>

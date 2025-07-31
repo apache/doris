@@ -211,6 +211,24 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, vectorized::Arena& arena) const override;
 
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override {
+        const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_STRING);
+        const auto& col = assert_cast<const ColumnType&>(src_column);
+        const auto& data_ref = col.get_data_at(row_num);
+        const size_t data_size = data_ref.size;
+
+        const size_t old_size = chars.size();
+        const size_t new_size = old_size + sizeof(uint8_t) + sizeof(size_t) + data_ref.size;
+        chars.resize(new_size);
+
+        memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+        memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&data_size),
+               sizeof(size_t));
+        memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data,
+               data_size);
+    }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

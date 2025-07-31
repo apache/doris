@@ -678,6 +678,21 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
     return Status::OK();
 }
 
+template <PrimitiveType T>
+void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
+                                                      ColumnString::Chars& chars,
+                                                      int64_t row_num) const {
+    const uint8_t type = (const uint8_t)TabletColumn::get_field_type_by_type(T);
+    const auto& data_ref = assert_cast<const ColumnType&>(src_column).get_data_at(row_num);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberSerDe<TYPE_BOOLEAN>;
 template class DataTypeNumberSerDe<TYPE_TINYINT>;

@@ -99,11 +99,17 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
     row_num = result.second;
 
     Int64 int_val = assert_cast<const ColumnDateTime&>(*ptr).get_element(row_num);
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
     char buf[64];
     char* pos = value.to_string(buf);
     bw.write(buf, pos - buf - 1);
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 

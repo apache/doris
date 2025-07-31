@@ -17,6 +17,10 @@
 
 #include "data_type_jsonb_serde.h"
 
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -308,5 +312,22 @@ Status DataTypeJsonbSerDe::from_string(StringRef& str, IColumn& column,
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
+void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                  ColumnString::Chars& chars,
+                                                  int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_JSONB);
+    const auto& col = assert_cast<const ColumnString&>(src_column);
+    const auto& data_ref = col.get_data_at(row_num);
+    size_t data_size = data_ref.size;
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + sizeof(size_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&data_size),
+           sizeof(size_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data, data_size);
+}
 } // namespace vectorized
 } // namespace doris
