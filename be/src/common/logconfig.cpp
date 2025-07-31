@@ -36,8 +36,6 @@ static bool logging_initialized = false;
 
 static std::mutex logging_mutex;
 
-static StdoutLogSink stdout_log_sink;
-
 // Implement the custom log format: I20250118 10:53:06.239614 1318521 timezone_utils.cpp:115] Preloaded653 timezones.
 struct StdoutLogSink : google::LogSink {
     void send(google::LogSeverity severity, const char* /*full_filename*/,
@@ -89,6 +87,8 @@ struct StdoutLogSink : google::LogSink {
                   << std::endl;
     }
 };
+
+static StdoutLogSink stdout_log_sink;
 
 static bool iequals(const std::string& a, const std::string& b) {
     unsigned int sz = a.size();
