@@ -27,6 +27,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "olap/uint24.h"
+#include "testutil/test_util.h"
 #include "util/debug_util.h"
 
 namespace doris {
@@ -510,7 +511,9 @@ TEST(KeyCoderTraitsTest, DoubleComprehensiveOrdering) {
             test_ordering<FieldType::OLAP_FIELD_TYPE_DOUBLE>(values[i], values[j]);
         }
     }
-static const std::string _filename = "key_coder_test.dat";
+}
+
+static const std::string filename = "./be/test/olap/test_data/key_coder_test.dat";
 
 // FieldType + original_value + encoded_value
 template <typename T>
@@ -590,7 +593,14 @@ void ReadAndDecodeNumber(std::ifstream& in) {
     Slice slice(encoded_buf.data(), encoded_size);
     auto st = coder->decode_ascending(&slice, 0, (uint8_t*)&decoded_value);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_EQ(decoded_value, original_value);
+    if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_FLOAT ||
+                  field_type == FieldType::OLAP_FIELD_TYPE_DOUBLE) {
+        if (std::isnan(original_value)) {
+            EXPECT_TRUE(std::isnan(decoded_value));
+        }
+    } else {
+        EXPECT_EQ(decoded_value, original_value);
+    }
 
     // test2: full_encode
     std::string encoded_buf_full;
@@ -645,74 +655,124 @@ void WriteStringsValues(std::ofstream& out, const std::string& str) {
     WriteStringToFile(out, str, FieldType::OLAP_FIELD_TYPE_STRING, str.size());
 }
 
+template <FieldType field_type>
+void WriteFloatValues(std::ofstream& out) {
+    using T = typename CppTypeTraits<field_type>::CppType;
+    WriteNumberToFile<T>(out, +0.0, field_type);
+    WriteNumberToFile<T>(out, -0.0, field_type);
+    WriteNumberToFile<T>(out, 1.0, field_type);
+    WriteNumberToFile<T>(out, -1.0, field_type);
+    WriteNumberToFile<T>(out, std::numeric_limits<T>::min(), field_type);
+    WriteNumberToFile<T>(out, std::numeric_limits<T>::max(), field_type);
+    WriteNumberToFile<T>(out, std::numeric_limits<T>::quiet_NaN(), field_type);
+    WriteNumberToFile<T>(out, std::numeric_limits<T>::infinity(), field_type);
+    WriteNumberToFile<T>(out, -std::numeric_limits<T>::infinity(), field_type);
+}
+
+void WriteDecimalValues(std::ofstream& out) {
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(0, 0), FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(1, 0), FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(-1, 0), FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(0, 500000000),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(0, -500000000),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(999999999999999999, 999999999),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(-999999999999999999, -999999999),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(0, 999999999),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(0, -999999999),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(123, 1), FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(123, 999999999),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(1, 999999999),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(-1, -999999999),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(0, 123456789),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    WriteNumberToFile<decimal12_t>(out, decimal12_t(0, -123456789),
+                                   FieldType::OLAP_FIELD_TYPE_DECIMAL);
+}
+
 TEST_F(KeyCoderTest, write_and_read) {
-    std::ofstream out(_filename, std::ios::binary | std::ios::trunc);
-    EXPECT_TRUE(out.is_open()) << "Failed to open file for writing: " << _filename;
+    // std::ofstream out(filename, std::ios::binary | std::ios::trunc);
+    // EXPECT_TRUE(out.is_open()) << "Failed to open file for writing: " << filename;
 
-    // 1. write integers
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_TINYINT>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_SMALLINT>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_INT>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_BIGINT>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_LARGEINT>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DATETIME>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DATE>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DECIMAL>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_BOOL>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DATEV2>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DECIMAL32>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DECIMAL256>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_IPV4>(out);
-    WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_IPV6>(out);
+    // // 1. write integers
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_TINYINT>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_SMALLINT>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_INT>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_BIGINT>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_LARGEINT>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DATETIME>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DATE>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_BOOL>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DATEV2>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DECIMAL32>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_DECIMAL256>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_IPV4>(out);
+    // WriteAllBoundaryValues<FieldType::OLAP_FIELD_TYPE_IPV6>(out);
 
-    // 2. write strings
-    const std::string empty_str = "";
-    WriteStringsValues(out, empty_str);
+    // // 2. write strings
+    // const std::string empty_str = "";
+    // WriteStringsValues(out, empty_str);
 
-    const std::string control_chars = "\n\r\t\b\f\v\a\\\"\'";
-    WriteStringsValues(out, control_chars);
+    // const std::string control_chars = "\n\r\t\b\f\v\a\\\"\'";
+    // WriteStringsValues(out, control_chars);
 
-    const std::string null_byte(1, '\0');
-    WriteStringsValues(out, null_byte);
+    // const std::string null_byte(1, '\0');
+    // WriteStringsValues(out, null_byte);
 
-    const std::string ascii_edges = std::string("\x00\x7F");
-    WriteStringsValues(out, ascii_edges);
+    // const std::string ascii_edges = std::string("\x00\x7F");
+    // WriteStringsValues(out, ascii_edges);
 
-    const std::string chinese = "中文测试：龘，𠮷，丂！";
-    WriteStringsValues(out, chinese);
+    // const std::string chinese = "中文测试：龘𠮷丂𡃁𠮷𠱓𡘙！";
+    // WriteStringsValues(out, chinese);
 
-    const std::string korean = "안녕하세요";
-    WriteStringsValues(out, korean);
+    // const std::string korean = "안녕하세요";
+    // WriteStringsValues(out, korean);
 
-    const std::string japanese = "こんにちは世界";
-    WriteStringsValues(out, japanese);
+    // const std::string japanese = "こんにちは世界";
+    // WriteStringsValues(out, japanese);
 
-    const std::string symbols = "αβγδε ∑∏∞∫√";
-    WriteStringsValues(out, symbols);
+    // const std::string symbols = "αβγδε ∑∏∞∫√";
+    // WriteStringsValues(out, symbols);
 
-    const std::string html_like = "<div class=\"test\">&copy; 2025</div>";
-    WriteStringsValues(out, html_like);
+    // const std::string html_like = "<div class=\"test\">&copy; 2025</div>";
+    // WriteStringsValues(out, html_like);
 
-    const std::string escaped_literal = R"(This is not a real newline: \n)";
-    WriteStringsValues(out, escaped_literal);
+    // const std::string escaped_literal = R"(This is not a real newline: \n)";
+    // WriteStringsValues(out, escaped_literal);
 
-    const std::string long_str(1024, 'X');
-    WriteStringsValues(out, long_str);
+    // const std::string long_str(1024, 'X');
+    // WriteStringsValues(out, long_str);
 
-    std::string gbk_str = "\xC4\xE3\xBA\xC3";
-    WriteStringsValues(out, gbk_str);
+    // std::string gbk_str = "\xC4\xE3\xBA\xC3";
+    // WriteStringsValues(out, gbk_str);
 
-    std::string latin1_str = "\xE9\xE0\xF6";
-    WriteStringsValues(out, latin1_str);
+    // std::string latin1_str = "\xE9\xE0\xF6";
+    // WriteStringsValues(out, latin1_str);
 
-    out.close();
-    std::ifstream in(_filename, std::ios::binary);
-    EXPECT_TRUE(in.is_open()) << "Failed to open file for reading: " << _filename;
+    // // 3. write floats
+    // WriteFloatValues<FieldType::OLAP_FIELD_TYPE_FLOAT>(out);
+    // WriteFloatValues<FieldType::OLAP_FIELD_TYPE_DOUBLE>(out);
+
+    // // 4. write decimal
+    // WriteDecimalValues(out);
+
+    // out.close();
+
+    std::ifstream in(filename, std::ios::binary);
+    EXPECT_TRUE(in.is_open()) << "Failed to open file for reading: " << filename;
 
     while (in.peek() != EOF) {
         FieldType field_type;
@@ -787,6 +847,12 @@ TEST_F(KeyCoderTest, write_and_read) {
             break;
         case FieldType::OLAP_FIELD_TYPE_STRING:
             ReadAndDecodeString<FieldType::OLAP_FIELD_TYPE_STRING>(in);
+            break;
+        case FieldType::OLAP_FIELD_TYPE_FLOAT:
+            ReadAndDecodeNumber<FieldType::OLAP_FIELD_TYPE_FLOAT>(in);
+            break;
+        case FieldType::OLAP_FIELD_TYPE_DOUBLE:
+            ReadAndDecodeNumber<FieldType::OLAP_FIELD_TYPE_DOUBLE>(in);
             break;
         default:
             FAIL() << "Unsupported field type: " << static_cast<int>(field_type);
