@@ -202,7 +202,17 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         tableFormatFileDesc.setIcebergParams(fileDesc);
-        rangeDesc.setDataLakePartitionValues(icebergSplit.getIcebergPartitionValues());
+        Map<String, String> partitionValues = icebergSplit.getIcebergPartitionValues();
+        if (partitionValues != null) {
+            List<String> formPathKeys = new ArrayList<>();
+            List<String> formPathValues = new ArrayList<>();
+            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
+                formPathKeys.add(entry.getKey());
+                formPathValues.add(entry.getValue());
+            }
+            rangeDesc.setColumnsFromPathKeys(formPathKeys);
+            rangeDesc.setColumnsFromPath(formPathValues);
+        }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -339,7 +349,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(partitionData, k -> {
                     return IcebergUtils.getPartitionInfoMap(partitionData, sessionVariable.getTimeZone());
                 });
-                split.setIcebergPartitionValues(partitionInfoMap);
+                if (partitionInfoMap != null) {
+                    split.setIcebergPartitionValues(partitionInfoMap);
+                }
             } else {
                 partitionMapInfos.put(partitionData, null);
             }

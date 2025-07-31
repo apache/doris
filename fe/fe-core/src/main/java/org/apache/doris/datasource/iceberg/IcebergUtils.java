@@ -49,6 +49,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CacheException;
@@ -619,7 +620,8 @@ public class IcebergUtils {
                 String partitionString = serializePartitionValue(field.type(), value, timeZone);
                 partitionInfoMap.put(field.name(), partitionString);
             } catch (UnsupportedOperationException e) {
-                LOG.warn("Failed to serialize partition value for field {}: {}", field.name(), e.getMessage());
+                LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
+                        e.getMessage());
                 return null;
             }
         }
@@ -628,14 +630,12 @@ public class IcebergUtils {
 
     private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
         if (value == null) {
-            return "\\N";
+            return FeConstants.null_string;
         }
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:
             case LONG:
-            case FLOAT:
-            case DOUBLE:
             case STRING:
             case UUID:
             case DECIMAL:

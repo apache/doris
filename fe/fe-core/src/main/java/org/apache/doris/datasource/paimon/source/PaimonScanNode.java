@@ -241,7 +241,17 @@ public class PaimonScanNode extends FileQueryScanNode {
             tableFormatFileDesc.setTableLevelRowCount(paimonSplit.getRowCount().get());
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
-        rangeDesc.setDataLakePartitionValues(paimonSplit.getPaimonPartitionValues());
+        Map<String, String> partitionValues = paimonSplit.getPaimonPartitionValues();
+        if (partitionValues != null) {
+            List<String> formPathKeys = new ArrayList<>();
+            List<String> formPathValues = new ArrayList<>();
+            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
+                formPathKeys.add(entry.getKey());
+                formPathValues.add(entry.getValue());
+            }
+            rangeDesc.setColumnsFromPathKeys(formPathKeys);
+            rangeDesc.setColumnsFromPath(formPathValues);
+        }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -292,7 +302,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                 splitStat.setMergedRowCount(dataSplit.mergedRowCount());
                 PaimonSplit split = new PaimonSplit(dataSplit);
                 split.setRowCount(dataSplit.mergedRowCount());
-                split.setPaimonPartitionValues(partitionInfoMap);
+                if (partitionInfoMap != null) {
+                    split.setPaimonPartitionValues(partitionInfoMap);
+                }
                 pushDownCountSplits.add(split);
                 pushDownCountSum += dataSplit.mergedRowCount();
             } else if (!forceJniScanner && supportNativeReader(optRawFiles)) {
