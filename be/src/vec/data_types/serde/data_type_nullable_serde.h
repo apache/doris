@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "common/status.h"
 #include "data_type_serde.h"
 
@@ -102,9 +104,11 @@ public:
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                      JsonbWriter& writer) const override;
 
-    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
 
     const DataTypeSerDeSPtr& get_nested_serde() const { return nested_serde; }
+    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
 
 private:
     template <bool is_binary_format>
