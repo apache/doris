@@ -1560,6 +1560,7 @@ struct TCreatePartitionRequest {
     4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
+    6: optional bool write_single_replica = false
 }
 
 struct TCreatePartitionResult {
@@ -1567,6 +1568,7 @@ struct TCreatePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
+    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 // these two for auto detect replacing partition
@@ -1577,6 +1579,7 @@ struct TReplacePartitionRequest {
     4: optional list<i64> partition_ids // partition to replace.
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
+    6: optional bool write_single_replica = false
 }
 
 struct TReplacePartitionResult {
@@ -1584,6 +1587,7 @@ struct TReplacePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
+    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 struct TGetMetaReplica {
