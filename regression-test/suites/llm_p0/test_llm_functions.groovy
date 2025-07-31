@@ -66,7 +66,8 @@ suite("test_llm_functions") {
         PROPERTIES("replication_num" = "1");"""
 
     sql """INSERT INTO ${test_table_for_llm_functions}(resource_name, text, tar_lag, label)
-            VALUES ('${resourceName}', 'this is a test', 'zh-CN', ['label']);"""
+            VALUES ('${resourceName}', 'this is a test', 'zh-CN', ['label']),
+            ('${resourceName}', NULL, 'zh-CN', NULL);"""
 
     // the llm resource must be literal
     test {

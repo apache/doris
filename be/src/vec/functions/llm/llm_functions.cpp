@@ -47,8 +47,8 @@ Status FunctionLLMClassify::build_prompt(const Block& block, const ColumnNumbers
     std::vector<std::string> label_values;
     const auto& data = col_array->get_data();
     const auto& offsets = col_array->get_offsets();
-    size_t start = row_num > 0 ? offsets[row_num - 1] : 0;
-    size_t end = offsets[row_num];
+    size_t start = array_row_num > 0 ? offsets[array_row_num - 1] : 0;
+    size_t end = offsets[array_row_num];
     for (size_t i = start; i < end; ++i) {
         Field field;
         data.get(i, field);
@@ -89,8 +89,8 @@ Status FunctionLLMExtract::build_prompt(const Block& block, const ColumnNumbers&
     std::vector<std::string> label_values;
     const auto& offsets = col_array->get_offsets();
     const auto& data = col_array->get_data();
-    size_t start = row_num > 0 ? offsets[row_num - 1] : 0;
-    size_t end = offsets[row_num];
+    size_t start = array_row_num > 0 ? offsets[array_row_num - 1] : 0;
+    size_t end = offsets[array_row_num];
     for (size_t i = start; i < end; ++i) {
         Field field;
         data.get(i, field);
@@ -149,8 +149,8 @@ Status FunctionLLMMask::build_prompt(const Block& block, const ColumnNumbers& ar
     std::vector<std::string> label_values;
     const auto& offsets = col_array->get_offsets();
     const auto& data = col_array->get_data();
-    size_t start = row_num > 0 ? offsets[row_num - 1] : 0;
-    size_t end = offsets[row_num];
+    size_t start = array_row_num > 0 ? offsets[array_row_num - 1] : 0;
+    size_t end = offsets[array_row_num];
     for (size_t i = start; i < end; ++i) {
         Field field;
         data.get(i, field);
