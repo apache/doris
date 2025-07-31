@@ -850,6 +850,7 @@ struct TSchemaTableRequestParams {
     4: optional string catalog  // use for table specific queries
     5: optional i64 dbId         // used for table specific queries
     6: optional string time_zone // used for DATETIME field
+    7: optional list<Exprs.TExpr> frontend_conjuncts
 }
 
 struct TFetchSchemaTableDataRequest {
