@@ -28,7 +28,7 @@ AggregateFunctionPtr create_agg_function_geomean(const DataTypes& argument_types
                                                  const bool result_is_nullable,
                                                  const AggregateFunctionAttr& attr) {
     return creator_without_type::create<AggregateFunctionGeomean<T>>(argument_types,
-                                                                    result_is_nullable, attr);
+                                                                     result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_geomean(const std::string& name,
