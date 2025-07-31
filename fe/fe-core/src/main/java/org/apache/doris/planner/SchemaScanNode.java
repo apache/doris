@@ -30,6 +30,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -58,17 +59,19 @@ public class SchemaScanNode extends ScanNode {
     private String frontendIP;
     private int frontendPort;
     private String schemaCatalog;
+    private List<Expr> frontendConjuncts;
 
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
     public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
-                          String schemaCatalog, String schemaDb, String schemaTable) {
+            String schemaCatalog, String schemaDb, String schemaTable, List<Expr> frontendConjuncts) {
         super(id, desc, "SCAN SCHEMA", StatisticalType.SCHEMA_SCAN_NODE);
         this.tableName = desc.getTable().getName();
         this.schemaCatalog = schemaCatalog;
         this.schemaDb = schemaDb;
         this.schemaTable = schemaTable;
+        this.frontendConjuncts = frontendConjuncts;
     }
 
     public String getTableName() {
@@ -81,6 +84,10 @@ public class SchemaScanNode extends ScanNode {
 
     public String getSchemaCatalog() {
         return desc.getTable().getDatabase().getCatalog().getName();
+    }
+
+    public List<Expr> getFrontendConjuncts() {
+        return frontendConjuncts;
     }
 
     @Override
@@ -148,6 +155,11 @@ public class SchemaScanNode extends ScanNode {
 
         TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
         msg.schema_scan_node.setCurrentUserIdent(tCurrentUser);
+        List<TExpr> tExprs = Lists.newArrayListWithCapacity(frontendConjuncts.size());
+        for (Expr expr : frontendConjuncts) {
+            tExprs.add(expr.treeToThrift());
+        }
+        msg.schema_scan_node.setFrontendConjuncts(tExprs);
         setFeAddrList(msg);
     }
 

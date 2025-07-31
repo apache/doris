@@ -28,7 +28,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -41,37 +43,54 @@ public class PushDownFilterIntoSchemaScan extends OneRewriteRuleFactory {
         return logicalFilter(logicalSchemaScan()).when(p -> !p.child().isFilterPushed()).thenApply(ctx -> {
             LogicalFilter<LogicalSchemaScan> filter = ctx.root;
             LogicalSchemaScan scan = filter.child();
-            Optional<String> schemaCatalog = Optional.empty();
-            Optional<String> schemaDatabase = Optional.empty();
-            Optional<String> schemaTable = Optional.empty();
-            for (Expression expression : filter.getConjuncts()) {
-                if (!(expression instanceof EqualTo)) {
-                    continue;
-                }
-                Expression slot = expression.child(0);
-                if (!(slot instanceof SlotReference)) {
-                    continue;
-                }
-                Optional<Column> column = ((SlotReference) slot).getOriginalColumn();
-                if (!column.isPresent()) {
-                    continue;
-                }
-                String columnName = column.get().getName();
-                Expression slotValue = expression.child(1);
-                if (!(slotValue instanceof VarcharLiteral)) {
-                    continue;
-                }
-                String columnValue = ((VarcharLiteral) slotValue).getValue();
-                if ("TABLE_CATALOG".equals(columnName)) {
-                    schemaCatalog = Optional.of(columnValue);
-                } else if ("TABLE_SCHEMA".equals(columnName)) {
-                    schemaDatabase = Optional.of(columnValue);
-                } else if ("TABLE_NAME".equals(columnName)) {
-                    schemaTable = Optional.of(columnValue);
-                }
-            }
-            LogicalSchemaScan rewrittenScan = scan.withSchemaIdentifier(schemaCatalog, schemaDatabase, schemaTable);
+            List<Optional<String>> fixedFilter = getFixedFilter(filter);
+            List<Expression> commonFilter = getCommonFilter(filter);
+            LogicalSchemaScan rewrittenScan = scan.withFrontendConjuncts(fixedFilter.get(0), fixedFilter.get(1),
+                    fixedFilter.get(1), commonFilter);
             return filter.withChildren(ImmutableList.of(rewrittenScan));
         }).toRule(RuleType.PUSH_FILTER_INTO_SCHEMA_SCAN);
+    }
+
+    private List<Optional<String>> getFixedFilter(LogicalFilter<LogicalSchemaScan> filter) {
+        Optional<String> schemaCatalog = Optional.empty();
+        Optional<String> schemaDatabase = Optional.empty();
+        Optional<String> schemaTable = Optional.empty();
+        for (Expression expression : filter.getConjuncts()) {
+            if (!(expression instanceof EqualTo)) {
+                continue;
+            }
+            Expression slot = expression.child(0);
+            if (!(slot instanceof SlotReference)) {
+                continue;
+            }
+            Optional<Column> column = ((SlotReference) slot).getOriginalColumn();
+            if (!column.isPresent()) {
+                continue;
+            }
+            String columnName = column.get().getName();
+            Expression slotValue = expression.child(1);
+            if (!(slotValue instanceof VarcharLiteral)) {
+                continue;
+            }
+            String columnValue = ((VarcharLiteral) slotValue).getValue();
+            if ("TABLE_CATALOG".equals(columnName)) {
+                schemaCatalog = Optional.of(columnValue);
+            } else if ("TABLE_SCHEMA".equals(columnName)) {
+                schemaDatabase = Optional.of(columnValue);
+            } else if ("TABLE_NAME".equals(columnName)) {
+                schemaTable = Optional.of(columnValue);
+            }
+        }
+        return Lists.newArrayList(schemaCatalog, schemaDatabase, schemaTable);
+    }
+
+    private List<Expression> getCommonFilter(LogicalFilter<LogicalSchemaScan> filter) {
+        List<Expression> res = Lists.newArrayList();
+        for (Expression expression : filter.getConjuncts()) {
+            if (expression instanceof EqualTo) {
+                res.add(expression);
+            }
+        }
+        return res;
     }
 }

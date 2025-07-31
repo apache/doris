@@ -621,6 +621,9 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult viewDependencyMetadataResult(TSchemaTableRequestParams params) {
+        if (params.isSetFrontendConjuncts()) {
+            System.out.println(params.getFrontendConjuncts());
+        }
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }

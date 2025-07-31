@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -42,11 +44,12 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     private final Optional<String> schemaCatalog;
     private final Optional<String> schemaDatabase;
     private final Optional<String> schemaTable;
+    private final List<Expression> frontendConjuncts;
 
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier) {
         this(id, table, qualifier, false,
                 Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(),
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Collections.emptyList());
     }
 
     /**
@@ -62,17 +65,20 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
      * @param virtualColumns List of virtual columns to be included in the scan
      * @param groupExpression Optional group expression for memo representation
      * @param logicalProperties Optional logical properties for this plan node
+     * @param frontendConjuncts conjuncts needed by FrontendService
      */
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier, boolean filterPushed,
             Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
             List<NamedExpression> virtualColumns,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            List<Expression> frontendConjuncts) {
         super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, ImmutableList.of(), virtualColumns,
                 groupExpression, logicalProperties);
         this.filterPushed = filterPushed;
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
+        this.frontendConjuncts = frontendConjuncts;
     }
 
     public boolean isFilterPushed() {
@@ -91,6 +97,10 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
         return schemaTable;
     }
 
+    public List<Expression> getFrontendConjuncts() {
+        return frontendConjuncts;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalSchemaScan(this, context);
@@ -100,26 +110,28 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
                 schemaCatalog, schemaDatabase, schemaTable, virtualColumns,
-                groupExpression, Optional.of(getLogicalProperties()));
+                groupExpression, Optional.of(getLogicalProperties()), frontendConjuncts);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
-                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, groupExpression, logicalProperties);
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, groupExpression, logicalProperties,
+                frontendConjuncts);
     }
 
     @Override
     public LogicalSchemaScan withRelationId(RelationId relationId) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
-                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, Optional.empty(), Optional.empty());
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, Optional.empty(), Optional.empty(),
+                frontendConjuncts);
     }
 
-    public LogicalSchemaScan withSchemaIdentifier(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
-            Optional<String> schemaTable) {
+    public LogicalSchemaScan withFrontendConjuncts(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
+            Optional<String> schemaTable, List<Expression> frontendConjuncts) {
         return new LogicalSchemaScan(relationId, table, qualifier, true, schemaCatalog, schemaDatabase, schemaTable,
-                virtualColumns, Optional.empty(), Optional.of(getLogicalProperties()));
+                virtualColumns, Optional.empty(), Optional.of(getLogicalProperties()), frontendConjuncts);
     }
 
     @Override
@@ -140,9 +152,9 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
         }
         LogicalSchemaScan that = (LogicalSchemaScan) o;
         return Objects.equals(schemaCatalog, that.schemaCatalog)
-            && Objects.equals(schemaDatabase, that.schemaDatabase)
-            && Objects.equals(schemaTable, that.schemaTable)
-            && filterPushed == that.filterPushed;
+                && Objects.equals(schemaDatabase, that.schemaDatabase)
+                && Objects.equals(schemaTable, that.schemaTable)
+                && filterPushed == that.filterPushed;
     }
 
     @Override

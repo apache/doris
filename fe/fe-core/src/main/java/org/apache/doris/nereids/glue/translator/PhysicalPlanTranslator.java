@@ -1038,12 +1038,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
                 table.getName())) {
             scanNode = new BackendPartitionedSchemaScanNode(context.nextPlanNodeId(), table, tupleDescriptor,
-                schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
-                schemaScan.getSchemaTable().orElse(null));
+                    schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
+                    schemaScan.getSchemaTable().orElse(null), translateToExprs(schemaScan.getFrontendConjuncts()));
         } else {
             scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
-                schemaScan.getSchemaTable().orElse(null));
+                    schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
+                    schemaScan.getSchemaTable().orElse(null), translateToExprs(schemaScan.getFrontendConjuncts()));
         }
         scanNode.setNereidsId(schemaScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(schemaScan.getId(), scanNode.getId());
@@ -1067,6 +1067,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), schemaScan);
         return planFragment;
+    }
+
+    private List<Expr> translateToExprs(List<Expression> expressions) {
+        List<Expr> exprs = Lists.newArrayListWithCapacity(expressions.size());
+        for (Expression expression : expressions) {
+            exprs.add(ExpressionTranslator.translate(expression, context));
+        }
+        return exprs;
     }
 
     @Override
