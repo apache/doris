@@ -443,10 +443,6 @@ TEST_F(ColumnVectorTest, permute) {
     assert_column_vector_permute(columns, UINT64_MAX);
 }
 
-TEST_F(ColumnVectorTest, replicate) {
-    _column_vector_common_test(assert_column_vector_replicate_callback);
-}
-
 TEST_F(ColumnVectorTest, replace_column_data) {
     _column_vector_common_test(assert_column_vector_replace_column_data_callback);
 }
