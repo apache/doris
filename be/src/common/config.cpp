@@ -1021,7 +1021,6 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
-DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size

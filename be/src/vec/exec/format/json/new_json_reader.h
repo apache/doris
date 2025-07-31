@@ -102,38 +102,6 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                              bool* eof);
 
-    Status _vhandle_simple_json(RuntimeState* /*state*/, Block& block,
-                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-                                bool* eof);
-
-    Status _vhandle_flat_array_complex_json(RuntimeState* /*state*/, Block& block,
-                                            const std::vector<SlotDescriptor*>& slot_descs,
-                                            bool* is_empty_row, bool* eof);
-
-    Status _vhandle_nested_complex_json(RuntimeState* /*state*/, Block& block,
-                                        const std::vector<SlotDescriptor*>& slot_descs,
-                                        bool* is_empty_row, bool* eof);
-
-    Status _parse_json(bool* is_empty_row, bool* eof);
-    Status _parse_json_doc(size_t* size, bool* eof);
-
-    Status _set_column_value(rapidjson::Value& objectValue, Block& block,
-                             const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
-
-    Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 const DataTypePtr& type_desc, vectorized::IColumn* column_ptr,
-                                 const std::string& column_name, DataTypeSerDeSPtr serde,
-                                 bool* valid);
-
-    Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
-                                      const std::vector<SlotDescriptor*>& slot_descs, Block& block,
-                                      bool* valid);
-
-    Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
-                             std::string col_name, bool* valid);
-
-    static std::string _print_json_value(const rapidjson::Value& value);
-
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
     // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
