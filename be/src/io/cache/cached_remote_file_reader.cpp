@@ -56,6 +56,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         _cache_hash = BlockFileCache::hash(path().filename().native());
         _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
         if (config::enable_read_cache_file_directly) {
+            // this is designed for and test in doris table, external table need extra tests
             _cache_file_readers = _cache->get_blocks_by_key(_cache_hash);
         }
     } else {
@@ -78,14 +79,18 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
 }
 
 void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
-    if (config::enable_read_cache_file_directly) {
+    if (_is_doris_table && config::enable_read_cache_file_directly) {
         std::lock_guard lock(_mtx);
         DCHECK(file_block->state() == FileBlock::State::DOWNLOADED);
+        file_block->_owned_by_cached_reader = true;
         _cache_file_readers.emplace(file_block->offset(), std::move(file_block));
     }
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
+    for (auto& it : _cache_file_readers) {
+        it.second->_owned_by_cached_reader = false;
+    }
     static_cast<void>(close());
 }
 
@@ -139,7 +144,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));
     stats.bytes_read += bytes_req;
-    if (config::enable_read_cache_file_directly) {
+    if (_is_doris_table && config::enable_read_cache_file_directly) {
         // read directly
         SCOPED_RAW_TIMER(&stats.read_cache_file_directly_timer);
         size_t need_read_size = bytes_req;
@@ -166,7 +171,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     if (!iter->second
                                  ->read(Slice(result.data + (cur_offset - offset), reserve_bytes),
                                         file_offset)
-                                 .ok()) {
+                                 .ok()) { //TODO: maybe read failed because block evict, should handle error
                         break;
                     }
                 }

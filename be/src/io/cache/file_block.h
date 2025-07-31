@@ -135,6 +135,10 @@ public:
     void set_deleting() { _is_deleting = true; }
     bool is_deleting() const { return _is_deleting; };
 
+public:
+    std::atomic<bool> _owned_by_cached_reader {
+            false}; // pocessed by CachedRemoteFileReader::_cache_file_readers
+
 private:
     std::string get_info_for_log_impl(std::lock_guard<std::mutex>& block_lock) const;
 
