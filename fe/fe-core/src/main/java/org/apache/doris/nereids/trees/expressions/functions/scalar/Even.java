@@ -41,6 +41,11 @@ public class Even extends ScalarFunction
     /**
      * constructor with 1 argument.
      */
+    public Even(Expression arg) {
+        super("even", arg);
+    }
+
+    /** constructor for withChildren and reuse signature */
     public Even(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
