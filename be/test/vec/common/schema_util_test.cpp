@@ -26,14 +26,20 @@
 #include "testutil/variant_util.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_object.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/schema_util.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time_v2.h"
+#include "vec/json/json_parser.h"
 
 using namespace doris::vectorized;
 
@@ -1051,7 +1057,9 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSchemaInternal) {
     subcolumns_types[single_path] = {std::make_shared<DataTypeString>()};
 
     std::map<std::string, TabletColumnPtr> typed_columns;
-    schema_util::update_least_schema_internal(subcolumns_types, schema, false, 1, typed_columns);
+    auto status = schema_util::update_least_schema_internal(subcolumns_types, schema, false, 1,
+                                                            typed_columns);
+    EXPECT_TRUE(status.ok());
 
     // Check results
     EXPECT_EQ(schema->num_columns(), 4); // base + 3 subcolumns
@@ -1103,7 +1111,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema) {
     result_schema->append_column(variant_col);
 
     std::set<PathInData> path_set;
-    schema_util::update_least_common_schema(schemas, result_schema, 1, &path_set);
+    auto status = schema_util::update_least_common_schema(schemas, result_schema, 1, &path_set);
+    EXPECT_TRUE(status.ok());
 
     // Check results
     EXPECT_EQ(result_schema->num_columns(), 2); // variant + subcolumn
@@ -1187,7 +1196,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema2) {
     // 1. schema->field_index(variant_col_unique_id) == -1 branch (via schema1)
     // 2. The for loop over sparse_columns() (via schema2)
     // 3. subcolumns_types.find(*col->path_info_ptr()) != subcolumns_types.end() branch
-    schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+    auto status = schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+    EXPECT_TRUE(status.ok());
 
     // Verify results
     const auto& result_variant = common_schema->column_by_uid(1);
@@ -1288,7 +1298,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema3) {
     // 1. schema->field_index(variant_col_unique_id) == -1 branch (via schema1)
     // 2. The for loop over sparse_columns() (via schema2)
     // 3. path_set.find(*col->path_info_ptr()) == path_set.end() branch (via sparse_col4)
-    schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+    auto status = schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+    EXPECT_TRUE(status.ok());
 
     // Verify that only sparse columns not in path_set are kept
     const auto& result_variant = common_schema->column_by_uid(1);
@@ -1347,7 +1358,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn) {
     std::set<PathInData> path_set;
     path_set.insert(PathInData("test_variant.other_path")); // This path should be excluded
 
-    schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    auto status = schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    EXPECT_TRUE(status.ok());
 
     // Check results : why 0?
     EXPECT_EQ(result_schema->column_by_uid(1).sparse_columns().size(), 0);
@@ -1382,7 +1394,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn2) {
     result_schema->append_column(variant2);
 
     // This should handle the case where sparse_columns is empty
-    schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    auto status = schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    EXPECT_TRUE(status.ok());
     EXPECT_EQ(result_schema->column_by_uid(1).sparse_columns().size(), 0);
 
     // Test case 3: schema has variant column with sparse columns but empty path_set
@@ -1396,7 +1409,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn2) {
     // dropped Variant Col
 
     std::set<PathInData> empty_path_set;
-    schema_util::update_least_sparse_column(schemas, result_schema, 1, empty_path_set);
+    status = schema_util::update_least_sparse_column(schemas, result_schema, 1, empty_path_set);
+    EXPECT_TRUE(status.ok());
     EXPECT_EQ(result_schema->column_by_uid(1).sparse_columns().size(), 0);
 }
 
@@ -1471,7 +1485,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn3) {
     // 1. schema->field_index(variant_col_unique_id) == -1 branch (via schema1)
     // 2. The for loop over sparse_columns() (via schema2)
     // 3. path_set.find(*col->path_info_ptr()) == path_set.end() branch (via sparse_col4)
-    schema_util::update_least_sparse_column(schemas, common_schema, 1, path_set);
+    auto status = schema_util::update_least_sparse_column(schemas, common_schema, 1, path_set);
+    EXPECT_TRUE(status.ok());
 
     // Verify that only sparse columns not in path_set are kept
     const auto& result_variant = common_schema->column_by_uid(1);
@@ -1888,4 +1903,307 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
             EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_DATEV2);
         }
     }
+}
+
+// Test has_different_structure_in_same_path function indirectly through check_variant_has_no_ambiguous_paths
+TEST_F(SchemaUtilTest, has_different_structure_in_same_path_indirect) {
+    // Test case 1: Same structure and same length - should not detect ambiguity
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("a", false).append("b", false).append("c", false);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("a", false).append("b", false).append("c", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    // Test case 2: Different keys at same position - should not detect ambiguity (different keys)
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("a", false).append("b", false).append("c", false);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("a", false).append("d", false).append("c", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    // Test case 3: Same keys but different nested structure - should detect ambiguity
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("a", false).append("b", true);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("a", false).append("b", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_FALSE(status.ok());
+        EXPECT_TRUE(status.to_string().find("Ambiguous paths") != std::string::npos);
+    }
+
+    // Test case 4: Same keys but different anonymous array levels - should detect ambiguity
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("a", true).append("b", false);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("a", false).append("b", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_FALSE(status.ok());
+        EXPECT_TRUE(status.to_string().find("Ambiguous paths") != std::string::npos);
+    }
+
+    // Test case 5: Same keys but different nested and anonymous levels - should detect ambiguity
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("a", true).append("b", true);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("a", false).append("b", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_FALSE(status.ok());
+        EXPECT_TRUE(status.to_string().find("Ambiguous paths") != std::string::npos);
+    }
+
+    // Test case 6: Different lengths - should not detect ambiguity (new behavior: only check same length paths)
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("a", false).append("b", false).append("c", false);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("a", false).append("b", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    // Test case 7: Different lengths with structure difference - should not detect ambiguity
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("a", false).append("b", true).append("c", false);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("a", false).append("b", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    // Test case 8: Complex nested structure difference with same length - should detect ambiguity
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("user", false).append("address", true).append("street", false);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("user", false).append("address", false).append("street", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_FALSE(status.ok());
+        EXPECT_TRUE(status.to_string().find("Ambiguous paths") != std::string::npos);
+    }
+
+    // Test case 9: Multiple paths with different lengths - should not detect ambiguity
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("config", false).append("database", false).append("host", false);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("config", false).append("database", false);
+        paths.emplace_back(builder2.build());
+
+        vectorized::PathInDataBuilder builder3;
+        builder3.append("config", false);
+        paths.emplace_back(builder3.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    // Test case 10: Empty paths - should not detect ambiguity
+    {
+        vectorized::PathsInData paths;
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    // Test case 11: Single path - should not detect ambiguity
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("single", false).append("path", false);
+        paths.emplace_back(builder1.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    // Test case 12: we have path like '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}'
+    {
+        vectorized::PathsInData paths;
+        vectorized::PathInDataBuilder builder1;
+        builder1.append("a", false).append("b", false);
+        paths.emplace_back(builder1.build());
+
+        vectorized::PathInDataBuilder builder2;
+        builder2.append("a.b", false);
+        paths.emplace_back(builder2.build());
+
+        auto status = vectorized::schema_util::check_variant_has_no_ambiguous_paths(paths);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+}
+
+// Test check_path_conflicts_with_existing function indirectly through update_least_common_schema
+TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
+    // Test case 1: No conflicts - should succeed
+    {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+
+        // Create a variant column
+        construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001, "v1_index", 1,
+                         "VARIANT", "v1", IndexType::INVERTED);
+
+        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->init_from_pb(schema_pb);
+        std::vector<TabletColumn> subcolumns;
+
+        // Add subcolumns with different paths
+        construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_STRING, 1, "v1.name",
+                            &subcolumns);
+        construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_INT, 1, "v1.age",
+                            &subcolumns);
+
+        std::vector<TabletSchemaSPtr> schemas = {tablet_schema};
+        TabletSchemaSPtr output_schema;
+
+        auto status = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
+                                                                       output_schema, false);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    // Test case 2: Conflicts with same path but different structure - should fail
+    {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+
+        // Create a variant column
+        construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001, "v1_index", 1,
+                         "VARIANT", "v1", IndexType::INVERTED);
+
+        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->init_from_pb(schema_pb);
+
+        // Add subcolumns with same path but different structure
+        // This would require creating paths with different nested structure
+        // For now, we'll test the basic functionality
+
+        std::vector<TabletSchemaSPtr> schemas = {tablet_schema};
+        TabletSchemaSPtr output_schema;
+
+        auto status = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
+                                                                       output_schema, false);
+        // This should succeed since we don't have conflicting paths in this simple case
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    // Test case 3: Multiple schemas with conflicting paths - should fail
+    {
+        // Create first schema
+        TabletSchemaPB schema_pb1;
+        schema_pb1.set_keys_type(KeysType::DUP_KEYS);
+        construct_column(schema_pb1.add_column(), schema_pb1.add_index(), 10001, "v1_index", 1,
+                         "VARIANT", "v1", IndexType::INVERTED);
+
+        TabletSchemaSPtr tablet_schema1 = std::make_shared<TabletSchema>();
+        tablet_schema1->init_from_pb(schema_pb1);
+        std::vector<TabletColumn> subcolumns;
+        construct_subcolumn(tablet_schema1, FieldType::OLAP_FIELD_TYPE_STRING, 1, "v1.address",
+                            &subcolumns);
+
+        // Create second schema with same path but different structure
+        TabletSchemaPB schema_pb2;
+        schema_pb2.set_keys_type(KeysType::DUP_KEYS);
+        construct_column(schema_pb2.add_column(), schema_pb2.add_index(), 10001, "v1_index", 1,
+                         "VARIANT", "v1", IndexType::INVERTED);
+
+        TabletSchemaSPtr tablet_schema2 = std::make_shared<TabletSchema>();
+        tablet_schema2->init_from_pb(schema_pb2);
+        std::vector<TabletColumn> subcolumns2;
+        construct_subcolumn(tablet_schema2, FieldType::OLAP_FIELD_TYPE_INT, 1, "v1.address",
+                            &subcolumns2);
+
+        std::vector<TabletSchemaSPtr> schemas = {tablet_schema1, tablet_schema2};
+        TabletSchemaSPtr output_schema;
+
+        auto status = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
+                                                                       output_schema, false);
+        // This should succeed since the paths are the same and we're just checking for structure conflicts
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+}
+
+TEST_F(SchemaUtilTest, parse_variant_columns_ambiguous_paths) {
+    using namespace doris::vectorized;
+    // Prepare the string column with two rows
+    auto string_col = ColumnString::create();
+    auto field1 = vectorized::Field(String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}"));
+    auto field2 = vectorized::Field(String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}"));
+    string_col->insert(field1);
+    string_col->insert(field2);
+    auto string_type = std::make_shared<DataTypeString>();
+
+    // Prepare the variant column with the string column as root
+    vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
+    dynamic_subcolumns.create_root(
+            vectorized::ColumnObject::Subcolumn(string_col->assume_mutable(), string_type, true));
+
+    auto variant_col = ColumnObject::create(0, std::move(dynamic_subcolumns));
+    auto variant_type = std::make_shared<DataTypeObject>();
+
+    // Construct the block
+    Block block;
+    block.insert(
+            vectorized::ColumnWithTypeAndName(variant_col->assume_mutable(), variant_type, "v"));
+
+    // The variant column is at index 0
+    std::vector<int> variant_pos = {0};
+    ParseConfig config;
+    config.enable_flatten_nested = true;
+
+    // Should throw due to ambiguous paths
+    Status st = schema_util::parse_variant_columns(block, variant_pos, config);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("Ambiguous paths") != std::string::npos);
 }

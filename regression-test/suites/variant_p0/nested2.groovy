@@ -24,6 +24,7 @@ suite("variant_nested_type_conflict", "p0"){
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """set describe_extend_variant_column = true"""
 
+        sql """ set disable_variant_flatten_nested = false """
         sql """
                 CREATE TABLE IF NOT EXISTS ${table_name} (
                     k bigint,
@@ -66,6 +67,14 @@ suite("variant_nested_type_conflict", "p0"){
                 insert into ${table_name} values (1, '{"nested": [{"a": [1,2,3]}]}');
                 """
             exception "Nesting of array in Nested array within variant subcolumns is currently not supported."
+        }
+
+        // insert batch different structure in same path
+        test {
+            sql """
+                insert into ${table_name} values (3, '{"nested": [{"a": 2.5, "b": "123.1"}]}'),  (4, '{"nested": {"a": 2.5, "b": "123.1"}}');
+                """
+            exception "Ambiguous paths"
         }
         /// insert a array of object for a, b, c 
         // insert type conflict in multiple rows
@@ -117,7 +126,7 @@ suite("variant_nested_type_conflict", "p0"){
             select * from ${table_name} order by k limit 1;
             """
         qt_sql_desc_4 """
-		select variant_type(v) from ${table_name} order by k 
+		        select variant_type(v) from ${table_name} order by k 
             """
         // now select for a, b, c
         sql_select_batch()

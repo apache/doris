@@ -104,6 +104,11 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseConfig& config);
 // Status encode_variant_sparse_subcolumns(ColumnObject& column);
 
+// check if the tuple_paths has ambiguous paths
+// situation:
+// throw exception if there exists a prefix with matched names, but not matched structure (is Nested, number of dimensions).
+Status check_variant_has_no_ambiguous_paths(const std::vector<PathInData>& paths);
+
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
 // Return the final merged schema as common schema.
@@ -114,13 +119,13 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 
 // Get least common types for extracted columns which has Path info,
 // with a speicified variant column's unique id
-void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                std::set<PathInData>* path_set);
+Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  std::set<PathInData>* path_set);
 
-void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                const std::set<PathInData>& path_set);
+Status update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  const std::set<PathInData>& path_set);
 
 // inherit attributes like index/agg info from it's parent column
 void inherit_column_attributes(TabletSchemaSPtr& schema);
@@ -194,11 +199,11 @@ void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
 
 size_t get_size_of_interger(TypeIndex type);
 
-void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
-                                  TabletSchemaSPtr& common_schema, bool update_sparse_column,
-                                  int32_t variant_col_unique_id,
-                                  const std::map<std::string, TabletColumnPtr>& typed_columns,
-                                  std::set<PathInData>* path_set = nullptr);
+Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
+                                    TabletSchemaSPtr& common_schema, bool update_sparse_column,
+                                    int32_t variant_col_unique_id,
+                                    const std::map<std::string, TabletColumnPtr>& typed_columns,
+                                    std::set<PathInData>* path_set = nullptr);
 
 Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
                                     const std::unordered_set<std::string>& typed_paths,
