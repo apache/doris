@@ -293,4 +293,28 @@ TEST(LLMFunctionTest, ResourceNotFound) {
     ASSERT_TRUE(exec_status.to_string().find("LLM resource not found") != std::string::npos);
 }
 
+TEST(LLMFunctionTest, MockResourceSendRequest) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> texts = {"test input"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto sentiment_func = FunctionLLMSentiment::create();
+    Status exec_status =
+            sentiment_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_FALSE(exec_status.ok());
+}
+
 } // namespace doris::vectorized
