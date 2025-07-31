@@ -272,7 +272,7 @@ bool init_glog(const char* basename) {
 
 void shutdown_logging() {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
-    google::RemoveLogSink(&stdcout_sink);
+    google::RemoveLogSink(&stdout_log_sink);
     google::ShutdownGoogleLogging();
 }
 
