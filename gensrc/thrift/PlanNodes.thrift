@@ -493,8 +493,6 @@ struct TFileRangeDesc {
     12: optional string fs_name
     13: optional TFileFormatType format_type;
     14: optional i64 self_split_weight
-    // partition values for data lake table format like iceberg/hudi/paimon/lakesoul
-    15: optional map<string, string> data_lake_partition_values;
 }
 
 struct TSplitSource {

@@ -206,7 +206,8 @@ Status FileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjun
 bool FileScanner::_check_partition_prune_expr(const VExprSPtr& expr) {
     if (expr->is_slot_ref()) {
         auto* slot_ref = static_cast<VSlotRef*>(expr.get());
-        return _partition_col_names.find(slot_ref->expr_name()) != _partition_col_names.end();
+        return _partition_slot_index_map.find(slot_ref->slot_id()) !=
+               _partition_slot_index_map.end();
     }
     if (expr->is_literal()) {
         return true;
@@ -241,19 +242,16 @@ void FileScanner::_init_runtime_filter_partition_prune_block() {
     }
 }
 
-Status FileScanner::_process_runtime_filters_partition_prune(
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_col_descs,
-        bool& can_filter_all) {
+Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_all) {
     SCOPED_TIMER(_runtime_filter_partition_prune_timer);
-    if (_runtime_filter_partition_prune_ctxs.empty() || partition_col_descs.empty()) {
+    if (_runtime_filter_partition_prune_ctxs.empty() || _partition_col_descs.empty()) {
         return Status::OK();
     }
     size_t partition_value_column_size = 1;
 
     // 1. Get partition key values to string columns.
     std::unordered_map<SlotId, MutableColumnPtr> partition_slot_id_to_column;
-    for (auto const& partition_col_desc : partition_col_descs) {
+    for (auto const& partition_col_desc : _partition_col_descs) {
         const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
         auto test_serde = partition_slot_desc->get_data_type_ptr()->get_serde();
         auto partition_value_column = partition_slot_desc->get_data_type_ptr()->create_column();
@@ -376,8 +374,7 @@ Status FileScanner::open(RuntimeState* state) {
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
         if (_state->query_options().enable_runtime_filter_partition_prune &&
-            (!_partition_slot_index_map.empty() ||
-             _current_range.__isset.data_lake_partition_values)) {
+            !_partition_slot_index_map.empty()) {
             _init_runtime_filter_partition_prune_ctxs();
             _init_runtime_filter_partition_prune_block();
         }
@@ -916,32 +913,26 @@ Status FileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
 
-        // try to get the partition columns from the range
-        RETURN_IF_ERROR(_generate_partition_columns());
-        // try to get the data lake partition columns from the range
-        RETURN_IF_ERROR(_generate_data_lake_partition_columns());
+        if (!_partition_slot_descs.empty()) {
+            // we need get partition columns first for runtime filter partition pruning
+            RETURN_IF_ERROR(_generate_partition_columns());
 
-        const auto& partition_col_descs = !_partition_col_descs.empty()
-                                                  ? _partition_col_descs
-                                                  : _data_lake_partition_col_descs;
+            if (_state->query_options().enable_runtime_filter_partition_prune) {
+                // if enable_runtime_filter_partition_prune is true, we need to check whether this range can be filtered out
+                // by runtime filter partition prune
+                if (_push_down_conjuncts.size() < _conjuncts.size()) {
+                    // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
+                    _init_runtime_filter_partition_prune_ctxs();
+                }
 
-        if (_state->query_options().enable_runtime_filter_partition_prune &&
-            !partition_col_descs.empty()) {
-            // if enable_runtime_filter_partition_prune is true, we need to check whether this range can be filtered out
-            // by runtime filter partition prune
-            if (_push_down_conjuncts.size() < _conjuncts.size()) {
-                // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
-                _init_runtime_filter_partition_prune_ctxs();
-            }
-
-            bool can_filter_all = false;
-            RETURN_IF_ERROR(
-                    _process_runtime_filters_partition_prune(partition_col_descs, can_filter_all));
-            if (can_filter_all) {
-                // this range can be filtered out by runtime filter partition pruning
-                // so we need to skip this range
-                COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
-                continue;
+                bool can_filter_all = false;
+                RETURN_IF_ERROR(_process_runtime_filters_partition_prune(can_filter_all));
+                if (can_filter_all) {
+                    // this range can be filtered out by runtime filter partition pruning
+                    // so we need to skip this range
+                    COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
+                    continue;
+                }
             }
         }
 
@@ -1393,6 +1384,7 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     _push_down_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     _slot_id_to_filter_conjuncts.clear();
+    _partition_slots_need_fill_from_path.clear();
     _kv_cache = nullptr;
     return Status::OK();
 }
@@ -1470,6 +1462,13 @@ Status FileScanner::_generate_partition_columns() {
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc) {
+                // Only generate partition column descriptions for slots that need to be filled from path
+                // For table formats like Iceberg/Paimon, partition values are already in the file
+                if (_partition_slots_need_fill_from_path.find(slot_desc->id()) ==
+                    _partition_slots_need_fill_from_path.end()) {
+                    continue;
+                }
+
                 auto it = _partition_slot_index_map.find(slot_desc->id());
                 if (it == std::end(_partition_slot_index_map)) {
                     return Status::InternalError("Unknown source slot descriptor, slot_id={}",
@@ -1484,21 +1483,6 @@ Status FileScanner::_generate_partition_columns() {
                 _partition_col_descs.emplace(slot_desc->col_name(),
                                              std::make_tuple(data, slot_desc));
             }
-        }
-    }
-    return Status::OK();
-}
-
-Status FileScanner::_generate_data_lake_partition_columns() {
-    _data_lake_partition_col_descs.clear();
-    if (_current_range.__isset.data_lake_partition_values) {
-        const auto& partition_values = _current_range.data_lake_partition_values;
-        for (const auto& [key, value] : partition_values) {
-            if (_all_col_name_to_slot_desc.find(key) == _all_col_name_to_slot_desc.end()) {
-                continue; // skip if the key is not in the slot desc map
-            }
-            const auto* slot_desc = _all_col_name_to_slot_desc[key];
-            _data_lake_partition_col_descs.emplace(key, std::make_tuple(value, slot_desc));
         }
     }
     return Status::OK();
@@ -1547,14 +1531,7 @@ Status FileScanner::_init_expr_ctxes() {
         if (!key_map.empty()) {
             for (size_t i = 0; i < key_map.size(); i++) {
                 partition_name_to_key_index_map.emplace(key_map[i], i);
-                _partition_col_names.insert(key_map[i]);
             }
-        }
-    }
-
-    if (_current_range.__isset.data_lake_partition_values) {
-        for (const auto& partition_value : _current_range.data_lake_partition_values) {
-            _partition_col_names.insert(partition_value.first);
         }
     }
 
@@ -1576,6 +1553,10 @@ Status FileScanner::_init_expr_ctxes() {
             _file_col_names.push_back(it->second->col_name());
         } else {
             _partition_slot_descs.emplace_back(it->second);
+            // Only traditional partition columns (is_file_slot=false) need to be filled from path
+            // For table formats like Iceberg/Paimon, partition columns have is_file_slot=true
+            // because their values are stored in files, not derived from path
+            _partition_slots_need_fill_from_path.insert(slot_id);
             if (_is_load) {
                 auto iti = full_src_index_map.find(slot_id);
                 _partition_slot_index_map.emplace(slot_id, iti->second - _num_of_columns_from_file);
@@ -1584,7 +1565,6 @@ Status FileScanner::_init_expr_ctxes() {
                 _partition_slot_index_map.emplace(slot_id, kit->second);
             }
         }
-        _all_col_name_to_slot_desc.emplace(it->second->col_name(), it->second);
     }
 
     // set column name to default value expr map
