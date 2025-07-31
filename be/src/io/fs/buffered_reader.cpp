@@ -27,6 +27,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
