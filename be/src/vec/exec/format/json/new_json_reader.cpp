@@ -182,12 +182,11 @@ Status NewJsonReader::init_reader(
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
 
-#ifdef __AVX2__
     if (config::enable_simdjson_reader) {
+        VLOG_DEBUG << "use simdsjon reader";
         RETURN_IF_ERROR(_simdjson_init_reader());
         return Status::OK();
     }
-#endif
 
     RETURN_IF_ERROR(_get_range_params());
 
