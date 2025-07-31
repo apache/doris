@@ -135,8 +135,6 @@ protected:
     std::vector<SlotDescriptor*> _partition_slot_descs;
     // Partition slot id to index in _partition_slot_descs
     std::unordered_map<SlotId, int> _partition_slot_index_map;
-    // Partition slots that need to be filled from path
-    std::unordered_set<SlotId> _partition_slots_need_fill_from_path;
     // created from param.expr_of_dest_slot
     // For query, it saves default value expr of all dest columns, or nullptr for NULL.
     // For load, it saves conversion expr/default value of all dest columns.

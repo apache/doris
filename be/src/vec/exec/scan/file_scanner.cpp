@@ -1384,7 +1384,6 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     _push_down_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     _slot_id_to_filter_conjuncts.clear();
-    _partition_slots_need_fill_from_path.clear();
     _kv_cache = nullptr;
     return Status::OK();
 }
@@ -1462,13 +1461,6 @@ Status FileScanner::_generate_partition_columns() {
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc) {
-                // Only generate partition column descriptions for slots that need to be filled from path
-                // For table formats like Iceberg/Paimon, partition values are already in the file
-                if (_partition_slots_need_fill_from_path.find(slot_desc->id()) ==
-                    _partition_slots_need_fill_from_path.end()) {
-                    continue;
-                }
-
                 auto it = _partition_slot_index_map.find(slot_desc->id());
                 if (it == std::end(_partition_slot_index_map)) {
                     return Status::InternalError("Unknown source slot descriptor, slot_id={}",
@@ -1553,10 +1545,6 @@ Status FileScanner::_init_expr_ctxes() {
             _file_col_names.push_back(it->second->col_name());
         } else {
             _partition_slot_descs.emplace_back(it->second);
-            // Only traditional partition columns (is_file_slot=false) need to be filled from path
-            // For table formats like Iceberg/Paimon, partition columns have is_file_slot=true
-            // because their values are stored in files, not derived from path
-            _partition_slots_need_fill_from_path.insert(slot_id);
             if (_is_load) {
                 auto iti = full_src_index_map.find(slot_id);
                 _partition_slot_index_map.emplace(slot_id, iti->second - _num_of_columns_from_file);
