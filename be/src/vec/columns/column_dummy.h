@@ -114,12 +114,6 @@ public:
         for (size_t i = 0; i < s; ++i) res[i] = i;
     }
 
-    ColumnPtr replicate(const Offsets& offsets) const override {
-        column_match_offsets_size(s, offsets.size());
-
-        return clone_dummy(offsets.back());
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         size_t num_rows = size();

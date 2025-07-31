@@ -510,9 +510,6 @@ TEST_F(ColumnDecimalTest, compare_at) {
     }
 }
 
-TEST_F(ColumnDecimalTest, get_bool) {
-    _column_decimal_common_test_with_type(assert_column_vector_get_bool_callback, false);
-}
 TEST_F(ColumnDecimalTest, get_int64) {
     _column_decimal_common_test_with_type(assert_column_vector_get_int64_callback, false);
 }
@@ -557,10 +554,6 @@ TEST_F(ColumnDecimalTest, permute) {
     assert_column_vector_permute(columns, 1);
     assert_column_vector_permute(columns, column_decimal32_1->size());
     assert_column_vector_permute(columns, UINT64_MAX);
-}
-
-TEST_F(ColumnDecimalTest, replicate) {
-    _column_decimal_common_test_with_type(assert_column_vector_replicate_callback, false);
 }
 
 template <PrimitiveType T>

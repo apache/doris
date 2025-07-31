@@ -1369,67 +1369,6 @@ public:
         check_res_file("resize", res);
     }
 
-    //virtual Ptr
-    //replicate (const Offsets &offsets)
-    // 1. used in ColumnConst.convert_to_full_column,
-    //   we should make a situation that the column is not full column, and then we can use replicate to make it full column
-    // 2. used in some agg calculate
-    static void assert_replicate_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        // Create an empty column to verify `replicate` functionality
-        // check replicate with different offsets
-        // size_t(-1) 会导致pod_array 溢出: Check failed: false Amount of memory requested to allocate is more than allowed
-        std::vector<std::vector<std::string>> res;
-        auto option = DataTypeSerDe::FormatOptions();
-        std::vector<size_t> check_length = {0, 1, 10, 100, 1000, 10000, 100000};
-        //       std::vector<size_t> check_length = {10, 9};
-        //       size_t sum = std::reduce(check_length.begin(), check_length.end(), 0, std::plus<size_t>());
-        IColumn::Offsets offsets;
-        for (size_t i = 0; i < check_length.size(); i++) {
-            offsets.push_back(check_length[i]);
-        }
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            //               auto origin_size = load_cols[0]->size();
-            // here will heap_use_after_free
-            //               ColumnConst* const_col = ColumnConst::create(load_cols[i]->clone_resized(1), *cl);
-            if (load_cols[i]->size() != check_length.size()) {
-                EXPECT_ANY_THROW(load_cols[i]->replicate(offsets));
-            }
-            auto source_column = load_cols[i]->shrink(check_length.size());
-            LOG(INFO) << "now we are in replicate column : " << load_cols[i]->get_name()
-                      << " for column size : " << source_column->size();
-            //               auto ptr = const_col->convert_to_full_column();
-            // here will return different ptr
-            // record replicate cost time
-            auto start = std::chrono::high_resolution_clock::now();
-            auto ptr = source_column->replicate(offsets);
-            auto end = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-            LOG(INFO) << "replicate cost time: " << duration.count() << "ms";
-            // check ptr
-            EXPECT_NE(ptr.get(), source_column.get());
-            // check after replicate with assert_res
-            auto ser_col = ColumnString::create();
-            ser_col->reserve(ptr->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
-            std::vector<std::string> data;
-            data.push_back("column: " + source_column->get_name() +
-                           " with generate col size: " + std::to_string(ptr->size()));
-            for (size_t j = 0; j < ptr->size(); ++j) {
-                // check size
-                if (auto st =
-                            serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer, option);
-                    !st) {
-                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
-                    break;
-                }
-                buffer_writer.commit();
-                std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                data.push_back(actual_str_value);
-            }
-            res.push_back(data);
-        }
-        check_res_file("replicate", res);
-    }
     //virtual void
     //for_each_subcolumn (ColumnCallback)
     //virtual void
@@ -2253,12 +2192,6 @@ public:
         EXPECT_EQ(col->size(), expect_size);
     }
 
-    // replicate is clone with new column from the origin column, always from ColumnConst to expand the column
-    void assert_replicate(MutableColumnPtr col, IColumn::Offsets& offsets) {
-        auto new_col = col->replicate(offsets);
-        EXPECT_EQ(new_col->size(), offsets.back());
-    }
-
     // byte size is just appriximate size of the column
     //  as fixed column type, like column_vector, the byte size is sizeof(columnType) * size()
     //  as variable column type, like column_string, the byte size is sum of chars size() and offsets size * sizeof(offsetType)
@@ -2811,7 +2744,11 @@ auto assert_column_vector_get_bool_callback = [](auto x, const MutableColumnPtr&
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& data = col_vec_src->get_data();
     for (size_t i = 0; i != src_size; ++i) {
-        EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
+        if constexpr (is_decimal(PType)) {
+            EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i].value);
+        } else {
+            EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
+        }
     }
 };
 template <PrimitiveType PType>
@@ -3009,46 +2946,6 @@ auto assert_column_vector_filter_callback = [](auto x, const MutableColumnPtr& s
     };
     for (const auto& filter : filters) {
         test_func(filter);
-    }
-};
-template <PrimitiveType PType>
-auto assert_column_vector_replicate_callback = [](auto x, const MutableColumnPtr& source_column) {
-    using T = decltype(x);
-    using ColumnVecType = std::conditional_t<
-            std::is_same_v<T, ColumnString>, ColumnString,
-            std::conditional_t<std::is_same_v<T, ColumnString64>, ColumnString64,
-                               std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<PType>,
-                                                  ColumnVector<PType>>>>;
-    std::vector<size_t> insert_vals_count = {0, 10, 1000};
-    auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
-    auto src_size = source_column->size();
-    srand((unsigned)time(nullptr));
-    IColumn::Offsets offsets(src_size);
-    IColumn::Offsets counts(src_size);
-    size_t total_size = 0;
-    for (size_t i = 0; i < src_size; ++i) {
-        counts[i] = rand() % 10;
-        total_size += counts[i];
-        offsets[i] = total_size;
-    }
-    {
-        auto target_column = source_column->clone_empty();
-        IColumn::Offsets empty_offsets;
-        auto tmp_col = target_column->replicate(empty_offsets);
-        EXPECT_EQ(tmp_col->size(), 0);
-    }
-    auto target_column = source_column->replicate(offsets);
-    const auto* col_vec_target = assert_cast<const ColumnVecType*>(target_column.get());
-    EXPECT_EQ(target_column->size(), total_size);
-    size_t total_idx = 0;
-    for (size_t i = 0; i < src_size; ++i) {
-        for (size_t j = 0; j < counts[i]; ++j) {
-            if constexpr (std::is_same_v<T, ColumnString> || std::is_same_v<T, ColumnString64>) {
-                EXPECT_EQ(col_vec_target->get_data_at(total_idx++), col_vec_src->get_data_at(i));
-            } else {
-                EXPECT_EQ(col_vec_target->get_element(total_idx++), col_vec_src->get_element(i));
-            }
-        }
     }
 };
 template <PrimitiveType PType>

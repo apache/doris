@@ -15,46 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/scoped_cleanup.h"
+package org.apache.doris.job.extensions.insert;
 
-#include <gtest/gtest-message.h>
-#include <gtest/gtest-test-part.h>
+import org.apache.doris.qe.ConnectContext;
 
-#include <memory>
+import org.junit.Assert;
+import org.junit.Test;
 
-#include "gtest/gtest_pred_impl.h"
-
-namespace doris {
-
-TEST(ScopedCleanup, TestCleanup) {
-    int var = 0;
-    {
-        auto saved = var;
-        auto cleanup = MakeScopedCleanup([&]() { var = saved; });
-        var = 42;
+public class InsertTaskTest {
+    @Test
+    public void testMakeConnection() {
+        ConnectContext ctx = InsertTask.makeConnectContext(null, null);
+        Assert.assertTrue(ctx.getState().isNereids());
     }
-    EXPECT_EQ(0, var);
 }
-
-TEST(ScopedCleanup, TestCleanupMacro) {
-    int var = 0;
-    {
-        auto saved = var;
-        SCOPED_CLEANUP({ var = saved; });
-        var = 42;
-    }
-    EXPECT_EQ(0, var);
-}
-
-TEST(ScopedCleanup, TestCancelCleanup) {
-    int var = 0;
-    {
-        auto saved = var;
-        auto cleanup = MakeScopedCleanup([&]() { var = saved; });
-        var = 42;
-        cleanup.cancel();
-    }
-    EXPECT_EQ(42, var);
-}
-
-} // namespace doris

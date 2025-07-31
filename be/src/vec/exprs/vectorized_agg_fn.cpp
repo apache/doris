@@ -66,10 +66,12 @@ AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
             argument_types, return_type);
 }
 
-AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, const bool without_key)
+AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, const bool without_key,
+                               const bool is_window_function)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
           _without_key(without_key),
+          _is_window_function(is_window_function),
           _data_type(DataTypeFactory::instance().create_data_type(
                   desc.fn.ret_type, desc.__isset.is_nullable ? desc.is_nullable : true)) {
     if (desc.agg_expr.__isset.param_types) {
@@ -82,8 +84,11 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, const bool without_key)
 }
 
 Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
-                              const bool without_key, AggFnEvaluator** result) {
-    *result = pool->add(AggFnEvaluator::create_unique(desc.nodes[0], without_key).release());
+                              const bool without_key, const bool is_window_function,
+                              AggFnEvaluator** result) {
+    *result =
+            pool->add(AggFnEvaluator::create_unique(desc.nodes[0], without_key, is_window_function)
+                              .release());
     auto& agg_fn_evaluator = *result;
     int node_idx = 0;
     for (int i = 0; i < desc.nodes[0].num_children; ++i) {
@@ -207,12 +212,14 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     AggregateFunctionSimpleFactory::result_nullable_by_foreach(_data_type),
                     state->be_exec_version(),
                     {.enable_decimal256 = state->enable_decimal256(),
+                     .is_window_function = _is_window_function,
                      .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types, _data_type->is_nullable(),
                     state->be_exec_version(),
                     {.enable_decimal256 = state->enable_decimal256(),
+                     .is_window_function = _is_window_function,
                      .column_names = std::move(column_names)});
         }
     }
@@ -342,6 +349,7 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
         : _fn(evaluator._fn),
           _is_merge(evaluator._is_merge),
           _without_key(evaluator._without_key),
+          _is_window_function(evaluator._is_window_function),
           _argument_types_with_sort(evaluator._argument_types_with_sort),
           _real_argument_types(evaluator._real_argument_types),
           _intermediate_slot_desc(evaluator._intermediate_slot_desc),

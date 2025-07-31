@@ -263,6 +263,16 @@ bool DataTypeNullable::equals(const IDataType& rhs) const {
            nested_data_type->equals(*static_cast<const DataTypeNullable&>(rhs).nested_data_type);
 }
 
+FieldWithDataType DataTypeNullable::get_field_with_data_type(const IColumn& column,
+                                                             size_t row_num) const {
+    const auto& nullable_column =
+            assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    if (nullable_column.is_null_at(row_num)) {
+        return FieldWithDataType {.field = Field()};
+    }
+    return nested_data_type->get_field_with_data_type(nullable_column.get_nested_column(), row_num);
+}
+
 DataTypePtr make_nullable(const DataTypePtr& type) {
     if (type->is_nullable()) {
         return type;
