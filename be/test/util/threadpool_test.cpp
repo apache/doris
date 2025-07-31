@@ -124,9 +124,9 @@ TEST_F(ThreadPoolTest, TestSimpleTasks) {
     std::atomic<int32_t> counter(0);
     std::shared_ptr<Runnable> task(new SimpleTask(15, &counter));
 
-    EXPECT_TRUE(_pool->submit_func(std::bind(&simple_task_method, 10, &counter)).ok());
+    EXPECT_TRUE(_pool->submit_func([&counter]() { simple_task_method(10, &counter); }).ok());
     EXPECT_TRUE(_pool->submit(task).ok());
-    EXPECT_TRUE(_pool->submit_func(std::bind(&simple_task_method, 20, &counter)).ok());
+    EXPECT_TRUE(_pool->submit_func([&counter]() { simple_task_method(20, &counter); }).ok());
     EXPECT_TRUE(_pool->submit(task).ok());
     _pool->wait();
     EXPECT_EQ(10 + 15 + 20 + 15, counter.load());
@@ -230,11 +230,8 @@ TEST_F(ThreadPoolTest, TestRace) {
     for (int i = 0; i < 500; i++) {
         CountDownLatch l(1);
         // CountDownLatch::count_down has multiple overloaded version,
-        // so an cast is needed to use std::bind
-        EXPECT_TRUE(_pool
-                            ->submit_func(std::bind(
-                                    (void (CountDownLatch::*)())(&CountDownLatch::count_down), &l))
-                            .ok());
+        // but lambda can capture directly without cast
+        EXPECT_TRUE(_pool->submit_func([&l]() { l.count_down(); }).ok());
         l.wait();
         // Sleeping a different amount in each iteration makes it more likely to hit
         // the bug.
@@ -338,8 +335,7 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
     EXPECT_DEATH(
             {
                 EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
-                EXPECT_TRUE(
-                        _pool->submit_func(std::bind((&ThreadPool::shutdown), _pool.get())).ok());
+                EXPECT_TRUE(_pool->submit_func([pool = _pool.get()]() { pool->shutdown(); }).ok());
                 _pool->wait();
             },
             death_msg);
@@ -347,7 +343,7 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
     EXPECT_DEATH(
             {
                 EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
-                EXPECT_TRUE(_pool->submit_func(std::bind(&ThreadPool::wait, _pool.get())).ok());
+                EXPECT_TRUE(_pool->submit_func([pool = _pool.get()]() { pool->wait(); }).ok());
                 _pool->wait();
             },
             death_msg);
@@ -781,7 +777,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPoolToken> token1 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 2);
     for (int i = 0; i < 10; i++) {
-        static_cast<void>(token1->submit_func(std::bind(&MyFunc, i, 1)));
+        static_cast<void>(token1->submit_func([i]() { MyFunc(i, 1); }));
     }
     token1->wait();
     EXPECT_EQ(0, token1->num_tasks());
@@ -789,7 +785,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPoolToken> token2 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
     for (int i = 0; i < 10; i++) {
-        static_cast<void>(token2->submit_func(std::bind(&MyFunc, i, 1)));
+        static_cast<void>(token2->submit_func([i]() { MyFunc(i, 1); }));
     }
     token2->wait();
     EXPECT_EQ(0, token2->num_tasks());
@@ -797,7 +793,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPoolToken> token3 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 1);
     for (int i = 0; i < 10; i++) {
-        static_cast<void>(token3->submit_func(std::bind(&MyFunc, i, 1)));
+        static_cast<void>(token3->submit_func([i]() { MyFunc(i, 1); }));
     }
     token3->wait();
     EXPECT_EQ(0, token3->num_tasks());
@@ -805,7 +801,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPoolToken> token4 =
             thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL);
     for (int i = 0; i < 10; i++) {
-        static_cast<void>(token4->submit_func(std::bind(&MyFunc, i, 1)));
+        static_cast<void>(token4->submit_func([i]() { MyFunc(i, 1); }));
     }
     token4->wait();
     EXPECT_EQ(0, token4->num_tasks());
@@ -813,7 +809,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPoolToken> token5 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
     for (int i = 0; i < 10; i++) {
-        static_cast<void>(token5->submit_func(std::bind(&MyFunc, i, 1)));
+        static_cast<void>(token5->submit_func([i]() { MyFunc(i, 1); }));
     }
     token5->shutdown();
     EXPECT_EQ(0, token5->num_tasks());
@@ -909,12 +905,12 @@ TEST_F(ThreadPoolTest, TestThreadTokenSerial) {
 
     std::unique_ptr<ThreadPoolToken> token1 =
             thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL, 2);
-    static_cast<void>(token1->submit_func(std::bind(&MyFunc, 0, 1)));
+    static_cast<void>(token1->submit_func([]() { MyFunc(0, 1); }));
     std::cout << "after submit 1" << std::endl;
     token1->wait();
     ASSERT_EQ(0, token1->num_tasks());
     for (int i = 0; i < 10; i++) {
-        static_cast<void>(token1->submit_func(std::bind(&MyFunc, i, 1)));
+        static_cast<void>(token1->submit_func([i]() { MyFunc(i, 1); }));
     }
     std::cout << "after submit 1" << std::endl;
     token1->wait();
@@ -933,7 +929,7 @@ TEST_F(ThreadPoolTest, TestThreadTokenConcurrent) {
     std::unique_ptr<ThreadPoolToken> token1 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 2);
     for (int i = 0; i < 10; i++) {
-        static_cast<void>(token1->submit_func(std::bind(&MyFunc, i, 1)));
+        static_cast<void>(token1->submit_func([i]() { MyFunc(i, 1); }));
     }
     std::cout << "after submit 1" << std::endl;
     token1->wait();
