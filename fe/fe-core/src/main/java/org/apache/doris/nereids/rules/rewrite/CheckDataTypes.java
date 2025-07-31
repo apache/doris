@@ -70,6 +70,10 @@ public class CheckDataTypes implements CustomRewriter {
             conjuncts = plan.getMarkJoinConjuncts();
         }
         for (Expression expr : conjuncts) {
+            // constant propagation may rewrite mark join conjuncts to literal,
+            if (expr.isLiteral()) {
+                continue;
+            }
             DataType leftType = expr.child(0).getDataType();
             DataType rightType = expr.child(1).getDataType();
             if (!leftType.acceptsType(rightType)) {
