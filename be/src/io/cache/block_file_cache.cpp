@@ -1044,7 +1044,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
                                                     query_context->get_max_cache_size());
     };
 
-    LOG(INFO) << "Starting query context eviction scan: queue_size=" << queue_size
+    LOG(DEBUG) << "Starting query context eviction scan: queue_size=" << queue_size
                 << ", max_queue_size=" << max_size
                 << ", query_cache_size=" << query_context_cache_size
                 << ", query_id=" << print_id(context.query_id);
@@ -1095,7 +1095,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
 
     if (is_overflow()) {
-        LOG(INFO) << "Query context eviction insufficient, trying to evict from other queues: "
+        LOG(DEBUG) << "Query context eviction insufficient, trying to evict from other queues: "
                   << "removed_size=" << removed_size
                   << ", ghost_remove_size=" << ghost_remove_size
                   << ", needed=" << size;
@@ -1103,9 +1103,9 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
         bool other_queue_success = config::file_cache_query_limit_enable_evict_from_other_queue ? 
             try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock) : false;
         if (!other_queue_success) {
-            LOG(WARNING) << "Failed to reserve space after exhausting all eviction strategies: "
+            LOG(DEBUG) << "Failed to reserve space after exhausting all eviction strategies: "
                          << "query_limit_enable_evict_from_other_queue=" << config::file_cache_query_limit_enable_evict_from_other_queue 
-                        << "hash=" << hash.to_string()
+                        << ", hash=" << hash.to_string()
                         << ", offset=" << offset
                         << ", size=" << size;
             return false;
