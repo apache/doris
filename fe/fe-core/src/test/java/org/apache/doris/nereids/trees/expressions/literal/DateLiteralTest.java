@@ -18,6 +18,16 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
@@ -217,5 +227,66 @@ class DateLiteralTest {
     void testSuffixSpace() {
         new DateLiteral("2016-07-02  ");
         new DateLiteral("2016-07-02 00:00:00  ");
+    }
+
+    @Test
+    void testUncheckedCastTo() {
+        DateLiteral v1 = new DateLiteral(2025, 7, 23);
+        Expression expression = v1.uncheckedCastTo(IntegerType.INSTANCE);
+        Assertions.assertInstanceOf(IntegerLiteral.class, expression);
+        Assertions.assertEquals(20250723, ((IntegerLiteral) expression).getValue().intValue());
+
+        expression = v1.uncheckedCastTo(BigIntType.INSTANCE);
+        Assertions.assertInstanceOf(BigIntLiteral.class, expression);
+        Assertions.assertEquals(20250723, ((BigIntLiteral) expression).getValue().intValue());
+
+        expression = v1.uncheckedCastTo(LargeIntType.INSTANCE);
+        Assertions.assertInstanceOf(LargeIntLiteral.class, expression);
+        Assertions.assertEquals(20250723, ((LargeIntLiteral) expression).getValue().intValue());
+
+        expression = v1.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertInstanceOf(FloatLiteral.class, expression);
+        Assertions.assertEquals(20250723, ((FloatLiteral) expression).getValue().floatValue());
+
+        expression = v1.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+        Assertions.assertEquals(20250723, ((DoubleLiteral) expression).getValue().doubleValue());
+
+        expression = v1.uncheckedCastTo(DateTimeType.INSTANCE);
+        Assertions.assertInstanceOf(DateTimeLiteral.class, expression);
+        DateTimeLiteral datetime = (DateTimeLiteral) expression;
+        Assertions.assertEquals(2025, datetime.year);
+        Assertions.assertEquals(7, datetime.month);
+        Assertions.assertEquals(23, datetime.day);
+        Assertions.assertEquals(0, datetime.hour);
+        Assertions.assertEquals(0, datetime.minute);
+        Assertions.assertEquals(0, datetime.second);
+        Assertions.assertEquals(0, datetime.microSecond);
+
+        expression = v1.uncheckedCastTo(DateTimeV2Type.MAX);
+        Assertions.assertInstanceOf(DateTimeV2Literal.class, expression);
+        DateTimeV2Literal datetime2 = (DateTimeV2Literal) expression;
+        Assertions.assertEquals(2025, datetime2.year);
+        Assertions.assertEquals(7, datetime2.month);
+        Assertions.assertEquals(23, datetime2.day);
+        Assertions.assertEquals(0, datetime2.hour);
+        Assertions.assertEquals(0, datetime2.minute);
+        Assertions.assertEquals(0, datetime2.second);
+        Assertions.assertEquals(0, datetime2.microSecond);
+
+        expression = v1.uncheckedCastTo(DateV2Type.INSTANCE);
+        Assertions.assertInstanceOf(DateV2Literal.class, expression);
+        DateV2Literal date2 = (DateV2Literal) expression;
+        Assertions.assertEquals(2025, date2.year);
+        Assertions.assertEquals(7, date2.month);
+        Assertions.assertEquals(23, date2.day);
+
+        DateV2Literal v2 = new DateV2Literal(2025, 7, 23);
+        expression = v2.uncheckedCastTo(DateType.INSTANCE);
+        Assertions.assertInstanceOf(DateLiteral.class, expression);
+        DateLiteral date = (DateLiteral) expression;
+        Assertions.assertEquals(2025, date.year);
+        Assertions.assertEquals(7, date.month);
+        Assertions.assertEquals(23, date.day);
     }
 }

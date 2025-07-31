@@ -312,6 +312,22 @@ public abstract class Literal extends Expression implements LeafExpression {
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
 
+    public Expression checkedCastWithFallback(DataType targetType) {
+        try {
+            return checkedCastTo(targetType);
+        } catch (Exception e) {
+            return deprecatingCheckedCastTo(targetType);
+        }
+    }
+
+    public Expression uncheckedCastWithFallback(DataType targetType) {
+        try {
+            return uncheckedCastTo(targetType);
+        } catch (Exception e) {
+            return deprecatingUncheckedCastTo(targetType);
+        }
+    }
+
     /**
      * literal expr compare.
      */
@@ -326,22 +342,11 @@ public abstract class Literal extends Expression implements LeafExpression {
         return uncheckedCastTo(targetType);
     }
 
-    protected boolean isPosInf(String value) {
-        return "infinity".equalsIgnoreCase(value) || "+infinity".equalsIgnoreCase(value)
-                || "inf".equalsIgnoreCase(value) || "+inf".equalsIgnoreCase(value);
-    }
-
-    protected boolean isNegInf(String value) {
-        return "-infinity".equalsIgnoreCase(value) || "-inf".equalsIgnoreCase(value);
-    }
-
-    protected boolean isNaN(String value) {
-        return "nan".equalsIgnoreCase(value) || "-nan".equalsIgnoreCase(value) || "+nan".equalsIgnoreCase(value);
-    }
-
     protected boolean numericOverflow(String desc, DataType targetType) {
         if (this instanceof FloatLiteral || this instanceof DoubleLiteral) {
-            if (isPosInf(desc) || isNegInf(desc) || isNaN(desc)) {
+            if (DoubleLiteral.POS_INF_NAME.contains(desc.toLowerCase())
+                    || DoubleLiteral.NEG_INF_NAME.contains(desc.toLowerCase())
+                    || DoubleLiteral.NAN_NAME.contains(desc.toLowerCase())) {
                 return false;
             }
         }
@@ -375,7 +380,6 @@ public abstract class Literal extends Expression implements LeafExpression {
 
     protected Expression getDecimalLiteral(BigDecimal bigDecimal, DataType targetType) {
         int pReal = bigDecimal.precision();
-
         int sReal = bigDecimal.scale();
         int pTarget = targetType.isDecimalV2Type()
                 ? ((DecimalV2Type) targetType).getPrecision() : ((DecimalV3Type) targetType).getPrecision();
