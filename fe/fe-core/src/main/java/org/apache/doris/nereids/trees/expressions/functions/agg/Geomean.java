@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -35,7 +37,7 @@ import java.util.List;
  * AggregateFunction 'geomean'.
  */
 public class Geomean extends NullableAggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature {
+        implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecision, SupportWindowAnalytic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)
@@ -62,8 +64,8 @@ public class Geomean extends NullableAggregateFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
         DataType dataType = getArgument(0).getDataType();
-        if ((!dataType.isNumericType() && !dataType.isNullType()) || dataType.isOnlyMetricType()) {
-            throw new AnalysisException("GEOMEAN requires dobule parameter: " + toSql());
+        if (!dataType.isNumericType()) {
+            throw new AnalysisException("GEOMEAN only requires dobule parameter: " + toSql());
         }
     }
 
