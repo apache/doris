@@ -197,7 +197,7 @@ private:
     // Sends the request with retry mechanism for handling transient failures
     Status send_request_to_llm(const std::string& request_body, std::string& response,
                                const TLLMResource& config, std::shared_ptr<LLMAdapter>& adapter,
-                               const FunctionContext* context) const {
+                               FunctionContext* context) const {
         return HttpClient::execute_with_retry(config.max_retries, config.retry_delay_second,
                                               [this, &request_body, &response, &config, &adapter,
                                                context](HttpClient* client) -> Status {
@@ -210,7 +210,7 @@ private:
     // Wrapper for executing a single LLM request
     Status execute_single_request(const std::string& input, std::string& result,
                                   const TLLMResource& config, std::shared_ptr<LLMAdapter>& adapter,
-                                  const FunctionContext* context) const {
+                                  FunctionContext* context) const {
         std::vector<std::string> inputs = {input};
         std::vector<std::string> results;
 
