@@ -33,6 +33,7 @@ public class ReleaseSnapshotTask extends AgentTask {
 
     public TReleaseSnapshotRequest toThrift() {
         TReleaseSnapshotRequest request = new TReleaseSnapshotRequest(snapshotPath);
+        request.setTabletId(tabletId);
         return request;
     }
 }

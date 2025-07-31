@@ -124,7 +124,7 @@ jobs:
         echo "COMMENT_REPEAT_TIMES=${COMMENT_REPEAT_TIMES}" | tee -a "$GITHUB_OUTPUT"
 
     - name: "Checkout master"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) || fromJSON(steps.parse.outputs.comment_skip) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) || fromJSON(steps.parse.outputs.comment_skip) || fromJSON(steps.parse.outputs.comment_skip_coverage) }}
       uses: actions/checkout@v4
 
     - name: "Check if pr need run build"

@@ -320,7 +320,7 @@ template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
         const std::string& timezone, const IColumn& column, const NullMap* null_map,
         orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end,
-        std::vector<StringRef>& buffer_list) const {
+        vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     for (auto row_id = start; row_id < end; row_id++) {

@@ -364,4 +364,53 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
     return Status::OK();
 }
 
+FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
+                                                          size_t row_num) const {
+    const auto& array_column = assert_cast<const ColumnArray&>(column);
+    int precision = -1;
+    int scale = -1;
+    auto nested_type = get_nested_type();
+    PrimitiveType nested_type_id = nested_type->get_primitive_type();
+    uint8_t num_dimensions = 1;
+    while (nested_type_id == TYPE_ARRAY) {
+        nested_type = remove_nullable(nested_type);
+        const auto& nested_array = assert_cast<const DataTypeArray&>(*nested_type);
+        nested_type_id = nested_array.get_nested_type()->get_primitive_type();
+        num_dimensions++;
+    }
+    if (is_decimal(nested_type_id)) {
+        precision = nested_type->get_precision();
+        scale = nested_type->get_scale();
+    } else if (nested_type_id == TYPE_DATETIMEV2) {
+        scale = nested_type->get_scale();
+    } else if (nested_type_id == TYPE_JSONB) {
+        // Array<Jsonb> should return JsonbField as element
+        // Currently only Array<Jsonb> is supported
+        DCHECK(num_dimensions == 1);
+        Array arr;
+        size_t offset = array_column.offset_at(row_num);
+        size_t size = array_column.size_at(row_num);
+        for (size_t i = 0; i < size; ++i) {
+            auto field = Field::create_field<TYPE_JSONB>({});
+            array_column.get_data().get(offset + i, field);
+            arr.push_back(field);
+        }
+        return FieldWithDataType {
+                .field = Field::create_field<TYPE_ARRAY>(arr),
+                .base_scalar_type_id = nested_type_id,
+                .num_dimensions = num_dimensions,
+                .precision = precision,
+                .scale = scale,
+        };
+    }
+    auto field = array_column[row_num];
+    return FieldWithDataType {
+            .field = std::move(field),
+            .base_scalar_type_id = nested_type_id,
+            .num_dimensions = num_dimensions,
+            .precision = precision,
+            .scale = scale,
+    };
+}
+
 } // namespace doris::vectorized
