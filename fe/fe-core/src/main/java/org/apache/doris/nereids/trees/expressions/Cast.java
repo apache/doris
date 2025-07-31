@@ -79,18 +79,19 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public boolean nullable() {
         if (ConnectContext.get().getSessionVariable().enableStrictCast()) {
+            DataType childDataType = child().getDataType();
+            if (childDataType.isJsonType() || targetType.isJsonType()) {
+                return true;
+            }
             if (targetType.isNumericType() || targetType.isDateLikeType() || targetType.isBooleanType()
                     || targetType.isIPType()) {
                 return child().nullable();
             }
-            DataType childDataType = child().getDataType();
             if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
                 return true;
             } else if (!childDataType.isDateLikeType() && targetType.isDateLikeType()) {
                 return true;
             } else if (!childDataType.isTimeType() && targetType.isTimeType()) {
-                return true;
-            } else if (childDataType.isJsonType() || targetType.isJsonType()) {
                 return true;
             } else if (childDataType.isVariantType() || targetType.isVariantType()) {
                 return true;
