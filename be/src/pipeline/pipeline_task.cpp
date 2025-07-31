@@ -39,7 +39,6 @@
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
-#include "util/container_util.hpp"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"

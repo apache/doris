@@ -17,32 +17,18 @@
 
 #pragma once
 
+#include <type_traits>
+
 #include "exprs/bloom_filter_func_adaptor.h"
 #include "runtime/primitive_type.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
-// there are problems with the implementation of the old datetimev2. for compatibility reason, we will keep this code temporary.
-struct fixed_len_to_uint32 {
-    template <typename T>
-    uint32_t operator()(T value) {
-        if constexpr (sizeof(T) <= sizeof(uint32_t)) {
-            if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
-                return (uint32_t)value.to_int64();
-            } else if constexpr (vectorized::IsDecimalNumber<T>) {
-                return (uint32_t)value.value;
-            } else {
-                return (uint32_t)value;
-            }
-        }
-        return uint32_t(std::hash<T>()(value));
-    }
-};
-
 struct fixed_len_to_uint32_v2 {
     template <typename T>
-    uint32_t operator()(T value) {
+    uint32_t operator()(const T& value) {
         if constexpr (sizeof(T) <= sizeof(uint32_t)) {
             if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
                 return (uint32_t)value.to_date_int_val();
@@ -51,8 +37,19 @@ struct fixed_len_to_uint32_v2 {
             } else {
                 return (uint32_t)value;
             }
+        } else {
+            if constexpr (std::is_same_v<DecimalV2Value, T> ||
+                          std::is_same_v<VecDateTimeValue, T>) {
+                return uint32_t(std::hash<T>()(value));
+            } else if constexpr (std::is_same_v<T, DateV2Value<DateTimeV2ValueType>>) {
+                return uint32_t(HashCRC32<DateV2Value<DateTimeV2ValueType>::underlying_value>()(
+                        value.to_date_int_val()));
+            } else if constexpr (vectorized::IsDecimalNumber<T>) {
+                return uint32_t(HashCRC32<typename T::NativeType>()(value.value));
+            } else {
+                return uint32_t(HashCRC32<T>()(value));
+            }
         }
-        return uint32_t(std::hash<T>()(value));
     }
 };
 

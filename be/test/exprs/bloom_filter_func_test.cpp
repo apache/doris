@@ -203,7 +203,6 @@ TEST_F(BloomFilterFuncTest, InsertSet) {
     }
 
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func2(false);
-    params.enable_fixed_len_to_uint32_v2 = true;
     bloom_filter_func2.init_params(&params);
     st = bloom_filter_func2.init_with_fixed_length(runtime_length);
     ASSERT_TRUE(st.ok()) << "Failed to init bloom filter with fixed length: " << st.to_string();
@@ -421,8 +420,6 @@ TEST_F(BloomFilterFuncTest, HashAlgorithm) {
     ASSERT_EQ(memcmp(BloomFilterBinary.data(), encode_string.data(),
                      strlen(BloomFilterBinary.c_str())),
               0);
-
-    params.enable_fixed_len_to_uint32_v2 = true;
 
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func2(false);
     bloom_filter_func2.init_params(&params);
