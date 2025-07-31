@@ -50,8 +50,6 @@ public class Lcm extends ScalarFunction
             FunctionSignature.ret(LargeIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE, LargeIntType.INSTANCE));
 
-    private FunctionSignature processedSignature;
-
     /**
      * constructor with 2 arguments.
      */
