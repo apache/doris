@@ -60,31 +60,33 @@ struct StdoutLogSink : google::LogSink {
             severity_char = '?';
             break;
         }
+        // Set output formatting flags
+        std::cout << std::setfill('0');
 
-        // 2. Get timestamp components
-        time_t t = time.time();
-        struct tm tm;
-        localtime_r(&t, &tm); // Thread-safe local time conversion
+        // 1. Log severity (I/W/E/F)
+        std::cout << severity_char;
 
-        // Extract microseconds from the timestamp
-        int microseconds = static_cast<int>((time.usec() % 1000000));
+        // 2. Date (YYYYMMDD)
+        // Note: tm_year is years since 1900, tm_mon is 0-based (0-11)
+        std::cout << std::setw(4) << (time.year() + 1900) << std::setw(2) << std::setfill('0')
+                  << (time.month() + 1) << std::setw(2) << std::setfill('0') << time.day();
 
-        // 3. Get process ID
-        pid_t pid = getpid();
+        // 3. Time (HH:MM:SS.ffffff)
+        std::cout << " " << std::setw(2) << std::setfill('0') << time.hour() << ":" << std::setw(2)
+                  << std::setfill('0') << time.min() << ":" << std::setw(2) << std::setfill('0')
+                  << time.sec() << "." << std::setw(6) << std::setfill('0') << time.usec();
 
-        // 格式：级别 + 日期 + 时间 + 进程ID + 文件名:行号] 消息
-        std::cout << severity_char << std::setfill('0') << std::setw(4) << tm.tm_year + 1900 // 年份
-                  << std::setw(2) << tm.tm_mon + 1             // 月份
-                  << std::setw(2) << tm.tm_mday                // 日期
-                  << " " << std::setw(2) << tm.tm_hour         // 小时
-                  << ":" << std::setw(2) << tm.tm_min          // 分钟
-                  << ":" << std::setw(2) << tm.tm_sec          // 秒
-                  << "." << std::setw(6) << microseconds       // 微秒
-                  << " " << pid                                // 进程ID
-                  << " " << base_filename                      // 文件名
-                  << ":" << line                               // 行号
-                  << "] " << std::string(message, message_len) // 日志消息
-                  << std::endl;
+        // 4. Process ID
+        std::cout << " " << getpid();
+
+        // 5. Filename and line number
+        std::cout << " " << base_filename << ":" << line << "] ";
+
+        // 6. Log message
+        std::cout.write(message, message_len);
+
+        // Add newline and flush
+        std::cout << std::endl;
     }
 };
 
