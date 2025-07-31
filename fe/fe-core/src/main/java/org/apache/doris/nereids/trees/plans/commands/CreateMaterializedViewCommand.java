@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
@@ -98,6 +97,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -117,7 +117,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     private OriginStatement originStatement;
 
     public CreateMaterializedViewCommand(TableNameInfo name, LogicalPlan logicalPlan,
-            Map<String, String> properties) {
+                                         Map<String, String> properties) {
         super(PlanType.CREATE_MATERIALIZED_VIEW_COMMAND);
         this.name = name;
         this.logicalPlan = logicalPlan;
@@ -187,7 +187,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
      * @throws Exception auth denied
      */
     public void validate(ConnectContext ctx) throws Exception {
-        // name.analyze(ctx);
         Pair<LogicalPlan, CascadesContext> result = analyzeLogicalPlan(logicalPlan, ctx);
         CheckPrivileges checkPrivileges = new CheckPrivileges();
         checkPrivileges.rewriteRoot(result.first, result.second.getCurrentJobContext());
@@ -206,7 +205,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     }
 
     private Pair<LogicalPlan, CascadesContext> analyzeLogicalPlan(LogicalPlan unboundPlan,
-            ConnectContext ctx) {
+                                                                  ConnectContext ctx) {
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
@@ -236,6 +235,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         private Map<ExprId, Expression> groupByExprs;
         private List<NamedExpression> orderByExprs;
         private Map<Slot, Expression> exprReplaceMap = Maps.newHashMap();
+        private Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 
         public ValidateContext(CascadesContext cascadesContext) {
             this.planTranslatorContext = new PlanTranslatorContext(cascadesContext);
@@ -272,6 +272,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             OlapTable olapTable = olapScan.getTable();
             if (olapTable.isTemporary()) {
                 throw new AnalysisException("do not support create materialized view on temporary table");
+            }
+            for (Column column : olapTable.getFullSchema()) {
+                // we don't check the duplicate name of historic mv for backwards compatibility
+                validateContext.allColumnNames.add(column.getName());
             }
             validateContext.baseIndexName = olapTable.getName();
             validateContext.dbName = olapTable.getDBName();
@@ -324,8 +328,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                     predicate = ExpressionUtils.replace(predicate, context.exprReplaceMap);
                 }
                 try {
-                    context.filterItem = new MVColumnItem(
-                            translateToLegacyExpr(predicate, context.planTranslatorContext));
+                    Expr defineExpr = translateToLegacyExpr(predicate, context.planTranslatorContext);
+                    context.filterItem = new MVColumnItem(defineExpr.toSqlWithoutTbl(), defineExpr);
                 } catch (Exception ex) {
                     throw new AnalysisException(ex.getMessage());
                 }
@@ -400,6 +404,16 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> resultSink, ValidateContext context) {
             super.visit(resultSink, context);
             List<NamedExpression> outputs = resultSink.getOutputExprs();
+            List<String> outputNames = new ArrayList<>(outputs.size());
+            for (NamedExpression expr : outputs) {
+                String colName = expr.getName();
+                if (context.allColumnNames.add(colName)) {
+                    outputNames.add(colName);
+                } else {
+                    throw new AnalysisException(String.format("duplicate column name %s in full schema, "
+                            + "please use a new unique name xxx, like %s as xxx in select list", colName, colName));
+                }
+            }
             if (!context.exprReplaceMap.isEmpty()) {
                 outputs = ExpressionUtils.replaceNamedExpressions(outputs, context.exprReplaceMap);
                 outputs = outputs.stream()
@@ -454,7 +468,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             context.selectItems = new ArrayList<>(outputs.size());
             boolean meetAggFunction = false;
             boolean meetNoneAggExpr = false;
-            for (NamedExpression output : outputs) {
+            for (int i = 0; i < outputs.size(); ++i) {
+                NamedExpression output = outputs.get(i);
+                String colName = outputNames.get(i);
                 Expression expr = output;
                 if (output instanceof Alias) {
                     expr = ((Alias) output).child();
@@ -480,7 +496,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 if (expr.containsType(AggregateFunction.class)) {
                     meetAggFunction = true;
                     if (expr instanceof AggregateFunction) {
-                        context.selectItems.add(buildMVColumnItem((AggregateFunction) expr, context));
+                        context.selectItems.add(buildMVColumnItem(colName, (AggregateFunction) expr, context));
                     } else {
                         throw new AnalysisException(String.format(
                                 "The materialized view's expr calculations cannot be included outside"
@@ -493,7 +509,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                     meetNoneAggExpr = true;
                     try {
                         context.selectItems
-                                .add(new MVColumnItem(translateToLegacyExpr(expr, context.planTranslatorContext)));
+                                .add(new MVColumnItem(colName,
+                                        translateToLegacyExpr(expr, context.planTranslatorContext)));
                     } catch (Exception ex) {
                         throw new AnalysisException(ex.getMessage());
                     }
@@ -565,7 +582,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                     }
                     if (theBeginIndexOfValue == 0) {
                         throw new AnalysisException("The first column could not be float, double or complex type "
-                            + "like array, struct, map, json, variant.");
+                                + "like array, struct, map, json, variant.");
                     }
                     // supply value
                     for (; theBeginIndexOfValue < selectItems.size(); theBeginIndexOfValue++) {
@@ -583,7 +600,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             }
         }
 
-        private MVColumnItem buildMVColumnItem(AggregateFunction aggregateFunction, ValidateContext ctx)
+        private MVColumnItem buildMVColumnItem(String name, AggregateFunction aggregateFunction, ValidateContext ctx)
                 throws AnalysisException {
             Expression defineExpr = getAggFunctionFirstParam(aggregateFunction);
             DataType paramDataType = defineExpr.getDataType();
@@ -613,8 +630,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 mvDataType = defineExpr.getDataType();
             }
             Expr expr = translateToLegacyExpr(defineExpr, ctx.planTranslatorContext);
-            return new MVColumnItem(mvDataType.toCatalogDataType(), mvAggType, expr,
-                    CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutTbl()));
+            return new MVColumnItem(name, mvDataType.toCatalogDataType(), mvAggType, expr);
         }
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {

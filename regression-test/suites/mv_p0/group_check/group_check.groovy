@@ -44,7 +44,7 @@ suite ("group_check") {
     }
 
     test {
-        sql "create materialized view kgroup as select k1,sum(k3) from d_table group by k1,k2;"
+        sql "create materialized view kgroup as select k1 as a1,sum(k3) from d_table group by k1,k2;"
         exception "errCode = 2,"
     }
 
@@ -53,7 +53,7 @@ suite ("group_check") {
         exception "errCode = 2,"
     }
 
-    createMV ("create materialized view kgroup as select k1,k2,sum(k3) from d_table group by k1,k2;")
+    createMV ("create materialized view kgroup as select k1 as a1,k2 as a2,sum(k3) from d_table group by k1,k2;")
 
 
     sql "insert into d_table select -4,-4,-4,'d',4.4;"
@@ -61,12 +61,12 @@ suite ("group_check") {
     qt_select_star "select * from d_table order by k1;"
 
     test {
-        sql "create materialized view kgroup as select k5 from d_table group by k5;"
+        sql "create materialized view kgroup as select k5 as a1 from d_table group by k5;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "create materialized view kgroup as select k1,k5 from d_table group by k1,k5;"
+        sql "create materialized view kgroup as select k1 as a1,k5  as a2 from d_table group by k1,k5;"
         exception "errCode = 2,"
     }
 }

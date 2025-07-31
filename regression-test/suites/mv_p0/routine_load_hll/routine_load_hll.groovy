@@ -36,7 +36,7 @@ suite ("routine_load_hll") {
 
     sql """insert into test(mv_event_id,mv_time_stamp,mv_device_id) values('ad_sdk_request','2024-03-04 00:00:00',hll_hash('a'));"""
 
-    createMV("""create materialized view m_view as select mv_time_stamp, hll_union(mv_device_id) from test group by mv_time_stamp;""")
+    createMV("""create materialized view m_view as select mv_time_stamp as m_view_mv_time_stamp, hll_union(mv_device_id) from test group by mv_time_stamp;""")
 
         sql """insert into test(mv_event_id,mv_time_stamp,mv_device_id) values('ad_sdk_request','2024-03-04 00:00:00',hll_hash('b'));"""
 
