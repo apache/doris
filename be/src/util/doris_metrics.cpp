@@ -242,6 +242,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(get_remote_tablet_slow_cnt, MetricUnit::NOU
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_load_costs_ms, MetricUnit::MILLISECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_load_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_save_costs_ms, MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_save_cnt, MetricUnit::NOUNIT);
 
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
@@ -400,6 +402,11 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, get_remote_tablet_slow_cnt);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, pipeline_task_queue_size);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_load_costs_ms);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_load_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_save_costs_ms);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_save_cnt);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,

@@ -33,6 +33,7 @@
 #include "faiss/IndexHNSW.h"
 #include "faiss/impl/io.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "util/doris_metrics.h"
 #include "vector/vector_index.h"
 
 namespace doris::segment_v2 {
@@ -375,11 +376,12 @@ doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     LOG_INFO(fmt::format("Faiss index saved to {}, {}, rows {}, cost {} ms", dir->toString(),
                          "faiss.idx", _index->ntotal, duration.count()));
+    DorisMetrics::instance()->ann_index_save_costs_ms->increment(static_cast<int64_t>(duration.count()));
+    DorisMetrics::instance()->ann_index_save_cnt->increment(static_cast<int64_t>(1));
     return doris::Status::OK();
 }
 
 doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
-    LOG_INFO("Loading Faiss index from: {}", dir->getObjectName());
     auto start_time = std::chrono::high_resolution_clock::now();
     lucene::store::IndexInput* idx_input = dir->openInput("faiss.idx");
     auto reader = std::make_unique<FaissIndexReader>(idx_input);
@@ -389,6 +391,8 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
     LOG_INFO("Load index from {} costs {} ms, rows {}", dir->getObjectName(), duration.count(),
              idx->ntotal);
     _index.reset(idx);
+    DorisMetrics::instance()->ann_index_load_costs_ms->increment(static_cast<int64_t>(duration.count()));
+    DorisMetrics::instance()->ann_index_load_cnt->increment(static_cast<int64_t>(1));
     return doris::Status::OK();
 }
 
