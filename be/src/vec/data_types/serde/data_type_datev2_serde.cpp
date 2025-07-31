@@ -166,7 +166,7 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     const auto& col_data = assert_cast<const ColumnDateV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
     for (size_t row_id = start; row_id < end; row_id++) {

@@ -22,8 +22,10 @@
 #include <arrow/builder.h>
 #include <arrow/util/decimal.h>
 
+#include <type_traits>
+
 #include "arrow/type.h"
-#include "common/consts.h"
+#include "orc/Int128.hh"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
@@ -206,7 +208,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                                                  array_builder->type()->name()));
                 continue;
             }
-            Int128 p_value = Int128(col.get_element(i));
+            Int128 p_value = col.get_element(i).value;
             arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
                                              array_builder->type()->name()));
@@ -221,7 +223,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                                                  array_builder->type()->name()));
                 continue;
             }
-            Int128 p_value = Int128(col.get_element(i));
+            Int128 p_value = col.get_element(i).value;
             arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
                                              array_builder->type()->name()));
@@ -354,28 +356,27 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
-                                                    std::vector<StringRef>& buffer_list) const {
-    auto& col_data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
-
-    if constexpr (T == TYPE_DECIMALV2 || T == TYPE_DECIMAL128I || T == TYPE_DECIMAL256) {
-        orc::Decimal128VectorBatch* cur_batch =
-                dynamic_cast<orc::Decimal128VectorBatch*>(orc_col_batch);
-
-        for (size_t row_id = start; row_id < end; row_id++) {
-            if (cur_batch->notNull[row_id] == 1) {
-                auto& v = col_data[row_id];
-                orc::Int128 value(v >> 64, (uint64_t)v); // TODO, Decimal256 will lose precision
-                cur_batch->values[row_id] = value;
-            }
-        }
-        cur_batch->numElements = end - start;
+                                                    vectorized::Arena& arena) const {
+    if constexpr (T == TYPE_DECIMAL256) {
+        return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     } else {
-        orc::Decimal64VectorBatch* cur_batch =
-                dynamic_cast<orc::Decimal64VectorBatch*>(orc_col_batch);
-
+        constexpr bool use_int128 =
+                (sizeof(typename ColumnDecimal<T>::value_type) >= sizeof(Int128));
+        auto& col_data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+        auto* cur_batch =
+                dynamic_cast<std::conditional_t<use_int128, orc::Decimal128VectorBatch,
+                                                orc::Decimal64VectorBatch>*>(orc_col_batch);
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                cur_batch->values[row_id] = col_data[row_id];
+                const auto& int_value = col_data[row_id].value;
+                if constexpr (use_int128) {
+                    // orc::Int128 only support construct from two int64_t values
+                    // so we need to split the int128 value into two int64_t values
+                    orc::Int128 value(int_value >> 64, (uint64_t)int_value);
+                    cur_batch->values[row_id] = value;
+                } else {
+                    cur_batch->values[row_id] = int_value;
+                }
             }
         }
         cur_batch->numElements = end - start;

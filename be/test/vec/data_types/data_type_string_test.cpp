@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <iostream>
+#include <memory>
 #include <type_traits>
 
 #include "agent/be_exec_version_manager.h"
@@ -397,4 +398,21 @@ TEST_F(DataTypeStringTest, escape_string_for_csv) {
         EXPECT_EQ(std::string(test_str, len), "");
     }
 }
+
+TEST_F(DataTypeStringTest, GetFieldWithDataTypeTest) {
+    auto column_str = dt_str.create_column();
+    column_str->insert_data("a", 1);
+    EXPECT_EQ(dt_str.get_field_with_data_type(*column_str, 0).field,
+              Field::create_field<TYPE_STRING>("a"));
+
+    // wrap with nullable
+    auto nullable_dt = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    auto nullable_column = nullable_dt->create_column();
+    nullable_column->insert_data("a", 1);
+    nullable_column->insert_default();
+    EXPECT_EQ(nullable_dt->get_field_with_data_type(*nullable_column, 0).field,
+              Field::create_field<TYPE_STRING>("a"));
+    EXPECT_EQ(nullable_dt->get_field_with_data_type(*nullable_column, 1).field, Field());
+}
+
 } // namespace doris::vectorized

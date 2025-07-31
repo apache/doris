@@ -28,7 +28,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/io/io_helper.h"
 
 // TODO: optimize count=0
 // TODO: support datetime
@@ -79,7 +78,7 @@ public:
         double key = std::floor((val - offset) / interval);
         if (key <= MIN_BUCKET_KEY || key >= MAX_BUCKET_KEY) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "{} exceeds the bucket range limit",
-                                   value);
+                                   val);
         }
         buckets[static_cast<int32_t>(key)]++;
     }

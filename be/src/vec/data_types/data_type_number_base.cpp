@@ -328,6 +328,17 @@ Status DataTypeNumberBase<T>::check_column(const IColumn& column) const {
     return check_column_non_nested_type<typename PrimitiveTypeTraits<T>::ColumnType>(column);
 }
 
+template <PrimitiveType T>
+FieldWithDataType DataTypeNumberBase<T>::get_field_with_data_type(const IColumn& column,
+                                                                  size_t row_num) const {
+    const auto& column_data =
+            assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column);
+    Field field;
+    column_data.get(row_num, field);
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type()};
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberBase<TYPE_BOOLEAN>;
 template class DataTypeNumberBase<TYPE_TINYINT>;

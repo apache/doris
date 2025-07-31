@@ -363,7 +363,7 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   const IColumn& column, const NullMap* null_map,
                                                   orc::ColumnVectorBatch* orc_col_batch,
                                                   int64_t start, int64_t end,
-                                                  std::vector<StringRef>& buffer_list) const {
+                                                  vectorized::Arena& arena) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
     const auto& null_map_tmp = column_nullable.get_null_map_data();
@@ -376,7 +376,7 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
 
     RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
                                                       &column_nullable.get_null_map_data(),
-                                                      orc_col_batch, start, end, buffer_list));
+                                                      orc_col_batch, start, end, arena));
     return Status::OK();
 }
 

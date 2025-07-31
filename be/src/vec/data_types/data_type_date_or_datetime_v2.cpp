@@ -249,6 +249,18 @@ void DataTypeDateTimeV2::cast_from_date_time(const Int64 from, UInt64& to) {
                                 from_value.hour(), from_value.minute(), from_value.second(), 0);
 }
 
+FieldWithDataType DataTypeDateTimeV2::get_field_with_data_type(const IColumn& column,
+                                                               size_t row_num) const {
+    const auto& column_data =
+            assert_cast<const ColumnDateTimeV2&, TypeCheckOnRelease::DISABLE>(column);
+    Field field;
+    column_data.get(row_num, field);
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type(),
+                              .precision = -1,
+                              .scale = static_cast<int>(get_scale())};
+}
+
 void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {
     to = from >> TIME_PART_LENGTH;
 }

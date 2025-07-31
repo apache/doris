@@ -39,10 +39,10 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
     AggregateFunctionPtr result;
     if (argument_types.size() == 2) {
         result = creator_with_any::create<HistogramWithInputParam, AggregateFunctionHistogramData>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     } else if (argument_types.size() == 1) {
         result = creator_with_any::create<HistogramNormal, AggregateFunctionHistogramData>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     } else {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Aggregate function histogram requires 1 or 2 arguments, but got {}",

@@ -224,4 +224,9 @@ const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr
     return buf;
 }
 
+FieldWithDataType IDataType::get_field_with_data_type(const IColumn& column, size_t row_num) const {
+    return FieldWithDataType {.field = column[row_num],
+                              .base_scalar_type_id = get_primitive_type()};
+}
+
 } // namespace doris::vectorized

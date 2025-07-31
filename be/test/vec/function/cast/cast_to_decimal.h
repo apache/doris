@@ -1454,7 +1454,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                         // std::cerr << fmt::format("{:f} overflow\n", expect_value);
                     } else {
                         T v {};
-                        // v.value = typename T::NativeType(FromT(float_value * multiplier.value +
+                        // v.value = typename T::NativeType(FromT(float_value * multiplier +
                         //                                        (float_value >= 0 ? 0.5 : -0.5)));
                         v.value = typename T::NativeType(static_cast<double>(
                                 float_value * static_cast<DoubleType>(multiplier) +

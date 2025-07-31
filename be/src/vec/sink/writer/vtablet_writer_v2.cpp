@@ -783,6 +783,7 @@ Status VTabletWriterV2::_close_wait(
 
     // 2. then wait for remaining streams as much as possible
     if (!unfinished_streams.empty() && need_wait_after_quorum_success) {
+        int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(streams_for_node, unfinished_streams);
         while (true) {
             RETURN_IF_ERROR(_check_timeout());
@@ -790,7 +791,7 @@ Status VTabletWriterV2::_close_wait(
             if (unfinished_streams.empty()) {
                 break;
             }
-            int64_t elapsed_ms = _timeout_watch.elapsed_time() / 1000 / 1000;
+            int64_t elapsed_ms = UnixMillis() - arrival_quorum_success_time;
             if (elapsed_ms > max_wait_time_ms ||
                 _state->execution_timeout() - elapsed_ms / 1000 <
                         config::quorum_success_remaining_timeout_seconds) {
@@ -908,6 +909,7 @@ int64_t VTabletWriterV2::_calc_max_wait_time_ms(
 
     // 3. calculate max wait time
     // introduce quorum_success_min_wait_time_ms to avoid jitter of small load
+    max_wait_time_ms -= UnixMillis() - _timeout_watch.elapsed_time() / 1000 / 1000;
     max_wait_time_ms =
             std::max(static_cast<int64_t>(static_cast<double>(max_wait_time_ms) *
                                           (1.0 + config::quorum_success_max_wait_multiplier)),

@@ -76,6 +76,9 @@ public:
         return Field::create_field<TYPE_STRING>(node.string_literal.value);
     }
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return false; }

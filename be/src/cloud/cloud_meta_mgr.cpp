@@ -528,6 +528,9 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
 
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
+    std::string tablet_info =
+            fmt::format("tablet_id={} table_id={} index_id={} partition_id={}", tablet->tablet_id(),
+                        tablet->table_id(), tablet->index_id(), tablet->partition_id());
     int tried = 0;
     while (true) {
         std::shared_ptr<MetaService_Stub> stub;
@@ -577,12 +580,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 std::uniform_int_distribution<uint32_t> u1(500, 1000);
                 uint32_t duration_ms = tried >= 100 ? u(rng) : u1(rng);
                 bthread_usleep(duration_ms * 1000);
-                LOG_INFO("failed to get rowset meta")
+                LOG_INFO("failed to get rowset meta, " + tablet_info)
                         .tag("reason", cntl.ErrorText())
-                        .tag("tablet_id", tablet_id)
-                        .tag("table_id", table_id)
-                        .tag("index_id", index_id)
-                        .tag("partition_id", tablet->partition_id())
                         .tag("tried", tried)
                         .tag("sleep", duration_ms);
                 continue;
@@ -590,18 +589,26 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             return Status::RpcError("failed to get rowset meta: {}", cntl.ErrorText());
         }
         if (resp.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
-            return Status::NotFound("failed to get rowset meta: {}", resp.status().msg());
+            LOG(WARNING) << "failed to get rowset meta, err=" << resp.status().msg() << " "
+                         << tablet_info;
+            return Status::NotFound("failed to get rowset meta: {}, {}", resp.status().msg(),
+                                    tablet_info);
         }
         if (resp.status().code() != MetaServiceCode::OK) {
-            return Status::InternalError("failed to get rowset meta: {}", resp.status().msg());
+            LOG(WARNING) << " failed to get rowset meta, err=" << resp.status().msg() << " "
+                         << tablet_info;
+            return Status::InternalError("failed to get rowset meta: {}, {}", resp.status().msg(),
+                                         tablet_info);
         }
         if (latency > 100 * 1000) { // 100ms
             LOG(INFO) << "finish get_rowset rpc. rowset_meta.size()=" << resp.rowset_meta().size()
-                      << ", latency=" << latency << "us";
+                      << ", latency=" << latency << "us"
+                      << " " << tablet_info;
         } else {
             LOG_EVERY_N(INFO, 100)
                     << "finish get_rowset rpc. rowset_meta.size()=" << resp.rowset_meta().size()
-                    << ", latency=" << latency << "us";
+                    << ", latency=" << latency << "us"
+                    << " " << tablet_info;
         }
 
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
@@ -625,16 +632,13 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                                 resp.stats(), req.idx(), &delete_bitmap,
                                                 options.full_sync, sync_stats);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
-                LOG_INFO("rowset meta is expired, need to retry")
-                        .tag("tablet", tablet->tablet_id())
+                LOG_INFO("rowset meta is expired, need to retry, " + tablet_info)
                         .tag("tried", tried)
                         .error(st);
                 continue;
             }
             if (!st.ok()) {
-                LOG_WARNING("failed to get delete bitmap")
-                        .tag("tablet", tablet->tablet_id())
-                        .error(st);
+                LOG_WARNING("failed to get delete bitmap, " + tablet_info).error(st);
                 return st;
             }
             tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
@@ -692,9 +696,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                     }
                 }
 
-                LOG_INFO("[verbose] sync tablet delete bitmap")
-                        .tag("tablet_id", tablet->tablet_id())
-                        .tag("table_id", tablet->table_id())
+                LOG_INFO("[verbose] sync tablet delete bitmap " + tablet_info)
                         .tag("full_sync", options.full_sync)
                         .tag("old_max_version", old_max_version)
                         .tag("new_max_version", new_max_version)
@@ -742,7 +744,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 stats.cumulative_compaction_cnt() < tablet->cumulative_compaction_cnt())
                     [[unlikely]] {
                 // stale request, ignore
-                LOG_WARNING("stale get rowset meta request")
+                LOG_WARNING("stale get rowset meta request " + tablet_info)
                         .tag("resp_base_compaction_cnt", stats.base_compaction_cnt())
                         .tag("base_compaction_cnt", tablet->base_compaction_cnt())
                         .tag("resp_cumulative_compaction_cnt", stats.cumulative_compaction_cnt())

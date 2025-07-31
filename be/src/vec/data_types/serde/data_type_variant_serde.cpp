@@ -207,7 +207,7 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end,
-                                                 std::vector<StringRef>& buffer_list) const {
+                                                 vectorized::Arena& arena) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     // First pass: calculate total memory needed and collect serialized values
@@ -225,15 +225,11 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
         }
     }
     // Allocate continues memory based on calculated size
-    char* ptr = (char*)malloc(total_size);
+    char* ptr = arena.alloc(total_size);
     if (!ptr) {
         return Status::InternalError(
                 "malloc memory {} error when write variant column data to orc file.", total_size);
     }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = total_size;
-    buffer_list.emplace_back(bufferRef);
     // Second pass: copy data to allocated memory
     size_t offset = 0;
     for (size_t i = 0; i < serialized_values.size(); i++) {
@@ -246,8 +242,8 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
                     "exceed total_size {} . ",
                     offset, len, total_size);
         }
-        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
-        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+        memcpy(ptr + offset, serialized_value.data(), len);
+        cur_batch->data[row_id] = ptr + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }

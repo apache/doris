@@ -215,18 +215,11 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
         }
         {
             // test write_column_to_orc
-            std::vector<StringRef> buffer_list;
-            Defer defer {[&]() {
-                for (auto& bufferRef : buffer_list) {
-                    if (bufferRef.data) {
-                        free(const_cast<char*>(bufferRef.data));
-                    }
-                }
-            }};
+            Arena arena;
             auto orc_batch =
                     std::make_unique<orc::StringVectorBatch>(row_count, *orc::getDefaultPool());
             Status st = serde.write_column_to_orc("UTC", *source_column, nullptr, orc_batch.get(),
-                                                  0, row_count - 1, buffer_list);
+                                                  0, row_count - 1, arena);
             EXPECT_EQ(st, Status::OK()) << "Failed to write column to orc: " << st;
             EXPECT_EQ(orc_batch->numElements, row_count - 1);
         }

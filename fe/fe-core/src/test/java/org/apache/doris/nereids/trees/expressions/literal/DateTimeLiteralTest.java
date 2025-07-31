@@ -17,8 +17,17 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.CastException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.LargeIntType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
@@ -507,5 +516,157 @@ class DateTimeLiteralTest {
     private <L extends DateLiteral> L check(String str, Function<String, L> literalBuilder) {
         Assertions.assertTrue(DateTimeChecker.isValidDateTime(str), "Invalid date: " + str);
         return literalBuilder.apply(str);
+    }
+
+    @Test
+    void testDateTimeV1UncheckedCastTo() {
+        DateTimeLiteral v1 = new DateTimeLiteral(DateTimeType.INSTANCE, 2025, 7, 23, 13, 25, 59, 999999);
+        Expression expression = v1.uncheckedCastTo(BigIntType.INSTANCE);
+        Assertions.assertInstanceOf(BigIntLiteral.class, expression);
+        Assertions.assertEquals(20250723132559L, ((BigIntLiteral) expression).getValue().longValue());
+
+        expression = v1.uncheckedCastTo(LargeIntType.INSTANCE);
+        Assertions.assertInstanceOf(LargeIntLiteral.class, expression);
+        Assertions.assertEquals(20250723132559L, ((LargeIntLiteral) expression).getValue().longValue());
+
+        expression = v1.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertInstanceOf(FloatLiteral.class, expression);
+        Assertions.assertEquals(202507, ((FloatLiteral) expression).getValue().longValue() / 100000000);
+
+        expression = v1.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+        Assertions.assertEquals(20250723132559L, ((DoubleLiteral) expression).getValue().longValue());
+
+        expression = v1.uncheckedCastTo(DateType.INSTANCE);
+        Assertions.assertInstanceOf(DateLiteral.class, expression);
+        DateLiteral date1 = (DateLiteral) expression;
+        Assertions.assertEquals(2025, date1.year);
+        Assertions.assertEquals(7, date1.month);
+        Assertions.assertEquals(23, date1.day);
+
+        expression = v1.uncheckedCastTo(DateV2Type.INSTANCE);
+        Assertions.assertInstanceOf(DateV2Literal.class, expression);
+        DateV2Literal date2 = (DateV2Literal) expression;
+        Assertions.assertEquals(2025, date2.year);
+        Assertions.assertEquals(7, date2.month);
+        Assertions.assertEquals(23, date2.day);
+
+        expression = v1.uncheckedCastTo(DateTimeV2Type.MAX);
+        Assertions.assertInstanceOf(DateTimeV2Literal.class, expression);
+        DateTimeV2Literal dt2 = (DateTimeV2Literal) expression;
+        Assertions.assertEquals(2025, dt2.year);
+        Assertions.assertEquals(7, dt2.month);
+        Assertions.assertEquals(23, dt2.day);
+        Assertions.assertEquals(13, dt2.hour);
+        Assertions.assertEquals(25, dt2.minute);
+        Assertions.assertEquals(59, dt2.second);
+        Assertions.assertEquals(999999, dt2.microSecond);
+
+        expression = v1.uncheckedCastTo(DateTimeV2Type.of(4));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class, expression);
+        dt2 = (DateTimeV2Literal) expression;
+        Assertions.assertEquals(2025, dt2.year);
+        Assertions.assertEquals(7, dt2.month);
+        Assertions.assertEquals(23, dt2.day);
+        Assertions.assertEquals(13, dt2.hour);
+        Assertions.assertEquals(26, dt2.minute);
+        Assertions.assertEquals(0, dt2.second);
+        Assertions.assertEquals(0, dt2.microSecond);
+
+        expression = v1.uncheckedCastTo(DateTimeV2Type.of(0));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class, expression);
+        dt2 = (DateTimeV2Literal) expression;
+        Assertions.assertEquals(2025, dt2.year);
+        Assertions.assertEquals(7, dt2.month);
+        Assertions.assertEquals(23, dt2.day);
+        Assertions.assertEquals(13, dt2.hour);
+        Assertions.assertEquals(26, dt2.minute);
+        Assertions.assertEquals(0, dt2.second);
+        Assertions.assertEquals(0, dt2.microSecond);
+
+        v1 = new DateTimeLiteral(DateTimeType.INSTANCE, 2025, 7, 23, 13, 25, 59, 999);
+        expression = v1.uncheckedCastTo(DateTimeV2Type.of(3));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class, expression);
+
+        dt2 = (DateTimeV2Literal) expression;
+        Assertions.assertEquals(2025, dt2.year);
+        Assertions.assertEquals(7, dt2.month);
+        Assertions.assertEquals(23, dt2.day);
+        Assertions.assertEquals(13, dt2.hour);
+        Assertions.assertEquals(25, dt2.minute);
+        Assertions.assertEquals(59, dt2.second);
+        Assertions.assertEquals(1000, dt2.microSecond);
+        v1 = new DateTimeLiteral(DateTimeType.INSTANCE, 9999, 12, 31, 23, 59, 59, 999999);
+        DateTimeLiteral finalV = v1;
+        Assertions.assertThrows(CastException.class, () -> finalV.uncheckedCastTo(DateTimeV2Type.of(3)));
+
+        v1 = new DateTimeLiteral(DateTimeType.INSTANCE, 2025, 7, 23, 13, 25, 59, 1);
+        expression = v1.uncheckedCastTo(DateTimeV2Type.of(3));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class, expression);
+        dt2 = (DateTimeV2Literal) expression;
+        Assertions.assertEquals(2025, dt2.year);
+        Assertions.assertEquals(7, dt2.month);
+        Assertions.assertEquals(23, dt2.day);
+        Assertions.assertEquals(13, dt2.hour);
+        Assertions.assertEquals(25, dt2.minute);
+        Assertions.assertEquals(59, dt2.second);
+        Assertions.assertEquals(0, dt2.microSecond);
+    }
+
+    @Test
+    void testDateTimeV2UncheckedCastTo() {
+        DateTimeV2Literal v2 = new DateTimeV2Literal(DateTimeV2Type.MAX, 2025, 7, 23, 13, 25, 59, 999999);
+        Expression expression = v2.uncheckedCastTo(BigIntType.INSTANCE);
+        Assertions.assertInstanceOf(BigIntLiteral.class, expression);
+
+        Assertions.assertEquals(20250723132559L, ((BigIntLiteral) expression).getValue().longValue());
+
+        expression = v2.uncheckedCastTo(LargeIntType.INSTANCE);
+        Assertions.assertInstanceOf(LargeIntLiteral.class, expression);
+        Assertions.assertEquals(20250723132559L, ((LargeIntLiteral) expression).getValue().longValue());
+
+        expression = v2.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertInstanceOf(FloatLiteral.class, expression);
+        Assertions.assertEquals(202507, ((FloatLiteral) expression).getValue().longValue() / 100000000);
+
+        expression = v2.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+        Assertions.assertEquals(20250723132559L, ((DoubleLiteral) expression).getValue().longValue());
+
+        expression = v2.uncheckedCastTo(DateType.INSTANCE);
+        Assertions.assertInstanceOf(DateLiteral.class, expression);
+        DateLiteral date1 = (DateLiteral) expression;
+        Assertions.assertEquals(2025, date1.year);
+        Assertions.assertEquals(7, date1.month);
+        Assertions.assertEquals(23, date1.day);
+
+        expression = v2.uncheckedCastTo(DateV2Type.INSTANCE);
+        Assertions.assertInstanceOf(DateV2Literal.class, expression);
+        DateV2Literal date2 = (DateV2Literal) expression;
+        Assertions.assertEquals(2025, date2.year);
+        Assertions.assertEquals(7, date2.month);
+        Assertions.assertEquals(23, date2.day);
+
+        expression = v2.uncheckedCastTo(DateTimeType.INSTANCE);
+        Assertions.assertInstanceOf(DateTimeLiteral.class, expression);
+        DateTimeLiteral dt2 = (DateTimeLiteral) expression;
+        Assertions.assertEquals(2025, dt2.year);
+        Assertions.assertEquals(7, dt2.month);
+        Assertions.assertEquals(23, dt2.day);
+        Assertions.assertEquals(13, dt2.hour);
+        Assertions.assertEquals(25, dt2.minute);
+        Assertions.assertEquals(59, dt2.second);
+        Assertions.assertEquals(999999, dt2.microSecond);
+
+        expression = v2.uncheckedCastTo(DateTimeType.INSTANCE);
+        Assertions.assertInstanceOf(DateTimeLiteral.class, expression);
+        dt2 = (DateTimeLiteral) expression;
+        Assertions.assertEquals(2025, dt2.year);
+        Assertions.assertEquals(7, dt2.month);
+        Assertions.assertEquals(23, dt2.day);
+        Assertions.assertEquals(13, dt2.hour);
+        Assertions.assertEquals(25, dt2.minute);
+        Assertions.assertEquals(59, dt2.second);
+        Assertions.assertEquals(999999, dt2.microSecond);
     }
 }

@@ -32,10 +32,10 @@ AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
                                                     const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 2) {
         return creator_without_type::create<AggregateFunctionTopN<AggregateFunctionTopNImplInt>>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     } else if (argument_types.size() == 3) {
         return creator_without_type::create<AggregateFunctionTopN<AggregateFunctionTopNImplIntInt>>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
     return nullptr;
 }
@@ -52,10 +52,10 @@ AggregateFunctionPtr create_aggregate_function_topn_array(const std::string& nam
     bool has_default_param = (argument_types.size() == 3);
     if (has_default_param) {
         return creator_with_any::create<AggregateFunctionTopNArray, ImplArrayWithDefault>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     } else {
-        return creator_with_any::create<AggregateFunctionTopNArray, ImplArray>(argument_types,
-                                                                               result_is_nullable);
+        return creator_with_any::create<AggregateFunctionTopNArray, ImplArray>(
+                argument_types, result_is_nullable, attr);
     }
 }
 
@@ -71,10 +71,10 @@ AggregateFunctionPtr create_aggregate_function_topn_weighted(const std::string& 
     bool has_default_param = (argument_types.size() == 4);
     if (has_default_param) {
         return creator_with_any::create<AggregateFunctionTopNArray, ImplWeightWithDefault>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     } else {
-        return creator_with_any::create<AggregateFunctionTopNArray, ImplWeight>(argument_types,
-                                                                                result_is_nullable);
+        return creator_with_any::create<AggregateFunctionTopNArray, ImplWeight>(
+                argument_types, result_is_nullable, attr);
     }
 }
 

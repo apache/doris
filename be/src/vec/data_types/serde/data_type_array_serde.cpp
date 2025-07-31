@@ -411,8 +411,7 @@ Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
 Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                               int64_t end,
-                                               std::vector<StringRef>& buffer_list) const {
+                                               int64_t end, vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -424,7 +423,7 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
         size_t next_offset = offsets[row_id];
         RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
                                                           cur_batch->elements.get(), offset,
-                                                          next_offset, buffer_list));
+                                                          next_offset, arena));
         cur_batch->offsets[row_id + 1] = next_offset;
     }
     cur_batch->elements->numElements = nested_column.size();
