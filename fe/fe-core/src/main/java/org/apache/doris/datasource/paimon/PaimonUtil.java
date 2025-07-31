@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -401,7 +402,8 @@ public class PaimonUtil {
                         partitionValuesArray[i], timeZone);
                 partitionInfoMap.put(partitionKeys.get(i), partitionValue);
             } catch (UnsupportedOperationException e) {
-                LOG.warn("Failed to serialize partition value for key {}: {}", partitionKeys.get(i), e.getMessage());
+                LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
+                        partitionKeys.get(i), e.getMessage());
                 return null;
             }
         }
@@ -411,14 +413,12 @@ public class PaimonUtil {
     private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
             String timeZone) {
         if (value == null) {
-            return "\\N";
+            return FeConstants.null_string;
         }
         switch (type.getTypeRoot()) {
             case BOOLEAN:
             case INTEGER:
             case BIGINT:
-            case FLOAT:
-            case DOUBLE:
             case SMALLINT:
             case TINYINT:
             case DECIMAL:
