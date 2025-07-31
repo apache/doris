@@ -245,9 +245,7 @@ private:
                          typename PrimitiveTypeTraits<Result>::ColumnItemType>(
                 src_column_concrete->get_data(), src_offsets, src_null_map, res_datas);
 
-        auto res_null_map_col = ColumnUInt8::create(size, 0);
-        auto& res_null_map = res_null_map_col->get_data();
-        VectorizedUtils::update_null_map(res_null_map, src_null_map);
+        auto res_null_map_col = ColumnUInt8::create(size, 0); // all false should not be null
         res_nested_ptr =
                 ColumnNullable::create(std::move(res_nested_mut_ptr), std::move(res_null_map_col));
 
@@ -261,18 +259,18 @@ private:
                           PaddedPODArray<Result>& res_datas) const {
         size_t prev_offset = 0;
         for (auto cur_offset : src_offsets) {
-            // [1, null, 2, 3] -> [1, null, 3, 6]
-            // [null, null, 1, 2, 3] -> [null, null, 1, 3, 6]
+            // [1, null, 2, 3] -> [1, 1, 3, 6]
+            // [null, null, 1, 2, 3] -> [0, 0, 1, 3, 6]
             Result accumulated {};
 
             for (size_t pos = prev_offset; pos < cur_offset; ++pos) {
-                // skip null value
+                // treat null value as 0
                 if (src_null_map[pos]) {
-                    res_datas[pos] = Result {};
-                    continue;
+                    accumulated += 0;
+                } else {
+                    accumulated += src_datas[pos];
                 }
 
-                accumulated += src_datas[pos];
                 res_datas[pos] = accumulated;
             }
 

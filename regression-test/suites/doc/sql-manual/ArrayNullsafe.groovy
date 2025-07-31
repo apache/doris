@@ -16,7 +16,6 @@
 // under the License.
 
 suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
-    sql 'use regression_test_nereids_function_p0'
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
