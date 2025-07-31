@@ -88,7 +88,11 @@ suite("test_meta_names_mapping", "p0,external,doris,meta_names_mapping,external_
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true",
             "include_database_list" = "external_meta_names_mapping,EXTERNAL_META_NAMES_MAPPING",
-            "meta_names_mapping" = '${validMetaNamesMapping}'
+            "meta_names_mapping" = '${validMetaNamesMapping}',
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -136,7 +140,11 @@ suite("test_meta_names_mapping", "p0,external,doris,meta_names_mapping,external_
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "external_meta_names_mapping,EXTERNAL_META_NAMES_MAPPING"
+            "include_database_list" = "external_meta_names_mapping,EXTERNAL_META_NAMES_MAPPING",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -235,7 +243,11 @@ suite("test_meta_names_mapping", "p0,external,doris,meta_names_mapping,external_
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true",
             "include_database_list" = "external_meta_names_mapping,EXTERNAL_META_NAMES_MAPPING",
-            "meta_names_mapping" = '${error_mapping_db}'
+            "meta_names_mapping" = '${error_mapping_db}',
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
         exception "Duplicate remoteDatabase found: EXTERNAL_META_NAMES_MAPPING"
@@ -264,7 +276,11 @@ suite("test_meta_names_mapping", "p0,external,doris,meta_names_mapping,external_
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true",
             "include_database_list" = "external_meta_names_mapping,EXTERNAL_META_NAMES_MAPPING",
-            "meta_names_mapping" = '${error_mapping_tbl}'
+            "meta_names_mapping" = '${error_mapping_tbl}',
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
         exception "Duplicate remoteTable found in database external_meta_names_mapping: TABLE_TEST"
@@ -282,7 +298,11 @@ suite("test_meta_names_mapping", "p0,external,doris,meta_names_mapping,external_
         "driver_url" = "${driver_url}",
         "driver_class" = "com.mysql.cj.jdbc.Driver",
         "only_specified_database" = "true",
-        "include_database_list" = "external_meta_names_mapping,EXTERNAL_META_NAMES_MAPPING"
+        "include_database_list" = "external_meta_names_mapping,EXTERNAL_META_NAMES_MAPPING",
+        "connection_pool_min_size" = "2",
+        "connection_pool_max_size" = "20",
+        "connection_pool_max_wait_time" = "30000",
+        "connection_pool_max_life_time" = "600000"
     )"""
 
     test {
