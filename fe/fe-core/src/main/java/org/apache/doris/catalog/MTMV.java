@@ -53,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -208,7 +209,7 @@ public class MTMV extends OlapTable {
         writeMvLock();
         try {
             if (task.getStatus() == TaskStatus.SUCCESS) {
-                this.status.setState(MTMVState.NORMAL);
+                this.status.setState(determineStateFrom(relation));
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
@@ -225,6 +226,19 @@ public class MTMV extends OlapTable {
         } finally {
             writeMvUnlock();
         }
+    }
+
+    private MTMVState determineStateFrom(MTMVRelation relation) {
+        // If any base table is in schema change state, the mv should be in schema change state
+        boolean hasChange = Optional.ofNullable(relation)
+                .map(MTMVRelation::getBaseTablesOneLevel)
+                .map(tables -> tables.stream()
+                        .filter(Objects::nonNull)
+                        .anyMatch(t -> t.getOlapTableState() == OlapTable.OlapTableState.SCHEMA_CHANGE)
+                )
+                .orElse(false);
+
+        return hasChange ? MTMVState.SCHEMA_CHANGE : MTMVState.NORMAL;
     }
 
     public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {

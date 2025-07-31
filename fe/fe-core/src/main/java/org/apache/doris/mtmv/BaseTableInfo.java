@@ -58,6 +58,9 @@ public class BaseTableInfo {
     private String dbName;
     @SerializedName("cn")
     private String ctlName;
+    // schema change is an asynchronous task, so it is necessary to determine the olapTable status
+    @SerializedName("ts")
+    private OlapTable.OlapTableState olapTableState;
 
     public BaseTableInfo(TableIf table) {
         java.util.Objects.requireNonNull(table, "table is null");
@@ -71,6 +74,9 @@ public class BaseTableInfo {
         this.tableName = table.getName();
         this.dbName = database.getFullName();
         this.ctlName = catalog.getName();
+        if (table instanceof OlapTable) {
+            this.olapTableState = ((OlapTable) table).getState();
+        }
     }
 
     // for replay MTMV, can not use  `table.getDatabase();`,because database not added to catalog
@@ -82,6 +88,7 @@ public class BaseTableInfo {
         this.tableName = table.getName();
         this.dbName = table.getDBName();
         this.ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        this.olapTableState =  table.getState();
     }
 
     public String getTableName() {
@@ -113,6 +120,10 @@ public class BaseTableInfo {
 
     public void setTableName(String tableName) {
         this.tableName = tableName;
+    }
+
+    public OlapTable.OlapTableState getOlapTableState() {
+        return olapTableState;
     }
 
     // if compatible failed due catalog dropped, ctlName will be null
@@ -194,6 +205,9 @@ public class BaseTableInfo {
             this.ctlName = catalog.getName();
             this.dbName = db.getFullName();
             this.tableName = table.getName();
+            if (table instanceof OlapTable) {
+                this.olapTableState = ((OlapTable) table).getState();
+            }
         } catch (AnalysisException e) {
             String msg = String.format(
                     "Failed to get name based on id during compatibility process, ctlId: %s, dbId: %s, tableId: %s",
