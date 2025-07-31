@@ -19,9 +19,8 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -44,21 +43,9 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.PROJECT_TO_GLOBAL_AGGREGATE.build(
-           logicalProject().then(project -> {
-               boolean needGlobalAggregate = false;
-               for (NamedExpression output : project.getProjects()) {
-                   if (output.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null)) {
-                       needGlobalAggregate = true;
-                       break;
-                   }
-               }
-
-               if (needGlobalAggregate) {
-                   return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
-               } else {
-                   return project;
-               }
-           })
+           logicalProject()
+                   .when(project -> ExpressionUtils.hasNonWindowAggregateFunction(project.getProjects()))
+                   .then(project -> new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child()))
         );
     }
 }
