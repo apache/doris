@@ -72,10 +72,6 @@ private:
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
 
-    Status _from_string(const std::string& str, double& res) const;
-
-    Status _from_string_strict_mode(const std::string& str, double& res) const;
-
     int _scale;
 };
 #include "common/compile_check_end.h"

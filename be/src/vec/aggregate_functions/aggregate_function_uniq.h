@@ -22,7 +22,6 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <type_traits>
@@ -97,6 +96,11 @@ struct OneAdder {
             data.set.insert(Data::get_key(value));
         } else if constexpr (T == TYPE_ARRAY) {
             data.set.insert(Data::get_key(column, row_num));
+        } else if constexpr (is_decimal(T)) {
+            data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                        TypeCheckOnRelease::DISABLE>(column)
+                                    .get_data()[row_num]
+                                    .value);
         } else {
             data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                         TypeCheckOnRelease::DISABLE>(column)

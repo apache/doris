@@ -30,6 +30,8 @@ struct fixed_len_to_uint32 {
         if constexpr (sizeof(T) <= sizeof(uint32_t)) {
             if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
                 return (uint32_t)value.to_int64();
+            } else if constexpr (vectorized::IsDecimalNumber<T>) {
+                return (uint32_t)value.value;
             } else {
                 return (uint32_t)value;
             }
@@ -44,6 +46,8 @@ struct fixed_len_to_uint32_v2 {
         if constexpr (sizeof(T) <= sizeof(uint32_t)) {
             if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
                 return (uint32_t)value.to_date_int_val();
+            } else if constexpr (vectorized::IsDecimalNumber<T>) {
+                return (uint32_t)value.value;
             } else {
                 return (uint32_t)value;
             }

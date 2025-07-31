@@ -664,7 +664,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         // Its behavior is same with executed without group by key.
         // https://github.com/apache/doris/pull/40693
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(_pool, desc, {}, /*without_key*/ true,
-                                                           &evaluator));
+                                                           true, &evaluator));
         _agg_functions.emplace_back(evaluator);
 
         int node_idx = 0;

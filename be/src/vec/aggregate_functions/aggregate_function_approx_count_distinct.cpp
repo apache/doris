@@ -19,10 +19,6 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_variant.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -31,29 +27,14 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
-    switch (argument_types[0]->get_primitive_type()) {
-    case PrimitiveType::TYPE_ARRAY:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_ARRAY>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_MAP:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_MAP>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_STRUCT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRUCT>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_VARIANT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_VARIANT>>(
-                argument_types, result_is_nullable);
-    default:
-        auto res = creator_with_any::create<AggregateFunctionApproxCountDistinct>(
-                argument_types, result_is_nullable);
-        if (!res) {
-            throw Exception(
-                    ErrorCode::NOT_IMPLEMENTED_ERROR,
-                    "Unsupported type for approx_count_distinct: " + argument_types[0]->get_name());
-        }
-        return res;
+    auto res = creator_with_any::create<AggregateFunctionApproxCountDistinct>(
+            argument_types, result_is_nullable, attr);
+    if (!res) {
+        throw Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Unsupported type for approx_count_distinct: " + argument_types[0]->get_name());
     }
+    return res;
 }
 
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory) {

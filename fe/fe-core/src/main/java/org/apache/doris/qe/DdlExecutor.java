@@ -28,10 +28,8 @@ import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
-import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateIndexPolicyStmt;
@@ -63,14 +61,12 @@ import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
-import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
@@ -95,9 +91,7 @@ public class DdlExecutor {
      **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
         checkDdlStmtSupported(ddlStmt);
-        if (ddlStmt instanceof CreateDbStmt) {
-            env.createDb((CreateDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropDbStmt) {
+        if (ddlStmt instanceof DropDbStmt) {
             env.dropDb((DropDbStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFunctionStmt) {
             env.createFunction((CreateFunctionStmt) ddlStmt);
@@ -205,8 +199,6 @@ public class DdlExecutor {
             RefreshCatalogStmt refreshCatalogStmt = (RefreshCatalogStmt) ddlStmt;
             env.getRefreshManager()
                     .handleRefreshCatalog(refreshCatalogStmt.getCatalogName(), refreshCatalogStmt.isInvalidCache());
-        } else if (ddlStmt instanceof CleanProfileStmt) {
-            ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
@@ -215,8 +207,6 @@ public class DdlExecutor {
             executeCopyStmt(env, (CopyStmt) ddlStmt);
         } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
             env.getStorageVaultMgr().setDefaultStorageVault((SetDefaultStorageVaultStmt) ddlStmt);
-        } else if (ddlStmt instanceof UnsetDefaultStorageVaultStmt) {
-            env.getStorageVaultMgr().unsetDefaultStorageVault();
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
