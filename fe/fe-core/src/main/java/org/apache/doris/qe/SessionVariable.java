@@ -1480,6 +1480,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
     public String enableNereidsRules = "";
 
+    @VariableMgr.VarAttr(name = DISABLE_NEREIDS_EXPRESSION_RULES, needForward = true,
+            setter = "setDisableNereidsExpressionRules")
+    private String disableNereidsExpressionRules = "";
+
+    private BitSet disableNereidsExpressionRuleSet = new BitSet();
+
+
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
     private boolean enableNewCostModel = false;
 
@@ -3856,6 +3863,10 @@ public class SessionVariable implements Serializable, Writable {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    public BitSet getDisableNereidsExpressionRules() {
+        return disableNereidsExpressionRuleSet;
+    }
+
     public void setEnableNewCostModel(boolean enable) {
         this.enableNewCostModel = enable;
     }
@@ -3868,6 +3879,20 @@ public class SessionVariable implements Serializable, Writable {
         this.disableNereidsRules = disableNereidsRules;
     }
 
+    public void setDisableNereidsExpressionRules(String disableNereidsExpressionRules) {
+        BitSet bitSet = new BitSet();
+        for (String ruleName : disableNereidsExpressionRules.split(",")) {
+            ruleName = ruleName.trim().toUpperCase(Locale.ROOT);
+            if (ruleName.isEmpty()) {
+                continue;
+            }
+            ExpressionRuleType ruleType = ExpressionRuleType.valueOf(ruleName);
+            bitSet.set(ruleType.type());
+        }
+        this.disableNereidsExpressionRuleSet = bitSet;
+        this.disableNereidsExpressionRules = disableNereidsExpressionRules;
+    }
+    
     public double getNereidsCboPenaltyFactor() {
         return nereidsCboPenaltyFactor;
     }
