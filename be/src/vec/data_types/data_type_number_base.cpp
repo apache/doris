@@ -191,77 +191,40 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
 template <PrimitiveType T>
 int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                  int be_exec_version) const {
-    if (be_exec_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
-        auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
-        auto mem_size =
-                sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) * real_need_copy_num;
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            return size + mem_size;
-        } else {
-            // Throw exception if mem_size is large than UINT32_MAX
-            return size + sizeof(size_t) +
-                   std::max(mem_size, streamvbyte_max_compressedbytes(
-                                              cast_set<UInt32>(upper_int32(mem_size))));
-        }
+    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
+    auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
+    auto mem_size = sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) * real_need_copy_num;
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        return size + mem_size;
     } else {
-        auto size = sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) * column.size();
-        if (size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            return sizeof(uint32_t) + size;
-        } else {
-            // Throw exception if mem_size is large than UINT32_MAX
-            return sizeof(uint32_t) + sizeof(size_t) +
-                   std::max(size,
-                            streamvbyte_max_compressedbytes(cast_set<UInt32>(upper_int32(size))));
-        }
+        // Throw exception if mem_size is large than UINT32_MAX
+        return size + sizeof(size_t) +
+               std::max(mem_size,
+                        streamvbyte_max_compressedbytes(cast_set<UInt32>(upper_int32(mem_size))));
     }
 }
 
 template <PrimitiveType T>
 char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
                                        int be_exec_version) const {
-    if (be_exec_version >= USE_CONST_SERDE) {
-        const auto* data_column = &column;
-        size_t real_need_copy_num = 0;
-        buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
+    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    const auto* data_column = &column;
+    size_t real_need_copy_num = 0;
+    buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
-        // mem_size = real_need_copy_num * sizeof(T)
-        auto mem_size =
-                real_need_copy_num * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
-        const auto* origin_data =
-                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*data_column)
-                        .get_data()
-                        .data();
+    // mem_size = real_need_copy_num * sizeof(T)
+    auto mem_size = real_need_copy_num * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
+    const auto* origin_data =
+            assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*data_column)
+                    .get_data()
+                    .data();
 
-        // column data
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            memcpy(buf, origin_data, mem_size);
-            return buf + mem_size;
-        } else {
-            // Throw exception if mem_size is large than UINT32_MAX
-            auto encode_size = streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
-                                                  cast_set<UInt32>(upper_int32(mem_size)),
-                                                  (uint8_t*)(buf + sizeof(size_t)));
-            unaligned_store<size_t>(buf, encode_size);
-            buf += sizeof(size_t);
-            return buf + encode_size;
-        }
+    // column data
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        memcpy(buf, origin_data, mem_size);
+        return buf + mem_size;
     } else {
-        // row num
-        const auto mem_size =
-                column.size() * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
-        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(mem_size);
-        buf += sizeof(uint32_t);
-        // column data
-        auto ptr = column.convert_to_full_column_if_const();
-        const auto* origin_data =
-                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*ptr.get())
-                        .get_data()
-                        .data();
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            memcpy(buf, origin_data, mem_size);
-            return buf + mem_size;
-        }
         // Throw exception if mem_size is large than UINT32_MAX
         auto encode_size = streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                               cast_set<UInt32>(upper_int32(mem_size)),
@@ -275,47 +238,27 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
 template <PrimitiveType T>
 const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr* column,
                                                int be_exec_version) const {
-    if (be_exec_version >= USE_CONST_SERDE) {
-        auto* origin_column = column->get();
-        size_t real_have_saved_num = 0;
-        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
+    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    auto* origin_column = column->get();
+    size_t real_have_saved_num = 0;
+    buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-        // column data
-        auto mem_size =
-                real_have_saved_num * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
-        auto& container = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(origin_column)
-                                  ->get_data();
-        container.resize(real_have_saved_num);
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            memcpy(container.data(), buf, mem_size);
-            buf = buf + mem_size;
-        } else {
-            size_t encode_size = unaligned_load<size_t>(buf);
-            buf += sizeof(size_t);
-            streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
-                               cast_set<UInt32>(upper_int32(mem_size)));
-            buf = buf + encode_size;
-        }
-        return buf;
+    // column data
+    auto mem_size = real_have_saved_num * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
+    auto& container =
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(origin_column)->get_data();
+    container.resize(real_have_saved_num);
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        memcpy(container.data(), buf, mem_size);
+        buf = buf + mem_size;
     } else {
-        // row num
-        uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
-        buf += sizeof(uint32_t);
-        // column data
-        auto& container = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(column->get())
-                                  ->get_data();
-        container.resize(mem_size / sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType));
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            memcpy(container.data(), buf, mem_size);
-            return buf + mem_size;
-        }
-
         size_t encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                            cast_set<UInt32>(upper_int32(mem_size)));
-        return buf + encode_size;
+        buf = buf + encode_size;
     }
+    return buf;
 }
 
 template <PrimitiveType T>
