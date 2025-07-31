@@ -223,7 +223,7 @@ suite("cast") {
     // boolean
     test {
         sql """select cast(k0 as time) ct from cast_test order by ct;"""
-        exception "cannot cast"
+        exception "not supported"
     }
     // decimal
     order_qt_sql """select cast(k5 as time) ct from cast_test order by ct;"""
