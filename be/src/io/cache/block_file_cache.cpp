@@ -1401,7 +1401,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                                           cell->file_block->get_hash_value(),
                                           cell->file_block->offset(), cell->size());
     }
-    *_queue_evict_size_metrics[cast_set<int>(file_block->cache_type())]
+    *_queue_evict_size_metrics[static_cast<int>(file_block->cache_type())]
             << file_block->range().size();
     *_total_evict_size_metrics << file_block->range().size();
     if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
