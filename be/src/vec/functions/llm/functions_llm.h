@@ -85,39 +85,38 @@ public:
 
         std::vector<RowResult> results(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            Status submit_status = thread_pool->submit_func(
-                    [this, i, &block, &arguments, &results, &adapter, &config, context]() {
-                        RowResult& row_result = results[i];
+            Status submit_status = thread_pool->submit_func([this, i, &block, &arguments, &results,
+                                                             &adapter, &config, context]() {
+                RowResult& row_result = results[i];
 
-                        try {
-                            // Build LLM prompt text
-                            std::string prompt;
-                            Status status = assert_cast<const Derived&>(*this).build_prompt(
-                                    block, arguments, i, prompt);
+                try {
+                    // Build LLM prompt text
+                    std::string prompt;
+                    Status status = assert_cast<const Derived&>(*this).build_prompt(
+                            block, arguments, i, prompt);
 
-                            if (!status.ok()) {
-                                row_result.status = status;
-                                row_result.is_null = true;
-                                return;
-                            }
+                    if (!status.ok()) {
+                        row_result.status = status;
+                        row_result.is_null = true;
+                        return;
+                    }
 
-                            // Execute a single LLM request and get the result
-                            std::string result_str;
-                            status = execute_single_request(prompt, result_str, config, adapter,
-                                                            context);
-                            if (!status.ok()) {
-                                row_result.status = status;
-                                row_result.is_null = true;
-                                return;
-                            }
-                            row_result.data = std::move(result_str);
-                            row_result.status = Status::OK();
-                        } catch (const std::exception& e) {
-                            row_result.status = Status::InternalError("Exception in LLM request: " +
-                                                                      std::string(e.what()));
-                            row_result.is_null = true;
-                        }
-                    });
+                    // Execute a single LLM request and get the result
+                    std::string result_str;
+                    status = execute_single_request(prompt, result_str, config, adapter, context);
+                    if (!status.ok()) {
+                        row_result.status = status;
+                        row_result.is_null = true;
+                        return;
+                    }
+                    row_result.data = std::move(result_str);
+                    row_result.status = Status::OK();
+                } catch (const std::exception& e) {
+                    row_result.status = Status::InternalError("Exception in LLM request: " +
+                                                              std::string(e.what()));
+                    row_result.is_null = true;
+                }
+            });
 
             if (!submit_status.ok()) {
                 return Status::InternalError("Failed to submit task to thread pool: " +
@@ -177,8 +176,7 @@ private:
     // Executes the actual HTTP request
     Status do_send_request(HttpClient* client, const std::string& request_body,
                            std::string& response, const TLLMResource& config,
-                           std::shared_ptr<LLMAdapter>& adapter,
-                           FunctionContext* context) const {
+                           std::shared_ptr<LLMAdapter>& adapter, FunctionContext* context) const {
         RETURN_IF_ERROR(client->init(config.endpoint));
 
         QueryContext* query_ctx = context->state()->get_query_ctx();
