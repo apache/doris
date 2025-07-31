@@ -33,6 +33,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/functions/cast/cast_base.h"
 #include "vec/runtime/vcsv_transformer.h"
 
 namespace doris {
@@ -108,6 +109,32 @@ Status DataTypeNullableSerDe::serialize_column_to_jsonb(const IColumn& from_colu
                                                                 row_num, writer));
     }
 
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                            const JsonbValue* jsonb_value,
+                                                            CastParameters& castParms) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (jsonb_value->isNull()) {
+        null_column.insert_default();
+        return Status::OK();
+    } else {
+        Status st = nested_serde->deserialize_column_from_jsonb(null_column.get_nested_column(),
+                                                                jsonb_value, castParms);
+
+        if (!st.ok()) {
+            if (castParms.is_strict) {
+                return st;
+            } else {
+                // fill null if fail
+                null_column.insert_default();
+                return Status::OK();
+            }
+        }
+        // fill not null if success
+        null_column.get_null_map_data().push_back(0);
+    }
     return Status::OK();
 }
 

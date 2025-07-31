@@ -68,7 +68,7 @@ public class FloatLiteral extends FractionalLiteral {
             return this;
         }
         if (targetType.isDoubleType()) {
-            return new DoubleLiteral(Double.parseDouble(String.valueOf(value)));
+            return new DoubleLiteral(value);
         } else if (targetType.isStringType()) {
             return new StringLiteral(getStringValue());
         } else if (targetType.isCharType()) {

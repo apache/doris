@@ -78,8 +78,13 @@ public class StructLiteral extends Literal {
             }
             ImmutableList.Builder<Literal> newLiterals = ImmutableList.builder();
             for (int i = 0; i < fields.size(); i++) {
-                newLiterals.add((Literal) fields.get(i)
-                        .uncheckedCastWithFallback(((StructType) targetType).getFields().get(i).getDataType()));
+                try {
+                    newLiterals.add((Literal) fields.get(i)
+                            .uncheckedCastTo(((StructType) targetType).getFields().get(i).getDataType()));
+                } catch (Exception ignored) {
+                    newLiterals.add((Literal) fields.get(i)
+                            .deprecatingUncheckedCastTo(((StructType) targetType).getFields().get(i).getDataType()));
+                }
             }
             return new StructLiteral(newLiterals.build(), targetType);
         } else {
