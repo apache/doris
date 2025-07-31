@@ -73,6 +73,7 @@ private:
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     os << "(flush time(ms)=" << stat.flush_time_ns / NANOS_PER_MILLIS
        << ", flush wait time(ms)=" << stat.flush_wait_time_ns / NANOS_PER_MILLIS
+       << ", flush submit count=" << stat.flush_submit_count
        << ", running flush count=" << stat.flush_running_count
        << ", finish flush count=" << stat.flush_finish_count
        << ", flush bytes: " << stat.flush_size_bytes
@@ -111,16 +112,21 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
 
     if (ret.ok()) {
         // _wait_running_task_finish was executed after this function, so no need to notify _cond here
-        _stats.flush_running_count++;
+        _stats.flush_submit_count++;
     }
     return ret;
 }
 
 // NOTE: FlushToken's submit/cancel/wait run in one thread,
 // so we don't need to make them mutually exclusive, std::atomic is enough.
+void FlushToken::_wait_submit_task_finish() {
+    std::unique_lock<std::mutex> lock(_mutex);
+    _submit_task_finish_cond.wait(lock, [&]() { return _stats.flush_submit_count.load() == 0; });
+}
+
 void FlushToken::_wait_running_task_finish() {
     std::unique_lock<std::mutex> lock(_mutex);
-    _cond.wait(lock, [&]() { return _stats.flush_running_count.load() == 0; });
+    _running_task_finish_cond.wait(lock, [&]() { return _stats.flush_running_count.load() == 0; });
 }
 
 void FlushToken::cancel() {
@@ -129,7 +135,7 @@ void FlushToken::cancel() {
 }
 
 Status FlushToken::wait() {
-    _wait_running_task_finish();
+    _wait_submit_task_finish();
     {
         std::shared_lock rdlk(_flush_status_lock);
         if (!_flush_status.ok()) {
@@ -168,14 +174,29 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
     signal::tablet_id = memtable_ptr->tablet_id();
     Defer defer {[&]() {
         std::lock_guard<std::mutex> lock(_mutex);
+        _stats.flush_submit_count--;
+        if (_stats.flush_submit_count == 0) {
+            _submit_task_finish_cond.notify_one();
+        }
         _stats.flush_running_count--;
         if (_stats.flush_running_count == 0) {
-            _cond.notify_one();
+            _running_task_finish_cond.notify_one();
         }
     }};
+    DBUG_EXECUTE_IF("FlushToken.flush_memtable.wait_before_first_shutdown",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
     if (_is_shutdown()) {
         return;
     }
+    DBUG_EXECUTE_IF("FlushToken.flush_memtable.wait_after_first_shutdown",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
+    _stats.flush_running_count++;
+    // double check if shutdown to avoid wait running task finish count not accurate
+    if (_is_shutdown()) {
+        return;
+    }
+    DBUG_EXECUTE_IF("FlushToken.flush_memtable.wait_after_second_shutdown",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
     uint64_t flush_wait_time_ns = MonotonicNanos() - submit_task_time;
     _stats.flush_wait_time_ns += flush_wait_time_ns;
     // If previous flush has failed, return directly
@@ -210,6 +231,8 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
     VLOG_CRITICAL << "flush memtable wait time:" << flush_wait_time_ns
                   << "(ns), flush memtable cost: " << timer.elapsed_time()
                   << "(ns), running count: " << _stats.flush_running_count
+                  << ", submit count: " << _stats.flush_submit_count
+                  << ", running count: " << _stats.flush_running_count
                   << ", finish count: " << _stats.flush_finish_count
                   << ", mem size: " << memory_usage << ", disk size: " << flush_size;
     _stats.flush_time_ns += timer.elapsed_time();
