@@ -162,6 +162,9 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
 
 struct ParseJsonbFromString {
     static Status parse_json(const StringRef& str, ColumnString& column_string) {
+        if (str.empty()) {
+            return Status::InvalidArgument("Empty string cannot be parsed as jsonb");
+        }
         JsonBinaryValue value;
         auto st = (value.from_json_string(str.data, str.size));
         if (!st.ok()) {

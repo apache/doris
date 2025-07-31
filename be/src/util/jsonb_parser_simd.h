@@ -86,7 +86,7 @@ struct JsonbParser {
     // will reset writer before parse
     static Status parse(const char* pch, size_t len, JsonbWriter& writer) {
         if (!pch || len == 0) {
-            return Status::InternalError("Empty JSON document");
+            return Status::InvalidArgument("Empty JSON document");
         }
         writer.reset();
         try {
@@ -104,13 +104,13 @@ struct JsonbParser {
             }
             case simdjson::ondemand::json_type::null: {
                 if (writer.writeNull() == 0) {
-                    return Status::InternalError("writeNull failed");
+                    return Status::InvalidArgument("writeNull failed");
                 }
                 break;
             }
             case simdjson::ondemand::json_type::boolean: {
                 if (writer.writeBool(doc.get_bool()) == 0) {
-                    return Status::InternalError("writeBool failed");
+                    return Status::InvalidArgument("writeBool failed");
                 }
                 break;
             }
@@ -122,8 +122,8 @@ struct JsonbParser {
                 simdjson::ondemand::number num;
                 simdjson::error_code res = doc.get_number().get(num);
                 if (!parse_number_success(res)) {
-                    return Status::InternalError(fmt::format("simdjson get_number failed: {}",
-                                                             simdjson::error_message(res)));
+                    return Status::InvalidArgument(fmt::format("simdjson get_number failed: {}",
+                                                               simdjson::error_message(res)));
                 }
                 // simdjson get_number() returns a number object, which can be
                 RETURN_IF_ERROR(
@@ -132,7 +132,7 @@ struct JsonbParser {
             }
             }
         } catch (simdjson::simdjson_error& e) {
-            return Status::InternalError(fmt::format("simdjson parse exception: {}", e.what()));
+            return Status::InvalidArgument(fmt::format("simdjson parse exception: {}", e.what()));
         }
         return Status::OK();
     }
@@ -144,13 +144,13 @@ private:
         switch (value.type()) {
         case simdjson::ondemand::json_type::null: {
             if (writer.writeNull() == 0) {
-                return Status::InternalError("writeNull failed");
+                return Status::InvalidArgument("writeNull failed");
             }
             break;
         }
         case simdjson::ondemand::json_type::boolean: {
             if (writer.writeBool(value.get_bool()) == 0) {
-                return Status::InternalError("writeBool failed");
+                return Status::InvalidArgument("writeBool failed");
             }
             break;
         }
@@ -162,8 +162,8 @@ private:
             simdjson::ondemand::number num;
             auto res = value.get_number().get(num);
             if (!parse_number_success(res)) {
-                return Status::InternalError(fmt::format("simdjson get_number failed: {}",
-                                                         simdjson::error_message(res)));
+                return Status::InvalidArgument(fmt::format("simdjson get_number failed: {}",
+                                                           simdjson::error_message(res)));
             }
 
             RETURN_IF_ERROR(
@@ -172,23 +172,23 @@ private:
         }
         case simdjson::ondemand::json_type::object: {
             if (!writer.writeStartObject()) {
-                return Status::InternalError("writeStartObject failed");
+                return Status::InvalidArgument("writeStartObject failed");
             }
 
             for (auto kv : value.get_object()) {
                 std::string_view key;
                 simdjson::error_code e = kv.unescaped_key().get(key);
                 if (e != simdjson::SUCCESS) {
-                    return Status::InternalError(fmt::format("simdjson get key failed: {}", e));
+                    return Status::InvalidArgument(fmt::format("simdjson get key failed: {}", e));
                 }
 
                 // write key
                 if (key.size() > std::numeric_limits<uint8_t>::max()) {
-                    return Status::InternalError("key size exceeds max limit: {} , {}", key.size(),
-                                                 std::numeric_limits<uint8_t>::max());
+                    return Status::InvalidArgument("key size exceeds max limit: {} , {}",
+                                                   key.size(), std::numeric_limits<uint8_t>::max());
                 }
                 if (!writer.writeKey(key.data(), (uint8_t)key.size())) {
-                    return Status::InternalError("writeKey failed : {}", key);
+                    return Status::InvalidArgument("writeKey failed : {}", key);
                 }
 
                 // parse object value
@@ -196,7 +196,7 @@ private:
             }
 
             if (!writer.writeEndObject()) {
-                return Status::InternalError("writeEndObject failed");
+                return Status::InvalidArgument("writeEndObject failed");
                 break;
             }
 
@@ -204,7 +204,7 @@ private:
         }
         case simdjson::ondemand::json_type::array: {
             if (!writer.writeStartArray()) {
-                return Status::InternalError("writeStartArray failed");
+                return Status::InvalidArgument("writeStartArray failed");
             }
 
             for (auto elem : value.get_array()) {
@@ -213,12 +213,12 @@ private:
             }
 
             if (!writer.writeEndArray()) {
-                return Status::InternalError("writeEndArray failed");
+                return Status::InvalidArgument("writeEndArray failed");
             }
             break;
         }
         default: {
-            return Status::InternalError("unknown value type: ");
+            return Status::InvalidArgument("unknown value type: ");
         }
 
         } // end of switch
@@ -228,19 +228,19 @@ private:
     static Status write_string(std::string_view str, JsonbWriter& writer) {
         // start writing string
         if (!writer.writeStartString()) {
-            return Status::InternalError("writeStartString failed");
+            return Status::InvalidArgument("writeStartString failed");
         }
 
         // write string
         if (str.size() > 0) {
             if (writer.writeString(str.data(), str.size()) == 0) {
-                return Status::InternalError("writeString failed");
+                return Status::InvalidArgument("writeString failed");
             }
         }
 
         // end writing string
         if (!writer.writeEndString()) {
-            return Status::InternalError("writeEndString failed");
+            return Status::InvalidArgument("writeEndString failed");
         }
         return Status::OK();
     }
@@ -268,13 +268,13 @@ private:
                 number = StringParser::string_to_float<double>(raw_string.data(), raw_string.size(),
                                                                &result);
                 if (result != StringParser::PARSE_SUCCESS) {
-                    return Status::InternalError("invalid number, raw string is: " +
-                                                 std::string(raw_string));
+                    return Status::InvalidArgument("invalid number, raw string is: " +
+                                                   std::string(raw_string));
                 }
             }
 
             if (writer.writeDouble(number) == 0) {
-                return Status::InternalError("writeDouble failed");
+                return Status::InvalidArgument("writeDouble failed");
             }
 
             break;
@@ -300,7 +300,7 @@ private:
             }
 
             if (!success) {
-                return Status::InternalError("writeInt failed");
+                return Status::InvalidArgument("writeInt failed");
             }
             break;
         }
@@ -316,16 +316,16 @@ private:
                         raw_string.data(), raw_string.size(), &result);
                 if (result != StringParser::PARSE_SUCCESS) {
                     // if both parse failed, return error
-                    return Status::InternalError("invalid number, raw string is: " +
-                                                 std::string(raw_string));
+                    return Status::InvalidArgument("invalid number, raw string is: " +
+                                                   std::string(raw_string));
                 }
                 if (!writer.writeDouble(double_val)) {
-                    return Status::InternalError("writeDouble failed");
+                    return Status::InvalidArgument("writeDouble failed");
                 }
             } else {
                 // as int128_t
                 if (!writer.writeInt128(val)) {
-                    return Status::InternalError("writeInt128 failed");
+                    return Status::InvalidArgument("writeInt128 failed");
                 }
             }
             break;
