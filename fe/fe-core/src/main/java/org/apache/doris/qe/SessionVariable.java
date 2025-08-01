@@ -785,6 +785,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
+    public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2754,6 +2756,14 @@ public class SessionVariable implements Serializable, Writable {
                     + "1-65535=manual expansion multiplier)"
     }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
     public int skewRewriteJoinSaltExplodeFactor = 0;
+
+    @VariableMgr.VarAttr(name = DEFAULT_LLM_RESOURCE, needForward = true,
+            description = {
+                    "当函数参数未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
+                    "Defines the default LLM resource to be used when no specific LLM resource is specified "
+                            + "in the function arguments."
+            })
+    public String defaultLLMResource = "";
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
