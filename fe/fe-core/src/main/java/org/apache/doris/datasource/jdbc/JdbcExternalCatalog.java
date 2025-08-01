@@ -361,7 +361,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         jdbcTable.setDriverClass(this.getDriverClass());
         jdbcTable.setDriverUrl(this.getDriverUrl());
         jdbcTable.setCheckSum(this.getCheckSum());
-        jdbcTable.setResourceName(this.getResource());
+        jdbcTable.setResourceName("");
         jdbcTable.setConnectionPoolMinSize(this.getConnectionPoolMinSize());
         jdbcTable.setConnectionPoolMaxSize(this.getConnectionPoolMaxSize());
         jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());

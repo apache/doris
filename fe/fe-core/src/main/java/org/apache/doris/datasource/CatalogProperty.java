@@ -17,14 +17,11 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.MapUtils;
@@ -45,6 +42,7 @@ import java.util.stream.Collectors;
 public class CatalogProperty {
     private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
 
+    @Deprecated
     @SerializedName(value = "resource")
     private String resource;
     @SerializedName(value = "properties")
@@ -56,54 +54,20 @@ public class CatalogProperty {
 
     private MetastoreProperties metastoreProperties;
 
-    private volatile Resource catalogResource = null;
-
     public CatalogProperty(String resource, Map<String, String> properties) {
-        this.resource = Strings.nullToEmpty(resource);
         this.properties = properties;
         if (this.properties == null) {
             this.properties = Maps.newConcurrentMap();
         }
     }
 
-    private Resource catalogResource() {
-        if (!Strings.isNullOrEmpty(resource) && catalogResource == null) {
-            synchronized (this) {
-                if (catalogResource == null) {
-                    catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(resource);
-                }
-            }
-        }
-        return catalogResource;
-    }
-
     public String getOrDefault(String key, String defaultVal) {
-        String val = properties.get(key);
-        if (val == null) {
-            Resource res = catalogResource();
-            if (res != null) {
-                val = res.getCopiedProperties().getOrDefault(key, defaultVal);
-            } else {
-                val = defaultVal;
-            }
-        }
-        return val;
+        return properties.getOrDefault(key, defaultVal);
     }
 
     public Map<String, String> getProperties() {
-        Map<String, String> mergedProperties = Maps.newHashMap();
-        if (!Strings.isNullOrEmpty(resource)) {
-            Resource res = catalogResource();
-            if (res != null) {
-                mergedProperties = res.getCopiedProperties();
-            }
-        }
-        mergedProperties.putAll(properties);
+        Map<String, String> mergedProperties = Maps.newHashMap(properties);
         return mergedProperties;
-    }
-
-    public String getResource() {
-        return resource;
     }
 
     public void modifyCatalogProps(Map<String, String> props) {
