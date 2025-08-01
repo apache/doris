@@ -61,7 +61,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
     public static final List<Class<? extends AggregateFunction>> finalMultiDistinctSupportFunc =
             ImmutableList.of(Count.class, Sum.class, Sum0.class);
     public static final List<Class<? extends AggregateFunction>> finalMultiDistinctSupportOtherFunc =
-            ImmutableList.of(Count.class, Sum.class, Min.class, Max.class);
+            ImmutableList.of(Count.class, Sum.class, Min.class, Max.class, Sum0.class);
 
     @Override
     public List<Rule> buildRules() {
