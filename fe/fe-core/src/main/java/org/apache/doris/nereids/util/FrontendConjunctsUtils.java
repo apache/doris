@@ -18,22 +18,21 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -84,10 +83,10 @@ public class FrontendConjunctsUtils {
      */
     public static boolean isFiltered(Expression expression, Map<String, Object> values) {
         Expression rewrittenExpr = expression.rewriteUp(expr -> {
-            if (expr instanceof SlotReference) {
-                Optional<Column> originalColumn = ((SlotReference) expr).getOriginalColumn();
-                if (originalColumn.isPresent()) {
-                    String name = originalColumn.get().getName().toLowerCase();
+            if (expr instanceof UnboundSlot) {
+                List<String> nameParts = ((UnboundSlot) expr).getNameParts();
+                if (!CollectionUtils.isEmpty(nameParts) && nameParts.size() == 1) {
+                    String name = nameParts.get(0).toLowerCase();
                     if (values.containsKey(name)) {
                         return Literal.of(values.get(name));
                     }
