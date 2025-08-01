@@ -134,8 +134,8 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     if (tnode.schema_scan_node.__isset.frontend_conjuncts) {
-        _common_scanner_param->frontend_conjuncts = state->obj_pool()->add(
-                new std::vector<TExpr>(tnode.schema_scan_node.frontend_conjuncts));
+        _common_scanner_param->frontend_conjuncts =
+                state->obj_pool()->add(new std::string(tnode.schema_scan_node.frontend_conjuncts));
     }
     return Status::OK();
 }
