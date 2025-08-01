@@ -81,6 +81,8 @@ public:
 
     std::string get_current_scan_range_name() override { return _current_range_path; }
 
+    void update_realtime_counters() override;
+
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
@@ -165,6 +167,7 @@ protected:
     Block _runtime_filter_partition_prune_block;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::unique_ptr<io::IOContext> _io_ctx;
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
@@ -186,6 +189,9 @@ private:
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
+    RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
+    RuntimeProfile::Counter* _file_read_time_counter = nullptr;
     RuntimeProfile::Counter* _runtime_filter_partition_pruned_range_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;

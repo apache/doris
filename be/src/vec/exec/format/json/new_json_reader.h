@@ -261,9 +261,7 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
 
-    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
     RuntimeProfile::Counter* _read_timer = nullptr;
-    RuntimeProfile::Counter* _file_read_timer = nullptr;
 
     // ======SIMD JSON======
     // name mapping
