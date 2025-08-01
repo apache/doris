@@ -152,12 +152,6 @@ suite("test_crud_wlg") {
     sql "drop workload group test_drop_wg $forComputeGroupStr"
     qt_show_del_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
 
-    // test memory_limit
-    test {
-        sql "alter workload group test_group $forComputeGroupStr properties ( 'memory_limit'='100%' );"
-
-        exception "can not be greater than"
-    }
 
     sql "alter workload group test_group $forComputeGroupStr properties ( 'memory_limit'='11%' );"
     qt_mem_limit_1 """ select count(1) from ${table_name} """
@@ -245,29 +239,6 @@ suite("test_crud_wlg") {
                 ");"
 
         exception "The allowed cpu_share value is -1 or a positive integer"
-    }
-
-    // failed for mem_limit
-    test {
-        sql "create workload group if not exists test_group2 $forComputeGroupStr " +
-                "properties ( " +
-                "    'cpu_share'='10', " +
-                "    'memory_limit'='200%', " +
-                "    'enable_memory_overcommit'='true' " +
-                ");"
-
-        exception "can not be greater than"
-    }
-
-    test {
-        sql "create workload group if not exists test_group2 $forComputeGroupStr " +
-                "properties ( " +
-                "    'cpu_share'='10', " +
-                "    'memory_limit'='99%', " +
-                "    'enable_memory_overcommit'='true' " +
-                ");"
-
-        exception "can not be greater than"
     }
 
 

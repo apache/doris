@@ -180,9 +180,6 @@ endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
-option(BUILD_FAISS "Link doris with faiss for vector similarity search" OFF)
-message(STATUS "build faiss: ${BUILD_FAISS}")
-
 include (cmake/thirdparty.cmake)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
@@ -197,6 +194,9 @@ SET(SNAPPY_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(LZ4_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(LZ4_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/lz4")
 SET(ZLIB_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(ZLIB_USE_STATIC_LIBS ON)
+SET(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+find_package(ZLIB)
 SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
@@ -210,7 +210,6 @@ option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
 option(BUILD_CONTRIBS_LIB "Build contribs lib" ON)
 
 set(BOOST_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
-set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
@@ -423,6 +422,9 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     set(CMAKE_CXX_FLAGS ${CXX_FLAGS_RELEASE})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN}")
+    # https://github.com/abseil/abseil-cpp/commit/68ce303da1920522a27e5d8e2732b3e50d3aae57
+    # for disable some asan check of absl
+    add_definitions(-DNDEBUG_SANITIZER)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
     set(CMAKE_CXX_FLAGS "${CXX_FLAGS_LSAN}")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
@@ -431,6 +433,7 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
     set(CMAKE_CXX_FLAGS "${CXX_FLAGS_TSAN}")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT")
     set(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN_UT}")
+    add_definitions(-DNDEBUG_SANITIZER)
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
@@ -567,11 +570,8 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        absl::flags_internal
-        absl::flags_reflection
-        absl::random_internal_pool_urbg
-        absl::random_internal_randen
-        absl::random_internal_seed_material
+        absl::flags
+        absl::random_random
         absl::spinlock_wait
         absl::status
         absl::statusor

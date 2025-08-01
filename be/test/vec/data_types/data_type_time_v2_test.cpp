@@ -897,4 +897,13 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
     test_func(dt_time_v2_5, *column_time_v2_5);
     test_func(dt_time_v2_6, *column_time_v2_6);
 }
+
+TEST_F(DataTypeDateTimeV2Test, GetFieldWithDataTypeTest) {
+    auto column_datetime_v2 = dt_datetime_v2_0.create_column();
+    Field field_datetime_v2 = Field::create_field<TYPE_DATETIMEV2>(0);
+    column_datetime_v2->insert(field_datetime_v2);
+    EXPECT_EQ(dt_datetime_v2_0.get_field_with_data_type(*column_datetime_v2, 0).field,
+              field_datetime_v2);
+}
+
 } // namespace doris::vectorized

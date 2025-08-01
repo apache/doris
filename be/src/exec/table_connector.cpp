@@ -43,6 +43,8 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class TupleDescriptor;
 
 TableConnector::TableConnector(const TupleDescriptor* tuple_desc, bool use_transaction,
@@ -99,7 +101,7 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
 
 Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_ptr,
                                            const vectorized::DataTypePtr& type_ptr,
-                                           const vectorized::DataTypePtr& type, int row,
+                                           const vectorized::DataTypePtr& type, size_t row,
                                            TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
         if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::SAP_HANA) {
@@ -267,4 +269,5 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris

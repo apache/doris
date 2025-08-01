@@ -296,6 +296,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         //         {{std::string("1e2.3e4")}, Exception("Multiple exponents")},
         //         */
         // };
+        /*
         std::cout << "cast string to float/double, max value:"
                   << fmt::format("{}", std::numeric_limits<FloatType>::max()) << "\n";
         std::cout << "cast string to float/double, -max value:"
@@ -308,6 +309,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                   << fmt::format("{}", std::numeric_limits<FloatType>::denorm_min()) << "\n";
         std::cout << "cast string to float/double, -denorm_min value:"
                   << fmt::format("{}", -std::numeric_limits<FloatType>::denorm_min()) << "\n";
+        */
         test_strs.emplace_back(fmt::format("{}", std::numeric_limits<FloatType>::max()));
         test_strs.emplace_back(fmt::format("{}", std::numeric_limits<FloatType>::min()));
         // test_strs.emplace_back(fmt::format("{}", std::numeric_limits<FloatType>::denorm_min()));
@@ -352,10 +354,10 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 // test strict digits
                 format_decimal_number_func(data_set, v_str, v, is_negative, false, false, false);
             }
-            check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types,
-                                                                               data_set);
-            check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, true>(input_types,
-                                                                              data_set);
+            check_function_for_cast<DataTypeNumber<FloatPType>, false>(input_types, data_set, -1,
+                                                                       -1);
+            check_function_for_cast<DataTypeNumber<FloatPType>, true>(input_types, data_set, -1,
+                                                                      -1);
         };
         test_func(false);
         test_func(true);
@@ -398,8 +400,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         };
 
         // stric and non-strict mode
-        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, true>(input_types, data_set);
-        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<FloatPType>, true>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeNumber<FloatPType>, false>(input_types, data_set, -1, -1);
         if (FLAGS_gen_regression_case) {
             int table_index = 0;
             std::vector<std::pair<std::string, FloatType>> data_pairs;
@@ -585,8 +587,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             for (const auto& input : abnormal_inputs) {
                 data_set.push_back({{input}, Null()});
             }
-            check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types,
-                                                                               data_set);
+            check_function_for_cast<DataTypeNumber<FloatPType>, false>(input_types, data_set, -1,
+                                                                       -1);
         }
 
         // strict mode
@@ -594,7 +596,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         for (const auto& input : abnormal_inputs) {
             DataSet data_set;
             data_set.push_back({{input}, Null()});
-            check_function_for_cast<ToDataType, -1, -1, true>(input_types, data_set, true, true);
+            check_function_for_cast<ToDataType, true>(input_types, data_set, -1, -1, true, true);
             // EXPECT_TRUE(caught_expection) << "Expected exception for input: " << input
             //                               << ", but no exception was thrown.";
         }
@@ -734,8 +736,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                  FloatType(std::numeric_limits<IntType>::max() - 1)},
         };
 
-        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<FloatPType>, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeNumber<FloatPType>, true>(input_types, data_set, -1, -1);
 
         if (FLAGS_gen_regression_case) {
             int table_index = 0;
@@ -887,9 +889,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                               static_cast<double>(scale_multiplier);
                 }
                 if (std::isinf(float_v)) {
-                    std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
-                                             type_to_string(FromT::PType), FromPrecision, FromScale,
-                                             dt.to_string(decimal_num));
+                    // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
+                    //                          type_to_string(FromT::PType), FromPrecision, FromScale,
+                    //                          dt.to_string(decimal_num));
                     have_inf = true;
                 }
                 // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
@@ -906,21 +908,20 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                               static_cast<double>(scale_multiplier);
                 }
                 if (std::isinf(float_v)) {
-                    std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
-                                             type_to_string(FromT::PType), FromPrecision, FromScale,
-                                             dt.to_string(decimal_num));
+                    // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
+                    //                          type_to_string(FromT::PType), FromPrecision, FromScale,
+                    //                          dt.to_string(decimal_num));
                     have_inf = true;
                 }
                 // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), -i);
                 data_set.push_back({{decimal_num}, FloatType(-i)});
                 test_data_set.emplace_back(num_str, FloatType(-i));
             }
-            dbg_str += "\n";
-            std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, true>(input_types,
-                                                                              data_set);
-            check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types,
-                                                                               data_set);
+            // std::cout << dbg_str << std::endl;
+            check_function_for_cast<DataTypeNumber<FloatPType>, true>(input_types, data_set, -1,
+                                                                      -1);
+            check_function_for_cast<DataTypeNumber<FloatPType>, false>(input_types, data_set, -1,
+                                                                       -1);
             return;
         } else if constexpr (FromScale == FromPrecision) {
             // e.g. Decimal(9, 9), only fraction part
@@ -952,12 +953,11 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 data_set.push_back({{decimal_num}, float_v});
                 test_data_set.emplace_back(num_str, float_v);
             }
-            dbg_str += "\n";
-            std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, true>(input_types,
-                                                                              data_set);
-            check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types,
-                                                                               data_set);
+            // std::cout << dbg_str << std::endl;
+            check_function_for_cast<DataTypeNumber<FloatPType>, true>(input_types, data_set, -1,
+                                                                      -1);
+            check_function_for_cast<DataTypeNumber<FloatPType>, false>(input_types, data_set, -1,
+                                                                       -1);
             return;
         }
 
@@ -974,9 +974,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                               static_cast<double>(scale_multiplier);
                 }
                 if (std::isinf(float_v)) {
-                    std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
-                                             type_to_string(FromT::PType), FromPrecision, FromScale,
-                                             dt.to_string(decimal_num));
+                    // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
+                    //                          type_to_string(FromT::PType), FromPrecision, FromScale,
+                    //                          dt.to_string(decimal_num));
                     have_inf = true;
                 }
                 // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
@@ -993,24 +993,24 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                               static_cast<double>(scale_multiplier);
                 }
                 if (std::isinf(float_v)) {
-                    std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
-                                             type_to_string(FromT::PType), FromPrecision, FromScale,
-                                             dt.to_string(decimal_num));
+                    // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
+                    //                          type_to_string(FromT::PType), FromPrecision, FromScale,
+                    //                          dt.to_string(decimal_num));
                     have_inf = true;
                 }
                 // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
                 data_set.push_back({{decimal_num}, float_v});
                 test_data_set.emplace_back(num_str, float_v);
             }
-            dbg_str += "\n";
+            // dbg_str += "\n";
         }
-        std::cout << dbg_str << std::endl;
+        // std::cout << dbg_str << std::endl;
         if constexpr (expect_inf) {
             EXPECT_TRUE(have_inf);
         }
 
-        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, true>(input_types, data_set);
-        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<FloatPType>, true>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeNumber<FloatPType>, false>(input_types, data_set, -1, -1);
     }
 
     template <typename FromT, PrimitiveType ToPT>
@@ -1118,12 +1118,12 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 data_set.push_back({{decimal_num}, -std::numeric_limits<FloatType>::infinity()});
                 test_data_set.emplace_back(num_str, -std::numeric_limits<FloatType>::infinity());
             }
-            dbg_str += "\n";
-            std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<TYPE_FLOAT>, -1, -1, true>(input_types,
-                                                                              data_set);
-            check_function_for_cast<DataTypeNumber<TYPE_FLOAT>, -1, -1, false>(input_types,
-                                                                               data_set);
+            // dbg_str += "\n";
+            // std::cout << dbg_str << std::endl;
+            check_function_for_cast<DataTypeNumber<TYPE_FLOAT>, true>(input_types, data_set, -1,
+                                                                      -1);
+            check_function_for_cast<DataTypeNumber<TYPE_FLOAT>, false>(input_types, data_set, -1,
+                                                                       -1);
             return;
         } else if constexpr (FromScale == FromPrecision) {
             return;
@@ -1143,11 +1143,11 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 data_set.push_back({{decimal_num}, -std::numeric_limits<FloatType>::infinity()});
                 test_data_set.emplace_back(num_str, -std::numeric_limits<FloatType>::infinity());
             }
-            dbg_str += "\n";
+            // dbg_str += "\n";
         }
-        std::cout << dbg_str << std::endl;
-        check_function_for_cast<DataTypeNumber<TYPE_FLOAT>, -1, -1, true>(input_types, data_set);
-        check_function_for_cast<DataTypeNumber<TYPE_FLOAT>, -1, -1, false>(input_types, data_set);
+        // std::cout << dbg_str << std::endl;
+        check_function_for_cast<DataTypeNumber<TYPE_FLOAT>, true>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeNumber<TYPE_FLOAT>, false>(input_types, data_set, -1, -1);
     }
     void from_decimal_overflow_test_func() {
         constexpr auto max_decimal_pre = max_decimal_precision<TYPE_DECIMAL256>();
@@ -1212,10 +1212,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
     void from_date_test_func() {
         using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
         InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2};
-        std::vector<uint16_t> years = {0,   1,    9,    10,   11,   99,   100,  101,
-                                       999, 1000, 1001, 1999, 2000, 2024, 2025, 9999};
-        std::vector<uint8_t> months = {1, 9, 10, 11, 12};
-        std::vector<uint8_t> days = {1, 2, 9, 10, 11, 28};
+        std::vector<uint16_t> years = {0, 1, 10, 100, 2025, 9999};
+        std::vector<uint8_t> months = {1, 12};
+        std::vector<uint8_t> days = {1, 10, 28};
         DataTypeDateV2 dt;
         std::string to_sql_type_name = get_sql_type_name(FloatPType);
         std::string dbg_str = fmt::format("test cast to {} from date\n", to_sql_type_name);
@@ -1236,16 +1235,16 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                     {
                         DataSet data_set_tmp;
                         data_set_tmp.push_back({{date_val}, expect_cast_result});
-                        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, true>(
-                                input_types, data_set_tmp, false, true);
+                        check_function_for_cast<DataTypeNumber<FloatPType>, true>(
+                                input_types, data_set_tmp, -1, -1, false, true);
                     }
                 }
             }
-            dbg_str += "\n";
+            // dbg_str += "\n";
         }
-        std::cout << dbg_str << std::endl;
-        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types, data_set,
-                                                                           false);
+        // std::cout << dbg_str << std::endl;
+        check_function_for_cast<DataTypeNumber<FloatPType>, false>(input_types, data_set, -1, -1,
+                                                                   false);
         if (FLAGS_gen_regression_case) {
             int table_index = 0;
             int test_data_index = 0;
@@ -1313,9 +1312,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                     {
                                         DataSet data_set_tmp;
                                         data_set_tmp.push_back({{date_val}, expect_cast_result});
-                                        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1,
-                                                                true>(input_types, data_set_tmp,
-                                                                      false, true);
+                                        check_function_for_cast<DataTypeNumber<FloatPType>, true>(
+                                                input_types, data_set_tmp, -1, -1, false, true);
                                     }
                                 }
                             }
@@ -1325,9 +1323,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 }
             }
         }
-        std::cout << dbg_str << std::endl;
-        check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types, data_set,
-                                                                           false);
+        // std::cout << dbg_str << std::endl;
+        check_function_for_cast<DataTypeNumber<FloatPType>, false>(input_types, data_set, -1, -1,
+                                                                   false);
         if (FLAGS_gen_regression_case) {
             int table_index = 0;
             int test_data_index = 0;
@@ -1401,16 +1399,16 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                         {
                             DataSet data_set_tmp;
                             data_set_tmp.push_back({{time_val}, expect_cast_result});
-                            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(
-                                    input_types, data_set_tmp, false, true);
+                            check_function_for_cast<DataTypeNumber<ToPT>, true>(
+                                    input_types, data_set_tmp, -1, -1, false, true);
                         }
                     }
                 }
             }
 
-            std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set,
-                                                                         false);
+            // std::cout << dbg_str << std::endl;
+            check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1,
+                                                                 false);
         };
         test_func(false);
         test_func(true);
@@ -1489,16 +1487,16 @@ TEST_F(FunctionCastToFloatTest, test_from_bool) {
                 {{UInt8 {0}}, Float32(0)},
                 {{UInt8 {1}}, Float32(1)},
         };
-        check_function_for_cast<DataTypeFloat32, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeFloat32, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeFloat32, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeFloat32, true>(input_types, data_set, -1, -1);
     }
     {
         DataSet data_set = {
                 {{UInt8 {0}}, Float64(0)},
                 {{UInt8 {1}}, Float64(1)},
         };
-        check_function_for_cast<DataTypeFloat64, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeFloat64, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeFloat64, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeFloat64, true>(input_types, data_set, -1, -1);
     }
 }
 
@@ -1596,8 +1594,8 @@ TEST_F(FunctionCastToFloatTest, test_from_float_to_double) {
 
     };
 
-    check_function_for_cast<DataTypeFloat64, -1, -1, false>(input_types, data_set);
-    check_function_for_cast<DataTypeFloat64, -1, -1, true>(input_types, data_set);
+    check_function_for_cast<DataTypeFloat64, false>(input_types, data_set, -1, -1);
+    check_function_for_cast<DataTypeFloat64, true>(input_types, data_set, -1, -1);
 }
 TEST_F(FunctionCastToFloatTest, test_from_double_to_float) {
     InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
@@ -1666,8 +1664,8 @@ TEST_F(FunctionCastToFloatTest, test_from_double_to_float) {
 
     };
 
-    check_function_for_cast<DataTypeFloat32, -1, -1, false>(input_types, data_set);
-    check_function_for_cast<DataTypeFloat32, -1, -1, true>(input_types, data_set);
+    check_function_for_cast<DataTypeFloat32, false>(input_types, data_set, -1, -1);
+    check_function_for_cast<DataTypeFloat32, true>(input_types, data_set, -1, -1);
 }
 TEST_F(FunctionCastToFloatTest, test_from_decimal) {
     from_decimal_test_func<Decimal32, TYPE_FLOAT>();

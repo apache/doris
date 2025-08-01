@@ -449,7 +449,7 @@ fi
 export LIBHDFS_OPTS="${final_java_opt}"
 
 # set ORC_EXAMPLE_DIR for orc unit tests
-export ORC_EXAMPLE_DIR="${DORIS_HOME}/be/src/apache-orc/examples"
+export ORC_EXAMPLE_DIR="${DORIS_HOME}/contrib/apache-orc/examples"
 
 # set asan and ubsan env to generate core file
 export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"

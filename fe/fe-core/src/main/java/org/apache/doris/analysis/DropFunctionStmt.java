@@ -60,19 +60,14 @@ public class DropFunctionStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-
-        // analyze function name
-        functionName.analyze(analyzer, this.type);
-
+    public void analyze() throws UserException {
+        super.analyze();
         // check operation privilege
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
         // analyze arguments
-        argsDef.analyze(analyzer);
         function = new FunctionSearchDesc(functionName, argsDef.getArgTypes(), argsDef.isVariadic());
     }
 

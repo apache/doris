@@ -5932,7 +5932,7 @@ TEST_F(BlockFileCacheTest, seize_after_full) {
             if (cache.get_async_open_success()) {
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         ASSERT_TRUE(cache.get_async_open_success());
 

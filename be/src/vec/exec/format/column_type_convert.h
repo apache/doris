@@ -23,7 +23,7 @@
 #include <cstdint>
 #include <utility>
 
-#include "gutil/strings/numbers.h"
+#include "util/to_string.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
@@ -287,11 +287,7 @@ public:
                 }
                 char buf[128];
                 int strlen;
-                if constexpr (SrcPrimitiveType == TYPE_FLOAT) {
-                    strlen = FastFloatToBuffer(src_data[i], buf);
-                } else {
-                    strlen = FastDoubleToBuffer(src_data[i], buf);
-                }
+                strlen = fast_to_buffer(src_data[i], buf);
                 string_col.insert_data(buf, strlen);
             } else {
                 std::string value;
@@ -446,8 +442,8 @@ struct SafeCastString<TYPE_LARGEINT> {
     static bool safe_cast_string(
             const char* startptr, size_t buffer_size,
             PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnType::value_type* value) {
-        ReadBuffer buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
-        return read_int_text_impl<Int128>(*value, buffer);
+        StringRef str_ref(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
+        return try_read_int_text<Int128>(*value, str_ref);
     }
 };
 
@@ -528,9 +524,9 @@ struct SafeCastDecimalString {
 
     static bool safe_cast_string(const char* startptr, size_t buffer_size, CppType* value,
                                  int precision, int scale) {
-        ReadBuffer buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
+        StringRef str_ref(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
         return read_decimal_text_impl<DstPrimitiveType, CppType>(
-                       *value, buffer, precision, scale) == StringParser::PARSE_SUCCESS;
+                       *value, str_ref, precision, scale) == StringParser::PARSE_SUCCESS;
     }
 };
 
@@ -714,7 +710,7 @@ public:
         auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
 
         auto max_result = DataTypeDecimal<DstPrimitiveType>::get_max_digits_number(_precision);
-        auto multiplier = DataTypeDecimal<DstPrimitiveType>::get_scale_multiplier(_scale).value;
+        auto multiplier = DataTypeDecimal<DstPrimitiveType>::get_scale_multiplier(_scale);
 
         for (int i = 0; i < rows; ++i) {
             const SrcCppType& src_value = src_data[i];
@@ -741,7 +737,7 @@ public:
                         (*null_map)[start_idx + i] = 1;
                     }
                 } else {
-                    if (res.value > max_result.value || res.value < -max_result.value) {
+                    if (res.value > max_result || res.value < -max_result) {
                         if (null_map == nullptr) {
                             return Status::InternalError("Failed to cast value '{}' to {} column",
                                                          src_data[i], dst_col->get_name());
@@ -754,8 +750,8 @@ public:
                 SrcCppType dst_value = src_value * static_cast<SrcCppType>(multiplier);
                 res = static_cast<DstDorisType>(dst_value);
                 if (UNLIKELY(!std::isfinite(src_value) ||
-                             dst_value > static_cast<SrcCppType>(max_result.value) ||
-                             dst_value < static_cast<SrcCppType>(-max_result.value))) {
+                             dst_value > static_cast<SrcCppType>(max_result) ||
+                             dst_value < static_cast<SrcCppType>(-max_result))) {
                     if (null_map == nullptr) {
                         return Status::InternalError("Failed to cast value '{}' to {} column",
                                                      src_data[i], dst_col->get_name());
@@ -894,7 +890,7 @@ public:
                                                  src_data[i].to_string(_from_scale),
                                                  dst_col->get_name());
                 } else {
-                    if (res > max_result.value || res < -max_result.value) {
+                    if (res > max_result || res < -max_result) {
                         return Status::InternalError("Failed to cast value '{}' to {} column",
                                                      src_data[i].to_string(_from_scale),
                                                      dst_col->get_name());
@@ -904,19 +900,16 @@ public:
                 }
             } else if (_to_scale == _from_scale) {
                 res_value = static_cast<DstNativeType>(src_value);
-                if (narrow_integral &&
-                    (src_value > max_result.value || src_value < -max_result.value)) {
+                if (narrow_integral && (src_value > max_result || src_value < -max_result)) {
                     return Status::InternalError("Failed to cast value '{}' to {} column",
                                                  src_data[i].to_string(_from_scale),
                                                  dst_col->get_name());
                 }
             } else {
                 MaxNativeType multiplier = DataTypeDecimal<MaxPrimitiveType>::get_scale_multiplier(
-                                                   _from_scale - _to_scale)
-                                                   .value;
+                        _from_scale - _to_scale);
                 MaxNativeType res = src_value / multiplier;
-                if (src_value % multiplier != 0 || res > max_result.value ||
-                    res < -max_result.value) {
+                if (src_value % multiplier != 0 || res > max_result || res < -max_result) {
                     return Status::InternalError("Failed to cast value '{}' to {} column",
                                                  src_data[i].to_string(_from_scale),
                                                  dst_col->get_name());

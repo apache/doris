@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics.util;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DateLiteral;
@@ -27,7 +26,6 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
@@ -54,7 +52,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
@@ -251,13 +248,6 @@ public class StatisticsUtil {
             return ctx;
         } else {
             return new AutoCloseConnectContext(connectContext);
-        }
-    }
-
-    public static void analyze(StatementBase statementBase) throws UserException {
-        try (AutoCloseConnectContext r = buildConnectContext(false)) {
-            Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), r.connectContext);
-            statementBase.analyze(analyzer);
         }
     }
 
@@ -1223,7 +1213,7 @@ public class StatisticsUtil {
     }
 
     // This function return true means the column hasn't been analyzed for longer than the configured time.
-    public static boolean isLongTimeColumn(TableIf table, Pair<String, String> column) {
+    public static boolean isLongTimeColumn(TableIf table, Pair<String, String> column, long version) {
         if (column == null) {
             return false;
         }
@@ -1256,15 +1246,20 @@ public class StatisticsUtil {
         }
         // For olap table, if the table visible version and row count doesn't change since last analyze,
         // we don't need to analyze it because its data is not changed.
-        OlapTable olapTable = (OlapTable) table;
-        long version = 0;
-        try {
-            version = ((OlapTable) table).getVisibleVersion();
-        } catch (RpcException e) {
-            LOG.warn("in cloud getVisibleVersion exception", e);
-        }
         return version != columnStats.tableVersion
-                || olapTable.getRowCount() != columnStats.rowCount;
+                || table.getRowCount() != columnStats.rowCount;
+    }
+
+    public static long getOlapTableVersion(OlapTable olapTable) {
+        if (olapTable == null) {
+            return 0;
+        }
+        try {
+            return olapTable.getVisibleVersion();
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
+            return 0;
+        }
     }
 
     public static boolean canCollect() {

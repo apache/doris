@@ -17,35 +17,30 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
-import java.util.function.Function;
 
-public class HMSPropertiesFactory implements MetastorePropertiesFactory {
+/**
+ * Factory for creating {@link MetastoreProperties} instances for Hive-based catalogs.
+ * <p>
+ * Supported subtypes include:
+ * - "default" or "hms" -> {@link HMSProperties}
+ * - "glue"             -> {@link HMSGlueMetaStoreProperties}
+ * - "dlf"              -> {@link HMSAliyunDLFMetaStoreProperties}
+ */
+public class HMSPropertiesFactory extends AbstractMetastorePropertiesFactory {
 
-    private static final Map<String, Function<Map<String, String>, MetastoreProperties>> REGISTERED_SUBTYPES =
-            new HashMap<>();
+    private static final String KEY = "hive.metastore.type";
+    private static final String DEFAULT_TYPE = "default";
 
-    static {
+    public HMSPropertiesFactory() {
         register("default", HMSProperties::new);
         register("hms", HMSProperties::new);
         register("glue", HMSGlueMetaStoreProperties::new);
         register("dlf", HMSAliyunDLFMetaStoreProperties::new);
     }
 
-    public static void register(String subType, Function<Map<String, String>, MetastoreProperties> constructor) {
-        REGISTERED_SUBTYPES.put(subType.toLowerCase(Locale.ROOT), constructor);
-    }
-
     @Override
     public MetastoreProperties create(Map<String, String> props) {
-        String subType = props.getOrDefault("hive.metastore.type", "default").toLowerCase(Locale.ROOT);
-        Function<Map<String, String>, MetastoreProperties> constructor =
-                REGISTERED_SUBTYPES.getOrDefault(subType, REGISTERED_SUBTYPES.get("default"));
-        MetastoreProperties instance = constructor.apply(props);
-        instance.initNormalizeAndCheckProps();
-        return instance;
+        return createInternal(props, KEY, DEFAULT_TYPE);
     }
 }
-

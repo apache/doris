@@ -59,8 +59,8 @@ public class ModifyBackendClause extends BackendClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        super.analyze(analyzer);
+    public void analyze() throws AnalysisException {
+        super.analyze();
         tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, null);
         isQueryDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
                 PropertyAnalyzer.PROPERTIES_DISABLE_QUERY, null);

@@ -25,6 +25,6 @@ public class SetUserDefinedVar extends SetVar {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException  {
+    public void analyze() throws AnalysisException  {
     }
 }

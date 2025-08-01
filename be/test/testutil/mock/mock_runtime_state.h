@@ -38,6 +38,7 @@ class MockRuntimeState : public RuntimeState {
 public:
     MockRuntimeState() {
         set_task_execution_context(_mock_context);
+        _query_ctx_uptr->set_mock_llm_resource();
         _query_ctx = _query_ctx_uptr.get();
     }
     MockRuntimeState(const TQueryGlobals& query_globals) : RuntimeState(query_globals) {}

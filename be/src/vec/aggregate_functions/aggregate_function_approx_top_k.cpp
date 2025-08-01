@@ -33,7 +33,7 @@ AggregateFunctionPtr create_aggregate_function_approx_top_k(const std::string& n
     }
 
     return creator_without_type::create<AggregateFunctionApproxTopK>(
-            argument_types, result_is_nullable, attr.column_names);
+            argument_types, result_is_nullable, attr, attr.column_names);
 }
 
 void register_aggregate_function_approx_top_k(AggregateFunctionSimpleFactory& factory) {

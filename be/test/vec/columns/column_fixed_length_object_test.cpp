@@ -219,16 +219,6 @@ TEST(ColumnFixedLenghtObjectTest, GetDataAtTest) {
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_permute->get_data_at(2).data), 33);
     std::cout << "12. test permute data success" << std::endl;
 
-    IColumn::Offsets offsets2 {2, 4, 6};
-    std::vector<int> res_idx {0, 0, 1, 1, 2, 2};
-    auto column_replicate_res = column_fixed6->replicate(offsets2);
-    ASSERT_EQ(column_replicate_res->size(), 6);
-    ASSERT_EQ(column_fixed6->size(), 3);
-    for (int i = 0; i < 6; ++i) {
-        ASSERT_EQ(column_fixed6->operator[](res_idx[i]), column_replicate_res->operator[](i));
-    }
-    std::cout << "13. test more val data value and replicate success" << std::endl;
-
     Arena arena;
     const char* pos = nullptr;
     StringRef key(pos, 0);

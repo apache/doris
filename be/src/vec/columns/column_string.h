@@ -486,8 +486,6 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
 
-    ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-
     void reserve(size_t n) override;
 
     void resize(size_t n) override;

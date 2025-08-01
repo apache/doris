@@ -1056,6 +1056,8 @@ Status WorkloadGroupMgr::create_internal_wg() {
     TWorkloadGroupInfo twg_info;
     twg_info.__set_id(INTERNAL_NORMAL_WG_ID);
     twg_info.__set_name(INTERNAL_NORMAL_WG_NAME);
+    twg_info.__set_mem_limit("100%");   // The normal wg will occupy all memory by default.
+    twg_info.__set_cpu_hard_limit(100); // Means disable cpu hard limit for cgroup
     twg_info.__set_version(0);
 
     WorkloadGroupInfo wg_info = WorkloadGroupInfo::parse_topic_info(twg_info);

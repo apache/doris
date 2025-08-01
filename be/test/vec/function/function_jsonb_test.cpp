@@ -74,38 +74,38 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
@@ -378,13 +378,12 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("true"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(1)},
             {{STRING("false"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(0)},
             {{STRING("100"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(100)}, //int8
-            {{STRING("10000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(16)}, // int16
+             TINYINT(100)},                                                                //int8
+            {{STRING("10000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, Null()}, // int16
             {{STRING("1000000000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(0)}, // int32
+             Null()}, // int32
             {{STRING("1152921504606846976"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(0)}, // int64
+             Null()}, // int64
             {{STRING("6.18"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
              TINYINT(6)}, // double
             {{STRING(R"("abcd")"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
@@ -424,9 +423,9 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("10000"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              SMALLINT(10000)}, // int16
             {{STRING("1000000000"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
-             SMALLINT(-13824)}, // int32
+             Null()}, // int32
             {{STRING("1152921504606846976"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
-             SMALLINT(0)}, // int64
+             Null()}, // int64
             {{STRING("6.18"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              SMALLINT(6)}, // double
             {{STRING(R"("abcd")"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
@@ -466,7 +465,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("1000000000"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              INT(1000000000)}, // int32
             {{STRING("1152921504606846976"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
-             INT(0)},                                                                  // int64
+             Null()},                                                                  // int64
             {{STRING("6.18"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(6)}, // double
             {{STRING(R"("abcd")"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              Null()},                                                                // string
@@ -550,7 +549,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     input_types = {Nullable {PrimitiveType::TYPE_JSONB}, Consted {PrimitiveType::TYPE_VARCHAR}};
     // cast to STRING
     data_set = {
-            {{STRING("null"), STRING("1")}, STRING("null")},
+            {{STRING("null"), STRING("1")}, Null()},
             {{STRING("true"), STRING("1")}, STRING("true")},
             {{STRING("false"), STRING("1")}, STRING("false")},
             {{STRING("100"), STRING("1")}, STRING("100")},                                 //int8
@@ -558,7 +557,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("1000000000"), STRING("1")}, STRING("1000000000")},                   // int32
             {{STRING("1152921504606846976"), STRING("1")}, STRING("1152921504606846976")}, // int64
             {{STRING("6.18"), STRING("1")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")"), STRING("1")}, STRING(R"("abcd")")},                     // string
+            {{STRING(R"("abcd")"), STRING("1")}, STRING(R"(abcd)")},                       // string
             {{STRING("{}"), STRING("1")}, STRING("{}")}, // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("1")},
              STRING(R"({"k1":"v31","k2":300})")},                       // object

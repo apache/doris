@@ -88,10 +88,10 @@ suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_
     def execute = { table_name ->
 
         def query_all = {
-            qt_main """ select * from ${table_name} order by id """
-            qt_t1 """ select * from ${table_name}@tag(t1) order by id """
-            qt_b1 """ select * from ${table_name}@branch(b1) order by id """
-            qt_b2 """ select * from ${table_name}@branch(b2) order by id """
+            order_qt_main """ select * from ${table_name} order by id """
+            order_qt_t1 """ select * from ${table_name}@tag(t1) order by id """
+            order_qt_b1 """ select * from ${table_name}@branch(b1) order by id """
+            order_qt_b2 """ select * from ${table_name}@branch(b2) order by id """
         }
 
         query_all()

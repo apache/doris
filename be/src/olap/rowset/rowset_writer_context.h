@@ -45,7 +45,7 @@ struct RowsetWriterContext {
 
     RowsetId rowset_id;
     int64_t tablet_id {0};
-    int64_t tablet_schema_hash {0};
+    int32_t tablet_schema_hash {0};
     int64_t index_id {0};
     int64_t partition_id {0};
     RowsetTypePB rowset_type {BETA_ROWSET};

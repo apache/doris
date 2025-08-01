@@ -25,8 +25,6 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-
 // DROP TABLE
 public class DropTableStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExists;
@@ -82,11 +80,8 @@ public class DropTableStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        if (Strings.isNullOrEmpty(tableName.getDb())) {
-            tableName.setDb(analyzer.getDefaultDb());
-        }
-        tableName.analyze(analyzer);
+    public void analyze() throws UserException {
+        tableName.analyze();
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         // check access
         if (!Env.getCurrentEnv().getAccessManager()

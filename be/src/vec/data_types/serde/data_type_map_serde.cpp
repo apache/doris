@@ -496,8 +496,7 @@ Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                              const NullMap* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                             int64_t end,
-                                             std::vector<StringRef>& buffer_list) const {
+                                             int64_t end, vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -511,10 +510,10 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
 
         RETURN_IF_ERROR(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
                                                        cur_batch->keys.get(), offset, next_offset,
-                                                       buffer_list));
+                                                       arena));
         RETURN_IF_ERROR(value_serde->write_column_to_orc(timezone, nested_values_column, nullptr,
                                                          cur_batch->elements.get(), offset,
-                                                         next_offset, buffer_list));
+                                                         next_offset, arena));
 
         cur_batch->offsets[row_id + 1] = next_offset;
     }

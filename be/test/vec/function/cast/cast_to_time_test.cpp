@@ -45,7 +45,7 @@ TEST_F(FunctionCastTest, test_from_string_to_time) {
                         {{std::string("200595912")}, Null()},
                         {{std::string("8385959.9999999")}, Null()},
                         {{Null()}, Null()}};
-    check_function_for_cast<DataTypeTimeV2, 6>(input_types, data_set);
+    check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 6);
 }
 
 TEST_F(FunctionCastTest, test_from_numeric_to_time) {
@@ -60,23 +60,23 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
                             {{(int64_t)9000000}, Null()},
                             {{(int64_t)67}, Null()},
                             {{Null()}, Null()}};
-        check_function_for_cast<DataTypeTimeV2, 3>(input_types, data_set);
+        check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 3);
     }
 
     // Test casting from Float64
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
-        DataSet data_set = {{{(double)123456.0}, std::string("12:34:56.000")},
-                            {{(double)-123456.0}, std::string("-12:34:56.000")},
-                            {{(double)123.0}, std::string("00:01:23.000")},
-                            {{(double)6.99999}, std::string("00:00:07.000")},
-                            {{(double)-0.99}, std::string("-00:00:00.990")},
-                            {{(double)8501212.0}, Null()},
-                            {{(double)20001212.0}, Null()},
-                            {{(double)9000000.0}, Null()},
-                            {{(double)67.0}, Null()},
+        DataSet data_set = {{{123456.0}, std::string("12:34:56.000")},
+                            {{-123456.0}, std::string("-12:34:56.000")},
+                            {{123.0}, std::string("00:01:23.000")},
+                            {{6.99999}, std::string("00:00:07.000")},
+                            {{-0.99}, std::string("-00:00:00.990")},
+                            {{8501212.0}, Null()},
+                            {{20001212.0}, Null()},
+                            {{9000000.0}, Null()},
+                            {{67.0}, Null()},
                             {{Null()}, Null()}};
-        check_function_for_cast<DataTypeTimeV2, 3>(input_types, data_set);
+        check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 3);
     }
 
     // Test casting from Decimal Type
@@ -92,7 +92,7 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
                                      {{DECIMAL64(20001212, 0, 5)}, Null()},
                                      {{DECIMAL64(67, 0, 5)}, Null()},
                                      {{Null()}, Null()}};
-        check_function_for_cast<DataTypeTimeV2, 3>(input_types_d32_p0s0, data_set_d32_p0s0, true);
+        check_function_for_cast<DataTypeTimeV2>(input_types_d32_p0s0, data_set_d32_p0s0, 3, true);
     }
 }
 
@@ -101,7 +101,7 @@ TEST_F(FunctionCastTest, test_from_datetime_to_time) {
     InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
     DataSet data_set = {
             {{std::string("2012-02-05 12:12:12.123456")}, std::string("12:12:12.1235")}};
-    check_function_for_cast<DataTypeTimeV2, 4>(input_types, data_set, true);
+    check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 4, true);
 }
 
 } // namespace doris::vectorized

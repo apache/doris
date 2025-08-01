@@ -365,4 +365,15 @@ TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
     assert_func(struct_ip, column_struct_ip, assert_json_struct_str);
 }
 
+TEST_F(DataTypeIPTest, GetFieldWithDataTypeTest) {
+    auto column_ipv4 = dt_ipv4->create_column();
+    auto column_ipv6 = dt_ipv6->create_column();
+    Field field_ipv4 = Field::create_field<TYPE_IPV4>(IPv4(123));
+    Field field_ipv6 = Field::create_field<TYPE_IPV6>(IPv6(123));
+    column_ipv4->insert(field_ipv4);
+    column_ipv6->insert(field_ipv6);
+    ASSERT_EQ(dt_ipv4->get_field_with_data_type(*column_ipv4, 0).field, field_ipv4);
+    ASSERT_EQ(dt_ipv6->get_field_with_data_type(*column_ipv6, 0).field, field_ipv6);
+}
+
 } // namespace doris::vectorized

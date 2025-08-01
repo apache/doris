@@ -261,7 +261,7 @@ public class Index implements Writable {
             sb.append(getPropertiesString());
         }
         if (StringUtils.isNotBlank(comment)) {
-            sb.append(" COMMENT '").append(getComment(true)).append("'");
+            sb.append(" COMMENT \"").append(getComment(true)).append("\"");
         }
         return sb.toString();
     }

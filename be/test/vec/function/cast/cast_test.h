@@ -24,6 +24,7 @@
 
 #include "runtime/primitive_type.h"
 #include "testutil/column_helper.h"
+#include "util/to_string.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/function/function_test_util.h"
@@ -223,17 +224,16 @@ struct FunctionCastTest : public testing::Test {
     }
 
     // we always need return nullable=true for cast function because of its' get_return_type weird
-    template <typename ResultDataType, int ResultScale = -1, int ResultPrecision = -1,
-              bool enable_strict_cast = false>
-    void check_function_for_cast(InputTypeSet input_types, DataSet data_set,
-                                 bool datetime_is_string_format = true,
+    template <typename ResultDataType, bool enable_strict_cast = false>
+    void check_function_for_cast(InputTypeSet input_types, DataSet data_set, int result_scale = -1,
+                                 int result_precision = -1, bool datetime_is_string_format = true,
                                  bool expect_execute_fail = false, bool expect_result_ne = false) {
         std::string func_name = "CAST";
 
         InputTypeSet add_input_types = input_types;
         if constexpr (IsDataTypeDecimal<ResultDataType>) {
-            add_input_types.emplace_back(ConstedNotnull {
-                    ResultDataType {ResultPrecision, ResultScale}.get_primitive_type()});
+            ResultDataType result_data_type(result_precision, result_scale);
+            add_input_types.emplace_back(ConstedNotnull {result_data_type.get_primitive_type()});
         } else {
             add_input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_primitive_type()});
         }
@@ -247,23 +247,22 @@ struct FunctionCastTest : public testing::Test {
             DataSet const_dataset = {add_row};
 
             if (datetime_is_string_format) {
-                static_cast<void>(
-                        check_function<ResultDataType, true, ResultScale, ResultPrecision, true>(
-                                func_name, add_input_types, const_dataset, expect_execute_fail,
-                                expect_result_ne, enable_strict_cast));
+                static_cast<void>(check_function<ResultDataType, true, true>(
+                        func_name, add_input_types, const_dataset, result_scale, result_precision,
+                        expect_execute_fail, expect_result_ne, enable_strict_cast));
             } else {
-                static_cast<void>(
-                        check_function<ResultDataType, true, ResultScale, ResultPrecision, false>(
-                                func_name, add_input_types, const_dataset, expect_execute_fail,
-                                expect_result_ne, enable_strict_cast));
+                static_cast<void>(check_function<ResultDataType, true, false>(
+                        func_name, add_input_types, const_dataset, result_scale, result_precision,
+                        expect_execute_fail, expect_result_ne, enable_strict_cast));
             }
         }
     }
 
     // we always need return nullable=true for cast function because of its' get_return_type weird
-    template <typename ResultDataType, int ResultScale = -1, int ResultPrecision = -1>
+    template <typename ResultDataType>
     void check_function_for_cast_strict_mode(InputTypeSet input_types, DataSet data_set,
-                                             std::string expect_error = "",
+                                             std::string expect_error = "", int result_scale = -1,
+                                             int result_precision = -1,
                                              bool datetime_is_string_format = true) {
         constexpr bool expect_result_ne = false;
 
@@ -272,8 +271,8 @@ struct FunctionCastTest : public testing::Test {
 
         InputTypeSet add_input_types = input_types;
         if constexpr (IsDataTypeDecimal<ResultDataType>) {
-            add_input_types.emplace_back(ConstedNotnull {
-                    ResultDataType {ResultPrecision, ResultScale}.get_primitive_type()});
+            ResultDataType result_data_type(result_precision, result_scale);
+            add_input_types.emplace_back(ConstedNotnull {result_data_type.get_primitive_type()});
         } else {
             add_input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_primitive_type()});
         }
@@ -288,33 +287,31 @@ struct FunctionCastTest : public testing::Test {
 
             if (datetime_is_string_format) {
                 if (expect_execute_fail) {
-                    Status st = check_function<ResultDataType, true, ResultScale, ResultPrecision,
-                                               true>(func_name, add_input_types, const_dataset,
-                                                     expect_execute_fail, expect_result_ne, true);
+                    Status st = check_function<ResultDataType, true, true>(
+                            func_name, add_input_types, const_dataset, result_scale,
+                            result_precision, expect_execute_fail, expect_result_ne, true);
                     EXPECT_TRUE(st.msg().find(expect_error) != std::string::npos)
                             << ""
                             << "expect error: " << expect_error << ", but got: " << st.msg();
 
                 } else {
-                    static_cast<void>(
-                            check_function<ResultDataType, true, ResultScale, ResultPrecision,
-                                           true>(func_name, add_input_types, const_dataset,
-                                                 expect_execute_fail, expect_result_ne, true));
+                    static_cast<void>(check_function<ResultDataType, true, true>(
+                            func_name, add_input_types, const_dataset, result_scale,
+                            result_precision, expect_execute_fail, expect_result_ne, true));
                 }
             } else {
                 if (expect_execute_fail) {
-                    Status st = check_function<ResultDataType, true, ResultScale, ResultPrecision,
-                                               false>(func_name, add_input_types, const_dataset,
-                                                      expect_execute_fail, expect_result_ne, true);
+                    Status st = check_function<ResultDataType, true, false>(
+                            func_name, add_input_types, const_dataset, result_scale,
+                            result_precision, expect_execute_fail, expect_result_ne, true);
                     EXPECT_TRUE(st.msg().find(expect_error) != std::string::npos)
                             << ""
                             << "expect error: " << expect_error << ", but got: " << st.msg();
 
                 } else {
-                    static_cast<void>(
-                            check_function<ResultDataType, true, ResultScale, ResultPrecision,
-                                           false>(func_name, add_input_types, const_dataset,
-                                                  expect_execute_fail, expect_result_ne, true));
+                    static_cast<void>(check_function<ResultDataType, true, false>(
+                            func_name, add_input_types, const_dataset, result_scale,
+                            result_precision, expect_execute_fail, expect_result_ne, true));
                 }
             }
         }
@@ -454,15 +451,10 @@ struct FunctionCastTest : public testing::Test {
                         (*ofs_const_expected_result)
                                 << fmt::format("-- !sql_{}_{}_{} --\n", table_index, i,
                                                enable_strict_cast ? "strict" : "non_strict");
-                        if constexpr (std::is_same_v<ToValueType, float>) {
+                        if constexpr (std::is_same_v<ToValueType, float> ||
+                                      std::is_same_v<ToValueType, double>) {
                             char buffer[64] = {0};
-                            FastFloatToBuffer(test_data_set[i].second, buffer);
-                            (*ofs_const_expected_result)
-                                    << fmt::format("{}\t{}\n\n", test_data_set[i].first, buffer);
-
-                        } else if constexpr (std::is_same_v<ToValueType, double>) {
-                            char buffer[64] = {0};
-                            FastDoubleToBuffer(test_data_set[i].second, buffer);
+                            fast_to_buffer(test_data_set[i].second, buffer);
                             (*ofs_const_expected_result)
                                     << fmt::format("{}\t{}\n\n", test_data_set[i].first, buffer);
                         } else {

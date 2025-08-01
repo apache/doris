@@ -29,7 +29,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/endian.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/data_dir.h"
@@ -230,8 +229,8 @@ void NO_SANITIZE_UNDEFINED TabletMetaManager::decode_delete_bitmap_key(std::stri
                                                                        TTabletId* tablet_id,
                                                                        int64_t* version) {
     DCHECK_EQ(enc_key.size(), 20);
-    *tablet_id = to_endian<std::endian::big>(UNALIGNED_LOAD64(enc_key.data() + 4));
-    *version = to_endian<std::endian::big>(UNALIGNED_LOAD64(enc_key.data() + 12));
+    *tablet_id = to_endian<std::endian::big>(unaligned_load<uint64_t>(enc_key.data() + 4));
+    *version = to_endian<std::endian::big>(unaligned_load<uint64_t>(enc_key.data() + 12));
 }
 
 Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,

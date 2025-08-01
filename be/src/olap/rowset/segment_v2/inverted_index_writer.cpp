@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "io/fs/local_file_system.h"
 
@@ -65,6 +66,8 @@
 #include "util/string_util.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
+
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
@@ -199,7 +202,8 @@ public:
                         { index_writer->setMaxBufferedDocs(1); })
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_index_writer_setMergeFactor_error",
                         { index_writer->setMergeFactor(1); })
-        index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
+        index_writer->setRAMBufferSizeMB(
+                static_cast<float>(config::inverted_index_ram_buffer_size));
         index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
@@ -346,7 +350,7 @@ public:
         // so we need to subtract num_rows to get the row id in segment
         for (size_t i = 0; i < num_rows; i++) {
             if (null_map[i] == 1) {
-                null_indices.push_back(_rid - num_rows + static_cast<uint32_t>(i));
+                null_indices.push_back(cast_set<uint32_t>(_rid - num_rows + i));
             }
         }
 
@@ -372,7 +376,7 @@ public:
     }
 
     void new_char_token_stream(const char* s, size_t len, lucene::document::Field* field) {
-        _char_string_reader->init(s, len, false);
+        _char_string_reader->init(s, cast_set<int32_t>(len), false);
         DBUG_EXECUTE_IF(
                 "InvertedIndexColumnWriterImpl::new_char_token_stream__char_string_reader_init_"
                 "error",
@@ -406,8 +410,8 @@ public:
                 return Status::InternalError(
                         "field or index writer is null in inverted index writer");
             }
-            auto* v = (Slice*)values;
-            for (int i = 0; i < count; ++i) {
+            const auto* v = (Slice*)values;
+            for (size_t i = 0; i < count; ++i) {
                 // only ignore_above UNTOKENIZED strings and empty strings not tokenized
                 if ((!_should_analyzer && v->get_size() > _ignore_above) ||
                     (_should_analyzer && v->empty())) {
@@ -442,7 +446,7 @@ public:
                 return Status::InternalError("index writer is null in inverted index writer");
             }
             size_t start_off = 0;
-            for (int i = 0; i < count; ++i) {
+            for (size_t i = 0; i < count; ++i) {
                 // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
                 // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
                 auto array_elem_size = offsets[i + 1] - offsets[i];
@@ -485,7 +489,8 @@ public:
                             std::unique_ptr<lucene::util::Reader> char_string_reader =
                                     DORIS_TRY(create_char_string_reader(
                                             _inverted_index_ctx->char_filter_map));
-                            char_string_reader->init(v->get_data(), v->get_size(), false);
+                            char_string_reader->init(v->get_data(),
+                                                     cast_set<int32_t>(v->get_size()), false);
                             _analyzer->set_ownReader(own_reader);
                             ts = _analyzer->tokenStream(new_field->name(),
                                                         char_string_reader.release());
@@ -630,7 +635,7 @@ public:
     Status add_value(const CppType& value) {
         try {
             std::string new_value;
-            size_t value_length = sizeof(CppType);
+            uint32_t value_length = sizeof(CppType);
 
             DBUG_EXECUTE_IF(
                     "InvertedIndexColumnWriterImpl::add_value_bkd_writer_add_throw_"
@@ -659,7 +664,7 @@ public:
             faststring buf;
             buf.resize(size);
             _null_bitmap.write(reinterpret_cast<char*>(buf.data()), false);
-            null_bitmap_out->writeBytes(buf.data(), size);
+            null_bitmap_out->writeBytes(buf.data(), cast_set<int32_t>(size));
         }
     }
 
@@ -842,3 +847,4 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     return Status::OK();
 }
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

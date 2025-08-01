@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.proc.TransProcDir;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -105,19 +106,18 @@ public class ShowTransactionCommand extends ShowCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    PrivPredicate.ADMIN.getPrivs().toString());
-        }
-
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = ctx.getDatabase();
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         }
-
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                    PrivPredicate.LOAD.getPrivs().toString(), dbName);
+        }
         if (expr == null) {
             throw new AnalysisException("Missing transaction id");
         }

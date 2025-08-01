@@ -256,6 +256,12 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     }
 
     @Override
+    public void initializeHadoopStorageConfig() {
+        throw new UnsupportedOperationException("Hadoop storage config initialization is not"
+                + " supported for S3 compatible storage.");
+    }
+
+    @Override
     public String getStorageName() {
         return "S3";
     }

@@ -28,9 +28,7 @@
 #include <functional>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "gutil/endian.h"
 #include "gutil/hash/city.h"
-#include "runtime/define_primitive_type.h"
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"
 #include "util/sse_util.hpp"
@@ -397,7 +395,7 @@ struct std::hash<std::pair<First, Second>> {
     size_t operator()(const pair<First, Second>& p) const {
         size_t h1 = std::hash<First>()(p.first);
         size_t h2 = std::hash<Second>()(p.second);
-        return util_hash::HashLen16(h1, h2);
+        return doris::util_hash::HashLen16(h1, h2);
     }
 };
 

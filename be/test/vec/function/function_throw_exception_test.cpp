@@ -17,8 +17,6 @@
 
 #include <gtest/gtest.h>
 
-#include <stdexcept>
-
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -48,31 +46,8 @@ public:
     }
 };
 
-class MockFunctionThrowStdException : public IFunction {
-public:
-    static constexpr auto name = "mock_function_throw_stdexception";
-    static FunctionPtr create() { return std::make_shared<MockFunctionThrowStdException>(); }
-    String get_name() const override { return name; }
-    bool skip_return_type_check() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return false; }
-
-    size_t get_number_of_arguments() const override { return 0; }
-
-    bool is_variadic() const override { return true; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeFloat64>();
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        throw std::runtime_error("BEUT TEST: MockFunctionThrowStdException");
-    }
-};
-
 void register_function_throw_exception(SimpleFunctionFactory& factory) {
     factory.register_function<MockFunctionThrowException>();
-    factory.register_function<MockFunctionThrowStdException>();
 }
 
 TEST(FunctionThrowExceptionTest, test_throw_exception) {
@@ -85,19 +60,5 @@ TEST(FunctionThrowExceptionTest, test_throw_exception) {
 
     EXPECT_EQ(st.code(), ErrorCode::INTERNAL_ERROR);
     EXPECT_EQ(st.msg(), "BEUT TEST: MockFunctionThrowException");
-}
-
-TEST(FunctionThrowExceptionTest, test_throw_std_exception) {
-    auto function = SimpleFunctionFactory::instance().get_function(
-            "mock_function_throw_stdexception", {}, std::make_shared<DataTypeFloat64>(), {false},
-            BeExecVersionManager::get_newest_version());
-
-    Block block;
-    auto st = function->execute(nullptr, block, {}, 0, 1);
-
-    EXPECT_EQ(st.code(), ErrorCode::INTERNAL_ERROR);
-    EXPECT_EQ(st.msg(),
-              "Function mock_function_throw_stdexception execute failed: BEUT TEST: "
-              "MockFunctionThrowStdException");
 }
 } // namespace doris::vectorized

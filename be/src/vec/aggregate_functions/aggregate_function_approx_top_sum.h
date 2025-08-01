@@ -39,7 +39,6 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 

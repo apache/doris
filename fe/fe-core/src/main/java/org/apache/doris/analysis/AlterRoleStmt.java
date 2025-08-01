@@ -46,8 +46,8 @@ public class AlterRoleStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         // check if current user has GRANT priv on GLOBAL level.
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER ROLE");

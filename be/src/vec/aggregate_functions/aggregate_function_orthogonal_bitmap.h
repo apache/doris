@@ -36,7 +36,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

@@ -90,8 +90,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end,
-                               std::vector<StringRef>& buffer_list) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
 
     Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
                                               uint64_t* num_deserialized,
@@ -104,11 +103,5 @@ private:
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
-
-    Status _from_string(const std::string& str, DateV2Value<DateV2ValueType>& res,
-                        const cctz::time_zone* local_time_zone) const;
-
-    Status _from_string_strict_mode(const std::string& str, DateV2Value<DateV2ValueType>& res,
-                                    const cctz::time_zone* local_time_zone) const;
 };
 } // namespace doris::vectorized

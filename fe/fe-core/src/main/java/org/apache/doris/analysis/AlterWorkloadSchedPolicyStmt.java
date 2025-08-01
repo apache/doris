@@ -46,8 +46,8 @@ public class AlterWorkloadSchedPolicyStmt extends DdlStmt implements NotFallback
         return properties;
     }
 
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
 
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {

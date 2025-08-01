@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/cloud.pb.h>
+
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versionstamp.h"
@@ -50,6 +52,22 @@ public:
     // Get the version of the table_version_key with the given table_id.
     TxnErrorCode get_table_version(int64_t table_id, Versionstamp* table_version);
     TxnErrorCode get_table_version(Transaction* txn, int64_t table_id, Versionstamp* table_version);
+
+    // Get the partition version for the given partition
+    //
+    // If the `version` is not nullptr, it will be filled with the deserialized VersionPB.
+    TxnErrorCode get_partition_version(int64_t partition_id, VersionPB* version,
+                                       Versionstamp* versionstamp);
+    TxnErrorCode get_partition_version(Transaction* txn, int64_t partition_id, VersionPB* version,
+                                       Versionstamp* versionstamp);
+
+    // Get the tablet load stats for the given tablet
+    //
+    // If the `tablet_stats` is not nullptr, it will be filled with the deserialized TabletStatsPB.
+    TxnErrorCode get_tablet_load_stats(int64_t tablet_id, TabletStatsPB* tablet_stats,
+                                       Versionstamp* versionstamp);
+    TxnErrorCode get_tablet_load_stats(Transaction* txn, int64_t tablet_id,
+                                       TabletStatsPB* tablet_stats, Versionstamp* versionstamp);
 
 private:
     const std::string_view instance_id_;

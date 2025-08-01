@@ -20,6 +20,7 @@ suite("test_array_map") {
         drop table if exists mock_table;
     """
 
+    sql """ DROP FUNCTION IF EXISTS clean_html_entity_test(string) """
     sql """
         CREATE ALIAS FUNCTION clean_html_entity_test(string) WITH PARAMETER(html) AS
         REPLACE(

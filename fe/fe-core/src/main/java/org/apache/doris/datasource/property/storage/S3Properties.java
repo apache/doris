@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
@@ -26,6 +27,8 @@ import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
@@ -71,14 +74,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "glue.access_key",
             "aws.glue.access-key", "client.credentials-provider.glue.access_key"},
             required = false,
-            description = "The access key of S3.")
+            description = "The access key of S3. Optional for anonymous access to public datasets.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "glue.secret_key",
             "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
             required = false,
-            description = "The secret key of S3.")
+            description = "The secret key of S3. Optional for anonymous access to public datasets.")
     protected String secretKey = "";
 
 
@@ -122,6 +125,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The external id of S3.")
     protected String s3ExternalId = "";
 
+    public static S3Properties of(Map<String, String> properties) {
+        S3Properties propertiesObj = new S3Properties(properties);
+        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        return propertiesObj;
+    }
 
     /**
      * Pattern to match various AWS S3 endpoint formats and extract the region part.
@@ -170,8 +178,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (Boolean.parseBoolean(origProps.getOrDefault("iceberg.rest.vended-credentials-enabled", "false"))) {
             return;
         }
+        // Allow anonymous access if both access_key and secret_key are empty
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return;
+        }
         throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
-                + "s3.external_id");
+                + "s3.external_id or omit all for anonymous access to public bucket.");
     }
 
     /**
@@ -250,7 +262,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     private void convertGlueToS3EndpointIfNeeded() {
         if (this.endpoint.contains("glue")) {
-            this.endpoint = "s3." + this.region + ".amazonaws.com";
+            this.endpoint = "https://s3." + this.region + ".amazonaws.com";
         }
     }
 
@@ -274,10 +286,29 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                         }
                     }).build();
         }
+        // For anonymous access (no credentials required)
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return AnonymousCredentialsProvider.create();
+        }
         return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
                 EnvironmentVariableCredentialsProvider.create(),
                 WebIdentityTokenFileCredentialsProvider.create(),
                 ProfileCredentialsProvider.create(),
                 InstanceProfileCredentialsProvider.create());
+    }
+
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.endpoint", endpoint);
+        hadoopStorageConfig.set("fs.s3a.access.key", accessKey);
+        hadoopStorageConfig.set("fs.s3a.secret.key", secretKey);
+        hadoopStorageConfig.set("fs.s3a.connection.maximum", s3ConnectionMaximum);
+        hadoopStorageConfig.set("fs.s3a.connection.request.timeout", s3ConnectionRequestTimeoutS);
+        hadoopStorageConfig.set("fs.s3a.connection.timeout", s3ConnectionTimeoutS);
+        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
     }
 }

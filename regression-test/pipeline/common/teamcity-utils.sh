@@ -25,9 +25,9 @@
 # 控制哪些分支可以跑哪些流水线
 declare -A targetBranch_to_pipelines
 targetBranch_to_pipelines=(
-    ['master']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent'
-    ['branch-3.1']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent'
-    ['branch-3.0']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent'
+    ['master']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
+    ['branch-3.1']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
+    ['branch-3.0']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
     ['branch-2.1']='feut beut compile p0 p1 external arm'
     ['branch-2.0']='feut beut compile p0 p1 external arm performance'
 )
@@ -52,6 +52,7 @@ comment_to_pipeline=(
     ['cloud_p1']='Doris_DorisCloudRegression_CloudP1'
     ['vault_p0']='Doris_DorisCloudRegression_VaultP0'
     ['nonConcurrent']='Doris_DorisRegression_NonConcurrentRegression'
+    ['check_coverage']='Doris_Coverage_Merge_P0_UT'
 )
 
 # github中评论的要触发的流水线名字
@@ -74,6 +75,7 @@ conment_to_context=(
     ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'
     ['vault_p0']='vault_p0 (Doris Cloud Regression)'
     ['nonConcurrent']='NonConcurrent Regression (Doris Regression)'
+    ['check_coverage']='check_coverage (Coverage)'
 )
 
 get_commit_id_of_build() {
@@ -306,7 +308,7 @@ trigger_or_skip_build() {
         cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
         if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
-            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent 都 skip 了
+            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage 都 skip 了
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
@@ -314,6 +316,10 @@ trigger_or_skip_build() {
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p1"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "vault_p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "nonConcurrent"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
+        elif [[ ${COMMENT_TRIGGER_TYPE} == "beut" ]]; then
+            # skip beut 的时候，也把 check_coverage skip 了
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
         fi
     fi
 }

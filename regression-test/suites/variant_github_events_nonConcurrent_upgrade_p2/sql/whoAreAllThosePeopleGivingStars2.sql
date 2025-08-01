@@ -1,0 +1,1 @@
+SELECT cast(v["actor"]["login"] as string), count() AS stars FROM github_events WHERE cast(v["type"] as string) = 'WatchEvent' AND cast(v["actor"]["login"] as string) = 'cliffordfajardo' GROUP BY cast(v["actor"]["login"] as string) ORDER BY stars DESC LIMIT 50

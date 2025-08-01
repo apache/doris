@@ -78,6 +78,9 @@ public:
                                "Unimplemented get_field for array");
     }
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return true; }

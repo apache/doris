@@ -33,11 +33,6 @@ namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
 
-template <>
-Decimal128V3 DecimalField<Decimal128V3>::get_scale_multiplier() const {
-    return DataTypeDecimal<TYPE_DECIMAL128I>::get_scale_multiplier(scale);
-}
-
 template <PrimitiveType T>
 bool dec_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
                typename PrimitiveTypeTraits<T>::ColumnItemType y, UInt32 x_scale, UInt32 y_scale) {
@@ -72,10 +67,6 @@ bool dec_less_or_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
     template <>                                                        \
     bool decimal_less_or_equal(TYPE x, TYPE y, UInt32 xs, UInt32 ys) { \
         return dec_less_or_equal<PTYPE>(x, y, xs, ys);                 \
-    }                                                                  \
-    template <>                                                        \
-    TYPE DecimalField<TYPE>::get_scale_multiplier() const {            \
-        return DataTypeDecimal<PTYPE>::get_scale_multiplier(scale);    \
     }
 
 DECLARE_DECIMAL_COMPARISON(Decimal32, TYPE_DECIMAL32)

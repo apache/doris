@@ -247,17 +247,6 @@ echo "===== Patching thirdparty archives..."
 ###################################################################################
 PATCHED_MARK="patched_mark"
 
-# abseil patch
-if [[ " ${TP_ARCHIVES[*]} " =~ " ABSEIL " ]]; then
-    cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/absl.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${ABSEIL_SOURCE}"
-fi
-
 # glog patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
     if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
@@ -354,6 +343,9 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ROCKSDB " ]]; then
         cd "${TP_SOURCE_DIR}/${ROCKSDB_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/rocksdb-5.14.2.patch"
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                patch -p1 <"${TP_PATCH_DIR}/rocksdb-mac-compile-fix.patch"
+            fi 
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -522,6 +514,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GRPC " ]]; then
         cd "${TP_SOURCE_DIR}/${GRPC_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/grpc-1.54.3.patch"
+            patch -p1 <"${TP_PATCH_DIR}/grpc-absl-fix.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -590,19 +583,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
     echo "Finished patching ${THRIFT_SOURCE}"
 fi
 
-# patch faiss cmake so that we can use openblas
-if [[ " ${TP_ARCHIVES[*]} " =~ " FAISS " ]]; then
-    if [[ "${FAISS_SOURCE}" = "faiss-1.10.0" ]]; then
-        cd "${TP_SOURCE_DIR}/${FAISS_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p2 <"${TP_PATCH_DIR}/faiss-1.10.0.patch"
-            touch "${PATCHED_MARK}"
-        fi
-        cd -
-    fi
-    echo "Finished patching ${FAISS_SOURCE}"
-fi
-
 # patch re2
 if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
     if [[ "${RE2_SOURCE}" == 're2-2021-02-02' ]]; then
@@ -627,7 +607,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
         touch "${PATCHED_MARK}"
     fi
     cd -
-    echo "Finished patching ${GRPC_SOURCE}"
+    echo "Finished patching ${AZURE_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

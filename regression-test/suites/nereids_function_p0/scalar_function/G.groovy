@@ -19,6 +19,16 @@ suite("nereids_scalar_fn_G") {
     sql 'use regression_test_nereids_function_p0'
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    qt_sql_gcd_TinyInt_TinyInt "select gcd(ktint, ktint) from fn_test order by ktint, ktint"
+    qt_sql_gcd_TinyInt_TinyInt_notnull "select gcd(ktint, ktint) from fn_test_not_nullable order by ktint, ktint"
+    qt_sql_gcd_SmallInt_SmallInt "select gcd(ksint, ksint) from fn_test order by ksint, ksint"
+    qt_sql_gcd_SmallInt_SmallInt_notnull "select gcd(ksint, ksint) from fn_test_not_nullable order by ksint, ksint"
+    qt_sql_gcd_Integer_Integer "select gcd(kint, kint) from fn_test order by kint, kint"
+    qt_sql_gcd_Integer_Integer_notnull "select gcd(kint, kint) from fn_test_not_nullable order by kint, kint"
+    qt_sql_gcd_BigInt_BigInt "select gcd(kbint, kbint) from fn_test order by kbint, kbint"
+    qt_sql_gcd_BigInt_BigInt_notnull "select gcd(kbint, kbint) from fn_test_not_nullable order by kbint, kbint"  
+    qt_sql_gcd_LargeInt_LargeInt "select gcd(klint, klint) from fn_test order by klint, klint"
+    qt_sql_gcd_LargeInt_LargeInt_notnull "select gcd(klint, klint) from fn_test_not_nullable order by klint, klint"  
     qt_sql_get_json_bigint_Varchar_Varchar """SELECT get_json_bigint('{"k1":1678708107000, "k2":"2"}', "\$.k1")"""
     qt_sql_greatest_TinyInt "select greatest(ktint) from fn_test order by ktint"
     qt_sql_greatest_TinyInt_notnull "select greatest(ktint) from fn_test_not_nullable order by ktint"

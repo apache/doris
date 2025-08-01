@@ -160,7 +160,7 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     }
 
     if (eos) {
-        RETURN_IF_ERROR(local_state._shared_state->sorter->prepare_for_read());
+        RETURN_IF_ERROR(local_state._shared_state->sorter->prepare_for_read(false));
         local_state._dependency->set_ready_to_read();
     }
     return Status::OK();
@@ -178,7 +178,7 @@ size_t SortSinkOperatorX::get_revocable_mem_size(RuntimeState* state) const {
 
 Status SortSinkOperatorX::prepare_for_spill(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    return local_state._shared_state->sorter->prepare_for_read();
+    return local_state._shared_state->sorter->prepare_for_read(true);
 }
 
 Status SortSinkOperatorX::merge_sort_read_for_spill(RuntimeState* state,

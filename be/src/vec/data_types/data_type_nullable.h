@@ -127,6 +127,8 @@ public:
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         nested_data_type->to_protobuf(ptype, node, scalar_type);
     }
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
         nested_data_type->to_thrift(thrift_type, node);

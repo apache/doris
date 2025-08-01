@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogFactory;
@@ -192,8 +191,8 @@ public class CreateIcebergTableTest {
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.setIsExternal(true);
-        CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
-        ops.createTable(createTableStmt);
+        createTableInfo.analyzeEngine();
+        ops.createTable(createTableInfo);
     }
 
     public String getTableName() {

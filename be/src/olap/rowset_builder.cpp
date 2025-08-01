@@ -61,6 +61,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BaseRowsetBuilder::BaseRowsetBuilder(const WriteRequest& req, RuntimeProfile* profile)
@@ -179,15 +180,7 @@ Status RowsetBuilder::check_tablet_version_count() {
 }
 
 Status RowsetBuilder::prepare_txn() {
-    std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::defer_lock);
-    if (!base_migration_lock.try_lock_for(
-                std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
-        return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
-                                              config::migration_lock_timeout_ms);
-    }
-    std::lock_guard<std::mutex> push_lock(tablet()->get_push_lock());
-    return _engine.txn_manager()->prepare_txn(_req.partition_id, *tablet(), _req.txn_id,
-                                              _req.load_id);
+    return tablet()->prepare_txn(_req.partition_id, _req.txn_id, _req.load_id, false);
 }
 
 Status RowsetBuilder::init() {
@@ -407,8 +400,9 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
     if (!indexes.empty() && !indexes[i]->columns.empty() &&
         indexes[i]->columns[0]->unique_id() >= 0) {
         _tablet_schema->shawdow_copy_without_columns(ori_tablet_schema);
-        _tablet_schema->build_current_tablet_schema(index_id, table_schema_param->version(),
-                                                    indexes[i], ori_tablet_schema);
+        _tablet_schema->build_current_tablet_schema(
+                index_id, cast_set<int32_t>(table_schema_param->version()), indexes[i],
+                ori_tablet_schema);
     } else {
         _tablet_schema->copy_from(ori_tablet_schema);
     }
@@ -446,5 +440,5 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
             table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

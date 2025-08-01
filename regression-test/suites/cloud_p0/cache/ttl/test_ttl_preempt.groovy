@@ -132,7 +132,14 @@ suite("test_ttl_preempt") {
     }
 
     // one customer table would take about 1.3GB, the total cache size is 20GB
-    // the following would take 19.5G all
+    // the following would take 20G all
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
+    load_customer_once("customer")
     load_customer_once("customer")
     load_customer_once("customer")
     load_customer_once("customer")

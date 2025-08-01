@@ -486,10 +486,29 @@ Status TabletMeta::load_from_file(const string& file_path, TabletMetaPB* tablet_
     RETURN_IF_ERROR(file_header.deserialize());
     try {
         tablet_meta_pb->CopyFrom(file_header.message());
-    } catch (...) {
-        return Status::Error<PARSE_PROTOBUF_ERROR>("fail to copy protocol buffer object. file={}",
-                                                   file_path);
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to copy protocol buffer object: " << e.what()
+                     << ", file=" << file_path;
+        return Status::Error<PARSE_PROTOBUF_ERROR>(
+                "fail to copy protocol buffer object. file={}, error={}", file_path, e.what());
     }
+    return Status::OK();
+}
+
+Status TabletMeta::create_from_buffer(const uint8_t* buffer, size_t buffer_size) {
+    FileHeader<TabletMetaPB> file_header(""); // empty file path
+    RETURN_IF_ERROR(file_header.deserialize_from_memory(buffer, buffer_size));
+
+    TabletMetaPB tablet_meta_pb;
+    try {
+        tablet_meta_pb.CopyFrom(file_header.message());
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to copy protocol buffer object from buffer: " << e.what();
+        return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>(
+                "fail to copy protocol buffer object from buffer. error={}", e.what());
+    }
+
+    init_from_pb(tablet_meta_pb);
     return Status::OK();
 }
 

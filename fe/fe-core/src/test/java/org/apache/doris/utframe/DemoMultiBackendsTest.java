@@ -18,8 +18,6 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
@@ -33,6 +31,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
@@ -130,16 +130,20 @@ public class DemoMultiBackendsTest {
         ctx.getSessionVariable().setParallelResultSink(false);
         // 2. create database db1
         String createDbStmtStr = "create database db1;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(ctx, stmtExecutor);
+        }
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
         // 3. create table tbl1
         String createTblStmtStr = "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3"
                 + " properties('replication_num' = '3',"
                 + "'colocate_with' = 'g1');";
-        NereidsParser nereidsParser = new NereidsParser();
+        nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(createTblStmtStr);
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, createTblStmtStr);
+        stmtExecutor = new StmtExecutor(ctx, createTblStmtStr);
         if (parsed instanceof CreateTableCommand) {
             ((CreateTableCommand) parsed).run(ctx, stmtExecutor);
         }
@@ -161,8 +165,7 @@ public class DemoMultiBackendsTest {
         }
         // 5. process a schema change job
         String alterStmtStr = "alter table db1.tbl1 add column k2 int default '1'";
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, ctx);
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        alterTable(alterStmtStr, ctx);
         // 6. check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         Assert.assertEquals(1, alterJobs.size());
@@ -213,6 +216,15 @@ public class DemoMultiBackendsTest {
                 result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 6));
         Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 5));
         Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 4));
+    }
+
+    protected void alterTable(String sql, ConnectContext connectContext) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void updateReplicaPathHash() {

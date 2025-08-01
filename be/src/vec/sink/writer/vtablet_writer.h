@@ -329,10 +329,6 @@ public:
     bool is_incremental() const { return _is_incremental; }
 
     int64_t write_bytes() const { return _write_bytes.load(); }
-    std::unordered_set<int64_t> write_tablets() {
-        std::lock_guard<std::mutex> l(_write_tablets_lock);
-        return _write_tablets;
-    }
 
 protected:
     // make a real open request for relative BE's load channel.
@@ -437,9 +433,7 @@ protected:
 
     bool _is_incremental;
 
-    std::mutex _write_tablets_lock;
     std::atomic<int64_t> _write_bytes {0};
-    std::unordered_set<int64_t> _write_tablets;
 };
 
 // an IndexChannel is related to specific table and its rollup and mv
@@ -571,7 +565,7 @@ private:
     int _load_required_replicas_num(int64_t tablet_id);
 
     bool _quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
-                         const std::unordered_set<int64_t>& write_tablets);
+                         const std::unordered_set<int64_t>& need_finish_tablets);
 
     int64_t _calc_max_wait_time_ms(const std::unordered_set<int64_t>& unfinished_node_channel_ids);
 

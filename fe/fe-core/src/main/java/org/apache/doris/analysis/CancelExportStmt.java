@@ -137,15 +137,8 @@ public class CancelExportStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                throw new AnalysisException("No database selected");
-            }
-        }
-
+    public void analyze() throws UserException {
+        super.analyze();
         if (null == whereClause) {
             throw new AnalysisException("Where clause can't be null");
         } else if (whereClause instanceof LikePredicate) {

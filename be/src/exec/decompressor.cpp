@@ -22,11 +22,13 @@
 #include <memory>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/endian.h"
+#include "vec/common/endian.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 Status Decompressor::create_decompressor(CompressType type,
                                          std::unique_ptr<Decompressor>* decompressor) {
@@ -181,8 +183,8 @@ Status GzipDecompressor::init() {
     return Status::OK();
 }
 
-Status GzipDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                                    uint8_t* output, size_t output_max_len,
+Status GzipDecompressor::decompress(uint8_t* input, uint32_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, uint32_t output_max_len,
                                     size_t* decompressed_len, bool* stream_end,
                                     size_t* more_input_bytes, size_t* more_output_bytes) {
     // 1. set input and output
@@ -255,8 +257,8 @@ Status Bzip2Decompressor::init() {
     return Status::OK();
 }
 
-Status Bzip2Decompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                                     uint8_t* output, size_t output_max_len,
+Status Bzip2Decompressor::decompress(uint8_t* input, uint32_t input_len, size_t* input_bytes_read,
+                                     uint8_t* output, uint32_t output_max_len,
                                      size_t* decompressed_len, bool* stream_end,
                                      size_t* more_input_bytes, size_t* more_output_bytes) {
     // 1. set input and output
@@ -322,8 +324,8 @@ Status ZstdDecompressor::init() {
     return Status::OK();
 }
 
-Status ZstdDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                                    uint8_t* output, size_t output_max_len,
+Status ZstdDecompressor::decompress(uint8_t* input, uint32_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, uint32_t output_max_len,
                                     size_t* decompressed_len, bool* stream_end,
                                     size_t* more_input_bytes, size_t* more_output_bytes) {
     // 1. set input and output
@@ -331,7 +333,7 @@ Status ZstdDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
     ZSTD_outBuffer outputBuffer = {output, output_max_len, 0};
 
     // decompress
-    int ret = ZSTD_decompressStream(_zstd_strm, &outputBuffer, &inputBuffer);
+    size_t ret = ZSTD_decompressStream(_zstd_strm, &outputBuffer, &inputBuffer);
     *input_bytes_read = inputBuffer.pos;
     *decompressed_len = outputBuffer.pos;
 
@@ -372,10 +374,11 @@ Status Lz4FrameDecompressor::init() {
     return Status::OK();
 }
 
-Status Lz4FrameDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                                        uint8_t* output, size_t output_max_len,
-                                        size_t* decompressed_len, bool* stream_end,
-                                        size_t* more_input_bytes, size_t* more_output_bytes) {
+Status Lz4FrameDecompressor::decompress(uint8_t* input, uint32_t input_len,
+                                        size_t* input_bytes_read, uint8_t* output,
+                                        uint32_t output_max_len, size_t* decompressed_len,
+                                        bool* stream_end, size_t* more_input_bytes,
+                                        size_t* more_output_bytes) {
     uint8_t* src = input;
     size_t remaining_input_size = input_len;
     size_t ret = 1;
@@ -483,10 +486,11 @@ Status Lz4BlockDecompressor::init() {
 // Bx : length of  small data block bx.
 // sizeof(Bx) = 4 bytes.
 // Bx = length(compress(small blockx))
-Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                                        uint8_t* output, size_t output_max_len,
-                                        size_t* decompressed_len, bool* stream_end,
-                                        size_t* more_input_bytes, size_t* more_output_bytes) {
+Status Lz4BlockDecompressor::decompress(uint8_t* input, uint32_t input_len,
+                                        size_t* input_bytes_read, uint8_t* output,
+                                        uint32_t output_max_len, size_t* decompressed_len,
+                                        bool* stream_end, size_t* more_input_bytes,
+                                        size_t* more_output_bytes) {
     auto* input_ptr = input;
     auto* output_ptr = output;
 
@@ -505,7 +509,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
         input_ptr += sizeof(uint32_t);
         input_len -= sizeof(uint32_t);
 
-        std::size_t remaining_output_len = output_max_len - *decompressed_len;
+        auto remaining_output_len = cast_set<uint32_t>(output_max_len - *decompressed_len);
 
         if (remaining_output_len < remaining_decompressed_large_block_len) {
             // Need more output buffer
@@ -525,7 +529,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
             }
 
             // Read the length of the next lz4 compressed block.
-            size_t compressed_small_block_len = BigEndian::Load32(input_ptr);
+            uint32_t compressed_small_block_len = BigEndian::Load32(input_ptr);
 
             input_ptr += sizeof(uint32_t);
             input_len -= sizeof(uint32_t);
@@ -599,9 +603,9 @@ Status SnappyBlockDecompressor::init() {
 // Bx : length of  small data block bx.
 // sizeof(Bx) = 4 bytes.
 // Bx = length(compress(small blockx))
-Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
+Status SnappyBlockDecompressor::decompress(uint8_t* input, uint32_t input_len,
                                            size_t* input_bytes_read, uint8_t* output,
-                                           size_t output_max_len, size_t* decompressed_len,
+                                           uint32_t output_max_len, size_t* decompressed_len,
                                            bool* stream_end, size_t* more_input_bytes,
                                            size_t* more_output_bytes) {
     auto* input_ptr = input;
@@ -702,4 +706,5 @@ std::string SnappyBlockDecompressor::debug_info() {
     return ss.str();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

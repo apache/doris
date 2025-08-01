@@ -36,6 +36,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
@@ -598,8 +599,30 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             // No connection context, typically for broker load.
         }
 
-        // For UniqueKey table, we will use multiple instance.
-        return hasLimit() && getLimit() <= adaptivePipelineTaskSerialReadOnLimit && conjuncts.isEmpty();
+        if (hasLimit() && getLimit() <= adaptivePipelineTaskSerialReadOnLimit) {
+            if (conjuncts.isEmpty()) {
+                return true;
+            } else {
+                if (this instanceof OlapScanNode) {
+                    OlapScanNode olapScanNode = (OlapScanNode) this;
+                    if (olapScanNode.getOlapTable() != null
+                            && olapScanNode.getOlapTable().getKeysType() == KeysType.UNIQUE_KEYS) {
+                        // If the table is unique keys, we can check if the conjuncts only contains
+                        // delete sign
+                        if (conjuncts.size() == 1 && conjuncts.get(0) instanceof BinaryPredicate) {
+                            BinaryPredicate binaryPredicate = (BinaryPredicate) conjuncts.get(0);
+                            if (binaryPredicate.getOp() == BinaryPredicate.Operator.EQ
+                                    && binaryPredicate.getChild(0) instanceof SlotRef
+                                    && ((SlotRef) binaryPredicate.getChild(0)).getDesc().getColumn().getName()
+                                            .equals(Column.DELETE_SIGN)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.

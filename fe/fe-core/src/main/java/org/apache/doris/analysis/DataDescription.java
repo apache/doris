@@ -1040,20 +1040,6 @@ public class DataDescription {
         }
     }
 
-    public String analyzeFullDbName(String labelDbName, Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(labelDbName)) {
-            String dbName = Strings.isNullOrEmpty(getDbName()) ? analyzer.getDefaultDb() : getDbName();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            this.dbName = dbName;
-            return this.dbName;
-        } else {
-            this.dbName = labelDbName;
-            return labelDbName;
-        }
-    }
-
     public void analyze(String fullDbName) throws AnalysisException {
         if (isAnalyzed) {
             return;
@@ -1080,7 +1066,7 @@ public class DataDescription {
         analyzeFilePaths();
 
         if (partitionNames != null) {
-            partitionNames.analyze(null);
+            partitionNames.analyze();
         }
 
         analyzeColumns();

@@ -128,6 +128,8 @@ public:
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
+    // Used to create tablet meta from memory buffer.
+    Status create_from_buffer(const uint8_t* buffer, size_t buffer_size);
     static Status load_from_file(const std::string& file_path, TabletMetaPB* tablet_meta_pb);
     Status save(const std::string& file_path);
     Status save_as_json(const std::string& file_path);

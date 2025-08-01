@@ -297,7 +297,6 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDbPriv() throws Exception {
-        AccessTestUtil.fetchAdminAnalyzer(false);
         ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
         ShowDatabasesCommand command = new ShowDatabasesCommand(null, null, null);
         command.doRun(ctx, new StmtExecutor(ctx, ""));

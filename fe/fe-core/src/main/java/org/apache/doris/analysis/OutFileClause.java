@@ -195,7 +195,7 @@ public class OutFileClause {
         return parquetSchemas;
     }
 
-    public void analyze(Analyzer analyzer, List<Expr> resultExprs, List<String> colLabels) throws UserException {
+    public void analyze(List<Expr> resultExprs, List<String> colLabels) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
             // But some of fields in this OutfileClause has been changed,

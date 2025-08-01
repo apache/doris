@@ -29,7 +29,6 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -600,34 +599,27 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         if (this.dataType.equals(targetType)) {
             return this;
         }
-        boolean strictCast = ConnectContext.get().getSessionVariable().enableStrictCast();
+        int value = (int) (year * 10000 + month * 100 + day);
         if (targetType.isIntegralType()) {
-            if (targetType.isTinyIntType() || targetType.isSmallIntType()) {
-                throw new AnalysisException("Date can't cast to TinyInt or SmallInt.");
-            }
             if (targetType.isIntegerType()) {
-                return new IntegerLiteral((int) (year * 10000 + month * 100 + day));
+                return new IntegerLiteral(value);
             } else if (targetType.isBigIntType()) {
-                return new BigIntLiteral(year * 10000 + month * 100 + day);
+                return new BigIntLiteral(value);
             } else if (targetType.isLargeIntType()) {
-                return new LargeIntLiteral(new BigInteger(String.valueOf(year * 10000 + month * 100 + day)));
+                return new LargeIntLiteral(new BigInteger(String.valueOf(value)));
             }
         } else if (targetType.isFloatType()) {
-            if (strictCast) {
-                throw new AnalysisException("DateType can't cast to FloatType in strict mode.");
-            }
-            return new FloatLiteral(year * 10000 + month * 100 + day);
+            return new FloatLiteral(value);
         } else if (targetType.isDoubleType()) {
-            if (strictCast) {
-                throw new AnalysisException("DateType can't cast to DoubleType in strict mode.");
-            }
-            return new DoubleLiteral(year * 10000 + month * 100 + day);
+            return new DoubleLiteral(value);
         } else if (targetType.isDateTimeV2Type()) {
             return new DateTimeV2Literal((DateTimeV2Type) targetType, year, month, day, 0, 0, 0, 0);
         } else if (targetType.isDateTimeType()) {
             return new DateTimeLiteral((DateTimeType) targetType, year, month, day, 0, 0, 0, 0);
         } else if (targetType.isDateV2Type()) {
             return new DateV2Literal(year, month, day);
+        } else if (targetType.isDateType()) {
+            return new DateLiteral(year, month, day);
         }
         return super.uncheckedCastTo(targetType);
     }

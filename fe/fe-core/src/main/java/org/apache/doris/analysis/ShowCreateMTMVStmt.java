@@ -57,11 +57,11 @@ public class ShowCreateMTMVStmt extends ShowStmt implements NotFallbackInParser 
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (tbl == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
-        tbl.analyze(analyzer);
+        tbl.analyze();
 
         TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tbl.getCtl())

@@ -821,8 +821,7 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
     if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
         src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
         is_finalized()) {
-        assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(*get_root())
-                .insert_from(*src_v->get_root(), n);
+        get_root()->insert_from(*src_v->get_root(), n);
         ++num_rows;
         return;
     }
@@ -1049,16 +1048,6 @@ void ColumnVariant::insert_range_from(const IColumn& src, size_t start, size_t l
 #ifndef NDEBUG
     check_consistency();
 #endif
-}
-
-ColumnPtr ColumnVariant::replicate(const Offsets& offsets) const {
-    if (num_rows == 0 || subcolumns.empty()) {
-        // Add an emtpy column with offsets.back rows
-        auto res = ColumnVariant::create(true, false);
-        res->set_num_rows(offsets.back());
-    }
-    return apply_for_subcolumns(
-            [&](const auto& subcolumn) { return subcolumn.replicate(offsets); });
 }
 
 MutableColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {

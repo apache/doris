@@ -121,11 +121,10 @@ suite("test_warm_up_cluster_batch") {
         for (; i < retryTime; i++) {
             sleep(1000)
             def statuses = getJobState(jobId[0][0])
-            logger.info(statuses)
-            if (statuses.any { it.equals("CANCELLED") }) {
+            if (statuses.any { it != null && it.equals("CANCELLED") }) {
                 assertTrue(false);
             }
-            if (statuses.any { it.equals("FINISHED") }) {
+            if (statuses.any { it != null && it.equals("FINISHED") }) {
                 break;
             }
         }

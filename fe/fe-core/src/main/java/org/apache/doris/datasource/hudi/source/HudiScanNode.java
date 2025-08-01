@@ -423,7 +423,7 @@ public class HudiScanNode extends HiveScanNode {
         }
         if (!partitionInit) {
             try {
-                prunedPartitions = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
                         -> getPrunedPartitions(hudiClient));
             } catch (Exception e) {
                 throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -432,7 +432,7 @@ public class HudiScanNode extends HiveScanNode {
         }
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
         try {
-            hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
+            hmsTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                 getPartitionsSplits(prunedPartitions, splits);
                 return null;
             });
@@ -498,7 +498,7 @@ public class HudiScanNode extends HiveScanNode {
         if (!partitionInit) {
             // Non partition table will get one dummy partition
             try {
-                prunedPartitions = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
                         -> getPrunedPartitions(hudiClient));
             } catch (Exception e) {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);

@@ -157,6 +157,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
@@ -177,6 +178,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateFunctionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
@@ -555,6 +557,10 @@ public interface CommandVisitor<R, C> {
     default R visitUnsupportedStartTransactionCommand(StartTransactionCommand unsupportedStartTransactionCommand,
                                                       C context) {
         return visitCommand(unsupportedStartTransactionCommand, context);
+    }
+
+    default R visitShowAnalyzeTaskCommand(ShowAnalyzeTaskCommand showAnalyzeTaskCommand, C context) {
+        return visitCommand(showAnalyzeTaskCommand, context);
     }
 
     default R visitUnsetVariableCommand(UnsetVariableCommand unsetVariableCommand, C context) {
@@ -946,6 +952,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCharsetCommand(ShowCharsetCommand showCharsetCommand, C context) {
         return visitCommand(showCharsetCommand, context);
+    }
+
+    default R visitShowCreateLoadCommand(ShowCreateLoadCommand showCreateLoadCommand, C context) {
+        return visitCommand(showCreateLoadCommand, context);
     }
 
     default R visitDropWorkloadPolicyCommand(DropWorkloadPolicyCommand dropWorkloadPolicyCommand, C context) {

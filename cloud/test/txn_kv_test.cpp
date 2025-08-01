@@ -33,7 +33,6 @@
 
 #include "common/config.h"
 #include "common/defer.h"
-#include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/doris_txn.h"
@@ -1394,5 +1393,84 @@ TEST(TxnKvTest, ReverseFullRangeGet2) {
         EXPECT_EQ(actual_keys, expected_keys)
                 << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
                 << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
+    }
+}
+
+TEST(TxnKvTest, BatchScan) {
+    std::vector<std::pair<std::string, std::string>> test_data = {
+            {"BatchScan_different_key", "different_value"},
+            {"BatchScan_prefix1", "value1"},
+            {"BatchScan_prefix1_sub1", "sub_value1"},
+            {"BatchScan_prefix1_sub2", "sub_value2"},
+            {"BatchScan_prefix2", "value2"},
+            {"BatchScan_prefix2_sub1", "sub_value3"},
+            {"BatchScan_prefix3", "value3"}};
+
+    std::unique_ptr<Transaction> txn;
+
+    {
+        auto ret = txn_kv->create_txn(&txn);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        for (const auto& [key, val] : test_data) {
+            txn->put(key, val);
+        }
+        ret = txn->commit();
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+    }
+
+    struct TestCase {
+        bool reverse;
+        std::vector<std::string> scan_keys;
+        std::vector<std::optional<std::string>> expected_keys;
+    };
+
+    std::vector<TestCase> test_cases = {
+            {
+                    false,
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+            },
+            {
+                    false,
+                    {"BatchScan_prefix1_", "BatchScan_prefix2_"},
+                    {"BatchScan_prefix1_sub1", "BatchScan_prefix2_sub1"},
+            },
+            {
+                    true,
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+            },
+            {
+                    true,
+                    {"BatchScan_prefix1_", "BatchScan_prefix2_"},
+                    {"BatchScan_prefix1", "BatchScan_prefix2"},
+            },
+    };
+
+    for (auto& tc : test_cases) {
+        auto ret = txn_kv->create_txn(&txn);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        std::vector<std::optional<std::pair<std::string, std::string>>> results;
+        Transaction::BatchGetOptions opts;
+        opts.reverse = tc.reverse; // Reverse order
+        opts.snapshot = false;
+
+        ret = txn->batch_scan(&results, tc.scan_keys, opts);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(results.size(), tc.scan_keys.size());
+
+        for (size_t i = 0; i < results.size(); ++i) {
+            if (tc.expected_keys[i].has_value()) {
+                ASSERT_TRUE(results[i].has_value());
+                std::string& key = results[i].value().first;
+                ASSERT_EQ(key, tc.expected_keys[i]);
+            } else {
+                ASSERT_FALSE(results[i].has_value());
+            }
+        }
     }
 }

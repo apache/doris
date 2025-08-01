@@ -147,15 +147,8 @@ public class CancelLoadStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                throw new AnalysisException("No database selected");
-            }
-        }
-
+    public void analyze() throws AnalysisException, UserException {
+        super.analyze();
         // check auth after we get real load job
         // analyze expr
         likeCheck(whereClause);

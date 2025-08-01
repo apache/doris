@@ -94,7 +94,7 @@ TEST_F(PartitionSorterTest, test_partition_sorter_read_row_num) {
     }
 
     {
-        auto st = sorter->prepare_for_read();
+        auto st = sorter->prepare_for_read(false);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
     {
@@ -140,7 +140,7 @@ TEST_F(PartitionSorterTest, test_partition_sorter_DENSE_RANK) {
     }
 
     {
-        auto st = sorter->prepare_for_read();
+        auto st = sorter->prepare_for_read(false);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
     {
@@ -179,7 +179,7 @@ TEST_F(PartitionSorterTest, test_partition_sorter_RANK) {
     }
 
     {
-        auto st = sorter->prepare_for_read();
+        auto st = sorter->prepare_for_read(false);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
     {

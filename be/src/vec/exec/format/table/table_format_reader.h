@@ -103,6 +103,8 @@ public:
 
     virtual Status init_row_filters() = 0;
 
+    bool count_read_rows() override { return _file_format_reader->count_read_rows(); }
+
 protected:
     std::string _table_format;                          // hudi, iceberg, paimon
     std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc

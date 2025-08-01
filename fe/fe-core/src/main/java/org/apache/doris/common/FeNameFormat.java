@@ -20,6 +20,7 @@ package org.apache.doris.common;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.RoleManager;
@@ -94,6 +95,12 @@ public class FeNameFormat {
     }
 
     public static void checkColumnName(String columnName) throws AnalysisException {
+        // if need check another column name prefix, add in `checkColumnNameBypassHiddenColumn`
+        checkColumnNameBypassHiddenColumn(columnName);
+        checkColumnNamePrefix(columnName, Column.HIDDEN_COLUMN_PREFIX);
+    }
+
+    public static void checkColumnNameBypassHiddenColumn(String columnName) throws AnalysisException {
         if (Strings.isNullOrEmpty(columnName) || !columnName.matches(getColumnNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, getColumnNameRegex());

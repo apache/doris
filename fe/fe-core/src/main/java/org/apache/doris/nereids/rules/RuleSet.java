@@ -46,8 +46,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilt
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
-import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
-import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
@@ -170,11 +169,7 @@ public class RuleSet {
             new PushDownAliasThroughJoin(),
             new PushDownFilterThroughWindow(),
             new PushDownFilterThroughPartitionTopN(),
-            new ExpressionOptimization(),
-            // some useless predicates(e.g. 1=1) can be inferred by InferPredicates,
-            // the FoldConstantRule in ExpressionNormalization can fold 1=1 to true
-            // and EliminateFilter can eliminate the useless filter
-            new ExpressionNormalization(),
+            ExpressionNormalizationAndOptimization.NO_MIN_MAX_RANGE_INSTANCE,
             new EliminateFilter()
     );
 

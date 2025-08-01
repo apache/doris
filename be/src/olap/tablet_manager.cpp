@@ -61,7 +61,6 @@
 #include "util/histogram.h"
 #include "util/metrics.h"
 #include "util/path_util.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
@@ -742,6 +741,8 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
     uint32_t single_compact_highest_score = 0;
     TabletSharedPtr best_tablet;
     TabletSharedPtr best_single_compact_tablet;
+    int64_t compaction_num_per_round =
+            ExecEnv::GetInstance()->storage_engine().to_local().get_compaction_num_per_round();
     auto cmp = [](TabletScore left, TabletScore right) { return left.score > right.score; };
     std::priority_queue<TabletScore, std::vector<TabletScore>, decltype(cmp)> top_tablets(cmp);
 
@@ -811,23 +812,21 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
             }
         }
 
-        if (config::compaction_num_per_round > 1 && !tablet_ptr->should_fetch_from_peer()) {
+        if (compaction_num_per_round > 1 && !tablet_ptr->should_fetch_from_peer()) {
             TabletScore ts;
             ts.score = current_compaction_score;
             ts.tablet_ptr = tablet_ptr;
-            if ((top_tablets.size() >= config::compaction_num_per_round &&
+            if ((top_tablets.size() >= compaction_num_per_round &&
                  current_compaction_score > top_tablets.top().score) ||
-                top_tablets.size() < config::compaction_num_per_round) {
+                top_tablets.size() < compaction_num_per_round) {
                 bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
                                                                cumulative_compaction_policy);
                 if (ret) {
                     top_tablets.push(ts);
-                    if (top_tablets.size() > config::compaction_num_per_round) {
+                    if (top_tablets.size() > compaction_num_per_round) {
                         top_tablets.pop();
                     }
-                    if (current_compaction_score > highest_score) {
-                        highest_score = current_compaction_score;
-                    }
+                    highest_score = std::max(current_compaction_score, highest_score);
                 }
             }
         } else {

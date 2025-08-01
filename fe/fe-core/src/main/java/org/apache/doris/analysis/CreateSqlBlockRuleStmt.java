@@ -108,7 +108,7 @@ public class CreateSqlBlockRuleStmt extends DdlStmt implements NotFallbackInPars
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         // check name
         FeNameFormat.checkCommonName(NAME_TYPE, ruleName);
         // check auth

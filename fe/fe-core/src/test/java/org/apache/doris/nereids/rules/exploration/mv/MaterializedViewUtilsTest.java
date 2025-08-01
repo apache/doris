@@ -248,7 +248,13 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                 + ");\n");
         // Should not make scan to empty relation when the table used by materialized view has no data
-        connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION,ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,ELIMINATE_CONST_JOIN_CONDITION");
+        connectContext.getSessionVariable().setDisableNereidsRules(
+                "OLAP_SCAN_PARTITION_PRUNE"
+                + ",PRUNE_EMPTY_PARTITION"
+                + ",ELIMINATE_GROUP_BY_KEY_BY_UNIFORM"
+                + ",ELIMINATE_CONST_JOIN_CONDITION"
+                + ",CONSTANT_PROPAGATION"
+        );
     }
 
     // Test when join both side are all partition table and partition column name is same

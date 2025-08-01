@@ -229,6 +229,9 @@ public abstract class ConnectProcessor {
 
     // only throw an exception when there is a problem interacting with the requesting client
     protected void handleQuery(String originStmt) throws ConnectionException {
+        // Before executing the query, the queryId should be set to empty.
+        // Otherwise, if SQL parsing fails, the audit log will record the queryId from the previous query.
+        ctx.resetQueryId();
         if (Config.isCloudMode()) {
             if (!ctx.getCurrentUserIdentity().isRootUser()
                     && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()

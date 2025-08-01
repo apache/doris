@@ -89,6 +89,7 @@ namespace vectorized {
 class IColumn;
 class Arena;
 class IDataType;
+struct CastParameters;
 
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
@@ -346,6 +347,14 @@ public:
     virtual Status serialize_column_to_jsonb_vector(const IColumn& from_column,
                                                     ColumnString& to_column) const;
 
+    virtual Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
+                                                 CastParameters& castParms) const {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb_vector",
+                                    get_name());
+    }
+
+    Status parse_column_from_jsonb_string(IColumn& column, const JsonbValue* jsonb_value,
+                                          CastParameters& castParms) const;
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                                       int64_t end) const = 0;
@@ -383,7 +392,7 @@ public:
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                        const NullMap* null_map,
                                        orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                       int64_t end, std::vector<StringRef>& buffer_list) const = 0;
+                                       int64_t end, vectorized::Arena& arena) const = 0;
     // ORC deserializer
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }

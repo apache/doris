@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
@@ -170,7 +169,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
 
     public void setSchema(List<Column> newSchema) throws IOException {
         this.schema = newSchema;
-        parseStmt(null);
+        parseStmt();
         initColumnNameMap();
     }
 
@@ -326,7 +325,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         initColumnNameMap();
     }
 
-    public void parseStmt(Analyzer analyzer) throws IOException {
+    public void parseStmt() throws IOException {
         // analyze define stmt
         if (defineStmt == null) {
             return;

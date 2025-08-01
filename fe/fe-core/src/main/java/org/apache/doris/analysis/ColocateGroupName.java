@@ -17,10 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 
 import com.google.common.base.Strings;
 
@@ -41,20 +38,8 @@ public class ColocateGroupName {
         return group;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (GroupId.isGlobalGroupName(group)) {
-            if (!Strings.isNullOrEmpty(db)) {
-                throw new AnalysisException("group that name starts with `" + GroupId.GLOBAL_COLOCATE_PREFIX + "`"
-                        + " is a global group, it doesn't belong to any specific database");
-            }
-        } else {
-            if (Strings.isNullOrEmpty(db)) {
-                if (Strings.isNullOrEmpty(analyzer.getDefaultDb())) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-                }
-                db = analyzer.getDefaultDb();
-            }
-        }
+    public void analyze() throws AnalysisException {
+
     }
 
     public String toSql() {

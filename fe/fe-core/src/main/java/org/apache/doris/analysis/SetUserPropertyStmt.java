@@ -51,8 +51,8 @@ public class SetUserPropertyStmt extends DdlStmt implements NotFallbackInParser 
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
+    public void analyze() throws AnalysisException, UserException {
+        super.analyze();
         if (Strings.isNullOrEmpty(user)) {
             // If param 'user' is not set, use the login user name.
             // The login user name is full-qualified with cluster name.
@@ -65,7 +65,7 @@ public class SetUserPropertyStmt extends DdlStmt implements NotFallbackInParser 
 
         boolean isSelf = user.equals(ConnectContext.get().getQualifiedUser());
         for (SetVar var : propertyList) {
-            ((SetUserPropertyVar) var).analyze(analyzer, isSelf);
+            ((SetUserPropertyVar) var).analyze(isSelf);
         }
     }
 

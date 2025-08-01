@@ -95,7 +95,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             if (table instanceof ExternalTable) {
                 try {
                     ExternalTable externalTable = (ExternalTable) table;
-                    externalTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
+                    externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                         try {
                             transactionManager.commit(txnId);
                         } catch (UserException e) {
@@ -145,7 +145,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         if (table instanceof ExternalTable) {
             try {
                 ExternalTable externalTable = (ExternalTable) table;
-                externalTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
+                externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                     transactionManager.rollback(txnId);
                 });
             } catch (Exception e) {

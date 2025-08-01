@@ -703,6 +703,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
+    // disable variant flatten nested as session variable, default is true,
+    // which means disable variant flatten nested when create table
+    public static final String DISABLE_VARIANT_FLATTEN_NESTED = "disable_variant_flatten_nested";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -780,6 +784,8 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
+
+    public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1319,10 +1325,6 @@ public class SessionVariable implements Serializable, Writable {
             "Ignore the rf when it encounters an error" })
     public boolean ignoreRuntimeFilterError = false;
 
-    @VariableMgr.VarAttr(name = "enable_fixed_len_to_uint32_v2", needForward = true, description = {
-            "使用新版本fixed_len_to_uint32_v2,对datetimev2类型bloom filter做了优化",
-            "Using the new version fixed_len_to_uint32_v2, the datetimev2 type bloom filter has been optimized" })
-    public boolean enableFixedLenToUint32V2 = true;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
@@ -1384,6 +1386,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
+
+    @VariableMgr.VarAttr(name = DISABLE_VARIANT_FLATTEN_NESTED, needForward = true)
+    private boolean disableVariantFlattenNested = true;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -2747,6 +2752,14 @@ public class SessionVariable implements Serializable, Writable {
                     + "1-65535=manual expansion multiplier)"
     }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
     public int skewRewriteJoinSaltExplodeFactor = 0;
+
+    @VariableMgr.VarAttr(name = DEFAULT_LLM_RESOURCE, needForward = true,
+            description = {
+                    "当函数参数未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
+                    "Defines the default LLM resource to be used when no specific LLM resource is specified "
+                            + "in the function arguments."
+            })
+    public String defaultLLMResource = "";
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -4384,7 +4397,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
-        tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
         tResult.setProfileLevel(getProfileLevel());
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 
@@ -5022,6 +5034,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getDisableInvertedIndexV1ForVaraint() {
         return disableInvertedIndexV1ForVaraint;
+    }
+
+    public void setDisableVariantFlattenNested(boolean disableVariantFlattenNested) {
+        this.disableVariantFlattenNested = disableVariantFlattenNested;
+    }
+
+    public boolean getDisableVariantFlattenNested() {
+        return disableVariantFlattenNested;
     }
 
     public void setProfileLevel(String profileLevel) {

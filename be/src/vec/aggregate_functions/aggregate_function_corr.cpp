@@ -36,7 +36,7 @@ AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,
 
     DCHECK(argument_types[0]->get_primitive_type() == argument_types[1]->get_primitive_type());
     return creator_with_numeric_type::create<AggregateFunctionBinary, CorrMomentStat>(
-            argument_types, result_is_nullable);
+            argument_types, result_is_nullable, attr);
 }
 
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory) {
@@ -56,8 +56,8 @@ AggregateFunctionPtr create_aggregate_corr_welford_function(const std::string& n
     }
 
     return creator_without_type::create<
-            AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, CorrMomentWelford>>>(argument_types,
-                                                                               result_is_nullable);
+            AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, CorrMomentWelford>>>(
+            argument_types, result_is_nullable, attr);
 }
 
 void register_aggregate_functions_corr_welford(AggregateFunctionSimpleFactory& factory) {

@@ -57,6 +57,18 @@ suite("struct-md", "p0") {
         SELECT * FROM ${tableName};
     """
 
+    qt_sql """ select struct_basic, count(*) from ${tableName} group by struct_basic order by struct_basic """
+    qt_sql """ select struct_string_boolean, count(*) from ${tableName} group by struct_string_boolean order by struct_string_boolean """
+    qt_sql """ select struct_multi_types, count(*) from ${tableName} group by struct_multi_types order by struct_multi_types """
+    qt_sql """ select struct_float_double, count(*) from ${tableName} group by struct_float_double order by struct_float_double """
+    qt_sql """ select struct_decimals, count(*) from ${tableName} group by struct_decimals order by struct_decimals """
+    qt_sql """ select struct_datetime, count(*) from ${tableName} group by struct_datetime order by struct_datetime """
+    qt_sql """ select struct_network, count(*) from ${tableName} group by struct_network order by struct_network """
+    qt_sql """ select struct_array, count(*) from ${tableName} group by struct_array order by struct_array """
+    qt_sql """ select struct_map, count(*) from ${tableName} group by struct_map order by struct_map """
+    qt_sql """ select struct_nested, count(*) from ${tableName} group by struct_nested order by struct_nested """
+    qt_sql """ select struct_char_varchar, count(*) from ${tableName} group by struct_char_varchar order by struct_char_varchar """
+
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -284,11 +296,6 @@ suite("struct-md", "p0") {
         );
     """
     sql """ INSERT INTO ${tableName} (id, struct_basic) VALUES (1, STRUCT(1, 'John')), (2, STRUCT(2, 'Jane')) """
-
-    test {
-        sql """ select struct_basic, count(*) from ${tableName} group by struct_basic order by struct_basic """
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array' or 'help map' or 'help struct' or 'help jsonb' or 'help variant' in your mysql client"
-    }
 
     sql """ DROP TABLE IF EXISTS struct_table_1; """
     sql """

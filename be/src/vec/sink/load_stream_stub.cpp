@@ -229,7 +229,6 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
     header.set_offset(offset);
     header.set_opcode(doris::PStreamHeader::APPEND_DATA);
     header.set_file_type(file_type);
-    add_write_tablets(tablet_id);
     return _encode_and_send(header, data);
 }
 
@@ -254,7 +253,6 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
     if (flush_schema != nullptr) {
         flush_schema->to_schema_pb(header.mutable_flush_schema());
     }
-    add_write_tablets(tablet_id);
     return _encode_and_send(header);
 }
 

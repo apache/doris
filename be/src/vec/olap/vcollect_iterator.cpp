@@ -27,6 +27,7 @@
 #include <set>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "io/io_common.h"
@@ -51,6 +52,7 @@ namespace doris {
 using namespace ErrorCode;
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 #define RETURN_IF_NOT_EOF_AND_OK(stmt)                                 \
     do {                                                               \
@@ -143,7 +145,7 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
             // find 'base rowset', 'base rowset' is the rowset which contains the max row number
             int64_t max_row_num = 0;
             int base_reader_idx = 0;
-            for (size_t i = 0; i < rs_readers.size(); ++i) {
+            for (int i = 0; i < rs_readers.size(); ++i) {
                 int64_t cur_row_num = rs_readers[i]->rowset()->rowset_meta()->num_rows();
                 if (cur_row_num > max_row_num) {
                     max_row_num = cur_row_num;
@@ -324,7 +326,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                 size_t last_row_pos = *sorted_row_pos.rbegin();
 
                 // find the how many rows which is less than the last row in mutable_block
-                for (size_t i = 0; i < block->rows(); i++) {
+                for (size_t j = 0; j < block->rows(); j++) {
                     // if there is not enough rows in sorted_row_pos, just copy new rows
                     if (sorted_row_pos.size() + rows_to_copy < _topn_limit) {
                         rows_to_copy++;
@@ -335,11 +337,11 @@ Status VCollectIterator::_topn_next(Block* block) {
                     DCHECK_GE(mutable_block.columns(), sort_columns->size());
 
                     int res = 0;
-                    for (auto j : *sort_columns) {
-                        DCHECK(block->get_by_position(j).type->equals(
-                                *mutable_block.get_datatype_by_position(j)));
-                        res = block->get_by_position(j).column->compare_at(
-                                i, last_row_pos, *(mutable_block.get_column_by_position(j)), -1);
+                    for (auto k : *sort_columns) {
+                        DCHECK(block->get_by_position(k).type->equals(
+                                *mutable_block.get_datatype_by_position(k)));
+                        res = block->get_by_position(k).column->compare_at(
+                                k, last_row_pos, *(mutable_block.get_column_by_position(k)), -1);
                         if (res) {
                             break;
                         }
@@ -358,8 +360,8 @@ Status VCollectIterator::_topn_next(Block* block) {
 
             if (rows_to_copy > 0) {
                 // create column that is not in mutable_block but in block
-                for (size_t i = mutable_block.columns(); i < block->columns(); ++i) {
-                    auto col = block->get_by_position(i).clone_empty();
+                for (size_t j = mutable_block.columns(); j < block->columns(); ++j) {
+                    auto col = block->get_by_position(j).clone_empty();
                     mutable_block.mutable_columns().push_back(col.column->assume_mutable());
                     mutable_block.data_types().push_back(std::move(col.type));
                     mutable_block.get_names().push_back(std::move(col.name));
@@ -369,8 +371,8 @@ Status VCollectIterator::_topn_next(Block* block) {
                 // append block to mutable_block
                 RETURN_IF_ERROR(mutable_block.add_rows(block, 0, rows_to_copy));
                 // insert appended rows pos in mutable_block to sorted_row_pos and sort it
-                for (size_t i = 0; i < rows_to_copy; i++) {
-                    sorted_row_pos.insert(base + i);
+                for (size_t j = 0; j < rows_to_copy; j++) {
+                    sorted_row_pos.insert(base + j);
                     changed = true;
                 }
             }
@@ -378,7 +380,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             // delete to keep _topn_limit row pos
             if (sorted_row_pos.size() > _topn_limit) {
                 auto first = sorted_row_pos.begin();
-                for (size_t i = 0; i < _topn_limit; i++) {
+                for (size_t j = 0; j < _topn_limit; j++) {
                     first++;
                 }
                 sorted_row_pos.erase(first, sorted_row_pos.end());
@@ -391,12 +393,12 @@ Status VCollectIterator::_topn_next(Block* block) {
                     clone_block = tmp_block.clone_empty();
                     mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
                     for (auto it = sorted_row_pos.begin(); it != sorted_row_pos.end(); it++) {
-                        mutable_block.add_row(&tmp_block, *it);
+                        mutable_block.add_row(&tmp_block, cast_set<int>(*it));
                     }
 
                     sorted_row_pos.clear();
-                    for (size_t i = 0; i < _topn_limit; i++) {
-                        sorted_row_pos.insert(i);
+                    for (size_t j = 0; j < _topn_limit; j++) {
+                        sorted_row_pos.insert(j);
                     }
                     VLOG_DEBUG << "topn debug finish shrink mutable_block to "
                                << mutable_block.rows() << " rows";
@@ -897,5 +899,6 @@ Status VCollectIterator::Level1Iterator::current_block_row_locations(
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

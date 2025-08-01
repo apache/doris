@@ -25,36 +25,31 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <CastModeType AllMode>
-class CastToImpl<AllMode, DataTypeString, DataTypeIPv4> : public CastToBase {
-public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
-                block.get_by_position(arguments[0]).column.get());
-
-        const auto size = col_from->size();
-
-        auto column_to = DataTypeIPv4::ColumnType::create(size);
-        auto column_null_map = ColumnUInt8::create(size, 0);
-
-        auto& to_data = column_to->get_data();
-        auto& null_map_data = column_null_map->get_data();
-
-        for (size_t i = 0; i < size; ++i) {
-            auto str = col_from->get_data_at(i);
-            null_map_data[i] = !IPv4Value::from_string(to_data[i], str.data, str.size);
-        }
-
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(column_to), std::move(column_null_map));
-        return Status::OK();
-    }
+struct CastToIPv4 {
+    static bool from_string(const StringRef& from, IPv4& to, CastParameters&);
 };
 
-template <CastModeType AllMode>
-class CastToImpl<AllMode, DataTypeString, DataTypeIPv6> : public CastToBase {
+inline bool CastToIPv4::from_string(const StringRef& from, IPv4& to, CastParameters&) {
+    return IPv4Value::from_string(to, from.data, from.size);
+}
+
+struct CastToIPv6 {
+    static bool from_string(const StringRef& from, IPv6& to, CastParameters&);
+    static bool from_ipv4(const IPv4& from, IPv6& to, CastParameters&);
+};
+
+inline bool CastToIPv6::from_string(const StringRef& from, IPv6& to, CastParameters&) {
+    return IPv6Value::from_string(to, from.data, from.size);
+}
+
+inline bool CastToIPv6::from_ipv4(const IPv4& from, IPv6& to, CastParameters&) {
+    map_ipv4_to_ipv6(from, reinterpret_cast<UInt8*>(&to));
+    return true;
+}
+
+template <CastModeType Mode, typename IpDataType>
+    requires(IsIPType<IpDataType>)
+class CastToImpl<Mode, DataTypeString, IpDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
@@ -62,21 +57,29 @@ public:
         const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
 
-        const auto size = col_from->size();
+        auto to_type = block.get_by_position(result).type;
+        auto serde = remove_nullable(to_type)->get_serde();
+        MutableColumnPtr column_to;
 
-        auto column_to = DataTypeIPv6::ColumnType::create(size);
-        auto column_null_map = ColumnUInt8::create(size, 0);
-
-        auto& to_data = column_to->get_data();
-        auto& null_map_data = column_null_map->get_data();
-
-        for (size_t i = 0; i < size; ++i) {
-            auto str = col_from->get_data_at(i);
-            null_map_data[i] = !IPv6Value::from_string(to_data[i], str.data, str.size);
+        if constexpr (Mode == CastModeType::NonStrictMode) {
+            auto to_nullable_type = make_nullable(to_type);
+            column_to = to_nullable_type->create_column();
+            auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, {}));
+        } else if constexpr (Mode == CastModeType::StrictMode) {
+            if (to_type->is_nullable()) {
+                return Status::InternalError(
+                        "result type should be not nullable when casting string to ip in "
+                        "strict cast mode");
+            }
+            column_to = to_type->create_column();
+            RETURN_IF_ERROR(
+                    serde->from_string_strict_mode_batch(*col_from, *column_to, {}, null_map));
+        } else {
+            return Status::InternalError("Unsupported cast mode");
         }
 
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(column_to), std::move(column_null_map));
+        block.get_by_position(result).column = std::move(column_to);
         return Status::OK();
     }
 };
@@ -93,53 +96,13 @@ public:
         auto col_to = DataTypeIPv6::ColumnType::create(size);
         auto& to_data = col_to->get_data();
         const auto& from_data = col_from->get_data();
+        CastParameters params;
+        params.is_strict = (AllMode == CastModeType::StrictMode);
 
         for (size_t i = 0; i < size; ++i) {
-            map_ipv4_to_ipv6(from_data[i], reinterpret_cast<UInt8*>(&to_data[i]));
+            CastToIPv6::from_ipv4(from_data[i], to_data[i], params);
         }
 
-        block.get_by_position(result).column = std::move(col_to);
-        return Status::OK();
-    }
-};
-
-template <CastModeType AllMode, typename OtherType>
-class CastToImpl<AllMode, OtherType, DataTypeIPv4> : public CastToBase {
-public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename OtherType::ColumnType>(
-                block.get_by_position(arguments[0]).column.get());
-        const auto size = col_from->size();
-        auto col_to = DataTypeIPv4::ColumnType::create(size);
-        auto& to_data = col_to->get_data();
-        const auto& from_data = col_from->get_data();
-
-        for (size_t i = 0; i < size; ++i) {
-            to_data[i] = static_cast<IPv4>(from_data[i]);
-        }
-
-        block.get_by_position(result).column = std::move(col_to);
-        return Status::OK();
-    }
-};
-
-template <CastModeType AllMode, typename OtherType>
-class CastToImpl<AllMode, OtherType, DataTypeIPv6> : public CastToBase {
-public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename OtherType::ColumnType>(
-                block.get_by_position(arguments[0]).column.get());
-        const auto size = col_from->size();
-        auto col_to = DataTypeIPv6::ColumnType::create(size);
-        auto& to_data = col_to->get_data();
-        const auto& from_data = col_from->get_data();
-        for (size_t i = 0; i < size; ++i) {
-            to_data[i] = static_cast<IPv6>(from_data[i]);
-        }
         block.get_by_position(result).column = std::move(col_to);
         return Status::OK();
     }
@@ -172,7 +135,7 @@ WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_
 
     if (!call_on_index_and_data_type<void>(from_type->get_primitive_type(), make_ip_wrapper)) {
         return create_unsupport_wrapper(
-                fmt::format("CAST AS bool not supported {}", from_type->get_name()));
+                fmt::format("CAST AS ip not supported {}", from_type->get_name()));
     }
 
     return [cast_to_ip](FunctionContext* context, Block& block, const ColumnNumbers& arguments,

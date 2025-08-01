@@ -468,4 +468,12 @@ TEST_F(DataTypeNumberTest, simple_func_test) {
     test_func(dt_int128);
     test_func(dt_uint8);
 }
+
+TEST_F(DataTypeNumberTest, GetFieldWithDataTypeTest) {
+    auto column_int8 = dt_int8.create_column();
+    column_int8->insert(Field::create_field<TYPE_TINYINT>(1));
+    EXPECT_EQ(dt_int8.get_field_with_data_type(*column_int8, 0).field,
+              Field::create_field<TYPE_TINYINT>(1));
+}
+
 } // namespace doris::vectorized

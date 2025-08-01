@@ -28,10 +28,6 @@
 
 namespace doris {
 
-// cgroup cpu.cfs_quota_us default value, it means disable cpu hard limit
-const static int CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
-const static std::string CGROUP_V2_CPU_HARD_LIMIT_DEFAULT_VALUE = "max 100000";
-
 class CgroupCpuCtl {
 public:
     virtual ~CgroupCpuCtl() = default;

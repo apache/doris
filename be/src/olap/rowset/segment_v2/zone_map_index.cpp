@@ -37,6 +37,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct uint24_t;
 
 namespace segment_v2 {
@@ -172,7 +173,7 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
         DCHECK(num_to_read == num_read);
 
         if (!_page_zone_maps[i].ParseFromArray(column->get_data_at(0).data,
-                                               column->get_data_at(0).size)) {
+                                               cast_set<int>(column->get_data_at(0).size))) {
             return Status::Corruption("Failed to parse zone map");
         }
         _pb_meta_size += _page_zone_maps[i].ByteSizeLong();
@@ -231,4 +232,5 @@ Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWrit
     }
 }
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

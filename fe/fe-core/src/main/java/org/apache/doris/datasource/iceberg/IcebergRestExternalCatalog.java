@@ -18,11 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
-
-import com.google.common.collect.Maps;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.CatalogUtil;
 
 import java.util.Map;
 
@@ -34,22 +29,4 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
         catalogProperty = new CatalogProperty(resource, props);
     }
 
-    @Override
-    protected void initCatalog() {
-        icebergCatalogType = ICEBERG_REST;
-        // 1. Get properties for REST catalog service.
-        IcebergRestProperties icebergRestProperties = (IcebergRestProperties) catalogProperty.getMetastoreProperties();
-
-        // 2. Get FileIO properties for REST catalog service.
-        Map<String, String> fileIOProperties = Maps.newHashMap();
-        Configuration conf = new Configuration();
-        icebergRestProperties.toFileIOProperties(catalogProperty.getStoragePropertiesMap(), fileIOProperties, conf);
-
-        // 3. Merge properties for REST catalog service.
-        Map<String, String> options = Maps.newHashMap(icebergRestProperties.getIcebergRestCatalogProperties());
-        options.putAll(fileIOProperties);
-
-        // 4. Build iceberg catalog
-        catalog = CatalogUtil.buildIcebergCatalog(getName(), options, conf);
-    }
 }

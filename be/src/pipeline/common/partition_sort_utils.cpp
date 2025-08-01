@@ -75,7 +75,7 @@ Status PartitionBlocks::do_partition_topn_sort() {
         RETURN_IF_ERROR(_partition_topn_sorter->append_block(block.get()));
     }
     _blocks.clear();
-    RETURN_IF_ERROR(_partition_topn_sorter->prepare_for_read());
+    RETURN_IF_ERROR(_partition_topn_sorter->prepare_for_read(false));
     bool current_eos = false;
     while (!current_eos) {
         // output_block maybe need better way

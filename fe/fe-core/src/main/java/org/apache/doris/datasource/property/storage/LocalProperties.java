@@ -21,6 +21,7 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.collections.MapUtils;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 
@@ -71,5 +72,12 @@ public class LocalProperties extends StorageProperties {
     @Override
     public String getStorageName() {
         return "local";
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig.set("fs.local.impl", "org.apache.hadoop.fs.LocalFileSystem");
+        hadoopStorageConfig.set("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
     }
 }

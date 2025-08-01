@@ -21,7 +21,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <memory>
 #include <type_traits>
 #include <utility>
 
@@ -194,8 +193,10 @@ struct AggregateFunction {
     template <PrimitiveType T>
     using Function = typename Derived::template TypeTraits<T>::Function;
 
-    static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        return creator_with_type::create<Function>(DataTypes {make_nullable(data_type_ptr)}, true);
+    static auto create(const DataTypePtr& data_type_ptr, const AggregateFunctionAttr& attr)
+            -> AggregateFunctionPtr {
+        return creator_with_type::create<Function>(DataTypes {make_nullable(data_type_ptr)}, true,
+                                                   attr);
     }
 };
 
@@ -212,7 +213,10 @@ struct ArrayAggregateImpl {
         using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
         const DataTypeArray* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
-        auto function = Function::create(data_type_array->get_nested_type());
+        auto function = Function::create(data_type_array->get_nested_type(),
+                                         {.enable_decimal256 = enable_decimal256,
+                                          .is_window_function = false,
+                                          .column_names = {}});
         if (function) {
             return function->get_return_type();
         } else {
@@ -273,7 +277,9 @@ struct ArrayAggregateImpl {
         res_column = make_nullable(res_column);
         static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
-        auto function = Function::create(type);
+        auto function = Function::create(type, {.enable_decimal256 = enable_decimal256,
+                                                .is_window_function = false,
+                                                .column_names = {}});
         auto guard = AggregateFunctionGuard(function.get());
         Arena arena;
         auto nullable_column = make_nullable(data->get_ptr());
@@ -336,9 +342,10 @@ struct NameArrayMin {
 
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
-    static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
+    static auto create(const DataTypePtr& data_type_ptr, const AggregateFunctionAttr& attr)
+            -> AggregateFunctionPtr {
         return create_aggregate_function_single_value<AggregateFunctionMinData>(
-                NameArrayMin::name, {make_nullable(data_type_ptr)}, true);
+                NameArrayMin::name, {make_nullable(data_type_ptr)}, true, attr);
     }
 };
 
@@ -348,9 +355,10 @@ struct NameArrayMax {
 
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
-    static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
+    static auto create(const DataTypePtr& data_type_ptr, const AggregateFunctionAttr& attr)
+            -> AggregateFunctionPtr {
         return create_aggregate_function_single_value<AggregateFunctionMaxData>(
-                NameArrayMax::name, {make_nullable(data_type_ptr)}, true);
+                NameArrayMax::name, {make_nullable(data_type_ptr)}, true, attr);
     }
 };
 

@@ -107,9 +107,9 @@ log() {
     cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
     if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
         echo "StdoutLogger ${cur_date} $1"
-    else
-        echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
     fi
+    # always output start time info into be.out file
+    echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
 }
 
 jdk_version() {
@@ -459,8 +459,10 @@ elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
         nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
     fi
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+    # stdout outputs console
+    # stderr outputs be.out
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>>"${LOG_DIR}/be.out" </dev/null
 else
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null
 fi
