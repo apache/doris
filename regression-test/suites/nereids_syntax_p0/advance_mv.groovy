@@ -93,7 +93,7 @@ suite("advance_mv") {
     sql "analyze table ${tbName3} with sync;"
     sql """set enable_stats=false;"""
 
-    createMV("CREATE materialized VIEW mv1 AS SELECT k1, sum(v2) FROM ${tbName1} GROUP BY k1;")
+    createMV("CREATE materialized VIEW mv1 AS SELECT k1 as a1, sum(v2) as a2 FROM ${tbName1} GROUP BY k1;")
 
     explain {
         sql("select k1, sum(v2) from ${tbName1} group by k1 order by k1;")
@@ -107,7 +107,7 @@ suite("advance_mv") {
     }
     order_qt_select_star "select k1 from ${tbName1} order by k1;"
 
-    createMV("CREATE materialized VIEW mv2 AS SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")
+    createMV("CREATE materialized VIEW mv2 AS SELECT abs(k1)+k2+1 as a4, sum(abs(k2+2)+k3+3) as a3 FROM ${tbName2} GROUP BY tmp;")
 
     explain {
         sql("SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")
@@ -120,7 +120,7 @@ suite("advance_mv") {
     }
     order_qt_select_star "SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;"
 
-    sql "CREATE materialized VIEW mv3 AS SELECT abs(k1)+k2+1 tmp, abs(k2+2)+k3+3 FROM ${tbName2};"
+    sql "CREATE materialized VIEW mv3 AS SELECT abs(k1)+k2+1 as a5, abs(k2+2)+k3+3 as a6 FROM ${tbName2};"
     int max_try_secs2 = 60
     while (max_try_secs2--) {
         String res = getJobState(tbName2)
@@ -149,7 +149,7 @@ suite("advance_mv") {
     }
 
 
-    sql "create materialized view mv4 as select date, user_id, city, sum(age) from ${tbName3} group by date, user_id, city;"
+    sql "create materialized view mv4 as select date as b1, user_id as b2, city as b3, sum(age) from ${tbName3} group by date, user_id, city;"
     int max_try_secs3 = 60
     while (max_try_secs3--) {
         String res = getJobState(tbName3)

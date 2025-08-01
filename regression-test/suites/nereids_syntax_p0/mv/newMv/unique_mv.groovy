@@ -38,7 +38,7 @@ suite ("unique_mv") {
             );
         """
 
-    createMV("""create materialized view mv_1 as select call_uuid,org_id,call_time,id,campaign_id,aa from c5816_t""")
+    createMV("""create materialized view mv_1 as select call_uuid as a1,org_id as a2,call_time as a3,id as a4,campaign_id as a5,aa as a6 from c5816_t""")
     sql """insert into c5816_t values (1,2,"2023-11-20 00:00:00",4,"adc",12);"""
 
     sql "analyze table c5816_t with sync;"

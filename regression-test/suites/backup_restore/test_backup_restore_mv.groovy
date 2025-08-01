@@ -50,11 +50,11 @@ suite("test_backup_restore_mv", "backup_restore") {
     assertEquals(result.size(), values.size());
 
     sql """DROP MATERIALIZED VIEW IF EXISTS ${dbName}.${mvName};"""
-    sql """
+    createMV( """
         CREATE MATERIALIZED VIEW ${mvName}
         AS
-        SELECT id, sum(item_id) FROM ${dbName}.${tableName} GROUP BY id;
-    """
+        SELECT id as a1, sum(item_id) FROM ${dbName}.${tableName} GROUP BY id;
+    """)
 
     def alter_finished = false
     for (int i = 0; i < 60 && !alter_finished; i++) {

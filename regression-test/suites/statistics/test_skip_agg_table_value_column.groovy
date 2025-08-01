@@ -69,9 +69,9 @@ suite("test_skip_agg_table_value_column") {
             "replication_num" = "1"
         )
     """
-    createMV("create materialized view mv1 as select key1 from dup;")
-    createMV("create materialized view mv2 as select key2 from dup;")
-    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from dup group by key1, key2;")
+    createMV("create materialized view mv1 as select key1 as a1 from dup;")
+    createMV("create materialized view mv2 as select key2 as a2 from dup;")
+    createMV("create materialized view mv3 as select key1 as a3, key2 as a4, sum(value1) as a5, max(value2) as a6, min(value3) as a7 from dup group by key1, key2;")
     sql """insert into dup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     // Test aggregate table.
@@ -89,9 +89,9 @@ suite("test_skip_agg_table_value_column") {
             "replication_num" = "1"
         );
     """
-    createMV("create materialized view mv1 as select key2 from agg group by key2;")
-    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from agg group by key1, key2;")
-    createMV("create materialized view mv6 as select key1, sum(value1) from agg group by key1;")
+    createMV("create materialized view mv1 as select key2 as b1 from agg group by key2;")
+    createMV("create materialized view mv3 as select key1 as b2, key2 as b3, sum(value1) as b4, max(value2) as b5, min(value3) as b6 from agg group by key1, key2;")
+    createMV("create materialized view mv6 as select key1 as b7, sum(value1) as b8 from agg group by key1;")
     sql """insert into agg values (1, 2, 3, 4, 5), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """CREATE TABLE agg_partition (
@@ -111,9 +111,9 @@ suite("test_skip_agg_table_value_column") {
             "replication_num" = "1"
         );
     """
-    createMV("create materialized view mv1 as select key2 from agg_partition group by key2;")
-    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from agg_partition group by key1, key2;")
-    createMV("create materialized view mv6 as select key1, sum(value1) from agg_partition group by key1;")
+    createMV("create materialized view mv1 as select key2 as c1 from agg_partition group by key2;")
+    createMV("create materialized view mv3 as select key1 as c2, key2 as c3, sum(value1) as c4, max(value2) as c5, min(value3) as c6 from agg_partition group by key1, key2;")
+    createMV("create materialized view mv6 as select key1 as c7, sum(value1) as c8 from agg_partition group by key1;")
     sql """analyze table agg_partition(key1) with sync"""
     sql """insert into agg_partition values (1, 2, 3, 4, 5), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
@@ -134,8 +134,8 @@ suite("test_skip_agg_table_value_column") {
             "replication_num" = "1"
         );
     """
-    createMV("create materialized view mv1 as select key1, key2 from uni_mor;")
-    createMV("create materialized view mv6 as select key1, key2, value2, value3 from uni_mor;")
+    createMV("create materialized view mv1 as select key1 as d1, key2 as d2 from uni_mor;")
+    createMV("create materialized view mv6 as select key1 as d3, key2 as d4, value2 as d5, value3 as d6 from uni_mor;")
     sql """insert into uni_mor values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """
@@ -157,8 +157,8 @@ suite("test_skip_agg_table_value_column") {
             "replication_num" = "1"
         );
     """
-    createMV("create materialized view mv1 as select key1, key2 from uni_mor_partition;")
-    createMV("create materialized view mv6 as select key1, key2, value2, value3 from uni_mor_partition;")
+    createMV("create materialized view mv1 as select key1 as e1, key2 as e2 from uni_mor_partition;")
+    createMV("create materialized view mv6 as select key1 as e3, key2 as e4, value2 as e5, value3 as e6 from uni_mor_partition;")
     sql """analyze table uni_mor_partition(key1) with sync"""
     sql """insert into uni_mor_partition values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
@@ -178,8 +178,8 @@ suite("test_skip_agg_table_value_column") {
             "replication_num" = "1"
         );
     """
-    createMV("create materialized view mv1 as select key1, key2 from uni_mow;")
-    createMV("create materialized view mv6 as select key1, key2, value2, value3 from uni_mow;")
+    createMV("create materialized view mv1 as select key1 as f1, key2 as f2 from uni_mow;")
+    createMV("create materialized view mv6 as select key1 as f3, key2 as f4, value2 as f5, value3 as f6 from uni_mow;")
     sql """insert into uni_mow values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     wait_row_count_reported("test_skip_agg_table_value_column", "dup", 0, 4, "6")
