@@ -41,7 +41,7 @@ suite("test_cast_to_decimal32_1_from_decimal32_overflow") {
 
     sql "drop table if exists test_cast_to_decimal_1_0_from_decimal_9_1_overflow_3;"
     sql "create table test_cast_to_decimal_1_0_from_decimal_9_1_overflow_3(f1 int, f2 decimalv3(9, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_1_0_from_decimal_9_1_overflow_3 values (0, "9.9"),(1, "9.9"),(2, "10.9"),(3, "10.9"),(4, "99999998.9"),(5, "99999998.9"),(6, "99999999.9"),(7, "99999999.9");
+    sql """insert into test_cast_to_decimal_1_0_from_decimal_9_1_overflow_3 values (0, "9.9"),(1, "9.5"),(2, "10.9"),(3, "10.5"),(4, "99999998.9"),(5, "99999998.5"),(6, "99999999.9"),(7, "99999999.5");
     """
 
     sql "set enable_strict_cast=true;"
@@ -59,7 +59,7 @@ suite("test_cast_to_decimal32_1_from_decimal32_overflow") {
 
     sql "drop table if exists test_cast_to_decimal_1_0_from_decimal_9_8_overflow_4;"
     sql "create table test_cast_to_decimal_1_0_from_decimal_9_8_overflow_4(f1 int, f2 decimalv3(9, 8)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_1_0_from_decimal_9_8_overflow_4 values (0, "9.99999999"),(1, "9.99999999");
+    sql """insert into test_cast_to_decimal_1_0_from_decimal_9_8_overflow_4 values (0, "9.99999999"),(1, "9.50000000");
     """
 
     sql "set enable_strict_cast=true;"
@@ -131,7 +131,7 @@ suite("test_cast_to_decimal32_1_from_decimal32_overflow") {
 
     sql "drop table if exists test_cast_to_decimal_1_1_from_decimal_9_8_overflow_10;"
     sql "create table test_cast_to_decimal_1_1_from_decimal_9_8_overflow_10(f1 int, f2 decimalv3(9, 8)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_1_1_from_decimal_9_8_overflow_10 values (0, "0.99999999"),(1, "0.99999999"),(2, "1.99999999"),(3, "1.99999999"),(4, "8.99999999"),(5, "8.99999999"),(6, "9.99999999"),(7, "9.99999999");
+    sql """insert into test_cast_to_decimal_1_1_from_decimal_9_8_overflow_10 values (0, "0.99999999"),(1, "0.95000000"),(2, "1.99999999"),(3, "1.95000000"),(4, "8.99999999"),(5, "8.95000000"),(6, "9.99999999"),(7, "9.95000000");
     """
 
     sql "set enable_strict_cast=true;"
@@ -149,7 +149,7 @@ suite("test_cast_to_decimal32_1_from_decimal32_overflow") {
 
     sql "drop table if exists test_cast_to_decimal_1_1_from_decimal_9_9_overflow_11;"
     sql "create table test_cast_to_decimal_1_1_from_decimal_9_9_overflow_11(f1 int, f2 decimalv3(9, 9)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_1_1_from_decimal_9_9_overflow_11 values (0, "0.999999999"),(1, "0.999999999");
+    sql """insert into test_cast_to_decimal_1_1_from_decimal_9_9_overflow_11 values (0, "0.999999999"),(1, "0.950000000");
     """
 
     sql "set enable_strict_cast=true;"

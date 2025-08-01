@@ -42,7 +42,7 @@ suite("test_cast_to_decimal32_1_from_decimal32_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(9, 0)) as decimalv3(1, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_0_from_decimal_9_1_overflow_3_test_data = ["""9.9""","""9.9""","""10.9""","""10.9""","""99999998.9""","""99999998.9""","""99999999.9""","""99999999.9"""]
+    def test_cast_to_decimal_1_0_from_decimal_9_1_overflow_3_test_data = ["""9.9""","""9.5""","""10.9""","""10.5""","""99999998.9""","""99999998.5""","""99999999.9""","""99999999.5"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -61,7 +61,7 @@ suite("test_cast_to_decimal32_1_from_decimal32_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(9, 1)) as decimalv3(1, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_0_from_decimal_9_8_overflow_4_test_data = ["""9.99999999""","""9.99999999"""]
+    def test_cast_to_decimal_1_0_from_decimal_9_8_overflow_4_test_data = ["""9.99999999""","""9.50000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -137,7 +137,7 @@ suite("test_cast_to_decimal32_1_from_decimal32_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(9, 1)) as decimalv3(1, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_1_from_decimal_9_8_overflow_10_test_data = ["""0.99999999""","""0.99999999""","""1.99999999""","""1.99999999""","""8.99999999""","""8.99999999""","""9.99999999""","""9.99999999"""]
+    def test_cast_to_decimal_1_1_from_decimal_9_8_overflow_10_test_data = ["""0.99999999""","""0.95000000""","""1.99999999""","""1.95000000""","""8.99999999""","""8.95000000""","""9.99999999""","""9.95000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -156,7 +156,7 @@ suite("test_cast_to_decimal32_1_from_decimal32_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(9, 8)) as decimalv3(1, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_1_from_decimal_9_9_overflow_11_test_data = ["""0.999999999""","""0.999999999"""]
+    def test_cast_to_decimal_1_1_from_decimal_9_9_overflow_11_test_data = ["""0.999999999""","""0.950000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {

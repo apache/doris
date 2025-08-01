@@ -42,7 +42,7 @@ suite("test_cast_to_decimal32_1_from_decimal128i_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(19, 0)) as decimalv3(1, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_0_from_decimal_19_1_overflow_1_test_data = ["""9.9""","""9.9""","""10.9""","""10.9""","""999999999999999998.9""","""999999999999999998.9""","""999999999999999999.9""","""999999999999999999.9"""]
+    def test_cast_to_decimal_1_0_from_decimal_19_1_overflow_1_test_data = ["""9.9""","""9.5""","""10.9""","""10.5""","""999999999999999998.9""","""999999999999999998.5""","""999999999999999999.9""","""999999999999999999.5"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -61,7 +61,7 @@ suite("test_cast_to_decimal32_1_from_decimal128i_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(19, 1)) as decimalv3(1, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_0_from_decimal_19_18_overflow_2_test_data = ["""9.999999999999999999""","""9.999999999999999999"""]
+    def test_cast_to_decimal_1_0_from_decimal_19_18_overflow_2_test_data = ["""9.999999999999999999""","""9.500000000000000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -99,7 +99,7 @@ suite("test_cast_to_decimal32_1_from_decimal128i_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(1, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_0_from_decimal_38_1_overflow_5_test_data = ["""9.9""","""9.9""","""10.9""","""10.9""","""9999999999999999999999999999999999998.9""","""9999999999999999999999999999999999998.9""","""9999999999999999999999999999999999999.9""","""9999999999999999999999999999999999999.9"""]
+    def test_cast_to_decimal_1_0_from_decimal_38_1_overflow_5_test_data = ["""9.9""","""9.5""","""10.9""","""10.5""","""9999999999999999999999999999999999998.9""","""9999999999999999999999999999999999998.5""","""9999999999999999999999999999999999999.9""","""9999999999999999999999999999999999999.5"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -118,7 +118,7 @@ suite("test_cast_to_decimal32_1_from_decimal128i_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(1, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_0_from_decimal_38_37_overflow_6_test_data = ["""9.9999999999999999999999999999999999999""","""9.9999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_1_0_from_decimal_38_37_overflow_6_test_data = ["""9.9999999999999999999999999999999999999""","""9.5000000000000000000000000000000000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -175,7 +175,7 @@ suite("test_cast_to_decimal32_1_from_decimal128i_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(19, 1)) as decimalv3(1, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_1_from_decimal_19_18_overflow_10_test_data = ["""0.999999999999999999""","""0.999999999999999999""","""1.999999999999999999""","""1.999999999999999999""","""8.999999999999999999""","""8.999999999999999999""","""9.999999999999999999""","""9.999999999999999999"""]
+    def test_cast_to_decimal_1_1_from_decimal_19_18_overflow_10_test_data = ["""0.999999999999999999""","""0.950000000000000000""","""1.999999999999999999""","""1.950000000000000000""","""8.999999999999999999""","""8.950000000000000000""","""9.999999999999999999""","""9.950000000000000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -194,7 +194,7 @@ suite("test_cast_to_decimal32_1_from_decimal128i_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(19, 18)) as decimalv3(1, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_1_from_decimal_19_19_overflow_11_test_data = ["""0.9999999999999999999""","""0.9999999999999999999"""]
+    def test_cast_to_decimal_1_1_from_decimal_19_19_overflow_11_test_data = ["""0.9999999999999999999""","""0.9500000000000000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -251,7 +251,7 @@ suite("test_cast_to_decimal32_1_from_decimal128i_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(1, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_1_from_decimal_38_37_overflow_14_test_data = ["""0.9999999999999999999999999999999999999""","""0.9999999999999999999999999999999999999""","""1.9999999999999999999999999999999999999""","""1.9999999999999999999999999999999999999""","""8.9999999999999999999999999999999999999""","""8.9999999999999999999999999999999999999""","""9.9999999999999999999999999999999999999""","""9.9999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_1_1_from_decimal_38_37_overflow_14_test_data = ["""0.9999999999999999999999999999999999999""","""0.9500000000000000000000000000000000000""","""1.9999999999999999999999999999999999999""","""1.9500000000000000000000000000000000000""","""8.9999999999999999999999999999999999999""","""8.9500000000000000000000000000000000000""","""9.9999999999999999999999999999999999999""","""9.9500000000000000000000000000000000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -270,7 +270,7 @@ suite("test_cast_to_decimal32_1_from_decimal128i_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 37)) as decimalv3(1, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_1_from_decimal_38_38_overflow_15_test_data = ["""0.99999999999999999999999999999999999999""","""0.99999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_1_1_from_decimal_38_38_overflow_15_test_data = ["""0.99999999999999999999999999999999999999""","""0.95000000000000000000000000000000000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {

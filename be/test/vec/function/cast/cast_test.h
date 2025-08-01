@@ -43,6 +43,16 @@ static const std::string regression_notes = R"(
 )";
 
 template <typename DecimalType>
+DataTypeDecimal<DecimalType::PType> get_decimal_data_type(int precision, int scale) {
+    UInt32 precision_tmp = std::is_same_v<DecimalType, Decimal128V2> ? 27 : precision;
+    UInt32 scale_tmp = std::is_same_v<DecimalType, Decimal128V2> ? 9 : scale;
+    UInt32 orig_precision = std::is_same_v<DecimalType, Decimal128V2> ? precision : UINT32_MAX;
+    UInt32 orig_scale = std::is_same_v<DecimalType, Decimal128V2> ? scale : UINT32_MAX;
+    DataTypeDecimal<DecimalType::PType> dt(precision_tmp, scale_tmp, orig_precision, orig_scale);
+
+    return dt;
+}
+template <typename DecimalType>
 inline auto get_decimal_ctor() {
     if constexpr (std::is_same_v<DecimalType, Decimal32>) {
         return DECIMAL32;
