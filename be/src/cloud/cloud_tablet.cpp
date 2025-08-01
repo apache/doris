@@ -515,9 +515,10 @@ void CloudTablet::warm_up_done_cb(RowsetSharedPtr rowset, Status status, bool de
                 !(ver.second < rowset->version().first || ver.first > rowset->version().second)) {
                 g_file_cache_query_driven_warmup_delayed_rowset_add_failure_num << 1;
                 delete_rowsets({rowset}, meta_lock);
-                LOG(WARNING) << "rowset " << rowset->version()
-                             << " is not added to _rs_version_map due to version overlap with rowset "
-                             << rs->rowset_id() << ", version: " << ver << ", add it to stale rowsets";
+                LOG(WARNING)
+                        << "rowset " << rowset->version()
+                        << " is not added to _rs_version_map due to version overlap with rowset "
+                        << rs->rowset_id() << ", version: " << ver << ", add it to stale rowsets";
                 return;
             }
         }
