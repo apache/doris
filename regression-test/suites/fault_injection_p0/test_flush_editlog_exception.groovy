@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.suite.ClusterOptions
+
 suite("test_flush_editlog_exception", "docker") {
     def options = new ClusterOptions()
     options.cloudMode = false
