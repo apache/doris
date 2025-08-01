@@ -611,9 +611,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     if (statsForLeft.getHotValues() != null && cp.child(1) instanceof Literal) {
                         Literal constHand = (Literal) cp.child(1);
                         for (Literal hot : statsForLeft.getHotValues().keySet()) {
-                            if (((ComparableLiteral) hot).compareTo((ComparableLiteral) constHand) == 0) {
-                                selectivity = statsForLeft.getHotValues().get(hot) / ColumnStatistic.ONE_HUNDRED;
-                                break;
+                            try {
+                                // stats-derive may be applied before type coercion. so we need to try to catch
+                                // comparison exception. for example: boolean compare with int
+                                if (((ComparableLiteral) hot).compareTo((ComparableLiteral) constHand) == 0) {
+                                    selectivity = statsForLeft.getHotValues().get(hot) / ColumnStatistic.ONE_HUNDRED;
+                                    break;
+                                }
+                            } catch (Exception e) {
+                                // ignore
                             }
                         }
                     }
