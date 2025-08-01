@@ -4544,4 +4544,12 @@ public class SessionVariable implements Serializable, Writable {
     public boolean getDisableInvertedIndexV1ForVaraint() {
         return disableInvertedIndexV1ForVaraint;
     }
+
+    public static boolean isFeDebug() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().feDebug;
+        } else {
+            return false;
+        }
+    }
 }
