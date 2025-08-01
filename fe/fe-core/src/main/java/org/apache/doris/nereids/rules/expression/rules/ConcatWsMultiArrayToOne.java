@@ -42,7 +42,7 @@ public class ConcatWsMultiArrayToOne implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(ConcatWs.class).then(ConcatWsMultiArrayToOne::rewrite)
-                        .toRule(ExpressionRuleType.CONCATWS_MULTI_ARRAY_TO_ONE));
+        );
     }
 
     /** rewrite */
