@@ -212,6 +212,8 @@ enum TSchemaTableType {
     SCH_DATABASE_PROPERTIES = 66;
     SCH_BE_METRICS = 67;
     SCH_FE_METRICS = 68;
+    SCH_BE_METRICS = 69;
+    SCH_FE_METRICS = 70;
 }
 
 enum THdfsCompression {

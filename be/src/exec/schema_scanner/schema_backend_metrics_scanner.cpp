@@ -46,7 +46,8 @@ Status SchemaBackendMetricsScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaBackendMetricsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaBackendMetricsScanner::get_next_block_internal(vectorized::Block* block,
+                                                                bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
