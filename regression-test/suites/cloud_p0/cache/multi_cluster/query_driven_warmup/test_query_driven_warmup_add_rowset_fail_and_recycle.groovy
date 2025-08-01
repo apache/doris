@@ -16,10 +16,11 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
+import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.NodeType
 import groovy.json.JsonSlurper
 
-suite('test_cache_guard_add_rowset_too_late', 'docker') {
+suite('test_query_driven_warmup_add_rowset_fail_and_recycle', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -29,6 +30,8 @@ suite('test_cache_guard_add_rowset_too_late', 'docker') {
         'file_cache_enter_disk_resource_limit_mode_percent=99',
         'enable_evict_file_cache_in_advance=false',
         'block_file_cache_monitor_interval_sec=1',
+        'tablet_rowset_stale_sweep_time_sec=0',
+        'vacuum_stale_rowsets_interval_s=10',
     ]
     options.enableDebugPoints()
     options.cloudMode = true
@@ -60,7 +63,6 @@ suite('test_cache_guard_add_rowset_too_late', 'docker') {
     def updateBeConf = {cluster, key, value ->
         def backends = sql """SHOW BACKENDS"""
         def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
-        def injectName = 'CloudTablet.warm_up_done_cb.inject_sleep_s'
         for (be in cluster_bes) {
             def ip = be[1]
             def port = be[4]
@@ -102,6 +104,56 @@ suite('test_cache_guard_add_rowset_too_late', 'docker') {
         }
     }
 
+    def getTabletStatus = { cluster, tablet_id ->
+        def backends = sql """SHOW BACKENDS"""
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+        assert cluster_bes.size() > 0, "No backend found for cluster ${cluster}"
+        def be = cluster_bes[0]
+        def ip = be[1]
+        def port = be[4]
+        StringBuilder sb = new StringBuilder();
+        sb.append("curl -X GET http://${ip}:${port}")
+        sb.append("/api/compaction/show?tablet_id=")
+        sb.append(tablet_id)
+
+        String command = sb.toString()
+        logger.info(command)
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.getText()
+        logger.info("Get tablet status:  =" + code + ", out=" + out)
+        assertEquals(code, 0)
+        def tabletStatus = parseJson(out.trim())
+        return tabletStatus
+    }
+
+    def checkFileCacheRecycle = { cluster, rowsets ->
+        def backends = sql """SHOW BACKENDS"""
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+        assert cluster_bes.size() > 0, "No backend found for cluster ${cluster}"
+        def be = cluster_bes[0]
+        def ip = be[1]
+        def port = be[4]
+
+        for (int i = 0; i < rowsets.size(); i++) {
+            def rowsetStr = rowsets[i]
+            // [12-12] 1 DATA NONOVERLAPPING 02000000000000124843c92c13625daa8296c20957119893 1011.00 B
+            def start_version = rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[0].toInteger()
+            def end_version = rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[1].toInteger()
+            def rowset_id = rowsetStr.split(" ")[4]
+
+            logger.info("rowset ${i}, start: ${start_version}, end: ${end_version}, id: ${rowset_id}")
+            def data = Http.GET("http://${ip}:${port}/api/file_cache?op=list_cache&value=${rowset_id}_0.dat", true)
+            logger.info("file cache data: ${data}")
+            // in this case only [2-11] and [12-12] should have data in cache
+            if ((start_version == 2 && end_version == 11) || (start_version == 12)) {
+                assertTrue(data.size() > 0)
+            } else {
+                assertTrue(data.size() == 0)
+            }
+        }
+    }
+
     docker(options) {
         def clusterName1 = "warmup_source"
         def clusterName2 = "warmup_target"
@@ -116,7 +168,7 @@ suite('test_cache_guard_add_rowset_too_late', 'docker') {
         logger.info("Cluster tag1: {}", tag1)
         logger.info("Cluster tag2: {}", tag2)
 
-        updateBeConf(clusterName2, "enable_read_cluster_file_cache_guard", "true")
+        updateBeConf(clusterName2, "enable_query_driven_warmup", "true")
 
         def jsonSlurper = new JsonSlurper()
         def clusterId1 = jsonSlurper.parseText(tag1).compute_group_id
@@ -137,6 +189,12 @@ suite('test_cache_guard_add_rowset_too_late', 'docker') {
         clearFileCacheOnAllBackends()
         sleep(15000)
 
+        def tablets = sql_return_maparray """ show tablets from test; """
+        logger.info("tablets: " + tablets)
+        assertEquals(1, tablets.size())
+        def tablet = tablets[0]
+        String tablet_id = tablet.TabletId
+
         sql """use @${clusterName1}"""
         sql """insert into test values (1, '{"a" : 1.0}')"""        // [2-2]
         sql """insert into test values (2, '{"a" : 111.1111}')"""   // [3-3]
@@ -144,17 +202,26 @@ suite('test_cache_guard_add_rowset_too_late', 'docker') {
         sql """insert into test values (4, '{"a" : 1111111111}')""" // [5-5]
         sql """insert into test values (5, '{"a" : 1111.11111}')""" // [6-6]
 
+        sql """select * from test""" // sync rowsets on source cluster
+        Set<String> all_history_stale_rowsets = new HashSet<>();
+        def tablet_status = getTabletStatus(clusterName1, tablet_id)
+        all_history_stale_rowsets.addAll(tablet_status["rowsets"])
+
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test"""
         assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 5)
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_num"))
 
         // switch to source cluster and trigger compaction
         sql """use @${clusterName1}"""
         trigger_and_wait_compaction("test", "cumulative")           // [2-6]
         sql """insert into test values (6, '{"a" : 1111.11111}')""" //[7-7]
         sleep(2000)
+
+        sql """select * from test""" // sync rowsets on source cluster
+        tablet_status = getTabletStatus(clusterName1, tablet_id)
+        all_history_stale_rowsets.addAll(tablet_status["rowsets"])
 
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
@@ -166,8 +233,8 @@ suite('test_cache_guard_add_rowset_too_late', 'docker') {
         assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 7)
         // [2-6] is not added due to inject sleep, in this case it will be added to tablet meta
         // after [2-11], and such operation should fail.
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_num"))
+        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_add_num"))
 
         // switch to source cluster, load more data
         sql """use @${clusterName1}"""
@@ -176,12 +243,16 @@ suite('test_cache_guard_add_rowset_too_late', 'docker') {
         sql """insert into test values (9, '{"a" : "11111"}')"""     // [10-10]
         sql """insert into test values (10, '{"a" : 1111111111}')""" // [11-11]
 
+        sql """select * from test""" // sync rowsets on source cluster
+        tablet_status = getTabletStatus(clusterName1, tablet_id)
+        all_history_stale_rowsets.addAll(tablet_status["rowsets"])
+
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test""" // will sync [8-8], [9-9], [10-10], [11-11]
         assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 11)
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_num"))
+        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_add_num"))
 
         // switch to source cluster, trigger compaction
         sql """use @${clusterName1}"""
@@ -189,19 +260,29 @@ suite('test_cache_guard_add_rowset_too_late', 'docker') {
         sql """insert into test values (11, '{"a" : 1111111111}')""" // [12-12]
         sleep(1000)
 
+        sql """select * from test""" // sync rowsets on source cluster
+        tablet_status = getTabletStatus(clusterName1, tablet_id)
+        all_history_stale_rowsets.addAll(tablet_status["rowsets"])
+
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test""" // will sync [2-11] and [12-12] but [2-6] is not added yet
+        sleep(1000)
         assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 13)
         // injection only execute once, [2-11] is added
-        assertEquals(2, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_failure_num"))
+        assertEquals(2, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_num"))
+        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_add_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_add_failure_num"))
 
         sleep(20000) // wait the inject sleep complete
-        assertEquals(2, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_num"))
+        assertEquals(2, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_add_num"))
         // [2-6] is too late, add_rowset fail
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_failure_num"))
+        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_add_failure_num"))
         qt_sql """select * from test""" // check the result
+
+        // sleep for vacuum_stale_rowsets_interval_s=10 seconds to wait for unused rowsets are deleted
+        sleep(21000)
+        logger.info("all_history_stale_rowsets.size: " + all_history_stale_rowsets.size())
+        checkFileCacheRecycle(clusterName2, all_history_stale_rowsets)
     }
 }

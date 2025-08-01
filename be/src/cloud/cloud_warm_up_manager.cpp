@@ -108,7 +108,8 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                io::FileSystemSPtr file_system,
                                                int64_t expiration_time,
                                                std::shared_ptr<bthread::CountdownEvent> wait,
-                                               bool is_index) {
+                                               bool is_index,
+                                               std::function<void(Status)> done_cb) {
     if (file_size < 0) {
         auto st = file_system->file_size(path, &file_size);
         if (!st.ok()) [[unlikely]] {
@@ -145,7 +146,8 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                         },
                 .download_done =
-                        [=](Status st) {
+                        [&](Status st) {
+                            if (done_cb != nullptr) done_cb(st);
                             if (!st) {
                                 LOG_WARNING("Warm up error ").error(st);
                             } else if (is_index) {
@@ -169,7 +171,6 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
 }
 
 void CloudWarmUpManager::handle_jobs() {
-#ifndef BE_TEST
     constexpr int WAIT_TIME_SECONDS = 600;
     while (true) {
         std::shared_ptr<JobMeta> cur_job = nullptr;
@@ -226,11 +227,23 @@ void CloudWarmUpManager::handle_jobs() {
                         expiration_time = 0;
                     }
 
+                    if (tablet->add_rowset_warmup_state(rs, WarmUpState::TRIGGERED_BY_JOB)) {
+                        LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
+                                  << ", skip it";
+                        continue;
+                    }
                     // 1st. download segment files
                     submit_download_tasks(
                             storage_resource.value()->remote_segment_path(*rs, seg_id),
                             rs->segment_file_size(seg_id), storage_resource.value()->fs,
-                            expiration_time, wait);
+                            expiration_time, wait, [tablet, rs, seg_id](Status st) {
+                                VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
+                                           << seg_id << " completed";
+                                if (tablet->complete_rowset_segment_warmup(rs->rowset_id(), st) ==
+                                    WarmUpState::DONE) {
+                                    VLOG_DEBUG << "warmup rowset " << rs->version() << " completed";
+                                }
+                            });
 
                     // 2nd. download inverted index files
                     int64_t file_size = -1;
@@ -295,7 +308,6 @@ void CloudWarmUpManager::handle_jobs() {
             }
         }
     }
-#endif
 }
 
 JobMeta::JobMeta(const TJobMeta& meta)
