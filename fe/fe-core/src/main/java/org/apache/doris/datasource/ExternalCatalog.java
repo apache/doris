@@ -200,8 +200,8 @@ public abstract class ExternalCatalog
      * If additional authentication logic is required, it should be extended and implemented in subclasses.
      */
     protected synchronized void initPreExecutionAuthenticator() {
-        if (preExecutionAuthenticator == null) {
-            preExecutionAuthenticator = new PreExecutionAuthenticator();
+        if (executionAuthenticator == null) {
+            executionAuthenticator = new ExecutionAuthenticator(){};
         }
     }
 
@@ -1345,11 +1345,11 @@ public abstract class ExternalCatalog
         }
     }
 
-    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
-        if (null == preExecutionAuthenticator) {
-            throw new RuntimeException("PreExecutionAuthenticator is null, please confirm it is initialized.");
+    public ExecutionAuthenticator getExecutionAuthenticator() {
+        if (null == executionAuthenticator) {
+            throw new RuntimeException("ExecutionAuthenticator is null, please confirm it is initialized.");
         }
-        return preExecutionAuthenticator;
+        return executionAuthenticator;
     }
 
     @Override
