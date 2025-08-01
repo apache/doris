@@ -181,20 +181,11 @@ struct CastToInt {
         requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT>)
     static inline bool from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
                                     ToCppT& to, CastParameters& params) {
-        typename FromCppT::NativeType scale_multiplier =
-                DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
         constexpr UInt32 to_max_digits = NumberTraits::max_ascii_len<ToCppT>();
         bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
-        return _from_decimal(from, from_precision, from_scale, to, scale_multiplier,
-                             narrow_integral, params);
-    }
 
-    template <typename FromCppT, typename ToCppT>
-        requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT>)
-    static inline bool _from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
-                                     ToCppT& to,
-                                     const typename FromCppT::NativeType& scale_multiplier,
-                                     bool narrow_integral, CastParameters& params) {
+        typename FromCppT::NativeType scale_multiplier =
+                DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
         constexpr auto min_result = std::numeric_limits<ToCppT>::lowest();
         constexpr auto max_result = std::numeric_limits<ToCppT>::max();
         auto tmp = from.value / scale_multiplier;
@@ -283,24 +274,16 @@ struct CastToFloat {
                                     CastParameters& params) {
         if constexpr (IsDecimalV2<FromCppT>) {
             to = binary_cast<int128_t, DecimalV2Value>(from);
-            return true;
         } else {
             typename FromCppT::NativeType scale_multiplier =
                     DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
-            return _from_decimalv3(from, from_scale, to, scale_multiplier, params);
-        }
-    }
-    template <typename FromCppT, typename ToCppT>
-        requires(IsCppTypeFloat<ToCppT> && IsDecimalNumber<FromCppT>)
-    static inline bool _from_decimalv3(const FromCppT& from, UInt32 from_scale, ToCppT& to,
-                                       const typename FromCppT::NativeType& scale_multiplier,
-                                       CastParameters& params) {
-        if constexpr (IsDecimal256<FromCppT>) {
-            to = static_cast<ToCppT>(static_cast<long double>(from.value) /
-                                     static_cast<long double>(scale_multiplier));
-        } else {
-            to = static_cast<ToCppT>(static_cast<double>(from.value) /
-                                     static_cast<double>(scale_multiplier));
+            if constexpr (IsDecimal256<FromCppT>) {
+                to = static_cast<ToCppT>(static_cast<long double>(from.value) /
+                                         static_cast<long double>(scale_multiplier));
+            } else {
+                to = static_cast<ToCppT>(static_cast<double>(from.value) /
+                                         static_cast<double>(scale_multiplier));
+            }
         }
         return true;
     }

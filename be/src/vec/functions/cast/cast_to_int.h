@@ -149,7 +149,6 @@ public:
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
         using ToFieldType = typename ToDataType::FieldType;
-        using FromFieldType = typename FromDataType::FieldType;
 
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
         const auto* col_from =
@@ -163,8 +162,7 @@ public:
         UInt32 from_precision = from_decimal_type.get_precision();
         UInt32 from_scale = from_decimal_type.get_scale();
 
-        constexpr UInt32 to_max_digits = NumberTraits::max_ascii_len<ToFieldType>();
-        bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
+        UInt32 to_max_digits = NumberTraits::max_ascii_len<ToFieldType>();
 
         // may overflow if integer part of decimal is larger than to_max_digits
         bool may_overflow = (from_precision - from_scale) >= to_max_digits;
@@ -186,13 +184,10 @@ public:
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
-        typename FromFieldType::NativeType scale_multiplier =
-                DataTypeDecimal<FromFieldType::PType>::get_scale_multiplier(from_scale);
         for (size_t i = 0; i < size; i++) {
-            if (!CastToInt::_from_decimal<typename FromDataType::FieldType,
-                                          typename ToDataType::FieldType>(
-                        vec_from_data[i], from_precision, from_scale, vec_to_data[i],
-                        scale_multiplier, narrow_integral, params)) {
+            if (!CastToInt::from_decimal<typename FromDataType::FieldType,
+                                         typename ToDataType::FieldType>(
+                        vec_from_data[i], from_precision, from_scale, vec_to_data[i], params)) {
                 if (result_is_nullable) {
                     null_map_data[i] = 1;
                 } else {

@@ -47,7 +47,6 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        using FromFieldType = typename FromDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
@@ -68,16 +67,8 @@ public:
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
-
-        typename FromFieldType::NativeType scale_multiplier =
-                DataTypeDecimal<FromFieldType::PType>::get_scale_multiplier(from_scale);
         for (size_t i = 0; i < size; ++i) {
-            if constexpr (IsDecimalV2<FromFieldType>) {
-                vec_to_data[i] = binary_cast<int128_t, DecimalV2Value>(vec_from_data[i]);
-            } else {
-                CastToFloat::_from_decimalv3(vec_from_data[i], from_scale, vec_to_data[i],
-                                             scale_multiplier, params);
-            }
+            CastToFloat::from_decimal(vec_from_data[i], from_scale, vec_to_data[i], params);
         }
 
         block.get_by_position(result).column = std::move(col_to);
