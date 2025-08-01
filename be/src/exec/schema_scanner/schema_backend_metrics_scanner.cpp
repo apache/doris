@@ -33,8 +33,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendMetricsScanner::_s_tbls_colu
         {"METRIC_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"METRIC_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
         {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), false},
-        {"TAG", TYPE_VARCHAR, sizeof(StringRef), true}
-};
+        {"TAG", TYPE_VARCHAR, sizeof(StringRef), true}};
 
 SchemaBackendMetricsScanner::SchemaBackendMetricsScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_BE_METRICS) {}
@@ -46,8 +45,7 @@ Status SchemaBackendMetricsScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaBackendMetricsScanner::get_next_block_internal(vectorized::Block* block,
-                                                                bool* eos) {
+Status SchemaBackendMetricsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -65,7 +63,8 @@ Status SchemaBackendMetricsScanner::get_next_block_internal(vectorized::Block* b
                     data_type->create_column(), data_type, _s_tbls_columns[i].name));
         }
         _backend_metrics_block->reserve(_block_rows_limit);
-        DorisMetrics::instance()->metric_registry()->get_be_metrics_block(_backend_metrics_block.get());
+        DorisMetrics::instance()->metric_registry()->get_be_metrics_block(
+                _backend_metrics_block.get());
         _total_rows = (int)_backend_metrics_block->rows();
     }
 

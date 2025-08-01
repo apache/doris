@@ -179,8 +179,8 @@ Status SchemaHelper::get_master_keys(const std::string& ip, const int32_t port,
 }
 
 Status SchemaHelper::fetch_frontend_metrics(const std::string& ip, const int32_t port,
-                                    const TFetchFeMetricsRequest& request,
-                                    TFetchFeMetricsResult* result) {
+                                            const TFetchFeMetricsRequest& request,
+                                            TFetchFeMetricsResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
             ip, port, [&request, &result](FrontendServiceConnection& client) {
                 client->fetchFrontendMetrics(*result, request);
