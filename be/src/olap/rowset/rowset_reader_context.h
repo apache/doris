@@ -18,11 +18,14 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
+#include <cstdint>
+
 #include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/rowid_conversion.h"
 #include "runtime/runtime_state.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -87,6 +90,7 @@ struct RowsetReaderContext {
     std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+    std::shared_ptr<vectorized::AnnTopNRuntime> ann_topn_runtime;
 };
 
 } // namespace doris

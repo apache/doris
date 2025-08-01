@@ -85,6 +85,8 @@ public:
     }
 
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
+    // arg 1 columns is the columns of the tablet
+    // arg 2 col_ids is the columns to read
     Schema(const std::vector<TabletColumnPtr>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
         _unique_ids.resize(columns.size());
@@ -107,18 +109,6 @@ public:
         _init(columns, col_ids, num_key_columns);
     }
 
-    // Only for UT
-    Schema(const std::vector<TabletColumnPtr>& columns, size_t num_key_columns) {
-        std::vector<ColumnId> col_ids(columns.size());
-        _unique_ids.resize(columns.size());
-        for (uint32_t cid = 0; cid < columns.size(); ++cid) {
-            col_ids[cid] = cid;
-            _unique_ids[cid] = columns[cid]->unique_id();
-        }
-
-        _init(columns, col_ids, num_key_columns);
-    }
-
     Schema(const std::vector<const Field*>& cols, size_t num_key_columns) {
         std::vector<ColumnId> col_ids(cols.size());
         _unique_ids.resize(cols.size());
@@ -135,6 +125,19 @@ public:
 
         _init(cols, col_ids, num_key_columns);
     }
+
+#ifdef BE_TEST
+    Schema(const std::vector<TabletColumnPtr>& columns, size_t num_key_columns) {
+        std::vector<ColumnId> col_ids(columns.size());
+        _unique_ids.resize(columns.size());
+        for (uint32_t cid = 0; cid < columns.size(); ++cid) {
+            col_ids[cid] = cid;
+            _unique_ids[cid] = columns[cid]->unique_id();
+        }
+
+        _init(columns, col_ids, num_key_columns);
+    }
+#endif
 
     Schema(const Schema&);
     Schema& operator=(const Schema& other);

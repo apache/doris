@@ -25,9 +25,9 @@
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
+#include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "util/slice.h"
@@ -137,9 +137,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values

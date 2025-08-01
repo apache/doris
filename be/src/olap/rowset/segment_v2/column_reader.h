@@ -213,7 +213,7 @@ private:
                  io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
-    // Read column indexes into memory
+    // Create index iterator if necessary.
     // May be called multiple times, subsequent calls will no op.
     Status _ensure_index_loaded(std::shared_ptr<IndexFileReader> index_file_reader,
                                 const TabletIndex* index_meta) {

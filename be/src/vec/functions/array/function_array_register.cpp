@@ -28,6 +28,7 @@ void register_function_array_element(SimpleFunctionFactory&);
 void register_function_array_index(SimpleFunctionFactory&);
 void register_function_array_aggregation(SimpleFunctionFactory&);
 void register_function_array_distance(SimpleFunctionFactory&);
+void register_function_array_distance_approximate(SimpleFunctionFactory&);
 void register_function_array_distinct(SimpleFunctionFactory&);
 void register_function_array_remove(SimpleFunctionFactory&);
 void register_function_array_sort(SimpleFunctionFactory&);
@@ -66,6 +67,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_index(factory);
     register_function_array_aggregation(factory);
     register_function_array_distance(factory);
+    register_function_array_distance_approximate(factory);
     register_function_array_distinct(factory);
     register_function_array_remove(factory);
     register_function_array_sort(factory);
