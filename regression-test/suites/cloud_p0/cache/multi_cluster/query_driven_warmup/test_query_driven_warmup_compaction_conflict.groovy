@@ -18,8 +18,9 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import groovy.json.JsonSlurper
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite('test_cache_guard_basic', 'docker') {
+suite('test_query_driven_warmup_compaction_conflict', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -60,7 +61,6 @@ suite('test_cache_guard_basic', 'docker') {
     def updateBeConf = {cluster, key, value ->
         def backends = sql """SHOW BACKENDS"""
         def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
-        def injectName = 'CloudTablet.warm_up_done_cb.inject_sleep_s'
         for (be in cluster_bes) {
             def ip = be[1]
             def port = be[4]
@@ -101,54 +101,29 @@ suite('test_cache_guard_basic', 'docker') {
         }
     }
 
-    def getProfileList = {ip, port, user, pwd ->
-        def conn = new URL("http://${ip}:${port}/rest/v1/query_profile").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((user + ":" + (pwd == null ? "" : pwd)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-    }
+    def triggerCompaction = { cluster, tablet_id, compact_type ->
+        def backends = sql """SHOW BACKENDS"""
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+        assert cluster_bes.size() > 0, "No backend found for cluster ${cluster}"
+        def be = cluster_bes[0]
+        def ip = be[1]
+        def port = be[4]
+        // trigger compactions for all tablets in ${tableName}
+        StringBuilder sb = new StringBuilder();
+        sb.append("curl -X POST http://${ip}:${port}")
+        sb.append("/api/compaction/run?tablet_id=")
+        sb.append(tablet_id)
+        sb.append("&compact_type=${compact_type}")
 
-    def getProfile = { ip, port, user, pwd, id ->
-        def conn = new URL("http://${ip}:${port}/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((user + ":" + (pwd == null ? "" : pwd)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-    }
-
-    def verifyProfileContent = {stmt ->
-        def fes = sql_return_maparray("SHOW FRONTENDS")
-        // Get the master frontend information
-        def masterFE = fes.find { it['IsMaster'] == "true" }
-        assert masterFE != null, "No master frontend found"
-        def masterHost = masterFE['Host']
-        def masterPort = masterFE['HttpPort']
-
-        // Sleep 500ms to wait for the profile collection
-        Thread.sleep(500)
-
-        // Get profile list by using getProfileList
-        List profileData = new JsonSlurper().parseText(getProfileList(masterHost, masterPort, 'root', null)).data.rows
-        // Find the profile id for the query that we just emitted
-        String profileId = ""
-        for (def profileItem : profileData) {
-            if (profileItem["Sql Statement"].toString().contains(stmt)) {
-                profileId = profileItem["Profile ID"].toString()
-                logger.info("Profile ID of ${stmt} is ${profileId}")
-                break
-            }
-        }
-        if (profileId == "" || profileId == null) {
-            logger.error("Profile ID of ${stmt} is not found")
-            return false
-        }
-        // Get profile content by using getProfile
-        def String profileContent = getProfile(masterHost, masterPort, 'root', null, profileId).toString()
-        logger.info("Profile content of ${stmt} is\n${profileContent}")
-
-        // For non-mow table, will not read data from remote
-        assertTrue(profileContent.contains("- BytesScannedFromRemote: 0"))
+        String command = sb.toString()
+        logger.info(command)
+        def process = command.execute()
+        def code = process.waitFor()
+        def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+        def out = process.getText()
+        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        return out
     }
 
     docker(options) {
@@ -165,7 +140,7 @@ suite('test_cache_guard_basic', 'docker') {
         logger.info("Cluster tag1: {}", tag1)
         logger.info("Cluster tag2: {}", tag2)
 
-        updateBeConf(clusterName2, "enable_read_cluster_file_cache_guard", "true")
+        updateBeConf(clusterName2, "enable_query_driven_warmup", "true")
 
         def jsonSlurper = new JsonSlurper()
         def clusterId1 = jsonSlurper.parseText(tag1).compute_group_id
@@ -195,31 +170,40 @@ suite('test_cache_guard_basic', 'docker') {
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         qt_sql """select * from test"""
-        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 5)
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_num"))
+        assertEquals(5, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_add_num"))
 
         // switch to source cluster and trigger compaction
         sql """use @${clusterName1}"""
         trigger_and_wait_compaction("test", "cumulative")
         sql """insert into test values (6, '{"a" : 1111.11111}')"""
+        sql """insert into test values (7, '{"a" : 1.0}')"""
+        sql """insert into test values (8, '{"a" : 111.1111}')"""
+        sql """insert into test values (9, '{"a" : "11111"}')"""
+        sql """insert into test values (10, '{"a" : 1111111111}')"""
+        sql """insert into test values (11, '{"a" : 1111.11111}')"""
         sleep(2000)
 
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
         sql """set enable_profile=true"""
 
-        // inject sleep on warm_up_done_cb, to avoid the warmup complete before query
-        injectAddOverlapRowsetSleep(clusterName2, 3);
+        // inject sleep on warm_up_done_cb, make warm up inflight for longger time
+        injectAddOverlapRowsetSleep(clusterName2, 20);
         qt_sql """select * from test"""
-        // wait until the injection complete
-        sleep(3000)
+        sleep(1000)
+        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 11)
+        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_num"))
+        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_query_driven_warmup_delayed_rowset_add_num"))
 
-        assertTrue(getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num") >= 7)
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_num"))
-        assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_num"))
-        assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_guard_delayed_rowset_add_failure_num"))
-        // due to a bug of profile, skip the check for now
-        // verifyProfileContent("select * from test");
+        def tablets = sql_return_maparray """show tablets from test"""
+        // cluster2 trigger cumu compaction failed (conflict with warmup rowsets)
+        assertTrue(triggerCompaction(clusterName2, tablets[0].TabletId, "cumulative").contains("E-2000"));
+
+        // wait injection complete
+        sleep(20000)
+        // cluster2 trigger cumu compaction succeed
+        assertTrue(triggerCompaction(clusterName2, tablets[0].TabletId, "cumulative").contains("Success"));
     }
 }

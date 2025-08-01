@@ -91,7 +91,7 @@ DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
-DEFINE_mBool(enable_read_cluster_file_cache_guard, "false");
+DEFINE_mBool(enable_query_driven_warmup, "false");
 
 #include "common/compile_check_end.h"
 } // namespace doris::config
