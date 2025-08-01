@@ -412,6 +412,7 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb(
     return Status::OK();
 }
 
+template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn& column,
                                                         const FormatOptions& options) const {
     auto slice = str.to_slice();
