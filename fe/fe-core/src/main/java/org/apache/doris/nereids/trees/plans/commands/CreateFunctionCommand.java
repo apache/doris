@@ -700,7 +700,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 m -> m.getParameters().length == argsDef.getArgTypes().length).collect(Collectors.toList());
         if (evalArgLengthMatchList.size() == 0) {
             throw new AnalysisException(
-                    String.format("The arguments number udf provided and create function command is not equal, the parameters of '%s' method in class '%s' maybe should %d.",
+                    String.format(
+                            "The arguments number udf provided and create function command is not equal,"
+                                    + " the parameters of '%s' method in class '%s' maybe should %d.",
                             EVAL_METHOD_KEY, udfClass.getCanonicalName(), argsDef.getArgTypes().length));
         } else if (evalArgLengthMatchList.size() == 1) {
             Method method = evalArgLengthMatchList.get(0);
