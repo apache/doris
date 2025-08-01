@@ -21,7 +21,8 @@ VALUES (1, 'Alice', DATE '2024-01-01'),
         DATE '2024-02-01'
     ),
     (4, 'David', DATE '2024-02-01'),
-    (5, 'Eve', DATE '2024-03-01');
+    (5, 'Eve', DATE '2024-03-01'),
+    (6, 'Null Date', NULL);
 
 -- Partition by integer type
 CREATE TABLE int_partitioned (
@@ -37,7 +38,8 @@ VALUES (1, 'Product A', 1),
     (2, 'Product B', 1),
     (3, 'Product C', 2),
     (4, 'Product D', 2),
-    (5, 'Product E', 3);
+    (5, 'Product E', 3),
+    (6, 'Null Int', NULL);
 
 -- Partition by float type
 CREATE TABLE float_partitioned (
@@ -53,7 +55,8 @@ VALUES (1, 'Item 1', 10.5),
     (2, 'Item 2', 20.75),
     (3, 'Item 3', 30.0),
     (4, 'Item 4', 40.25),
-    (5, 'Item 5', 50.5);
+    (5, 'Item 5', 50.5),
+    (6, 'Null Float', NULL);
 
 -- Partition by string type
 CREATE TABLE string_partitioned (
@@ -70,7 +73,8 @@ VALUES (1, 'User1', 'North America'),
     (3, 'User3', 'Europe'),
     (4, 'User4', 'Europe'),
     (5, 'User5', 'Asia'),
-    (6, 'User6', 'Asia');
+    (6, 'User6', 'Asia'),
+    (7, 'Null String', NULL);
 
 -- Partition by timestamp type
 CREATE TABLE timestamp_partitioned (
@@ -106,6 +110,11 @@ VALUES (
         5,
         'Event5',
         TIMESTAMP '2024-01-16 16:00:00'
+    ),
+    (
+        6,
+        'Null Timestamp',
+        NULL
     );
 
 -- Partition by timestamp_ntz type
@@ -142,6 +151,11 @@ VALUES (
         5,
         'Event5',
         TIMESTAMP_NTZ '2024-01-16 16:00:00'
+    ),
+    (
+        6,
+        'Null Timestamp NTZ',
+        NULL
     );
 
 -- Partition by boolean type
@@ -158,7 +172,8 @@ VALUES (1, 'Active User', true),
     (2, 'Active Admin', true),
     (3, 'Inactive User', false),
     (4, 'Inactive Guest', false),
-    (5, 'Active Manager', true);
+    (5, 'Active Manager', true),
+    (6, 'Null Boolean', NULL);
 
 -- Partition by decimal type
 CREATE TABLE decimal_partitioned (
@@ -176,7 +191,8 @@ VALUES (1, 'Item A', 125.50, 10.50),
     (3, 'Item C', 89.99, 25.25),
     (4, 'Item D', 156.80, 25.25),
     (5, 'Item E', 299.95, 50.00),
-    (6, 'Item F', 399.99, 50.00);
+    (6, 'Item F', 399.99, 50.00),
+    (7, 'Null Decimal', 0.0, NULL);
 -- Partition by binary type
 CREATE TABLE binary_partitioned (
     id BIGINT,
@@ -211,4 +227,9 @@ VALUES (
         5,
         'Binary Data 5',
         CAST('11110000' AS BINARY)
+    ),
+    (
+        6,
+        'Null Binary',
+        NULL
     );

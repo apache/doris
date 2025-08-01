@@ -8,6 +8,9 @@
 -- !runtime_filter_partition_pruning_decimal3 --
 2
 
+-- !runtime_filter_partition_pruning_decimal_in_null --
+2
+
 -- !runtime_filter_partition_pruning_int1 --
 1
 
@@ -17,11 +20,17 @@
 -- !runtime_filter_partition_pruning_int3 --
 1
 
+-- !runtime_filter_partition_pruning_int_in_null --
+1
+
 -- !runtime_filter_partition_pruning_string1 --
 2
 
 -- !runtime_filter_partition_pruning_string2 --
 4
+
+-- !runtime_filter_partition_pruning_string_in_null --
+2
 
 -- !runtime_filter_partition_pruning_date1 --
 1
@@ -29,17 +38,26 @@
 -- !runtime_filter_partition_pruning_date2 --
 3
 
+-- !runtime_filter_partition_pruning_date_in_null --
+1
+
 -- !runtime_filter_partition_pruning_timestamp1 --
 1
 
 -- !runtime_filter_partition_pruning_timestamp2 --
 2
 
+-- !runtime_filter_partition_pruning_timestamp_in_null --
+1
+
 -- !runtime_filter_partition_pruning_boolean1 --
 3
 
 -- !runtime_filter_partition_pruning_boolean2 --
 5
+
+-- !runtime_filter_partition_pruning_boolean_in_null --
+3
 
 -- !runtime_filter_partition_pruning_float1 --
 1
@@ -50,17 +68,26 @@
 -- !runtime_filter_partition_pruning_float3 --
 1
 
+-- !runtime_filter_partition_pruning_float_in_null --
+1
+
 -- !runtime_filter_partition_pruning_timestamp_ntz1 --
 1
 
 -- !runtime_filter_partition_pruning_timestamp_ntz2 --
 2
 
+-- !runtime_filter_partition_pruning_timestamp_ntz_in_null --
+1
+
 -- !runtime_filter_partition_pruning_binary1 --
 1
 
 -- !runtime_filter_partition_pruning_binary2 --
 3
+
+-- !runtime_filter_partition_pruning_binary_in_null --
+1
 
 -- !runtime_filter_partition_pruning_decimal1 --
 2
@@ -71,6 +98,9 @@
 -- !runtime_filter_partition_pruning_decimal3 --
 2
 
+-- !runtime_filter_partition_pruning_decimal_in_null --
+2
+
 -- !runtime_filter_partition_pruning_int1 --
 1
 
@@ -80,11 +110,17 @@
 -- !runtime_filter_partition_pruning_int3 --
 1
 
+-- !runtime_filter_partition_pruning_int_in_null --
+1
+
 -- !runtime_filter_partition_pruning_string1 --
 2
 
 -- !runtime_filter_partition_pruning_string2 --
 4
+
+-- !runtime_filter_partition_pruning_string_in_null --
+2
 
 -- !runtime_filter_partition_pruning_date1 --
 1
@@ -92,17 +128,26 @@
 -- !runtime_filter_partition_pruning_date2 --
 3
 
+-- !runtime_filter_partition_pruning_date_in_null --
+1
+
 -- !runtime_filter_partition_pruning_timestamp1 --
 1
 
 -- !runtime_filter_partition_pruning_timestamp2 --
 2
 
+-- !runtime_filter_partition_pruning_timestamp_in_null --
+1
+
 -- !runtime_filter_partition_pruning_boolean1 --
 3
 
 -- !runtime_filter_partition_pruning_boolean2 --
 5
+
+-- !runtime_filter_partition_pruning_boolean_in_null --
+3
 
 -- !runtime_filter_partition_pruning_float1 --
 1
@@ -113,15 +158,24 @@
 -- !runtime_filter_partition_pruning_float3 --
 1
 
+-- !runtime_filter_partition_pruning_float_in_null --
+1
+
 -- !runtime_filter_partition_pruning_timestamp_ntz1 --
 1
 
 -- !runtime_filter_partition_pruning_timestamp_ntz2 --
 2
 
+-- !runtime_filter_partition_pruning_timestamp_ntz_in_null --
+1
+
 -- !runtime_filter_partition_pruning_binary1 --
 1
 
 -- !runtime_filter_partition_pruning_binary2 --
 3
+
+-- !runtime_filter_partition_pruning_binary_in_null --
+1
 
