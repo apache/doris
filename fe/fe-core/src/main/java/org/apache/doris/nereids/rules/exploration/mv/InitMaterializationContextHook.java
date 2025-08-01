@@ -93,6 +93,11 @@ public class InitMaterializationContextHook implements PlannerHook {
                     cascadesContext.getConnectContext().getQueryIdentifier());
             return;
         }
+        if (cascadesContext.getStatementContext().isShortCircuitQuery()) {
+            LOG.debug("MaterializationContext init return because isShortCircuitQuery, current queryId is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
+            return;
+        }
         Set<TableIf> collectedTables = Sets.newHashSet(cascadesContext.getStatementContext().getTables().values());
         if (collectedTables.isEmpty()) {
             return;
