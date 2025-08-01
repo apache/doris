@@ -1263,8 +1263,6 @@ void ColumnVariant::insert_from_sparse_column_and_fill_remaing_dense_column(
         return;
     }
 
-<<<<<<< HEAD
-=======
     // Src object column contains some paths in serialized sparse column in specified range.
     // Iterate over this range and insert all required paths into serialized sparse column or subcolumns.
     const auto& [src_sparse_column_path, src_sparse_column_values] =
@@ -1334,1252 +1332,1234 @@ void ColumnVariant::insert_from_sparse_column_and_fill_remaing_dense_column(
     }
 }
 
->>>>>>> 2afe5f364b1 (reimplement variant type and support sparse column)
-    MutableColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {
-        if (limit == 0) {
-            limit = num_rows;
-        } else {
-            limit = std::min(num_rows, limit);
-        }
-
-        if (perm.size() < limit) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "Size of permutation ({}) is less than required ({})",
-                                   perm.size(), limit);
-            __builtin_unreachable();
-        }
-
-        if (limit == 0) {
-            return ColumnVariant::create(_max_subcolumns_count);
-        }
-
-        return apply_for_columns(
-                [&](const ColumnPtr column) { return column->permute(perm, limit); });
+MutableColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {
+    if (limit == 0) {
+        limit = num_rows;
+    } else {
+        limit = std::min(num_rows, limit);
     }
 
-    void ColumnVariant::pop_back(size_t length) {
-        for (auto& entry : subcolumns) {
-            entry->data.pop_back(length);
-        }
-        serialized_sparse_column->pop_back(length);
-        num_rows -= length;
-        ENABLE_CHECK_CONSISTENCY(this);
+    if (perm.size() < limit) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
+        __builtin_unreachable();
     }
 
-    const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key) const {
-        const auto* node = subcolumns.find_leaf(key);
-        if (node == nullptr) {
-            VLOG_DEBUG << "There is no subcolumn " << key.get_path();
-            return nullptr;
-        }
-        return &node->data;
+    if (limit == 0) {
+        return ColumnVariant::create(_max_subcolumns_count);
     }
 
-    size_t ColumnVariant::Subcolumn::serialize_text_json(size_t n, BufferWritable & output,
-                                                         DataTypeSerDe::FormatOptions opt) const {
-        if (least_common_type.get_base_type_id() == PrimitiveType::INVALID_TYPE) {
-            output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
-                         DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
-            return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
-        }
+    return apply_for_columns([&](const ColumnPtr column) { return column->permute(perm, limit); });
+}
 
-        size_t ind = n;
-        if (ind < num_of_defaults_in_prefix) {
-            output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
-                         DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
-            return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
-        }
+void ColumnVariant::pop_back(size_t length) {
+    for (auto& entry : subcolumns) {
+        entry->data.pop_back(length);
+    }
+    serialized_sparse_column->pop_back(length);
+    num_rows -= length;
+    ENABLE_CHECK_CONSISTENCY(this);
+}
 
-        ind -= num_of_defaults_in_prefix;
-        for (size_t i = 0; i < data.size(); ++i) {
-            const auto& part = data[i];
-            const auto& part_type_serde = data_serdes[i];
+const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key) const {
+    const auto* node = subcolumns.find_leaf(key);
+    if (node == nullptr) {
+        VLOG_DEBUG << "There is no subcolumn " << key.get_path();
+        return nullptr;
+    }
+    return &node->data;
+}
 
-            if (ind < part->size()) {
-                return part_type_serde->serialize_one_cell_to_json(*part, ind, output, opt);
-            }
-
-            ind -= part->size();
-        }
-        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                               "Index ({}) for serializing JSON is out of range", n);
+size_t ColumnVariant::Subcolumn::serialize_text_json(size_t n, BufferWritable& output,
+                                                     DataTypeSerDe::FormatOptions opt) const {
+    if (least_common_type.get_base_type_id() == PrimitiveType::INVALID_TYPE) {
+        output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
+                     DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
+        return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
     }
 
-    const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn_with_cache(
-            const PathInData& key, size_t key_index) const {
-        // Optimization by caching the order of fields (which is almost always the same)
-        // and a quick check to match the next expected field, instead of searching the hash table.
-        if (_prev_positions.size() > key_index && _prev_positions[key_index].second != nullptr &&
-            key == _prev_positions[key_index].first) {
-            return _prev_positions[key_index].second;
-        }
-        const auto* subcolumn = get_subcolumn(key);
-        if (key_index >= _prev_positions.size()) {
-            _prev_positions.resize(key_index + 1);
-        }
-        if (subcolumn != nullptr) {
-            _prev_positions[key_index] = std::make_pair(key, subcolumn);
-        }
-        return subcolumn;
+    size_t ind = n;
+    if (ind < num_of_defaults_in_prefix) {
+        output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
+                     DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
+        return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
     }
 
-    ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key,
-                                                           size_t key_index) {
-        return const_cast<ColumnVariant::Subcolumn*>(get_subcolumn_with_cache(key, key_index));
-    }
+    ind -= num_of_defaults_in_prefix;
+    for (size_t i = 0; i < data.size(); ++i) {
+        const auto& part = data[i];
+        const auto& part_type_serde = data_serdes[i];
 
-    const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key,
-                                                                 size_t key_index) const {
-        return get_subcolumn_with_cache(key, key_index);
-    }
+        if (ind < part->size()) {
+            return part_type_serde->serialize_one_cell_to_json(*part, ind, output, opt);
+        }
 
-    ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key) {
-        const auto* node = subcolumns.find_leaf(key);
-        if (node == nullptr) {
-            VLOG_DEBUG << "There is no subcolumn " << key.get_path();
-            return nullptr;
-        }
-        return &const_cast<Subcolumns::Node*>(node)->data;
+        ind -= part->size();
     }
+    throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                           "Index ({}) for serializing JSON is out of range", n);
+}
 
-    bool ColumnVariant::has_subcolumn(const PathInData& key) const {
-        return subcolumns.find_leaf(key) != nullptr;
+const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn_with_cache(const PathInData& key,
+                                                                        size_t key_index) const {
+    // Optimization by caching the order of fields (which is almost always the same)
+    // and a quick check to match the next expected field, instead of searching the hash table.
+    if (_prev_positions.size() > key_index && _prev_positions[key_index].second != nullptr &&
+        key == _prev_positions[key_index].first) {
+        return _prev_positions[key_index].second;
     }
+    const auto* subcolumn = get_subcolumn(key);
+    if (key_index >= _prev_positions.size()) {
+        _prev_positions.resize(key_index + 1);
+    }
+    if (subcolumn != nullptr) {
+        _prev_positions[key_index] = std::make_pair(key, subcolumn);
+    }
+    return subcolumn;
+}
 
-    bool ColumnVariant::add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn,
-                                       DataTypePtr type) {
-        size_t new_size = subcolumn->size();
-        if (key.empty() && subcolumns.empty()) {
-            // create root
-            subcolumns.create_root(Subcolumn(std::move(subcolumn), type, is_nullable, true));
-            num_rows = new_size;
-            return true;
-        }
-        if (key.empty() &&
-            (!subcolumns.get_root()->is_scalar() || is_null_root() ||
-             subcolumns.get_root()->data.get_least_common_type()->get_primitive_type() ==
-                     INVALID_TYPE)) {
-            bool root_it_scalar = subcolumns.get_root()->is_scalar();
-            // update root to scalar
-            subcolumns.get_mutable_root()->modify_to_scalar(
-                    Subcolumn(std::move(subcolumn), type, is_nullable, true));
-            if (!root_it_scalar) {
-                subcolumns.add_leaf(subcolumns.get_root_ptr());
-            }
-            if (num_rows == 0) {
-                num_rows = new_size;
-            }
-            return true;
-        }
-        bool inserted = subcolumns.add(key, Subcolumn(std::move(subcolumn), type, is_nullable));
-        if (!inserted) {
-            VLOG_DEBUG << "Duplicated sub column " << key.get_path();
-            return false;
-        }
-        if (num_rows == 0) {
-            num_rows = new_size;
-        } else if (new_size != num_rows) {
-            VLOG_DEBUG << "Size of subcolumn is in consistent with column";
-            return false;
-        }
-        if (key.get_is_typed()) {
-            typed_path_count++;
-        }
-        if (key.has_nested_part()) {
-            nested_path_count++;
-        }
+ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key, size_t key_index) {
+    return const_cast<ColumnVariant::Subcolumn*>(get_subcolumn_with_cache(key, key_index));
+}
+
+const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key,
+                                                             size_t key_index) const {
+    return get_subcolumn_with_cache(key, key_index);
+}
+
+ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key) {
+    const auto* node = subcolumns.find_leaf(key);
+    if (node == nullptr) {
+        VLOG_DEBUG << "There is no subcolumn " << key.get_path();
+        return nullptr;
+    }
+    return &const_cast<Subcolumns::Node*>(node)->data;
+}
+
+bool ColumnVariant::has_subcolumn(const PathInData& key) const {
+    return subcolumns.find_leaf(key) != nullptr;
+}
+
+bool ColumnVariant::add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn,
+                                   DataTypePtr type) {
+    size_t new_size = subcolumn->size();
+    if (key.empty() && subcolumns.empty()) {
+        // create root
+        subcolumns.create_root(Subcolumn(std::move(subcolumn), type, is_nullable, true));
+        num_rows = new_size;
         return true;
     }
-
-    bool ColumnVariant::add_sub_column(const PathInData& key, size_t new_size) {
-        if (key.empty() && subcolumns.empty()) {
-            // create root
-            subcolumns.create_root(Subcolumn(new_size, is_nullable, true));
-            num_rows = new_size;
-            return true;
-        }
-        if (key.empty() && (!subcolumns.get_root()->is_scalar())) {
-            // update none scalar root column to scalar node
-            subcolumns.get_mutable_root()->modify_to_scalar(Subcolumn(new_size, is_nullable, true));
+    if (key.empty() && (!subcolumns.get_root()->is_scalar() || is_null_root() ||
+                        subcolumns.get_root()->data.get_least_common_type()->get_primitive_type() ==
+                                INVALID_TYPE)) {
+        bool root_it_scalar = subcolumns.get_root()->is_scalar();
+        // update root to scalar
+        subcolumns.get_mutable_root()->modify_to_scalar(
+                Subcolumn(std::move(subcolumn), type, is_nullable, true));
+        if (!root_it_scalar) {
             subcolumns.add_leaf(subcolumns.get_root_ptr());
-            if (num_rows == 0) {
-                num_rows = new_size;
-            }
-            return true;
-        }
-        bool inserted = subcolumns.add(key, Subcolumn(new_size, is_nullable));
-        if (!inserted) {
-            VLOG_DEBUG << "Duplicated sub column " << key.get_path();
-            return false;
         }
         if (num_rows == 0) {
             num_rows = new_size;
-        } else if (new_size != num_rows) {
-            VLOG_DEBUG << "Size of subcolumn is in consistent with column";
-            return false;
-        }
-        if (key.get_is_typed()) {
-            typed_path_count++;
-        }
-        if (key.has_nested_part()) {
-            nested_path_count++;
         }
         return true;
     }
-
-    bool ColumnVariant::is_finalized() const {
-        return std::all_of(subcolumns.begin(), subcolumns.end(),
-                           [](const auto& entry) { return entry->data.is_finalized(); });
+    bool inserted = subcolumns.add(key, Subcolumn(std::move(subcolumn), type, is_nullable));
+    if (!inserted) {
+        VLOG_DEBUG << "Duplicated sub column " << key.get_path();
+        return false;
     }
-
-    void ColumnVariant::Subcolumn::wrapp_array_nullable() {
-        // Wrap array with nullable, treat empty array as null to elimate conflict at present
-        auto& result_column = get_finalized_column_ptr();
-        if (is_column<vectorized::ColumnArray>(result_column.get()) &&
-            !result_column->is_nullable()) {
-            auto new_null_map = ColumnUInt8::create();
-            new_null_map->reserve(result_column->size());
-            auto& null_map_data = new_null_map->get_data();
-            const auto* array = static_cast<const ColumnArray*>(result_column.get());
-            for (size_t i = 0; i < array->size(); ++i) {
-                null_map_data.push_back(array->is_default_at(i));
-            }
-            result_column =
-                    ColumnNullable::create(std::move(result_column), std::move(new_null_map));
-            data_types[0] = make_nullable(data_types[0]);
-            least_common_type = LeastCommonType {data_types[0], is_root};
-        }
+    if (num_rows == 0) {
+        num_rows = new_size;
+    } else if (new_size != num_rows) {
+        VLOG_DEBUG << "Size of subcolumn is in consistent with column";
+        return false;
     }
-
-    void ColumnVariant::serialize_one_row_to_string(int64_t row, std::string * output) const {
-        auto tmp_col = ColumnString::create();
-        VectorBufferWriter write_buffer(*tmp_col.get());
-        if (is_scalar_variant()) {
-            subcolumns.get_root()->data.serialize_text_json(row, write_buffer);
-        } else {
-            // TODO preallocate memory
-            serialize_one_row_to_json_format(row, write_buffer, nullptr);
-        }
-        write_buffer.commit();
-        auto str_ref = tmp_col->get_data_at(0);
-        *output = std::string(str_ref.data, str_ref.size);
+    if (key.get_is_typed()) {
+        typed_path_count++;
     }
+    if (key.has_nested_part()) {
+        nested_path_count++;
+    }
+    return true;
+}
 
-    void ColumnVariant::serialize_one_row_to_string(int64_t row, BufferWritable & output) const {
-        if (is_scalar_variant()) {
-            subcolumns.get_root()->data.serialize_text_json(row, output);
-            return;
+bool ColumnVariant::add_sub_column(const PathInData& key, size_t new_size) {
+    if (key.empty() && subcolumns.empty()) {
+        // create root
+        subcolumns.create_root(Subcolumn(new_size, is_nullable, true));
+        num_rows = new_size;
+        return true;
+    }
+    if (key.empty() && (!subcolumns.get_root()->is_scalar())) {
+        // update none scalar root column to scalar node
+        subcolumns.get_mutable_root()->modify_to_scalar(Subcolumn(new_size, is_nullable, true));
+        subcolumns.add_leaf(subcolumns.get_root_ptr());
+        if (num_rows == 0) {
+            num_rows = new_size;
         }
-        serialize_one_row_to_json_format(row, output, nullptr);
+        return true;
+    }
+    bool inserted = subcolumns.add(key, Subcolumn(new_size, is_nullable));
+    if (!inserted) {
+        VLOG_DEBUG << "Duplicated sub column " << key.get_path();
+        return false;
+    }
+    if (num_rows == 0) {
+        num_rows = new_size;
+    } else if (new_size != num_rows) {
+        VLOG_DEBUG << "Size of subcolumn is in consistent with column";
+        return false;
+    }
+    if (key.get_is_typed()) {
+        typed_path_count++;
+    }
+    if (key.has_nested_part()) {
+        nested_path_count++;
+    }
+    return true;
+}
+
+bool ColumnVariant::is_finalized() const {
+    return std::all_of(subcolumns.begin(), subcolumns.end(),
+                       [](const auto& entry) { return entry->data.is_finalized(); });
+}
+
+void ColumnVariant::Subcolumn::wrapp_array_nullable() {
+    // Wrap array with nullable, treat empty array as null to elimate conflict at present
+    auto& result_column = get_finalized_column_ptr();
+    if (is_column<vectorized::ColumnArray>(result_column.get()) && !result_column->is_nullable()) {
+        auto new_null_map = ColumnUInt8::create();
+        new_null_map->reserve(result_column->size());
+        auto& null_map_data = new_null_map->get_data();
+        const auto* array = static_cast<const ColumnArray*>(result_column.get());
+        for (size_t i = 0; i < array->size(); ++i) {
+            null_map_data.push_back(array->is_default_at(i));
+        }
+        result_column = ColumnNullable::create(std::move(result_column), std::move(new_null_map));
+        data_types[0] = make_nullable(data_types[0]);
+        least_common_type = LeastCommonType {data_types[0], is_root};
+    }
+}
+
+void ColumnVariant::serialize_one_row_to_string(int64_t row, std::string* output) const {
+    auto tmp_col = ColumnString::create();
+    VectorBufferWriter write_buffer(*tmp_col.get());
+    if (is_scalar_variant()) {
+        subcolumns.get_root()->data.serialize_text_json(row, write_buffer);
+    } else {
+        // TODO preallocate memory
+        serialize_one_row_to_json_format(row, write_buffer, nullptr);
+    }
+    write_buffer.commit();
+    auto str_ref = tmp_col->get_data_at(0);
+    *output = std::string(str_ref.data, str_ref.size);
+}
+
+void ColumnVariant::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
+    if (is_scalar_variant()) {
+        subcolumns.get_root()->data.serialize_text_json(row, output);
         return;
     }
+    serialize_one_row_to_json_format(row, output, nullptr);
+    return;
+}
 
-    /// Struct that represents elements of the JSON path.
-    /// "a.b.c" -> ["a", "b", "c"]
-    struct PathElements {
-        explicit PathElements(const String& path) {
-            const char* start = path.data();
-            const char* end = start + path.size();
-            const char* pos = start;
-            const char* last_dot_pos = pos - 1;
-            for (pos = start; pos != end; ++pos) {
-                if (*pos == '.') {
-                    elements.emplace_back(last_dot_pos + 1, size_t(pos - last_dot_pos - 1));
-                    last_dot_pos = pos;
+/// Struct that represents elements of the JSON path.
+/// "a.b.c" -> ["a", "b", "c"]
+struct PathElements {
+    explicit PathElements(const String& path) {
+        const char* start = path.data();
+        const char* end = start + path.size();
+        const char* pos = start;
+        const char* last_dot_pos = pos - 1;
+        for (pos = start; pos != end; ++pos) {
+            if (*pos == '.') {
+                elements.emplace_back(last_dot_pos + 1, size_t(pos - last_dot_pos - 1));
+                last_dot_pos = pos;
+            }
+        }
+
+        elements.emplace_back(last_dot_pos + 1, size_t(pos - last_dot_pos - 1));
+    }
+
+    size_t size() const { return elements.size(); }
+
+    std::vector<std::string_view> elements;
+};
+
+/// Struct that represents a prefix of a JSON path. Used during output of the JSON object.
+struct Prefix {
+    /// Shrink current prefix to the common prefix of current prefix and specified path.
+    /// For example, if current prefix is a.b.c.d and path is a.b.e, then shrink the prefix to a.b.
+    void shrink_to_common_prefix(const PathElements& path_elements) {
+        /// Don't include last element in path_elements in the prefix.
+        size_t i = 0;
+        while (i != elements.size() && i != (path_elements.elements.size() - 1) &&
+               elements[i].first == path_elements.elements[i]) {
+            ++i;
+        }
+        elements.resize(i);
+    }
+
+    /// Check is_first flag in current object.
+    bool is_first_in_current_object() const {
+        if (elements.empty()) {
+            return root_is_first_flag;
+        }
+        return elements.back().second;
+    }
+
+    /// Set flag is_first = false in current object.
+    void set_not_first_in_current_object() {
+        if (elements.empty()) {
+            root_is_first_flag = false;
+        } else {
+            elements.back().second = false;
+        }
+    }
+
+    size_t size() const { return elements.size(); }
+
+    /// Elements of the prefix: (path element, is_first flag in this prefix).
+    /// is_first flag indicates if we already serialized some key in the object with such prefix.
+    std::vector<std::pair<std::string_view, bool>> elements;
+    bool root_is_first_flag = true;
+};
+
+// skip empty nested json:
+// 1. nested array with only nulls, eg. [null. null],todo: think a better way to deal distinguish array null value and real null value.
+// 2. type is nothing
+bool ColumnVariant::Subcolumn::is_empty_nested(size_t row) const {
+    PrimitiveType base_type_id = least_common_type.get_base_type_id();
+    const DataTypePtr& type = least_common_type.get();
+    // check if it is empty nested json array, then skip
+    if (base_type_id == PrimitiveType::TYPE_VARIANT) {
+        DCHECK(type->equals(*ColumnVariant::NESTED_TYPE));
+        FieldWithDataType field;
+        get(row, field);
+        if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
+            const auto& array = field.field.get<Array>();
+            bool only_nulls_inside = true;
+            for (const auto& elem : array) {
+                if (elem.get_type() != PrimitiveType::TYPE_NULL) {
+                    only_nulls_inside = false;
+                    break;
                 }
             }
-
-            elements.emplace_back(last_dot_pos + 1, size_t(pos - last_dot_pos - 1));
+            // if only nulls then skip
+            return only_nulls_inside;
         }
+    }
+    // skip nothing type
+    if (base_type_id == PrimitiveType::INVALID_TYPE) {
+        return true;
+    }
+    return false;
+}
 
-        size_t size() const { return elements.size(); }
-
-        std::vector<std::string_view> elements;
-    };
-
-    /// Struct that represents a prefix of a JSON path. Used during output of the JSON object.
-    struct Prefix {
-        /// Shrink current prefix to the common prefix of current prefix and specified path.
-        /// For example, if current prefix is a.b.c.d and path is a.b.e, then shrink the prefix to a.b.
-        void shrink_to_common_prefix(const PathElements& path_elements) {
-            /// Don't include last element in path_elements in the prefix.
-            size_t i = 0;
-            while (i != elements.size() && i != (path_elements.elements.size() - 1) &&
-                   elements[i].first == path_elements.elements[i]) {
-                ++i;
-            }
-            elements.resize(i);
-        }
-
-        /// Check is_first flag in current object.
-        bool is_first_in_current_object() const {
-            if (elements.empty()) {
-                return root_is_first_flag;
-            }
-            return elements.back().second;
-        }
-
-        /// Set flag is_first = false in current object.
-        void set_not_first_in_current_object() {
-            if (elements.empty()) {
-                root_is_first_flag = false;
-            } else {
-                elements.back().second = false;
-            }
-        }
-
-        size_t size() const { return elements.size(); }
-
-        /// Elements of the prefix: (path element, is_first flag in this prefix).
-        /// is_first flag indicates if we already serialized some key in the object with such prefix.
-        std::vector<std::pair<std::string_view, bool>> elements;
-        bool root_is_first_flag = true;
-    };
-
-    // skip empty nested json:
-    // 1. nested array with only nulls, eg. [null. null],todo: think a better way to deal distinguish array null value and real null value.
-    // 2. type is nothing
-    bool ColumnVariant::Subcolumn::is_empty_nested(size_t row) const {
-        PrimitiveType base_type_id = least_common_type.get_base_type_id();
-        const DataTypePtr& type = least_common_type.get();
-        // check if it is empty nested json array, then skip
-        if (base_type_id == PrimitiveType::TYPE_VARIANT) {
-            DCHECK(type->equals(*ColumnVariant::NESTED_TYPE));
-            FieldWithDataType field;
-            get(row, field);
-            if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
-                const auto& array = field.field.get<Array>();
-                bool only_nulls_inside = true;
-                for (const auto& elem : array) {
-                    if (elem.get_type() != PrimitiveType::TYPE_NULL) {
-                        only_nulls_inside = false;
-                        break;
-                    }
-                }
-                // if only nulls then skip
-                return only_nulls_inside;
-            }
-        }
-        // skip nothing type
-        if (base_type_id == PrimitiveType::INVALID_TYPE) {
-            return true;
-        }
+bool ColumnVariant::is_visible_root_value(size_t nrow) const {
+    if (is_null_root()) {
         return false;
     }
+    const auto* root = subcolumns.get_root();
+    if (root->data.is_null_at(nrow)) {
+        return false;
+    }
+    if (root->data.least_common_type.get_base_type_id() == PrimitiveType::TYPE_VARIANT) {
+        // nested field
+        return !root->data.is_empty_nested(nrow);
+    }
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_root) {
+            continue; // Skip the root column
+        }
 
-    bool ColumnVariant::is_visible_root_value(size_t nrow) const {
-        if (is_null_root()) {
+        // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
+        if (!subcolumn->data.is_null_at(nrow)) {
             return false;
         }
-        const auto* root = subcolumns.get_root();
-        if (root->data.is_null_at(nrow)) {
-            return false;
+    }
+    size_t ind = nrow - root->data.num_of_defaults_in_prefix;
+    // null value as empty json, todo: think a better way to disinguish empty json and null json.
+    for (const auto& part : root->data.data) {
+        if (ind < part->size()) {
+            return !part->get_data_at(ind).empty();
         }
-        if (root->data.least_common_type.get_base_type_id() == PrimitiveType::TYPE_VARIANT) {
-            // nested field
-            return !root->data.is_empty_nested(nrow);
-        }
-        for (const auto& subcolumn : subcolumns) {
-            if (subcolumn->data.is_root) {
-                continue; // Skip the root column
-            }
-
-            // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
-            if (!subcolumn->data.is_null_at(nrow)) {
-                return false;
-            }
-        }
-        size_t ind = nrow - root->data.num_of_defaults_in_prefix;
-        // null value as empty json, todo: think a better way to disinguish empty json and null json.
-        for (const auto& part : root->data.data) {
-            if (ind < part->size()) {
-                return !part->get_data_at(ind).empty();
-            }
-            ind -= part->size();
-        }
-
-        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                               "Index ({}) for getting field is out of range", nrow);
+        ind -= part->size();
     }
 
-    void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWritable & output,
-                                                         bool* is_null) const {
-        // root is not eighther null or empty, we should only process root value
-        if (is_visible_root_value(row_num)) {
-            subcolumns.get_root()->data.serialize_text_json(row_num, output);
-            return;
-        }
-        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
-        const auto& sparse_data_offsets = column_map.get_offsets();
-        const auto [sparse_data_paths, sparse_data_values] = get_sparse_data_paths_and_values();
-        size_t sparse_data_offset = sparse_data_offsets[static_cast<ssize_t>(row_num) - 1];
-        size_t sparse_data_end = sparse_data_offsets[static_cast<ssize_t>(row_num)];
+    throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
+                           nrow);
+}
 
-        // We need to convert the set of paths in this row to a JSON object.
-        // To do it, we first collect all the paths from current row, then we sort them
-        // and construct the resulting JSON object by iterating over sorted list of paths.
+void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
+                                                     bool* is_null) const {
+    // root is not eighther null or empty, we should only process root value
+    if (is_visible_root_value(row_num)) {
+        subcolumns.get_root()->data.serialize_text_json(row_num, output);
+        return;
+    }
+    const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
+    const auto& sparse_data_offsets = column_map.get_offsets();
+    const auto [sparse_data_paths, sparse_data_values] = get_sparse_data_paths_and_values();
+    size_t sparse_data_offset = sparse_data_offsets[static_cast<ssize_t>(row_num) - 1];
+    size_t sparse_data_end = sparse_data_offsets[static_cast<ssize_t>(row_num)];
+
+    // We need to convert the set of paths in this row to a JSON object.
+    // To do it, we first collect all the paths from current row, then we sort them
+    // and construct the resulting JSON object by iterating over sorted list of paths.
+    // For example:
+    // b.c, a.b, a.a, b.e, g, h.u.t -> a.a, a.b, b.c, b.e, g, h.u.t -> {"a" : {"a" : ..., "b" : ...}, "b" : {"c" : ..., "e" : ...}, "g" : ..., "h" : {"u" : {"t" : ...}}}.
+    std::vector<String> sorted_paths;
+    std::unordered_map<std::string, Subcolumn> subcolumn_path_map;
+    sorted_paths.reserve(get_subcolumns().size() + (sparse_data_end - sparse_data_offset));
+    for (const auto& subcolumn : get_subcolumns()) {
+        // Skip root value, we have already processed it
+        if (subcolumn->data.is_root) {
+            continue;
+        }
+
+        // skip empty nested value
+        if (subcolumn->data.is_empty_nested(row_num)) {
+            continue;
+        }
+        /// We consider null value and absence of the path in a row as equivalent cases, because we cannot actually distinguish them.
+        /// So, we don't output null values at all.
+        if (!subcolumn->data.is_null_at(row_num)) {
+            sorted_paths.emplace_back(subcolumn->path.get_path());
+        }
+        subcolumn_path_map.emplace(subcolumn->path.get_path(), subcolumn->data);
+    }
+    for (size_t i = sparse_data_offset; i != sparse_data_end; ++i) {
+        auto path = sparse_data_paths->get_data_at(i).to_string();
+        sorted_paths.emplace_back(path);
+    }
+
+    std::sort(sorted_paths.begin(), sorted_paths.end());
+
+    output.write_char('{');
+    size_t index_in_sparse_data_values = sparse_data_offset;
+    // current_prefix represents the path of the object we are currently serializing keys in.
+    Prefix current_prefix;
+    for (const auto& path : sorted_paths) {
+        PathElements path_elements(path);
+        // Change prefix to common prefix between current prefix and current path.
+        // If prefix changed (it can only decrease), close all finished objects.
         // For example:
-        // b.c, a.b, a.a, b.e, g, h.u.t -> a.a, a.b, b.c, b.e, g, h.u.t -> {"a" : {"a" : ..., "b" : ...}, "b" : {"c" : ..., "e" : ...}, "g" : ..., "h" : {"u" : {"t" : ...}}}.
-        std::vector<String> sorted_paths;
-        std::unordered_map<std::string, Subcolumn> subcolumn_path_map;
-        sorted_paths.reserve(get_subcolumns().size() + (sparse_data_end - sparse_data_offset));
-        for (const auto& subcolumn : get_subcolumns()) {
-            // Skip root value, we have already processed it
-            if (subcolumn->data.is_root) {
-                continue;
+        // Current prefix: a.b.c.d
+        // Current path: a.b.e.f
+        // It means now we have : {..., "a" : {"b" : {"c" : {"d" : ...
+        // Common prefix will be a.b, so it means we should close objects a.b.c.d and a.b.c: {..., "a" : {"b" : {"c" : {"d" : ...}}
+        // and continue serializing keys in object a.b
+        size_t prev_prefix_size = current_prefix.size();
+        current_prefix.shrink_to_common_prefix(path_elements);
+        size_t prefix_size = current_prefix.size();
+        if (prefix_size != prev_prefix_size) {
+            size_t objects_to_close = prev_prefix_size - prefix_size;
+            for (size_t i = 0; i != objects_to_close; ++i) {
+                output.write_char('}');
             }
-
-            // skip empty nested value
-            if (subcolumn->data.is_empty_nested(row_num)) {
-                continue;
-            }
-            /// We consider null value and absence of the path in a row as equivalent cases, because we cannot actually distinguish them.
-            /// So, we don't output null values at all.
-            if (!subcolumn->data.is_null_at(row_num)) {
-                sorted_paths.emplace_back(subcolumn->path.get_path());
-            }
-            subcolumn_path_map.emplace(subcolumn->path.get_path(), subcolumn->data);
-        }
-        for (size_t i = sparse_data_offset; i != sparse_data_end; ++i) {
-            auto path = sparse_data_paths->get_data_at(i).to_string();
-            sorted_paths.emplace_back(path);
         }
 
-        std::sort(sorted_paths.begin(), sorted_paths.end());
-
-        output.write_char('{');
-        size_t index_in_sparse_data_values = sparse_data_offset;
-        // current_prefix represents the path of the object we are currently serializing keys in.
-        Prefix current_prefix;
-        for (const auto& path : sorted_paths) {
-            PathElements path_elements(path);
-            // Change prefix to common prefix between current prefix and current path.
-            // If prefix changed (it can only decrease), close all finished objects.
-            // For example:
-            // Current prefix: a.b.c.d
-            // Current path: a.b.e.f
-            // It means now we have : {..., "a" : {"b" : {"c" : {"d" : ...
-            // Common prefix will be a.b, so it means we should close objects a.b.c.d and a.b.c: {..., "a" : {"b" : {"c" : {"d" : ...}}
-            // and continue serializing keys in object a.b
-            size_t prev_prefix_size = current_prefix.size();
-            current_prefix.shrink_to_common_prefix(path_elements);
-            size_t prefix_size = current_prefix.size();
-            if (prefix_size != prev_prefix_size) {
-                size_t objects_to_close = prev_prefix_size - prefix_size;
-                for (size_t i = 0; i != objects_to_close; ++i) {
-                    output.write_char('}');
+        // Now we are inside object that has common prefix with current path.
+        // We should go inside all objects in current path.
+        // From the example above we should open object a.b.e:
+        //  {..., "a" : {"b" : {"c" : {"d" : ...}}, "e" : {
+        if (prefix_size + 1 < path_elements.size()) {
+            for (size_t i = prefix_size; i != path_elements.size() - 1; ++i) {
+                /// Write comma before the key if it's not the first key in this prefix.
+                if (!current_prefix.is_first_in_current_object()) {
+                    output.write_char(',');
+                } else {
+                    current_prefix.set_not_first_in_current_object();
                 }
-            }
 
-            // Now we are inside object that has common prefix with current path.
-            // We should go inside all objects in current path.
-            // From the example above we should open object a.b.e:
-            //  {..., "a" : {"b" : {"c" : {"d" : ...}}, "e" : {
-            if (prefix_size + 1 < path_elements.size()) {
-                for (size_t i = prefix_size; i != path_elements.size() - 1; ++i) {
-                    /// Write comma before the key if it's not the first key in this prefix.
-                    if (!current_prefix.is_first_in_current_object()) {
-                        output.write_char(',');
-                    } else {
-                        current_prefix.set_not_first_in_current_object();
-                    }
+                output.write_json_string(path_elements.elements[i]);
+                output.write_c_string(":{");
 
-                    output.write_json_string(path_elements.elements[i]);
-                    output.write_c_string(":{");
-
-                    // Update current prefix.
-                    current_prefix.elements.emplace_back(path_elements.elements[i], true);
-                }
-            }
-
-            // Write comma before the key if it's not the first key in this prefix.
-            if (!current_prefix.is_first_in_current_object()) {
-                output.write_char(',');
-            } else {
-                current_prefix.set_not_first_in_current_object();
-            }
-
-            output.write_json_string(path_elements.elements.back());
-            output.write_c_string(":");
-
-            // Serialize value of current path.
-            if (auto subcolumn_it = subcolumn_path_map.find(path);
-                subcolumn_it != subcolumn_path_map.end()) {
-                DataTypeSerDe::FormatOptions options;
-                options.escape_char = '\\';
-                subcolumn_it->second.serialize_text_json(row_num, output, options);
-            } else {
-                // To serialize value stored in shared data we should first deserialize it from binary format.
-                Subcolumn tmp_subcolumn(0, true);
-                const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                        sparse_data_values, index_in_sparse_data_values++);
-                tmp_subcolumn.insert(data.first, data.second);
-                DataTypeSerDe::FormatOptions options;
-                options.escape_char = '\\';
-                tmp_subcolumn.serialize_text_json(0, output, options);
+                // Update current prefix.
+                current_prefix.elements.emplace_back(path_elements.elements[i], true);
             }
         }
 
-        // Close all remaining open objects.
-        for (size_t i = 0; i != current_prefix.elements.size(); ++i) {
-            output.write_char('}');
+        // Write comma before the key if it's not the first key in this prefix.
+        if (!current_prefix.is_first_in_current_object()) {
+            output.write_char(',');
+        } else {
+            current_prefix.set_not_first_in_current_object();
         }
+
+        output.write_json_string(path_elements.elements.back());
+        output.write_c_string(":");
+
+        // Serialize value of current path.
+        if (auto subcolumn_it = subcolumn_path_map.find(path);
+            subcolumn_it != subcolumn_path_map.end()) {
+            DataTypeSerDe::FormatOptions options;
+            options.escape_char = '\\';
+            subcolumn_it->second.serialize_text_json(row_num, output, options);
+        } else {
+            // To serialize value stored in shared data we should first deserialize it from binary format.
+            Subcolumn tmp_subcolumn(0, true);
+            const auto& data = ColumnVariant::deserialize_from_sparse_column(
+                    sparse_data_values, index_in_sparse_data_values++);
+            tmp_subcolumn.insert(data.first, data.second);
+            DataTypeSerDe::FormatOptions options;
+            options.escape_char = '\\';
+            tmp_subcolumn.serialize_text_json(0, output, options);
+        }
+    }
+
+    // Close all remaining open objects.
+    for (size_t i = 0; i != current_prefix.elements.size(); ++i) {
         output.write_char('}');
     }
+    output.write_char('}');
+}
 
-    size_t ColumnVariant::Subcolumn::get_non_null_value_size() const {
-        size_t res = 0;
-        for (const auto& part : data) {
-            const auto& null_data = assert_cast<const ColumnNullable&>(*part).get_null_map_data();
-            res += simd::count_zero_num((int8_t*)null_data.data(), null_data.size());
-        }
-        return res;
+size_t ColumnVariant::Subcolumn::get_non_null_value_size() const {
+    size_t res = 0;
+    for (const auto& part : data) {
+        const auto& null_data = assert_cast<const ColumnNullable&>(*part).get_null_map_data();
+        res += simd::count_zero_num((int8_t*)null_data.data(), null_data.size());
     }
+    return res;
+}
 
-    Status ColumnVariant::serialize_sparse_columns(std::map<std::string_view, Subcolumn> &&
-                                                   remaing_subcolumns) {
-        CHECK(is_finalized());
+Status ColumnVariant::serialize_sparse_columns(
+        std::map<std::string_view, Subcolumn>&& remaing_subcolumns) {
+    CHECK(is_finalized());
 
-        clear_sparse_column();
+    clear_sparse_column();
 
-        if (remaing_subcolumns.empty()) {
-            serialized_sparse_column->resize(num_rows);
-            return Status::OK();
-        }
-        serialized_sparse_column->reserve(num_rows);
-        auto [sparse_column_keys, sparse_column_values] = get_sparse_data_paths_and_values();
-        auto& sparse_column_offsets = serialized_sparse_column_offsets();
-
-        // Fill the column map for each row
-        for (size_t i = 0; i < num_rows; ++i) {
-            for (auto& [path, subcolumn] : remaing_subcolumns) {
-                subcolumn.serialize_to_sparse_column(sparse_column_keys, path, sparse_column_values,
-                                                     i);
-            }
-
-            // TODO add dcheck
-            sparse_column_offsets.push_back(sparse_column_keys->size());
-        }
-        CHECK_EQ(serialized_sparse_column->size(), num_rows);
+    if (remaing_subcolumns.empty()) {
+        serialized_sparse_column->resize(num_rows);
         return Status::OK();
     }
+    serialized_sparse_column->reserve(num_rows);
+    auto [sparse_column_keys, sparse_column_values] = get_sparse_data_paths_and_values();
+    auto& sparse_column_offsets = serialized_sparse_column_offsets();
 
-    void ColumnVariant::unnest(Subcolumns::NodePtr & entry, Subcolumns & subcolumns) const {
-        entry->data.finalize();
-        auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
-        auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
-        auto* nested_column_array =
-                assert_cast<ColumnArray*>(nested_column_nullable->get_nested_column_ptr().get());
-        auto& offset = nested_column_array->get_offsets_ptr();
-
-        auto* nested_object_nullable = assert_cast<ColumnNullable*>(
-                nested_column_array->get_data_ptr()->assume_mutable().get());
-        auto& nested_object_column =
-                assert_cast<ColumnVariant&>(nested_object_nullable->get_nested_column());
-        PathInData nested_path = entry->path;
-        for (auto& nested_entry : nested_object_column.subcolumns) {
-            if (nested_entry->data.least_common_type.get_base_type_id() ==
-                PrimitiveType::INVALID_TYPE) {
-                continue;
-            }
-            nested_entry->data.finalize();
-            PathInDataBuilder path_builder;
-            // format nested path
-            path_builder.append(nested_path.get_parts(), false);
-            path_builder.append(nested_entry->path.get_parts(), true);
-            auto subnested_column = ColumnArray::create(
-                    ColumnNullable::create(nested_entry->data.get_finalized_column_ptr(),
-                                           nested_object_nullable->get_null_map_column_ptr()),
-                    offset);
-            auto nullable_subnested_column = ColumnNullable::create(
-                    std::move(subnested_column), nested_column_nullable->get_null_map_column_ptr());
-            auto type = make_nullable(
-                    std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
-            Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
-            subcolumns.add(path_builder.build(), subcolumn);
+    // Fill the column map for each row
+    for (size_t i = 0; i < num_rows; ++i) {
+        for (auto& [path, subcolumn] : remaing_subcolumns) {
+            subcolumn.serialize_to_sparse_column(sparse_column_keys, path, sparse_column_values, i);
         }
+
+        // TODO add dcheck
+        sparse_column_offsets.push_back(sparse_column_keys->size());
     }
+    CHECK_EQ(serialized_sparse_column->size(), num_rows);
+    return Status::OK();
+}
 
-    void ColumnVariant::clear_sparse_column() {
-#ifndef NDEBUG
-        auto& sparse_column_offsets = serialized_sparse_column_offsets();
-        if (sparse_column_offsets[num_rows - 1] != 0) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "sprase column has nonnull value");
+void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const {
+    entry->data.finalize();
+    auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
+    auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
+    auto* nested_column_array =
+            assert_cast<ColumnArray*>(nested_column_nullable->get_nested_column_ptr().get());
+    auto& offset = nested_column_array->get_offsets_ptr();
+
+    auto* nested_object_nullable = assert_cast<ColumnNullable*>(
+            nested_column_array->get_data_ptr()->assume_mutable().get());
+    auto& nested_object_column =
+            assert_cast<ColumnVariant&>(nested_object_nullable->get_nested_column());
+    PathInData nested_path = entry->path;
+    for (auto& nested_entry : nested_object_column.subcolumns) {
+        if (nested_entry->data.least_common_type.get_base_type_id() ==
+            PrimitiveType::INVALID_TYPE) {
+            continue;
         }
+        nested_entry->data.finalize();
+        PathInDataBuilder path_builder;
+        // format nested path
+        path_builder.append(nested_path.get_parts(), false);
+        path_builder.append(nested_entry->path.get_parts(), true);
+        auto subnested_column = ColumnArray::create(
+                ColumnNullable::create(nested_entry->data.get_finalized_column_ptr(),
+                                       nested_object_nullable->get_null_map_column_ptr()),
+                offset);
+        auto nullable_subnested_column = ColumnNullable::create(
+                std::move(subnested_column), nested_column_nullable->get_null_map_column_ptr());
+        auto type = make_nullable(
+                std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
+        Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
+        subcolumns.add(path_builder.build(), subcolumn);
+    }
+}
+
+void ColumnVariant::clear_sparse_column() {
+#ifndef NDEBUG
+    auto& sparse_column_offsets = serialized_sparse_column_offsets();
+    if (sparse_column_offsets[num_rows - 1] != 0) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "sprase column has nonnull value");
+    }
 #endif
 
-        serialized_sparse_column->clear();
-    }
+    serialized_sparse_column->clear();
+}
 
-    Status ColumnVariant::convert_typed_path_to_storage_type(
-            const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths) {
-        for (auto&& entry : subcolumns) {
-            if (auto it = typed_paths.find(entry->path.get_path()); it != typed_paths.end()) {
-                CHECK(entry->data.is_finalized());
-                vectorized::DataTypePtr storage_type =
-                        vectorized::DataTypeFactory::instance().create_data_type(it->second.column);
-                vectorized::DataTypePtr finalized_type = entry->data.get_least_common_type();
-                auto current_column = entry->data.get_finalized_column_ptr()->get_ptr();
-                if (!storage_type->equals(*finalized_type)) {
-                    RETURN_IF_ERROR(vectorized::schema_util::cast_column(
-                            {current_column, finalized_type, ""}, storage_type, &current_column));
-                }
-                VLOG_DEBUG << "convert " << entry->path.get_path() << " from type"
-                           << entry->data.get_least_common_type()->get_name() << " to "
-                           << storage_type->get_name();
-                entry->data.data[0] = current_column;
-                entry->data.data_types[0] = storage_type;
-                entry->data.data_serdes[0] = Subcolumn::generate_data_serdes(storage_type, false);
-                entry->data.least_common_type = Subcolumn::LeastCommonType {storage_type, false};
+Status ColumnVariant::convert_typed_path_to_storage_type(
+        const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths) {
+    for (auto&& entry : subcolumns) {
+        if (auto it = typed_paths.find(entry->path.get_path()); it != typed_paths.end()) {
+            CHECK(entry->data.is_finalized());
+            vectorized::DataTypePtr storage_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(it->second.column);
+            vectorized::DataTypePtr finalized_type = entry->data.get_least_common_type();
+            auto current_column = entry->data.get_finalized_column_ptr()->get_ptr();
+            if (!storage_type->equals(*finalized_type)) {
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+                        {current_column, finalized_type, ""}, storage_type, &current_column));
             }
+            VLOG_DEBUG << "convert " << entry->path.get_path() << " from type"
+                       << entry->data.get_least_common_type()->get_name() << " to "
+                       << storage_type->get_name();
+            entry->data.data[0] = current_column;
+            entry->data.data_types[0] = storage_type;
+            entry->data.data_serdes[0] = Subcolumn::generate_data_serdes(storage_type, false);
+            entry->data.least_common_type = Subcolumn::LeastCommonType {storage_type, false};
         }
+    }
+    return Status::OK();
+}
+
+Status ColumnVariant::pick_subcolumns_to_sparse_column(
+        const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths,
+        bool variant_enable_typed_paths_to_sparse) {
+    DCHECK(_max_subcolumns_count >= 0) << "max subcolumns count is: " << _max_subcolumns_count;
+
+    // no need to pick subcolumns to sparse column, all subcolumns will be picked
+    if (_max_subcolumns_count == 0) {
         return Status::OK();
     }
 
-    Status ColumnVariant::pick_subcolumns_to_sparse_column(
-            const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths,
-            bool variant_enable_typed_paths_to_sparse) {
-        DCHECK(_max_subcolumns_count >= 0) << "max subcolumns count is: " << _max_subcolumns_count;
+    // root column must be exsit in subcolumns
+    // nested path count is the count of nested columns
+    int64_t current_subcolumns_count = subcolumns.size() - 1 - nested_path_count;
 
-        // no need to pick subcolumns to sparse column, all subcolumns will be picked
-        if (_max_subcolumns_count == 0) {
-            return Status::OK();
-        }
-
-        // root column must be exsit in subcolumns
-        // nested path count is the count of nested columns
-        int64_t current_subcolumns_count = subcolumns.size() - 1 - nested_path_count;
-
-        //  1000 count
-        // b : 1500 typed path + 700 subcolumns -> 1200 count ()
-        if (!variant_enable_typed_paths_to_sparse) {
-            current_subcolumns_count -= typed_paths.size();
-        }
-
-        bool need_pick_subcolumn_to_sparse_column =
-                current_subcolumns_count > _max_subcolumns_count;
-
-        if (!need_pick_subcolumn_to_sparse_column) {
-            return Status::OK();
-        }
-        Subcolumns new_subcolumns;
-        if (auto* root = subcolumns.get_mutable_root(); root == nullptr) {
-            CHECK(false);
-        } else {
-            new_subcolumns.create_root(root->data);
-        }
-        // picked to sparse columns
-        std::set<std::string_view> selected_path;
-        // pick subcolumns sort by size of none null values
-        std::unordered_map<std::string_view, size_t> none_null_value_sizes;
-        // 1. get the none null value sizes
-        for (auto&& entry : subcolumns) {
-            // root column is already in the subcolumns
-            if (entry->data.is_root) {
-                continue;
-            }
-            if ((!variant_enable_typed_paths_to_sparse &&
-                 typed_paths.find(entry->path.get_path()) != typed_paths.end()) ||
-                entry->path.has_nested_part()) {
-                VLOG_DEBUG << "pick " << entry->path.get_path() << " as typed column";
-                new_subcolumns.add(entry->path, entry->data);
-                continue;
-            }
-            size_t size = entry->data.get_non_null_value_size();
-            if (size == 0) {
-                continue;
-            }
-            none_null_value_sizes[entry->path.get_path()] = size;
-        }
-        // 2. sort by the size
-        std::vector<std::pair<std::string_view, size_t>> sorted_by_size(
-                none_null_value_sizes.begin(), none_null_value_sizes.end());
-        std::sort(sorted_by_size.begin(), sorted_by_size.end(),
-                  [](const auto& a, const auto& b) { return a.second > b.second; });
-        // 3. pick config::variant_max_subcolumns_count selected subcolumns
-        for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size());
-             ++i) {
-            selected_path.insert(sorted_by_size[i].first);
-        }
-        std::map<std::string_view, Subcolumn> remaing_subcolumns;
-        // add selected subcolumns to new_subcolumns, otherwise add to remaining_subcolumns
-        for (auto&& entry : subcolumns) {
-            if (entry->data.is_root) {
-                continue;
-            }
-            if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
-                new_subcolumns.add(entry->path, entry->data);
-                VLOG_DEBUG << "pick " << entry->path.get_path() << " as sub column";
-            } else if (none_null_value_sizes.find(entry->path.get_path()) !=
-                       none_null_value_sizes.end()) {
-                VLOG_DEBUG << "pick " << entry->path.get_path() << " as sparse column";
-                CHECK(!entry->path.has_nested_part());
-                remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
-            }
-        }
-        ENABLE_CHECK_CONSISTENCY(this);
-        RETURN_IF_ERROR(serialize_sparse_columns(std::move(remaing_subcolumns)));
-        std::swap(subcolumns, new_subcolumns);
-        ENABLE_CHECK_CONSISTENCY(this);
-        return Status::OK();
+    //  1000 count
+    // b : 1500 typed path + 700 subcolumns -> 1200 count ()
+    if (!variant_enable_typed_paths_to_sparse) {
+        current_subcolumns_count -= typed_paths.size();
     }
 
-    void ColumnVariant::finalize(FinalizeMode mode) {
-        if (is_finalized() && mode == FinalizeMode::READ_MODE) {
-            _prev_positions.clear();
-            ENABLE_CHECK_CONSISTENCY(this);
-            return;
+    bool need_pick_subcolumn_to_sparse_column = current_subcolumns_count > _max_subcolumns_count;
+
+    if (!need_pick_subcolumn_to_sparse_column) {
+        return Status::OK();
+    }
+    Subcolumns new_subcolumns;
+    if (auto* root = subcolumns.get_mutable_root(); root == nullptr) {
+        CHECK(false);
+    } else {
+        new_subcolumns.create_root(root->data);
+    }
+    // picked to sparse columns
+    std::set<std::string_view> selected_path;
+    // pick subcolumns sort by size of none null values
+    std::unordered_map<std::string_view, size_t> none_null_value_sizes;
+    // 1. get the none null value sizes
+    for (auto&& entry : subcolumns) {
+        // root column is already in the subcolumns
+        if (entry->data.is_root) {
+            continue;
         }
-        Subcolumns new_subcolumns;
-
-        if (auto* root = subcolumns.get_mutable_root(); root == nullptr) {
-            CHECK(false);
-        } else {
-            root->data.finalize(mode);
-            new_subcolumns.create_root(root->data);
-        }
-
-        // finalize all subcolumns
-        for (auto&& entry : subcolumns) {
-            if (entry->data.is_root) {
-                continue;
-            }
-            const auto& least_common_type = entry->data.get_least_common_type();
-
-            /// Do not add subcolumns, which consists only from NULLs
-            if (get_base_type_of_array(least_common_type)->get_primitive_type() ==
-                PrimitiveType::INVALID_TYPE) {
-                continue;
-            }
-
-            // unnest all nested columns, add them to new_subcolumns
-            if (mode == FinalizeMode::WRITE_MODE && least_common_type->equals(*NESTED_TYPE)) {
-                // reset counter
-                unnest(entry, new_subcolumns);
-                continue;
-            }
-
-            entry->data.finalize(mode);
-            entry->data.wrapp_array_nullable();
-
+        if ((!variant_enable_typed_paths_to_sparse &&
+             typed_paths.find(entry->path.get_path()) != typed_paths.end()) ||
+            entry->path.has_nested_part()) {
+            VLOG_DEBUG << "pick " << entry->path.get_path() << " as typed column";
             new_subcolumns.add(entry->path, entry->data);
+            continue;
         }
-        // after unnest need to recalculate nested_path_count in new_subcolumns
-        nested_path_count =
-                std::count_if(new_subcolumns.begin(), new_subcolumns.end(),
-                              [](const auto& entry) { return entry->path.has_nested_part(); });
-        std::swap(subcolumns, new_subcolumns);
+        size_t size = entry->data.get_non_null_value_size();
+        if (size == 0) {
+            continue;
+        }
+        none_null_value_sizes[entry->path.get_path()] = size;
+    }
+    // 2. sort by the size
+    std::vector<std::pair<std::string_view, size_t>> sorted_by_size(none_null_value_sizes.begin(),
+                                                                    none_null_value_sizes.end());
+    std::sort(sorted_by_size.begin(), sorted_by_size.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+    // 3. pick config::variant_max_subcolumns_count selected subcolumns
+    for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size()); ++i) {
+        selected_path.insert(sorted_by_size[i].first);
+    }
+    std::map<std::string_view, Subcolumn> remaing_subcolumns;
+    // add selected subcolumns to new_subcolumns, otherwise add to remaining_subcolumns
+    for (auto&& entry : subcolumns) {
+        if (entry->data.is_root) {
+            continue;
+        }
+        if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
+            new_subcolumns.add(entry->path, entry->data);
+            VLOG_DEBUG << "pick " << entry->path.get_path() << " as sub column";
+        } else if (none_null_value_sizes.find(entry->path.get_path()) !=
+                   none_null_value_sizes.end()) {
+            VLOG_DEBUG << "pick " << entry->path.get_path() << " as sparse column";
+            CHECK(!entry->path.has_nested_part());
+            remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
+        }
+    }
+    ENABLE_CHECK_CONSISTENCY(this);
+    RETURN_IF_ERROR(serialize_sparse_columns(std::move(remaing_subcolumns)));
+    std::swap(subcolumns, new_subcolumns);
+    ENABLE_CHECK_CONSISTENCY(this);
+    return Status::OK();
+}
+
+void ColumnVariant::finalize(FinalizeMode mode) {
+    if (is_finalized() && mode == FinalizeMode::READ_MODE) {
         _prev_positions.clear();
         ENABLE_CHECK_CONSISTENCY(this);
+        return;
+    }
+    Subcolumns new_subcolumns;
+
+    if (auto* root = subcolumns.get_mutable_root(); root == nullptr) {
+        CHECK(false);
+    } else {
+        root->data.finalize(mode);
+        new_subcolumns.create_root(root->data);
     }
 
-    void ColumnVariant::finalize() {
-        static_cast<void>(finalize(FinalizeMode::READ_MODE));
-    }
+    // finalize all subcolumns
+    for (auto&& entry : subcolumns) {
+        if (entry->data.is_root) {
+            continue;
+        }
+        const auto& least_common_type = entry->data.get_least_common_type();
 
-    void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) {
-        auto& root = subcolumns.get_mutable_root()->data;
-        if (!root.get_least_common_type()->equals(*expected_root_type)) {
-            // make sure the root type is alawys as expected
-            ColumnPtr casted_column;
-            static_cast<void>(schema_util::cast_column(
-                    ColumnWithTypeAndName {root.get_finalized_column_ptr(),
-                                           root.get_least_common_type(), ""},
-                    expected_root_type, &casted_column));
-            root.data[0] = casted_column;
-            root.data_types[0] = expected_root_type;
-            root.least_common_type = Subcolumn::LeastCommonType {expected_root_type, true};
-            root.num_rows = casted_column->size();
+        /// Do not add subcolumns, which consists only from NULLs
+        if (get_base_type_of_array(least_common_type)->get_primitive_type() ==
+            PrimitiveType::INVALID_TYPE) {
+            continue;
         }
-    }
 
-    bool ColumnVariant::empty() const {
-        return subcolumns.empty() ||
-               subcolumns.begin()->get()->path.get_path() == COLUMN_NAME_DUMMY;
-    }
+        // unnest all nested columns, add them to new_subcolumns
+        if (mode == FinalizeMode::WRITE_MODE && least_common_type->equals(*NESTED_TYPE)) {
+            // reset counter
+            unnest(entry, new_subcolumns);
+            continue;
+        }
 
-    ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
-        if (!is_finalized()) {
-            auto finalized = clone_finalized();
-            auto& finalized_object = assert_cast<ColumnVariant&>(*finalized);
-            return finalized_object.filter(filter, count);
-        }
-        if (num_rows == 0) {
-            auto res = ColumnVariant::create(_max_subcolumns_count, count_bytes_in_filter(filter));
-            ENABLE_CHECK_CONSISTENCY(res.get());
-            return res;
-        }
-        auto new_root = get_root()->filter(filter, count)->assume_mutable();
-        auto new_column =
-                ColumnVariant::create(_max_subcolumns_count, get_root_type(), std::move(new_root));
-        for (const auto& entry : subcolumns) {
-            if (entry->data.is_root) {
-                continue;
-            }
-            auto subcolumn = entry->data.get_finalized_column().filter(filter, -1);
-            new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
-                                       entry->data.get_least_common_type());
-        }
-        new_column->serialized_sparse_column = serialized_sparse_column->filter(filter, count);
-        ENABLE_CHECK_CONSISTENCY(new_column.get());
-        return new_column;
-    }
+        entry->data.finalize(mode);
+        entry->data.wrapp_array_nullable();
 
-    size_t ColumnVariant::filter(const Filter& filter) {
-        if (!is_finalized()) {
-            finalize();
+        new_subcolumns.add(entry->path, entry->data);
+    }
+    // after unnest need to recalculate nested_path_count in new_subcolumns
+    nested_path_count =
+            std::count_if(new_subcolumns.begin(), new_subcolumns.end(),
+                          [](const auto& entry) { return entry->path.has_nested_part(); });
+    std::swap(subcolumns, new_subcolumns);
+    _prev_positions.clear();
+    ENABLE_CHECK_CONSISTENCY(this);
+}
+
+void ColumnVariant::finalize() {
+    static_cast<void>(finalize(FinalizeMode::READ_MODE));
+}
+
+void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) {
+    auto& root = subcolumns.get_mutable_root()->data;
+    if (!root.get_least_common_type()->equals(*expected_root_type)) {
+        // make sure the root type is alawys as expected
+        ColumnPtr casted_column;
+        static_cast<void>(
+                schema_util::cast_column(ColumnWithTypeAndName {root.get_finalized_column_ptr(),
+                                                                root.get_least_common_type(), ""},
+                                         expected_root_type, &casted_column));
+        root.data[0] = casted_column;
+        root.data_types[0] = expected_root_type;
+        root.least_common_type = Subcolumn::LeastCommonType {expected_root_type, true};
+        root.num_rows = casted_column->size();
+    }
+}
+
+bool ColumnVariant::empty() const {
+    return subcolumns.empty() || subcolumns.begin()->get()->path.get_path() == COLUMN_NAME_DUMMY;
+}
+
+ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
+    if (!is_finalized()) {
+        auto finalized = clone_finalized();
+        auto& finalized_object = assert_cast<ColumnVariant&>(*finalized);
+        return finalized_object.filter(filter, count);
+    }
+    if (num_rows == 0) {
+        auto res = ColumnVariant::create(_max_subcolumns_count, count_bytes_in_filter(filter));
+        ENABLE_CHECK_CONSISTENCY(res.get());
+        return res;
+    }
+    auto new_root = get_root()->filter(filter, count)->assume_mutable();
+    auto new_column =
+            ColumnVariant::create(_max_subcolumns_count, get_root_type(), std::move(new_root));
+    for (const auto& entry : subcolumns) {
+        if (entry->data.is_root) {
+            continue;
         }
-        size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
-        if (count == 0) {
-            clear();
-        } else {
-            for (auto& subcolumn : subcolumns) {
-                subcolumn->data.num_rows = count;
-            }
-            for_each_subcolumn([&](auto& part) {
-                if (part->size() != count) {
-                    if (part->is_exclusive()) {
-                        const auto result_size = part->filter(filter);
-                        if (result_size != count) {
-                            throw Exception(
-                                    ErrorCode::INTERNAL_ERROR,
-                                    "result_size not euqal with filter_size, result_size={}, "
-                                    "filter_size={}",
-                                    result_size, count);
-                        }
-                        CHECK_EQ(result_size, count);
-                    } else {
-                        part = part->filter(filter, count);
+        auto subcolumn = entry->data.get_finalized_column().filter(filter, -1);
+        new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
+                                   entry->data.get_least_common_type());
+    }
+    new_column->serialized_sparse_column = serialized_sparse_column->filter(filter, count);
+    ENABLE_CHECK_CONSISTENCY(new_column.get());
+    return new_column;
+}
+
+size_t ColumnVariant::filter(const Filter& filter) {
+    if (!is_finalized()) {
+        finalize();
+    }
+    size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+    if (count == 0) {
+        clear();
+    } else {
+        for (auto& subcolumn : subcolumns) {
+            subcolumn->data.num_rows = count;
+        }
+        for_each_subcolumn([&](auto& part) {
+            if (part->size() != count) {
+                if (part->is_exclusive()) {
+                    const auto result_size = part->filter(filter);
+                    if (result_size != count) {
+                        throw Exception(ErrorCode::INTERNAL_ERROR,
+                                        "result_size not euqal with filter_size, result_size={}, "
+                                        "filter_size={}",
+                                        result_size, count);
                     }
+                    CHECK_EQ(result_size, count);
+                } else {
+                    part = part->filter(filter, count);
                 }
-            });
-        }
-        num_rows = count;
-        ENABLE_CHECK_CONSISTENCY(this);
-        return count;
-    }
-
-    void ColumnVariant::clear() {
-        Subcolumns empty;
-        // we must keep root column exist
-        empty.create_root(Subcolumn(0, is_nullable, true));
-        std::swap(empty, subcolumns);
-        serialized_sparse_column->clear();
-        num_rows = 0;
-        _prev_positions.clear();
-        ENABLE_CHECK_CONSISTENCY(this);
-    }
-
-    void ColumnVariant::clear_subcolumns_data() {
-        for (auto& entry : subcolumns) {
-            for (auto& part : entry->data.data) {
-                DCHECK_EQ(part->use_count(), 1);
-                (*std::move(part)).clear();
             }
-            entry->data.num_of_defaults_in_prefix = 0;
-            entry->data.num_rows = 0;
-        }
-        serialized_sparse_column->clear();
-        num_rows = 0;
-        ENABLE_CHECK_CONSISTENCY(this);
+        });
     }
+    num_rows = count;
+    ENABLE_CHECK_CONSISTENCY(this);
+    return count;
+}
 
-    void ColumnVariant::create_root(const DataTypePtr& type, MutableColumnPtr&& column) {
-        if (num_rows == 0) {
-            num_rows = column->size();
+void ColumnVariant::clear() {
+    Subcolumns empty;
+    // we must keep root column exist
+    empty.create_root(Subcolumn(0, is_nullable, true));
+    std::swap(empty, subcolumns);
+    serialized_sparse_column->clear();
+    num_rows = 0;
+    _prev_positions.clear();
+    ENABLE_CHECK_CONSISTENCY(this);
+}
+
+void ColumnVariant::clear_subcolumns_data() {
+    for (auto& entry : subcolumns) {
+        for (auto& part : entry->data.data) {
+            DCHECK_EQ(part->use_count(), 1);
+            (*std::move(part)).clear();
         }
-        add_sub_column({}, std::move(column), type);
-        if (serialized_sparse_column->empty()) {
-            serialized_sparse_column->resize(num_rows);
-        }
-        ENABLE_CHECK_CONSISTENCY(this);
+        entry->data.num_of_defaults_in_prefix = 0;
+        entry->data.num_rows = 0;
     }
+    serialized_sparse_column->clear();
+    num_rows = 0;
+    ENABLE_CHECK_CONSISTENCY(this);
+}
 
-    const DataTypePtr& ColumnVariant::get_most_common_type() {
-        static auto type = make_nullable(std::make_shared<MostCommonType>());
-        return type;
+void ColumnVariant::create_root(const DataTypePtr& type, MutableColumnPtr&& column) {
+    if (num_rows == 0) {
+        num_rows = column->size();
     }
+    add_sub_column({}, std::move(column), type);
+    if (serialized_sparse_column->empty()) {
+        serialized_sparse_column->resize(num_rows);
+    }
+    ENABLE_CHECK_CONSISTENCY(this);
+}
 
-    bool ColumnVariant::is_null_root() const {
-        const auto* root = subcolumns.get_root();
-        if (root == nullptr) {
-            return true;
+const DataTypePtr& ColumnVariant::get_most_common_type() {
+    static auto type = make_nullable(std::make_shared<MostCommonType>());
+    return type;
+}
+
+bool ColumnVariant::is_null_root() const {
+    const auto* root = subcolumns.get_root();
+    if (root == nullptr) {
+        return true;
+    }
+    if (root->data.num_of_defaults_in_prefix == 0 &&
+        (root->data.data.empty() ||
+         root->data.get_least_common_type()->get_primitive_type() == PrimitiveType::INVALID_TYPE)) {
+        return true;
+    }
+    return false;
+}
+
+bool ColumnVariant::is_scalar_variant() const {
+    const auto& sparse_offsets = serialized_sparse_column_offsets().data();
+    // Only root itself is scalar, and no sparse data
+    return !is_null_root() && subcolumns.get_leaves().size() == 1 &&
+           subcolumns.get_root()->is_scalar() &&
+           sparse_offsets[num_rows - 1] == 0; // no sparse data
+}
+
+const DataTypePtr ColumnVariant::NESTED_TYPE = std::make_shared<vectorized::DataTypeNullable>(
+        std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
+                std::make_shared<vectorized::DataTypeVariant>(0))));
+
+const DataTypePtr ColumnVariant::NESTED_TYPE_AS_ARRAY_OF_JSONB =
+        std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
+                std::make_shared<vectorized::DataTypeJsonb>()));
+
+DataTypePtr ColumnVariant::get_root_type() const {
+    return subcolumns.get_root()->data.get_least_common_type();
+}
+
+void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                        const uint32_t* indices_end) {
+    // optimize when src and this column are scalar variant, since try_insert is inefficiency
+    const auto* src_v = check_and_get_column<ColumnVariant>(src);
+
+    bool src_can_do_quick_insert =
+            src_v != nullptr && src_v->is_scalar_variant() && src_v->is_finalized();
+    // num_rows == 0 means this column is empty, we not need to check it type
+    if (num_rows == 0 && src_can_do_quick_insert) {
+        // add a new root column, and insert from src root column
+        clear();
+        add_sub_column({}, src_v->get_root()->clone_empty(), src_v->get_root_type());
+        get_subcolumns().get_mutable_root()->data.num_rows = indices_end - indices_begin;
+        get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        serialized_sparse_column->insert_many_defaults(indices_end - indices_begin);
+        num_rows += indices_end - indices_begin;
+    } else if (src_can_do_quick_insert && is_scalar_variant() &&
+               src_v->get_root_type()->equals(*get_root_type())) {
+        get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        serialized_sparse_column->insert_many_defaults(indices_end - indices_begin);
+        get_subcolumns().get_mutable_root()->data.num_rows += indices_end - indices_begin;
+        num_rows += indices_end - indices_begin;
+    } else {
+        for (const auto* x = indices_begin; x != indices_end; ++x) {
+            try_insert(src[*x]);
         }
-        if (root->data.num_of_defaults_in_prefix == 0 &&
-            (root->data.data.empty() || root->data.get_least_common_type()->get_primitive_type() ==
-                                                PrimitiveType::INVALID_TYPE)) {
-            return true;
+    }
+    finalize();
+}
+
+// void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+//                                        const uint32_t* indices_end) {
+//     for (const auto* x = indices_begin; x != indices_end; ++x) {
+//         ColumnVariant::insert_from(src, *x);
+//     }
+//     finalize();
+//     ENABLE_CHECK_CONSISTENCY(this);
+// }
+
+template <typename Func>
+void ColumnVariant::for_each_imutable_column(Func&& callback) const {
+    if (!is_finalized()) {
+        auto finalized = clone_finalized();
+        auto& finalized_object = assert_cast<ColumnVariant&>(*finalized);
+        finalized_object.for_each_imutable_column(callback);
+        return;
+    }
+    for (const auto& entry : subcolumns) {
+        for (auto& part : entry->data.data) {
+            callback(part);
         }
+    }
+    callback(serialized_sparse_column);
+}
+
+void ColumnVariant::update_hash_with_value(size_t n, SipHash& hash) const {
+    for_each_imutable_column(
+            [&](const ColumnPtr column) { return column->update_hash_with_value(n, hash); });
+}
+
+void ColumnVariant::update_hashes_with_value(uint64_t* __restrict hashes,
+                                             const uint8_t* __restrict null_data) const {
+    for_each_imutable_column([&](const ColumnPtr column) {
+        return column->update_hashes_with_value(hashes, nullptr);
+    });
+}
+
+void ColumnVariant::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                             const uint8_t* __restrict null_data) const {
+    for_each_imutable_column([&](const ColumnPtr column) {
+        return column->update_xxHash_with_value(start, end, hash, nullptr);
+    });
+}
+
+void ColumnVariant::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                           uint32_t rows, uint32_t offset,
+                                           const uint8_t* __restrict null_data) const {
+    for_each_imutable_column([&](const ColumnPtr column) {
+        return column->update_crcs_with_value(hash, type, rows, offset, nullptr);
+    });
+}
+
+void ColumnVariant::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                          const uint8_t* __restrict null_data) const {
+    for_each_imutable_column([&](const ColumnPtr column) {
+        return column->update_crc_with_value(start, end, hash, nullptr);
+    });
+}
+
+std::string ColumnVariant::debug_string() const {
+    std::stringstream res;
+    res << get_name() << "(num_row = " << num_rows;
+    for (const auto& entry : subcolumns) {
+        if (entry->data.is_finalized()) {
+            res << "[column:" << entry->data.data[0]->dump_structure()
+                << ",type:" << entry->data.data_types[0]->get_name()
+                << ",path:" << entry->path.get_path() << "],";
+        }
+    }
+    res << ")";
+    return res.str();
+}
+
+Status ColumnVariant::sanitize() const {
+    RETURN_IF_CATCH_EXCEPTION(check_consistency());
+    std::unordered_set<std::string> subcolumn_set;
+    // deduplicate subcolumns, example {"a.b" : 123, "a" : {"b" : 123}}
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_root) {
+            continue;
+        }
+        if (subcolumn_set.contains(subcolumn->path.get_path())) {
+            return Status::InvalidJsonPath("may contains duplicated entry : {}",
+                                           subcolumn->path.get_path());
+        }
+        subcolumn_set.insert(subcolumn->path.get_path());
+    }
+    VLOG_DEBUG << "sanitized " << debug_string();
+    return Status::OK();
+}
+
+ColumnVariant::Subcolumn ColumnVariant::Subcolumn::cut(size_t start, size_t length) const {
+    Subcolumn new_subcolumn(0, is_nullable);
+    new_subcolumn.insert_range_from(*this, start, length);
+    return new_subcolumn;
+}
+
+const ColumnVariant::Subcolumns::Node* ColumnVariant::get_leaf_of_the_same_nested(
+        const Subcolumns::NodePtr& entry) const {
+    const auto* leaf = subcolumns.get_leaf_of_the_same_nested(
+            entry->path,
+            [&](const Subcolumns::Node& node) { return node.data.size() > entry->data.size(); });
+    if (leaf && leaf->data.get_least_common_typeBase()->get_primitive_type() == INVALID_TYPE) {
+        return nullptr;
+    }
+    return leaf;
+}
+
+bool ColumnVariant::try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry) const {
+    const auto* leaf = get_leaf_of_the_same_nested(entry);
+    if (!leaf) {
         return false;
     }
 
-    bool ColumnVariant::is_scalar_variant() const {
-        const auto& sparse_offsets = serialized_sparse_column_offsets().data();
-        // Only root itself is scalar, and no sparse data
-        return !is_null_root() && subcolumns.get_leaves().size() == 1 &&
-               subcolumns.get_root()->is_scalar() &&
-               sparse_offsets[num_rows - 1] == 0; // no sparse data
-    }
-
-    const DataTypePtr ColumnVariant::NESTED_TYPE = std::make_shared<vectorized::DataTypeNullable>(
-            std::make_shared<vectorized::DataTypeArray>(
-                    std::make_shared<vectorized::DataTypeNullable>(
-                            std::make_shared<vectorized::DataTypeVariant>(0))));
-
-    const DataTypePtr ColumnVariant::NESTED_TYPE_AS_ARRAY_OF_JSONB =
-            std::make_shared<vectorized::DataTypeArray>(
-                    std::make_shared<vectorized::DataTypeNullable>(
-                            std::make_shared<vectorized::DataTypeJsonb>()));
-
-    DataTypePtr ColumnVariant::get_root_type() const {
-        return subcolumns.get_root()->data.get_least_common_type();
-    }
-
-    void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                            const uint32_t* indices_end) {
-        // optimize when src and this column are scalar variant, since try_insert is inefficiency
-        const auto* src_v = check_and_get_column<ColumnVariant>(src);
-
-        bool src_can_do_quick_insert =
-                src_v != nullptr && src_v->is_scalar_variant() && src_v->is_finalized();
-        // num_rows == 0 means this column is empty, we not need to check it type
-        if (num_rows == 0 && src_can_do_quick_insert) {
-            // add a new root column, and insert from src root column
-            clear();
-            add_sub_column({}, src_v->get_root()->clone_empty(), src_v->get_root_type());
-            get_subcolumns().get_mutable_root()->data.num_rows = indices_end - indices_begin;
-            get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
-            serialized_sparse_column->insert_many_defaults(indices_end - indices_begin);
-            num_rows += indices_end - indices_begin;
-        } else if (src_can_do_quick_insert && is_scalar_variant() &&
-                   src_v->get_root_type()->equals(*get_root_type())) {
-            get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
-            serialized_sparse_column->insert_many_defaults(indices_end - indices_begin);
-            get_subcolumns().get_mutable_root()->data.num_rows += indices_end - indices_begin;
-            num_rows += indices_end - indices_begin;
-        } else {
-            for (const auto* x = indices_begin; x != indices_end; ++x) {
-                try_insert(src[*x]);
-            }
-        }
-        finalize();
-    }
-
-    // void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-    //                                        const uint32_t* indices_end) {
-    //     for (const auto* x = indices_begin; x != indices_end; ++x) {
-    //         ColumnVariant::insert_from(src, *x);
-    //     }
-    //     finalize();
-    //     ENABLE_CHECK_CONSISTENCY(this);
-    // }
-
-    template <typename Func>
-    void ColumnVariant::for_each_imutable_column(Func && callback) const {
-        if (!is_finalized()) {
-            auto finalized = clone_finalized();
-            auto& finalized_object = assert_cast<ColumnVariant&>(*finalized);
-            finalized_object.for_each_imutable_column(callback);
-            return;
-        }
-        for (const auto& entry : subcolumns) {
-            for (auto& part : entry->data.data) {
-                callback(part);
-            }
-        }
-        callback(serialized_sparse_column);
-    }
-
-    void ColumnVariant::update_hash_with_value(size_t n, SipHash & hash) const {
-        for_each_imutable_column(
-                [&](const ColumnPtr column) { return column->update_hash_with_value(n, hash); });
-    }
-
-    void ColumnVariant::update_hashes_with_value(uint64_t* __restrict hashes,
-                                                 const uint8_t* __restrict null_data) const {
-        for_each_imutable_column([&](const ColumnPtr column) {
-            return column->update_hashes_with_value(hashes, nullptr);
-        });
-    }
-
-    void ColumnVariant::update_xxHash_with_value(size_t start, size_t end, uint64_t & hash,
-                                                 const uint8_t* __restrict null_data) const {
-        for_each_imutable_column([&](const ColumnPtr column) {
-            return column->update_xxHash_with_value(start, end, hash, nullptr);
-        });
-    }
-
-    void ColumnVariant::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
-                                               uint32_t rows, uint32_t offset,
-                                               const uint8_t* __restrict null_data) const {
-        for_each_imutable_column([&](const ColumnPtr column) {
-            return column->update_crcs_with_value(hash, type, rows, offset, nullptr);
-        });
-    }
-
-    void ColumnVariant::update_crc_with_value(size_t start, size_t end, uint32_t & hash,
-                                              const uint8_t* __restrict null_data) const {
-        for_each_imutable_column([&](const ColumnPtr column) {
-            return column->update_crc_with_value(start, end, hash, nullptr);
-        });
-    }
-
-    std::string ColumnVariant::debug_string() const {
-        std::stringstream res;
-        res << get_name() << "(num_row = " << num_rows;
-        for (const auto& entry : subcolumns) {
-            if (entry->data.is_finalized()) {
-                res << "[column:" << entry->data.data[0]->dump_structure()
-                    << ",type:" << entry->data.data_types[0]->get_name()
-                    << ",path:" << entry->path.get_path() << "],";
-            }
-        }
-        res << ")";
-        return res.str();
-    }
-
-    Status ColumnVariant::sanitize() const {
-        RETURN_IF_CATCH_EXCEPTION(check_consistency());
-        std::unordered_set<std::string> subcolumn_set;
-        // deduplicate subcolumns, example {"a.b" : 123, "a" : {"b" : 123}}
-        for (const auto& subcolumn : subcolumns) {
-            if (subcolumn->data.is_root) {
-                continue;
-            }
-            if (subcolumn_set.contains(subcolumn->path.get_path())) {
-                return Status::InvalidJsonPath("may contains duplicated entry : {}",
-                                               subcolumn->path.get_path());
-            }
-            subcolumn_set.insert(subcolumn->path.get_path());
-        }
-        VLOG_DEBUG << "sanitized " << debug_string();
-        return Status::OK();
-    }
-
-    ColumnVariant::Subcolumn ColumnVariant::Subcolumn::cut(size_t start, size_t length) const {
-        Subcolumn new_subcolumn(0, is_nullable);
-        new_subcolumn.insert_range_from(*this, start, length);
-        return new_subcolumn;
-    }
-
-    const ColumnVariant::Subcolumns::Node* ColumnVariant::get_leaf_of_the_same_nested(
-            const Subcolumns::NodePtr& entry) const {
-        const auto* leaf = subcolumns.get_leaf_of_the_same_nested(
-                entry->path, [&](const Subcolumns::Node& node) {
-                    return node.data.size() > entry->data.size();
-                });
-        if (leaf && leaf->data.get_least_common_typeBase()->get_primitive_type() == INVALID_TYPE) {
-            return nullptr;
-        }
-        return leaf;
-    }
-
-    bool ColumnVariant::try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry)
-            const {
-        const auto* leaf = get_leaf_of_the_same_nested(entry);
-        if (!leaf) {
-            return false;
-        }
-
-        size_t old_size = entry->data.size();
-        FieldInfo field_info = {
-                .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
-                .num_dimensions = entry->data.get_dimensions(),
-        };
-
-        /// Cut the needed range from the found leaf
-        /// and replace scalar values to the correct
-        /// default values for given entry.
-        auto new_subcolumn = leaf->data.cut(old_size, leaf->data.size() - old_size)
-                                     .clone_with_default_values(field_info);
-
-        entry->data.insert_range_from(new_subcolumn, 0, new_subcolumn.size());
-        ENABLE_CHECK_CONSISTENCY(this);
-        return true;
-    }
-
-    /// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
-    /// and replaces all scalars or nested arrays to @replacement at that level.
-    class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
-    public:
-        FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
-                : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
-
-        template <PrimitiveType T>
-        Field apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
-            if constexpr (T == TYPE_ARRAY) {
-                if (num_dimensions_to_keep == 0) {
-                    return replacement;
-                }
-
-                const size_t size = x.size();
-                Array res(size);
-                for (size_t i = 0; i < size; ++i) {
-                    res[i] = apply_visitor(
-                            FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1),
-                            x[i]);
-                }
-                return Field::create_field<TYPE_ARRAY>(res);
-            } else {
-                return replacement;
-            }
-        }
-
-    private:
-        const Field& replacement;
-        size_t num_dimensions_to_keep;
+    size_t old_size = entry->data.size();
+    FieldInfo field_info = {
+            .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+            .num_dimensions = entry->data.get_dimensions(),
     };
 
-    bool ColumnVariant::try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const {
-        const auto* leaf = get_leaf_of_the_same_nested(entry);
-        if (!leaf) {
-            return false;
+    /// Cut the needed range from the found leaf
+    /// and replace scalar values to the correct
+    /// default values for given entry.
+    auto new_subcolumn = leaf->data.cut(old_size, leaf->data.size() - old_size)
+                                 .clone_with_default_values(field_info);
+
+    entry->data.insert_range_from(new_subcolumn, 0, new_subcolumn.size());
+    ENABLE_CHECK_CONSISTENCY(this);
+    return true;
+}
+
+/// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
+/// and replaces all scalars or nested arrays to @replacement at that level.
+class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
+public:
+    FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
+            : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
+
+    template <PrimitiveType T>
+    Field apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+        if constexpr (T == TYPE_ARRAY) {
+            if (num_dimensions_to_keep == 0) {
+                return replacement;
+            }
+
+            const size_t size = x.size();
+            Array res(size);
+            for (size_t i = 0; i < size; ++i) {
+                res[i] = apply_visitor(
+                        FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
+            }
+            return Field::create_field<TYPE_ARRAY>(res);
+        } else {
+            return replacement;
         }
-
-        auto last_field = leaf->data.get_last_field();
-        if (last_field.is_null()) {
-            return false;
-        }
-
-        size_t leaf_num_dimensions = leaf->data.get_dimensions();
-        size_t entry_num_dimensions = entry->data.get_dimensions();
-
-        if (entry_num_dimensions > leaf_num_dimensions) {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "entry_num_dimensions > leaf_num_dimensions, entry_num_dimensions={}, "
-                    "leaf_num_dimensions={}",
-                    entry_num_dimensions, leaf_num_dimensions);
-        }
-
-        auto default_scalar = entry->data.get_least_common_type()->get_default();
-
-        auto default_field = apply_visitor(
-                FieldVisitorReplaceScalars(default_scalar, leaf_num_dimensions), last_field);
-        entry->data.insert(std::move(default_field));
-        return true;
     }
 
-    size_t ColumnVariant::find_path_lower_bound_in_sparse_data(
-            StringRef path, const ColumnString& sparse_data_paths, size_t start, size_t end) {
-        // Simple random access iterator over values in ColumnString in specified range.
-        class Iterator {
-        public:
+private:
+    const Field& replacement;
+    size_t num_dimensions_to_keep;
+};
+
+bool ColumnVariant::try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const {
+    const auto* leaf = get_leaf_of_the_same_nested(entry);
+    if (!leaf) {
+        return false;
+    }
+
+    auto last_field = leaf->data.get_last_field();
+    if (last_field.is_null()) {
+        return false;
+    }
+
+    size_t leaf_num_dimensions = leaf->data.get_dimensions();
+    size_t entry_num_dimensions = entry->data.get_dimensions();
+
+    if (entry_num_dimensions > leaf_num_dimensions) {
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "entry_num_dimensions > leaf_num_dimensions, entry_num_dimensions={}, "
+                "leaf_num_dimensions={}",
+                entry_num_dimensions, leaf_num_dimensions);
+    }
+
+    auto default_scalar = entry->data.get_least_common_type()->get_default();
+
+    auto default_field = apply_visitor(
+            FieldVisitorReplaceScalars(default_scalar, leaf_num_dimensions), last_field);
+    entry->data.insert(std::move(default_field));
+    return true;
+}
+
+size_t ColumnVariant::find_path_lower_bound_in_sparse_data(StringRef path,
+                                                           const ColumnString& sparse_data_paths,
+                                                           size_t start, size_t end) {
+    // Simple random access iterator over values in ColumnString in specified range.
+    class Iterator {
+    public:
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-local-typedefs"
-            using difference_type = std::ptrdiff_t;
-            using value_type = StringRef;
-            using iterator_category = std::random_access_iterator_tag;
-            using pointer = StringRef*;
-            using reference = StringRef&;
+        using difference_type = std::ptrdiff_t;
+        using value_type = StringRef;
+        using iterator_category = std::random_access_iterator_tag;
+        using pointer = StringRef*;
+        using reference = StringRef&;
 #pragma GCC diagnostic pop
 
-            Iterator() = delete;
-            Iterator(const ColumnString* data_, size_t index_) : data(data_), index(index_) {}
-            Iterator(const Iterator& rhs) = default;
-            Iterator& operator=(const Iterator& rhs) = default;
-            inline Iterator& operator+=(difference_type rhs) {
-                index += rhs;
-                return *this;
-            }
-            inline StringRef operator*() const { return data->get_data_at(index); }
+        Iterator() = delete;
+        Iterator(const ColumnString* data_, size_t index_) : data(data_), index(index_) {}
+        Iterator(const Iterator& rhs) = default;
+        Iterator& operator=(const Iterator& rhs) = default;
+        inline Iterator& operator+=(difference_type rhs) {
+            index += rhs;
+            return *this;
+        }
+        inline StringRef operator*() const { return data->get_data_at(index); }
 
-            inline Iterator& operator++() {
-                ++index;
-                return *this;
-            }
+        inline Iterator& operator++() {
+            ++index;
+            return *this;
+        }
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-member-function"
 #endif
-            inline Iterator& operator--() {
-                --index;
-                return *this;
-            }
+        inline Iterator& operator--() {
+            --index;
+            return *this;
+        }
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-            inline difference_type operator-(const Iterator& rhs) const {
-                return index - rhs.index;
-            }
+        inline difference_type operator-(const Iterator& rhs) const { return index - rhs.index; }
 
-            const ColumnString* data;
-            size_t index;
-        };
+        const ColumnString* data;
+        size_t index;
+    };
 
-        Iterator start_it(&sparse_data_paths, start);
-        Iterator end_it(&sparse_data_paths, end);
-        auto it = std::lower_bound(start_it, end_it, path);
-        return it.index;
+    Iterator start_it(&sparse_data_paths, start);
+    Iterator end_it(&sparse_data_paths, end);
+    auto it = std::lower_bound(start_it, end_it, path);
+    return it.index;
+}
+
+void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullMap* null_map,
+                                                      StringRef path,
+                                                      const ColumnPtr& sparse_data_column,
+                                                      size_t start, size_t end) {
+    const auto& sparse_data_map = assert_cast<const ColumnMap&>(*sparse_data_column);
+    const auto& sparse_data_offsets = sparse_data_map.get_offsets();
+    size_t first_offset = sparse_data_offsets[static_cast<ssize_t>(start) - 1];
+    size_t last_offset = sparse_data_offsets[static_cast<ssize_t>(end) - 1];
+    // Check if we have at least one row with data.
+    if (first_offset == last_offset) {
+        if (null_map) {
+            null_map->resize_fill(end - start, 1);
+        }
+        subcolumn.insert_many_defaults(end - start);
+        return;
     }
 
-    void ColumnVariant::fill_path_column_from_sparse_data(
-            Subcolumn & subcolumn, NullMap * null_map, StringRef path,
-            const ColumnPtr& sparse_data_column, size_t start, size_t end) {
-        const auto& sparse_data_map = assert_cast<const ColumnMap&>(*sparse_data_column);
-        const auto& sparse_data_offsets = sparse_data_map.get_offsets();
-        size_t first_offset = sparse_data_offsets[static_cast<ssize_t>(start) - 1];
-        size_t last_offset = sparse_data_offsets[static_cast<ssize_t>(end) - 1];
-        // Check if we have at least one row with data.
-        if (first_offset == last_offset) {
-            if (null_map) {
-                null_map->resize_fill(end - start, 1);
-            }
-            subcolumn.insert_many_defaults(end - start);
-            return;
+    const auto& sparse_data_paths = assert_cast<const ColumnString&>(sparse_data_map.get_keys());
+    const auto& sparse_data_values = assert_cast<const ColumnString&>(sparse_data_map.get_values());
+    for (size_t i = start; i != end; ++i) {
+        size_t paths_start = sparse_data_offsets[static_cast<ssize_t>(i) - 1];
+        size_t paths_end = sparse_data_offsets[static_cast<ssize_t>(i)];
+        auto lower_bound_path_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+                path, sparse_data_paths, paths_start, paths_end);
+        bool is_null = false;
+        if (lower_bound_path_index != paths_end &&
+            sparse_data_paths.get_data_at(lower_bound_path_index) == path) {
+            // auto value_data = sparse_data_values.get_data_at(lower_bound_path_index);
+            // ReadBufferFromMemory buf(value_data.data, value_data.size);
+            // dynamic_serialization->deserializeBinary(path_column, buf, getFormatSettings());
+            const auto& data = ColumnVariant::deserialize_from_sparse_column(
+                    &sparse_data_values, lower_bound_path_index);
+            subcolumn.insert(data.first, data.second);
+            is_null = false;
+        } else {
+            subcolumn.insert_default();
+            is_null = true;
         }
-
-        const auto& sparse_data_paths =
-                assert_cast<const ColumnString&>(sparse_data_map.get_keys());
-        const auto& sparse_data_values =
-                assert_cast<const ColumnString&>(sparse_data_map.get_values());
-        for (size_t i = start; i != end; ++i) {
-            size_t paths_start = sparse_data_offsets[static_cast<ssize_t>(i) - 1];
-            size_t paths_end = sparse_data_offsets[static_cast<ssize_t>(i)];
-            auto lower_bound_path_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
-                    path, sparse_data_paths, paths_start, paths_end);
-            bool is_null = false;
-            if (lower_bound_path_index != paths_end &&
-                sparse_data_paths.get_data_at(lower_bound_path_index) == path) {
-                // auto value_data = sparse_data_values.get_data_at(lower_bound_path_index);
-                // ReadBufferFromMemory buf(value_data.data, value_data.size);
-                // dynamic_serialization->deserializeBinary(path_column, buf, getFormatSettings());
-                const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                        &sparse_data_values, lower_bound_path_index);
-                subcolumn.insert(data.first, data.second);
-                is_null = false;
-            } else {
-                subcolumn.insert_default();
-                is_null = true;
-            }
-            if (null_map) {
-                null_map->push_back(is_null);
-            }
+        if (null_map) {
+            null_map->push_back(is_null);
         }
     }
+}
 
-    MutableColumnPtr ColumnVariant::clone() const {
-        auto res = ColumnVariant::create(_max_subcolumns_count);
-        Subcolumns new_subcolumns;
-        for (const auto& subcolumn : subcolumns) {
-            auto new_subcolumn = subcolumn->data;
-            if (subcolumn->data.is_root) {
-                new_subcolumns.create_root(std::move(new_subcolumn));
-            } else if (!new_subcolumns.add(subcolumn->path, std::move(new_subcolumn))) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error in clone()",
-                                       subcolumn->path.get_path());
-            }
+MutableColumnPtr ColumnVariant::clone() const {
+    auto res = ColumnVariant::create(_max_subcolumns_count);
+    Subcolumns new_subcolumns;
+    for (const auto& subcolumn : subcolumns) {
+        auto new_subcolumn = subcolumn->data;
+        if (subcolumn->data.is_root) {
+            new_subcolumns.create_root(std::move(new_subcolumn));
+        } else if (!new_subcolumns.add(subcolumn->path, std::move(new_subcolumn))) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error in clone()",
+                                   subcolumn->path.get_path());
         }
-        if (!new_subcolumns.get_root()) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "root is nullptr in clone()");
-        }
-        res->subcolumns = std::move(new_subcolumns);
-        auto&& column = serialized_sparse_column->get_ptr();
-        auto sparse_column = std::move(*column).mutate();
-        res->serialized_sparse_column = sparse_column->assume_mutable();
-        res->set_num_rows(num_rows);
-        ENABLE_CHECK_CONSISTENCY(res.get());
-        return res;
     }
+    if (!new_subcolumns.get_root()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "root is nullptr in clone()");
+    }
+    res->subcolumns = std::move(new_subcolumns);
+    auto&& column = serialized_sparse_column->get_ptr();
+    auto sparse_column = std::move(*column).mutate();
+    res->serialized_sparse_column = sparse_column->assume_mutable();
+    res->set_num_rows(num_rows);
+    ENABLE_CHECK_CONSISTENCY(res.get());
+    return res;
+}
 
 } // namespace doris::vectorized
