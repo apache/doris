@@ -162,7 +162,7 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
             // We assume that rowsets before freshness limit time point are always warmuped up when capturing version path
             return true;
         }
-        return rs->is_warmed_up();
+        return is_rowset_warmed_up(rs->rowset_id());
     };
     Versions version_path;
     std::shared_lock rlock(_meta_lock);
@@ -186,8 +186,9 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
                 }
             }
         }
-        bool should_fallback = !(newest_rs_before_freshness_limit &&
-                                 newest_rs_before_freshness_limit->is_warmed_up());
+        bool should_fallback =
+                !(newest_rs_before_freshness_limit &&
+                  is_rowset_warmed_up(newest_rs_before_freshness_limit->rowset_id()));
         if (should_fallback) {
             // if there exists a rowset which satisfies freshness tolerance and has not been warmuped up
             // yet, fallback to capture rowsets as usual
@@ -359,7 +360,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             .expiration_time = expiration_time,
                                             .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                     },
-                            .download_done {[](Status st) {
+                            .download_done {[&](Status st) {
                                 if (!st) {
                                     LOG_WARNING("add rowset warm up error ").error(st);
                                 }

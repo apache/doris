@@ -318,16 +318,6 @@ public:
 
     std::vector<std::string> get_index_file_names();
 
-    bool is_warmed_up() const {
-        // TODO: change me
-        return _is_warmed_up;
-    }
-
-    void set_is_warmed_up(bool warmed_up) {
-        // TODO: change me
-        _is_warmed_up = warmed_up;
-    }
-
 protected:
     friend class RowsetFactory;
 
