@@ -351,6 +351,11 @@ public:
     // for cloud only
     bool has_visible_time_ms() const { return _rowset_meta_pb.has_visible_time_ms(); }
     int64_t visible_time_ms() const { return _rowset_meta_pb.visible_time_ms(); }
+#ifdef BE_TEST
+    void set_visible_time_ms(int64_t visible_time_ms) {
+        _rowset_meta_pb.set_visible_time_ms(visible_time_ms);
+    }
+#endif
 
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
