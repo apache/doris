@@ -42,9 +42,35 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.HllType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.IPv4Type;
+import org.apache.doris.nereids.types.IPv6Type;
+import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.QuantileStateType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -110,40 +136,36 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
     // Logger for debugging
     private static final Logger logger = LogManager.getLogger(PushDownVirtualColumnsIntoOlapScan.class);
 
-    // Supported primitive types by TabletColumn::get_field_length_by_type
-    // Based on the C++ implementation, these are the types that have defined field lengths
-    private static final ImmutableSet<TPrimitiveType> SUPPORTED_VIRTUAL_COLUMN_TYPES = ImmutableSet.of(
-            TPrimitiveType.TINYINT,
-            TPrimitiveType.BOOLEAN,
-            TPrimitiveType.SMALLINT,
-            TPrimitiveType.INT,
-            TPrimitiveType.BIGINT,
-            TPrimitiveType.LARGEINT,
-            TPrimitiveType.IPV4,
-            TPrimitiveType.IPV6,
-            TPrimitiveType.DATE,
-            TPrimitiveType.DATEV2,
-            TPrimitiveType.DATETIME,
-            TPrimitiveType.DATETIMEV2,
-            TPrimitiveType.FLOAT,
-            TPrimitiveType.DOUBLE,
-            TPrimitiveType.QUANTILE_STATE,
-            TPrimitiveType.BITMAP,
-            TPrimitiveType.CHAR,
-            TPrimitiveType.VARCHAR,
-            TPrimitiveType.HLL,
-            TPrimitiveType.AGG_STATE,
-            TPrimitiveType.STRING,
-            TPrimitiveType.VARIANT,
-            TPrimitiveType.JSONB,
-            TPrimitiveType.STRUCT,
-            TPrimitiveType.ARRAY,
-            TPrimitiveType.MAP,
-            TPrimitiveType.DECIMAL32,
-            TPrimitiveType.DECIMAL64,
-            TPrimitiveType.DECIMAL128I,
-            TPrimitiveType.DECIMAL256,
-            TPrimitiveType.DECIMALV2
+    // Supported data types for virtual columns based on TabletColumn::get_field_length_by_type
+    // Using Nereids DataType instead of TPrimitiveType for better type safety
+    private static final ImmutableSet<Class<? extends DataType>> SUPPORTED_VIRTUAL_COLUMN_TYPES = ImmutableSet.of(
+            TinyIntType.class,
+            BooleanType.class,
+            SmallIntType.class,
+            IntegerType.class,
+            BigIntType.class,
+            LargeIntType.class,
+            IPv4Type.class,
+            IPv6Type.class,
+            DateType.class,
+            DateV2Type.class,
+            DateTimeType.class,
+            DateTimeV2Type.class,
+            FloatType.class,
+            DoubleType.class,
+            QuantileStateType.class,
+            BitmapType.class,
+            CharType.class,
+            VarcharType.class,
+            HllType.class,
+            StringType.class,
+            VariantType.class,
+            JsonType.class,
+            StructType.class,
+            ArrayType.class,
+            MapType.class,
+            DecimalV2Type.class,
+            DecimalV3Type.class
     );
 
     @Override
@@ -490,15 +512,13 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
     private boolean isSupportedVirtualColumnType(Expression expr) {
         try {
             DataType dataType = expr.getDataType();
-            // Convert Nereids DataType to catalog Type, then get TPrimitiveType
-            org.apache.doris.catalog.Type catalogType = dataType.toCatalogDataType();
-            TPrimitiveType tPrimitiveType = catalogType.getPrimitiveType().toThrift();
+            Class<? extends DataType> typeClass = dataType.getClass();
 
-            boolean isSupported = SUPPORTED_VIRTUAL_COLUMN_TYPES.contains(tPrimitiveType);
+            boolean isSupported = SUPPORTED_VIRTUAL_COLUMN_TYPES.contains(typeClass);
 
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Expression {} has type {} (TPrimitiveType: {}), supported: {}",
-                         expr.toSql(), dataType.simpleString(), tPrimitiveType, isSupported);
+                LOG.debug("Expression {} has type {} (class: {}), supported: {}",
+                         expr.toSql(), dataType.simpleString(), typeClass.getSimpleName(), isSupported);
             }
 
             return isSupported;
