@@ -791,6 +791,9 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 }
                 auto rs_meta = std::make_shared<RowsetMeta>();
                 rs_meta->init_from_pb(meta_pb);
+                // delete me
+                LOG_INFO("[verbose] rowset={}, visible_time_ms={}",
+                         rs_meta->rowset_id().to_string(), rs_meta->visible_time_ms());
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
                 Status s = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);

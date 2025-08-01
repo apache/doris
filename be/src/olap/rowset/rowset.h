@@ -358,6 +358,8 @@ protected:
 
     // <column_uniq_id>, skip index compaction
     std::set<int32_t> skip_index_compaction;
+
+    bool _is_warmed_up {false};
 };
 
 // `rs_metas` MUST already be sorted by `RowsetMeta::comparator`

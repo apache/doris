@@ -1249,6 +1249,10 @@ void MetaServiceImpl::commit_txn_immediately(
         std::vector<std::pair<std::tuple<int64_t, int64_t>, const RowsetMetaCloudPB&>> rowsets;
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
         rowsets.reserve(tmp_rowsets_meta.size());
+
+        int64_t rowsets_visible_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+
         for (auto& [_, i] : tmp_rowsets_meta) {
             int64_t tablet_id = i.tablet_id();
             int64_t table_id = tablet_ids[tablet_id].table_id();
@@ -1270,6 +1274,7 @@ void MetaServiceImpl::commit_txn_immediately(
             int64_t new_version = new_versions[ver_key];
             i.set_start_version(new_version);
             i.set_end_version(new_version);
+            i.set_visible_time_ms(rowsets_visible_time_ms);
 
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
