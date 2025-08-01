@@ -19,10 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -99,8 +96,7 @@ public class FrontendConjunctsUtils {
             return expr;
         });
 
-        Expression evaluate = FoldConstantRuleOnFE.evaluate(rewrittenExpr,
-                new ExpressionRewriteContext(CascadesContext.initContext(new StatementContext(), null, null)));
+        Expression evaluate = FoldConstantRuleOnFE.evaluate(rewrittenExpr, null);
         if (evaluate instanceof BooleanLiteral && !((BooleanLiteral) evaluate).getValue()) {
             return true;
         }
