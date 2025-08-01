@@ -48,12 +48,13 @@ public:
     }
     void TearDown() override {}
 
-    RowsetSharedPtr create_rowset(Version version, bool warmed_up,
+    RowsetSharedPtr create_rowset(Version version,
                                   time_point<system_clock> visible_timestamp = system_clock::now() -
                                                                                seconds(100)) {
         auto rs_meta = std::make_shared<RowsetMeta>();
         rs_meta->set_rowset_type(BETA_ROWSET);
         rs_meta->set_version(version);
+        rs_meta->set_rowset_id(_engine.next_rowset_id());
         rs_meta->set_visible_time_ms(
                 duration_cast<milliseconds>(visible_timestamp.time_since_epoch()).count());
         RowsetSharedPtr rowset;
@@ -61,7 +62,6 @@ public:
         if (!st.ok()) {
             return nullptr;
         }
-        rowset->set_is_warmed_up(warmed_up);
         return rowset;
     }
 
@@ -70,10 +70,13 @@ public:
                 std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*_tablet_meta));
         tablet->tablet_meta()->set_enable_unique_key_merge_on_write(is_mow);
         std::vector<RowsetSharedPtr> rowsets;
-        rowsets.emplace_back(create_rowset(Version {0, 1}, true));
+        auto rs1 = create_rowset(Version {0, 1});
+        rowsets.emplace_back(rs1);
+        tablet->add_warmed_up_rowset(rs1->rowset_id());
         for (int ver = 2; ver <= max_version; ver++) {
-            RowsetMetaSharedPtr ptr1(new RowsetMeta());
-            rowsets.emplace_back(create_rowset(Version {ver, ver}, true));
+            auto rs = create_rowset(Version {ver, ver});
+            tablet->add_warmed_up_rowset(rs->rowset_id());
+            rowsets.emplace_back(rs);
         }
         {
             std::unique_lock wlock {tablet->get_header_lock()};
@@ -84,7 +87,10 @@ public:
 
     void add_new_version_rowset(CloudTabletSPtr tablet, int64_t version, bool warmed_up,
                                 time_point<system_clock> visible_timestamp) {
-        auto rowset = create_rowset(Version {version, version}, warmed_up, visible_timestamp);
+        auto rowset = create_rowset(Version {version, version}, visible_timestamp);
+        if (warmed_up) {
+            tablet->add_warmed_up_rowset(rowset->rowset_id());
+        }
         std::unique_lock wlock {tablet->get_header_lock()};
         tablet->add_rowsets({rowset}, false, wlock, false);
     }
@@ -93,8 +99,10 @@ public:
                             bool warmed_up, time_point<system_clock> visible_timestamp) {
         std::unique_lock wrlock {tablet->get_header_lock()};
         std::vector<RowsetSharedPtr> input_rowsets;
-        auto output_rowset =
-                create_rowset(Version {start_version, end_version}, warmed_up, visible_timestamp);
+        auto output_rowset = create_rowset(Version {start_version, end_version}, visible_timestamp);
+        if (warmed_up) {
+            tablet->add_warmed_up_rowset(output_rowset->rowset_id());
+        }
         std::ranges::copy_if(std::views::values(tablet->rowset_map()),
                              std::back_inserter(input_rowsets), [=](const RowsetSharedPtr& rowset) {
                                  return rowset->version().first >= start_version &&
