@@ -3910,94 +3910,108 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         KVStats& stats) {
     VLOG_DEBUG << "get delete bitmap update lock in v1 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to init txn";
-        return;
-    }
-    DORIS_CLOUD_DEFER {
-        if (txn == nullptr) return;
-        stats.get_bytes += txn->get_bytes();
-        stats.put_bytes += txn->put_bytes();
-        stats.del_bytes += txn->delete_bytes();
-        stats.get_counter += txn->num_get_keys();
-        stats.put_counter += txn->num_put_keys();
-        stats.del_counter += txn->num_del_keys();
-    };
     auto table_id = request->table_id();
     bool urgent = request->has_urgent() && request->urgent();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
-    std::string lock_val;
-    DeleteBitmapUpdateLockPB lock_info;
-    err = txn->get(lock_key, &lock_val);
-    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        ss << "failed to get delete bitmap update lock, instance_id=" << instance_id
-           << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
-        msg = ss.str();
-        code = MetaServiceCode::KV_TXN_GET_ERR;
-        return;
-    }
-    using namespace std::chrono;
-    int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-    if (err == TxnErrorCode::TXN_OK) {
-        if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = "failed to parse DeleteBitmapUpdateLockPB";
+    for (int retry = 0; retry <= 1; retry++) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to init txn";
             return;
         }
-        if (urgent) {
-            // since currently only the FE Master initiates the lock request for import tasks,
-            // and it does so in a single-threaded manner, there is no need to check the lock id here
-            DCHECK(request->lock_id() > 0);
-            LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
-                      << " lock_id=" << request->lock_id()
-                      << "prev_lock_id=" << lock_info.lock_id();
-            lock_info.clear_initiators();
-        } else if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
-            LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
-                      << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
-            lock_info.clear_initiators();
-        } else if (lock_info.lock_id() != request->lock_id()) {
-            ss << "already be locked. request lock_id=" << request->lock_id()
-               << " locked by lock_id=" << lock_info.lock_id() << " table_id=" << table_id
-               << " now=" << now << " expiration=" << lock_info.expiration();
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
+        };
+        std::string lock_val;
+        DeleteBitmapUpdateLockPB lock_info;
+        err = txn->get(lock_key, &lock_val);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            ss << "failed to get delete bitmap update lock, instance_id=" << instance_id
+               << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
             msg = ss.str();
-            code = MetaServiceCode::LOCK_CONFLICT;
+            code = MetaServiceCode::KV_TXN_GET_ERR;
             return;
         }
-    }
-
-    lock_info.set_lock_id(request->lock_id());
-    lock_info.set_expiration(now + request->expiration());
-    bool found = false;
-    for (auto initiator : lock_info.initiators()) {
-        if (request->initiator() == initiator) {
-            found = true;
-            break;
+        using namespace std::chrono;
+        int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+        if (err == TxnErrorCode::TXN_OK) {
+            if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse DeleteBitmapUpdateLockPB";
+                return;
+            }
+            if (urgent) {
+                // since currently only the FE Master initiates the lock request for import tasks,
+                // and it does so in a single-threaded manner, there is no need to check the lock id here
+                DCHECK(request->lock_id() > 0);
+                LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
+                          << " lock_id=" << request->lock_id()
+                          << "prev_lock_id=" << lock_info.lock_id();
+                lock_info.clear_initiators();
+            } else if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
+                LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
+                          << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
+                lock_info.clear_initiators();
+            } else if (lock_info.lock_id() != request->lock_id()) {
+                ss << "already be locked. request lock_id=" << request->lock_id()
+                   << " locked by lock_id=" << lock_info.lock_id() << " table_id=" << table_id
+                   << " now=" << now << " expiration=" << lock_info.expiration();
+                msg = ss.str();
+                code = MetaServiceCode::LOCK_CONFLICT;
+                return;
+            }
         }
-    }
-    if (!found) {
-        lock_info.add_initiators(request->initiator());
-    }
-    lock_info.SerializeToString(&lock_val);
-    if (lock_val.empty()) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "pb serialization error";
-        return;
-    }
-    txn->put(lock_key, lock_val);
-    LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " table_id=" << table_id
-              << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
-              << " initiators_size=" << lock_info.initiators_size();
 
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to get_delete_bitmap_update_lock, err=" << err;
-        msg = ss.str();
-        return;
+        lock_info.set_lock_id(request->lock_id());
+        lock_info.set_expiration(now + request->expiration());
+        bool found = false;
+        for (auto initiator : lock_info.initiators()) {
+            if (request->initiator() == initiator) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            lock_info.add_initiators(request->initiator());
+        }
+        lock_info.SerializeToString(&lock_val);
+        if (lock_val.empty()) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "pb serialization error";
+            return;
+        }
+        txn->put(lock_key, lock_val);
+        LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " table_id=" << table_id
+                  << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                  << " initiators_size=" << lock_info.initiators_size();
+
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+                if (retry == 0) {
+                    // do a fast retry
+                    response->Clear();
+                    code = MetaServiceCode::OK;
+                    msg.clear();
+                    continue;
+                }
+            }
+
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to get_delete_bitmap_update_lock, err=" << err;
+            msg = ss.str();
+            return;
+        }
+        break;
     }
 
     if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v1",
