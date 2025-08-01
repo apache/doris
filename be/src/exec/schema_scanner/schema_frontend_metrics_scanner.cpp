@@ -38,8 +38,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaFrontendMetricsScanner::_s_frontend
         {"METRIC_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"METRIC_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
         {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), false},
-        {"TAG", TYPE_VARCHAR, sizeof(StringRef), true}
-};
+        {"TAG", TYPE_VARCHAR, sizeof(StringRef), true}};
 
 SchemaFrontendMetricsScanner::SchemaFrontendMetricsScanner()
         : SchemaScanner(_s_frontend_metric_columns, TSchemaTableType::SCH_FE_METRICS) {}
@@ -52,7 +51,8 @@ Status SchemaFrontendMetricsScanner::start(RuntimeState* state) {
     for (const auto& fe_addr : _param->common_param->fe_addr_list) {
         TFetchFeMetricsResult tmp_ret;
         RETURN_IF_ERROR(
-                SchemaHelper::fetch_frontend_metrics(fe_addr.hostname, fe_addr.port, request, &tmp_ret));
+                SchemaHelper::fetch_frontend_metrics(fe_addr.hostname, fe_addr.port,
+                                                     request, &tmp_ret));
 
         _metrics_list_result.metrics_list.insert(_metrics_list_result.metrics_list.end(),
                                                  tmp_ret.metrics_list.begin(),
