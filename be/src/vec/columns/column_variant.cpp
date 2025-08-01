@@ -48,6 +48,7 @@
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
 #include "util/defer_op.h"
+#include "util/jsonb_parser_simd.h"
 #include "util/jsonb_utils.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -70,12 +71,6 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/json/path_in_data.h"
-
-#ifdef __AVX2__
-#include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 
 namespace doris::vectorized {
 namespace {
