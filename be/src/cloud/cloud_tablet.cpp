@@ -27,6 +27,7 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <ranges>
 #include <ratio>
@@ -132,8 +133,14 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
 Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
         bool skip_missing_version, int64_t query_freshness_tolerance_ms) {
-    Versions version_path;
-    std::shared_lock rlock(_meta_lock);
+    using namespace std::chrono;
+    auto freshness_limit_tp = system_clock::now() - milliseconds(query_freshness_tolerance_ms);
+    auto rs_timestamp = [](const RowsetSharedPtr& rs) -> time_point<system_clock> {
+        if (rs->rowset_meta()->has_visible_time_ms()) {
+            return time_point<system_clock>(milliseconds(rs->rowset_meta()->visible_time_ms()));
+        }
+        return system_clock::from_time_t(rs->rowset_meta()->newest_write_timestamp());
+    };
     // find a versin path where every edge(rowset) has been warmuped
     auto rowset_is_warmed_up = [&](int64_t start_version, int64_t end_version) -> bool {
         if (start_version > end_version) {
@@ -151,36 +158,44 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
             }
         }
         const auto& rs = it->second;
+        if (rs_timestamp(rs) < freshness_limit_tp) {
+            // We assume that rowsets before freshness limit time point are always warmuped up when capturing version path
+            return true;
+        }
         return rs->is_warmed_up();
     };
+    Versions version_path;
+    std::shared_lock rlock(_meta_lock);
     if (enable_unique_key_merge_on_write()) {
-        // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
-        // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
-        RETURN_IF_ERROR(
-                _timestamped_version_tracker.capture_newest_consistent_versions_with_validator(
-                        0, version_path, rowset_is_warmed_up));
+        // TODO:
+
+        // // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
+        // // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
+        // RETURN_IF_ERROR(
+        //         _timestamped_version_tracker.capture_newest_consistent_versions_with_validator(
+        //                 0, version_path, rowset_is_warmed_up));
     } else {
+        RowsetSharedPtr newest_rs_before_freshness_limit;
+        for (const auto& [version, rowset] : _rs_version_map) {
+            auto rs_tp = rs_timestamp(rowset);
+            if (rs_tp < freshness_limit_tp) {
+                if (!newest_rs_before_freshness_limit) {
+                    newest_rs_before_freshness_limit = rowset;
+                } else if (rs_tp > rs_timestamp(newest_rs_before_freshness_limit)) {
+                    newest_rs_before_freshness_limit = rowset;
+                }
+            }
+        }
+        bool should_fallback = !(newest_rs_before_freshness_limit &&
+                                 newest_rs_before_freshness_limit->is_warmed_up());
+        if (should_fallback) {
+            // if there exists a rowset which satisfies freshness tolerance and has not been warmuped up
+            // yet, fallback to capture rowsets as usual
+            return capture_rs_readers(spec_version, rs_splits, skip_missing_version);
+        }
+
         RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
                 0, version_path, rowset_is_warmed_up));
-    }
-    int64_t path_max_version = version_path.back().second;
-    bool should_fallback =
-            std::ranges::any_of(_tablet_meta->all_rs_metas(), [&](const auto& rs_meta) -> bool {
-                if (rs_meta->version() == Version {0, 1}) {
-                    // skip rowset[0-1]
-                    return false;
-                }
-                // TODO: consider use another timestamp
-                auto rs_timestamp =
-                        std::chrono::system_clock::from_time_t(rs_meta->newest_write_timestamp());
-                return rs_meta->start_version() > path_max_version &&
-                       (std::chrono::system_clock::now() - rs_timestamp) >
-                               std::chrono::milliseconds(query_freshness_tolerance_ms);
-            });
-    if (should_fallback) {
-        // if there exists a rowset which satisfies freshness tolerance and has not been warmuped up
-        // yet, fallback to capture rowsets as usual
-        return capture_rs_readers(spec_version, rs_splits, skip_missing_version);
     }
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }

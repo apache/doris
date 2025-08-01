@@ -110,9 +110,24 @@ public:
         auto st = tablet->capture_rs_readers_with_freshness_tolerance(
                 spec_version, &rs_splits, false, query_freshness_tolerance_ms);
         ASSERT_TRUE(st.ok());
-        ASSERT_EQ(rs_splits.size(), expected_versions.size());
+        auto dump_versions = [](const std::vector<Version>& expected_versions,
+                                const std::vector<RowSetSplits>& splits) {
+            std::vector<std::string> expected_str;
+            for (const auto& version : expected_versions) {
+                expected_str.push_back(version.to_string());
+            }
+            std::vector<std::string> versions;
+            for (const auto& split : splits) {
+                versions.push_back(split.rs_reader->rowset()->version().to_string());
+            }
+            return fmt::format("expected_versions: {}, actual_versions: {}",
+                               fmt::join(expected_str, ", "), fmt::join(versions, ", "));
+        };
+        ASSERT_EQ(rs_splits.size(), expected_versions.size())
+                << dump_versions(expected_versions, rs_splits);
         for (size_t i = 0; i < rs_splits.size(); i++) {
-            ASSERT_EQ(rs_splits[i].rs_reader->rowset()->version(), expected_versions[i]);
+            ASSERT_EQ(rs_splits[i].rs_reader->rowset()->version(), expected_versions[i])
+                    << dump_versions(expected_versions, rs_splits);
         }
     }
 
