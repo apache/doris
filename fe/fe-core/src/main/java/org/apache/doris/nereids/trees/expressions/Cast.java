@@ -102,8 +102,8 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // and the default return false below.
         // The if branches below only handle 2 cases: always nullable and nullable that may overflow.
         DataType childDataType = child().getDataType();
-        // From StringLike is always nullable.
-        if (childDataType.isStringLikeType()) {
+        // StringLike to other type is always nullable.
+        if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
         } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type())
                 && (targetType.isDateTimeType() || targetType.isDateTimeV2Type())) {
