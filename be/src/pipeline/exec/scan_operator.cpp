@@ -1213,7 +1213,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         // is checked in previous branch.
         if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
             DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
-            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
+                (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
+                 tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
                 if (tnode.limit > 0 &&
                     tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
                     _should_run_serial = true;
