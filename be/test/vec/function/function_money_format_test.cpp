@@ -29,7 +29,9 @@
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/function_string.h"
 
 namespace doris::vectorized {
@@ -51,18 +53,21 @@ TEST(function_money_format_test, money_format_with_decimalV2) {
             {std::string("-999999999999999999.995999999"),
              std::string("-1,000,000,000,000,000,000.00")}};
 
-    auto money_format = FunctionMoneyFormat<MoneyFormatDecimalImpl>::create();
+    auto money_format = FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMALV2>>::create();
     std::unique_ptr<RuntimeState> runtime_state = std::make_unique<RuntimeState>();
-    TypeDescriptor return_type = {PrimitiveType::TYPE_VARCHAR};
-    TypeDescriptor arg_type = {PrimitiveType::TYPE_DECIMALV2};
-    std::vector<TypeDescriptor> arg_types = {arg_type};
+    auto return_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARCHAR, false);
+    auto arg_type = DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_DECIMALV2, false, BeConsts::MAX_DECIMALV2_PRECISION,
+            BeConsts::MAX_DECIMALV2_SCALE);
+    std::vector<DataTypePtr> arg_types = {arg_type};
 
     auto context = FunctionContext::create_context(runtime_state.get(), return_type, arg_types);
 
     Block block;
     ColumnNumbers arguments = {0};
     size_t result_idx = 1;
-    auto col_dec_v2 = ColumnDecimal<Decimal128V2>::create(0, 9);
+    auto col_dec_v2 = ColumnDecimal128V2::create(0, 9);
     auto col_res_expected = ColumnString::create();
     for (const auto& input_and_expected : input_dec_str_and_expected_str) {
         DecimalV2Value dec_v2_value(input_and_expected.first);
@@ -71,8 +76,7 @@ TEST(function_money_format_test, money_format_with_decimalV2) {
                                       input_and_expected.second.size());
     }
 
-    block.insert({std::move(col_dec_v2), std::make_shared<DataTypeDecimal<Decimal128V2>>(10, 1),
-                  "col_dec_v2"});
+    block.insert({std::move(col_dec_v2), std::make_shared<DataTypeDecimalV2>(10, 1), "col_dec_v2"});
     block.insert({nullptr, std::make_shared<DataTypeString>(), "col_res"});
 
     Status exec_status = money_format->execute_impl(context.get(), block, arguments, result_idx,

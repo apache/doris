@@ -31,6 +31,7 @@
 #include "olap/task/engine_checksum_task.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const std::string TABLET_ID = "tablet_id";
 // do not use name "VERSION",
@@ -77,7 +78,7 @@ void ChecksumAction::handle(HttpRequest* req) {
     try {
         tablet_id = boost::lexical_cast<int64_t>(tablet_id_str);
         version = boost::lexical_cast<int64_t>(version_str);
-        schema_hash = boost::lexical_cast<int64_t>(schema_hash_str);
+        schema_hash = boost::lexical_cast<int32_t>(schema_hash_str);
     } catch (boost::bad_lexical_cast& e) {
         std::string error_msg = std::string("param format is invalid: ") + std::string(e.what());
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
@@ -119,4 +120,5 @@ int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int32_t 
     return static_cast<int64_t>(checksum);
 }
 
+#include "common/compile_check_end.h"
 } // end namespace doris

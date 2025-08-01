@@ -56,11 +56,13 @@ namespace doris::vectorized {
 class VExprContext;
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl,
-                                             double ignore_thredhold, bool null_aware)
+                                             double ignore_thredhold, bool null_aware,
+                                             int filter_id)
         : VExpr(node),
           _impl(std::move(impl)),
           _ignore_thredhold(ignore_thredhold),
-          _null_aware(null_aware) {
+          _null_aware(null_aware),
+          _filter_id(filter_id) {
     reset_judge_selectivity();
 }
 
@@ -87,8 +89,6 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 
 Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    DCHECK(_expr_filtered_rows_counter && _expr_input_rows_counter && _always_true_counter)
-            << "rf counter must be initialized";
     if (_judge_counter.fetch_sub(1) == 0) {
         reset_judge_selectivity();
     }
@@ -97,23 +97,23 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         block->insert({create_always_true_column(size, _data_type->is_nullable()), _data_type,
                        expr_name()});
         *result_column_id = block->columns() - 1;
-        if (_always_true_counter) {
-            COUNTER_UPDATE(_always_true_counter, size);
-        }
+        COUNTER_UPDATE(_always_true_filter_rows, size);
         return Status::OK();
     } else {
         if (_getting_const_col) {
             _impl->set_getting_const_col(true);
         }
         ColumnNumbers args;
-        RETURN_IF_ERROR(_impl->execute_runtime_fitler(context, block, result_column_id, args));
+        RETURN_IF_ERROR(_impl->execute_runtime_filter(context, block, result_column_id, args));
         if (_getting_const_col) {
             _impl->set_getting_const_col(false);
         }
 
         ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
 
-        if (_null_aware) {
+        // bloom filter will handle null aware inside itself
+        if (_null_aware && TExprNodeType::BLOOM_PRED != node_type()) {
+            DCHECK_GE(args.size(), 1);
             change_null_to_true(result_column.column, block->get_by_position(args[0]).column);
         }
 

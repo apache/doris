@@ -101,8 +101,10 @@ public:
         return INITIAL_RESERVED_BUFFER_SIZE << n;
     }
     static Status get_jni_scanner_class(JNIEnv* env, const char* classname, jclass* loaded_class);
-    static jobject convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map);
-    static std::map<std::string, std::string> convert_to_cpp_map(JNIEnv* env, jobject map);
+    static Status convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map,
+                                      jobject* hashmap_object);
+    static Status convert_to_cpp_map(JNIEnv* env, jobject map,
+                                     std::map<std::string, std::string>* resultMap);
     static size_t get_max_jni_heap_memory_size();
     static Status clean_udf_class_load_cache(const std::string& function_signature);
 

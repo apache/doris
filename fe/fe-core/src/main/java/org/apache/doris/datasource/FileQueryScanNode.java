@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -33,13 +33,11 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.hive.AcidInfo;
-import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
-import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -59,10 +57,6 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSplitSource;
-import org.apache.doris.thrift.TTableFormatFileDesc;
-import org.apache.doris.thrift.TTextSerdeType;
-import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
-import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -73,8 +67,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -99,6 +93,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // connection context is a thread local variable, it is not available is running in other thread.
     protected SessionVariable sessionVariable;
 
+    protected TableScanParams scanParams;
+
     /**
      * External file scan node for Query hms table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -110,18 +106,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             SessionVariable sv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         this.sessionVariable = sv;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
-        }
-        super.init(analyzer);
-        doInitialize();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
-        }
     }
 
     /**
@@ -161,9 +145,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             destSlotDescByName.put(slot.getColumn().getName(), slot);
         }
         params = new TFileScanRangeParams();
-        if (this instanceof HiveScanNode) {
-            params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
-        }
         params.setDestTupleId(desc.getId().asInt());
         List<String> partitionKeys = getPathPartitionKeys();
         List<Column> columns = desc.getTable().getBaseSchema(false);
@@ -201,11 +182,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     public void setTableSample(TableSample tSample) {
         this.tableSample = tSample;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        doFinalize();
     }
 
     @Override
@@ -250,7 +226,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             SlotDescriptor slotDesc = desc.getSlot(slot.getSlotId());
             String colName = slotDesc.getColumn().getName();
-            int idx = tbl.getBaseColumnIdxByName(colName);
+            if (colName.startsWith(Column.GLOBAL_ROWID_COL)) {
+                continue;
+            }
+
+            int idx = -1;
+            List<Column> columns = getColumns();
+            for (int i = 0; i < columns.size(); i++) {
+                if (columns.get(i).getName().equals(colName)) {
+                    idx = i;
+                    break;
+                }
+            }
             if (idx == -1) {
                 throw new UserException("Column " + colName + " not found in table " + tbl.getName());
             }
@@ -275,15 +262,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
+        StmtExecutor executor = ConnectContext.get().getExecutor();
+        if (executor != null) {
+            executor.getSummaryProfile().setGetSplitsStartTime();
         }
         TFileFormatType fileFormatType = getFileFormatType();
         if (fileFormatType == TFileFormatType.FORMAT_ORC) {
             genSlotToSchemaIdMapForOrc();
         }
         params.setFormatType(fileFormatType);
-        boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
+        boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON
+                || fileFormatType == TFileFormatType.FORMAT_TEXT;
         boolean isWal = fileFormatType == TFileFormatType.FORMAT_WAL;
         if (isCsvOrJson || isWal) {
             params.setFileAttributes(getFileAttributes());
@@ -327,8 +316,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(
                     backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
             splitAssignment.init();
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
+            if (executor != null) {
+                executor.getSummaryProfile().setGetSplitsFinishTime();
             }
             if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
                 return;
@@ -388,8 +377,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         getSerializedTable().ifPresent(params::setSerializedTable);
 
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();
+        if (executor != null) {
+            executor.getSummaryProfile().setCreateScanRangeFinishTime();
+            if (sessionVariable.showSplitProfileInfo()) {
+                executor.getSummaryProfile().setAssignedWeightPerBackend(backendPolicy.getAssignedWeightPerBackend());
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",
@@ -418,35 +410,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
-        if (fileSplit instanceof  HiveSplit) {
-            if (isACID) {
-                HiveSplit hiveSplit = (HiveSplit) fileSplit;
-                hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
-                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-                tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
-                AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
-                TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
-                transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
-                List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
-                for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
-                    TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
-                    deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
-                    deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
-                    deleteDeltaDescs.add(deleteDeltaDesc);
-                }
-                transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
-                tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
-                rangeDesc.setTableFormatParams(tableFormatFileDesc);
-            } else {
-                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-                tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
-                rangeDesc.setTableFormatParams(tableFormatFileDesc);
-            }
-        }
-
         // set file format type, and the type might fall back to native format in setScanParams
         rangeDesc.setFormatType(getFileFormatType());
         setScanParams(rangeDesc, fileSplit);
+
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();
         setLocationPropertiesIfNecessary(backend, fileSplit.getLocationType(), locationProperties);
@@ -469,21 +436,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 params.setProperties(locationProperties);
 
                 if (!params.isSetBrokerAddresses()) {
-                    FsBroker broker;
+                    List<FsBroker> brokers;
                     if (brokerName != null) {
-                        broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug(String.format(
-                                    "Set location for broker [%s], selected BE host: [%s] selected broker host: [%s]",
-                                    brokerName, selectedBackend.getHost(), broker.host));
-                        }
+                        brokers = Env.getCurrentEnv().getBrokerMgr().getBrokers(brokerName);
                     } else {
-                        broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                        brokers = Env.getCurrentEnv().getBrokerMgr().getAllBrokers();
                     }
-                    if (broker == null) {
+                    if (brokers == null || brokers.isEmpty()) {
                         throw new UserException("No alive broker.");
                     }
-                    params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
+                    Collections.shuffle(brokers);
+                    for (FsBroker broker : brokers) {
+                        if (broker.isAlive) {
+                            params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
+                        }
+                    }
+                    if (params.getBrokerAddresses().isEmpty()) {
+                        throw new UserException("No alive broker.");
+                    }
                 }
             }
         } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)
@@ -591,6 +561,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected abstract TableIf getTargetTable() throws UserException;
 
+    // TODO: Rename this method when Metadata Service (MS) integration is complete.
+    // The current name "getLocationProperties" is a placeholder and may not reflect
+    // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
     @Override
@@ -614,6 +587,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return snapshot;
         }
         return this.tableSnapshot;
+    }
+
+    public void setScanParams(TableScanParams scanParams) {
+        this.scanParams = scanParams;
+    }
+
+    public TableScanParams getScanParams() {
+        TableScanParams scan = desc.getRef().getScanParams();
+        if (scan != null) {
+            return scan;
+        }
+        return this.scanParams;
     }
 
     /**

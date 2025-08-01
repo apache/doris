@@ -47,12 +47,12 @@ public:
 
     using ColumnType = ColumnHLL;
     using FieldType = doris::HyperLogLog;
+    static constexpr PrimitiveType PType = TYPE_HLL;
 
     std::string do_get_name() const override { return get_family_name(); }
-    const char* get_family_name() const override { return "HLL"; }
+    const std::string get_family_name() const override { return "HLL"; }
 
-    TypeIndex get_type_id() const override { return TypeIndex::HLL; }
-    TypeDescriptor get_type_as_type_descriptor() const override { return {TYPE_HLL}; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_HLL; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_HLL;
@@ -64,6 +64,7 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     bool have_subtypes() const override { return false; }
     bool should_align_right_in_pretty_formats() const override { return false; }
@@ -82,19 +83,21 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    Field get_default() const override { return HyperLogLog::empty(); }
+    Field get_default() const override {
+        return Field::create_field<TYPE_HLL>(HyperLogLog::empty());
+    }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Unimplemented get_field for HLL");
-        __builtin_unreachable();
     }
 
     static void serialize_as_stream(const HyperLogLog& value, BufferWritable& buf);
 
     static void deserialize_as_stream(HyperLogLog& value, BufferReadable& buf);
 
+    using SerDeType = DataTypeHLLSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeHLLSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 };
 

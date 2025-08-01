@@ -40,7 +40,6 @@ class TFileScanRangeParams;
 namespace io {
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
 class Block;
@@ -48,7 +47,7 @@ class GenericReader;
 class ShardedKVCache;
 class VExprContext;
 
-class TransactionalHiveReader : public TableFormatReader {
+class TransactionalHiveReader : public TableFormatReader, public TableSchemaChangeHelper {
     ENABLE_FACTORY_CREATOR(TransactionalHiveReader);
 
 public:
@@ -90,12 +89,9 @@ public:
 
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) final;
-
     Status init_reader(
             const std::vector<std::string>& column_names,
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,

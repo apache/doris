@@ -15,13 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <aws/core/Aws.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/ListObjectsV2Request.h>
+#include <aws/s3/model/ListObjectsV2Result.h>
+#include <aws/s3/model/Object.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
+#include "recycler/s3_obj_client.h"
 
 using namespace doris;
+using namespace Aws::S3::Model;
 
 int main(int argc, char** argv) {
     const std::string conf_file = "doris_cloud.conf";
@@ -40,8 +48,39 @@ int main(int argc, char** argv) {
 
 namespace doris::cloud {
 
-TEST(S3ObjClientTest, list_objects) {
-    // TODO
+class S3AccessorMockTest : public testing::Test {
+    static void SetUpTestSuite() { Aws::InitAPI(S3AccessorMockTest::options); };
+    static void TearDownTestSuite() { Aws::ShutdownAPI(options); };
+
+private:
+    static Aws::SDKOptions options;
+};
+
+Aws::SDKOptions S3AccessorMockTest::options {};
+class MockS3Client : public Aws::S3::S3Client {
+public:
+    MockS3Client() {};
+
+    MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
+                (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
+};
+
+TEST_F(S3AccessorMockTest, list_objects_compatibility) {
+    // If storage only supports ListObjectsV1, s3_obj_storage_client.list_objects
+    // should return an error.
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    S3ObjClient s3_obj_client(mock_s3_client, "dummy-endpoint");
+
+    ListObjectsV2Result result;
+    result.SetIsTruncated(true);
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce(testing::Return(ListObjectsV2Outcome(result)));
+
+    auto response = s3_obj_client.list_objects(
+            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/list_objects_compatibility"});
+
+    EXPECT_FALSE(response->has_next());
+    EXPECT_FALSE(response->is_valid());
 }
 
 } // namespace doris::cloud

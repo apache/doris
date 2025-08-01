@@ -42,6 +42,7 @@
 #include "util/s3_util.h"
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> s3_file_writer_total("s3_file_writer_total_num");
 bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer_bytes_written");
@@ -282,7 +283,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
+void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
     VLOG_DEBUG << "upload_one_part " << _obj_storage_path_opts.path.native()
                << " part=" << part_num;
     if (buf.is_cancelled()) {
@@ -292,15 +293,15 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
     }
     const auto& client = _obj_client->get();
     if (nullptr == client) {
-        LOG_WARNING("failed at key: {}, load part {} bacause of invalid obj client",
+        LOG_WARNING("failed to upload part, key={}, part_num={} bacause of null obj client",
                     _obj_storage_path_opts.key, part_num);
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));
         return;
     }
     auto resp = client->upload_part(_obj_storage_path_opts, buf.get_string_view_data(), part_num);
     if (resp.resp.status.code != ErrorCode::OK) {
-        LOG_INFO("failed at key: {}, load part {}, st {}", _obj_storage_path_opts.key, part_num,
-                 resp.resp.status.msg);
+        LOG_WARNING("failed to upload part, key={}, part_num={}, status={}",
+                    _obj_storage_path_opts.key, part_num, resp.resp.status.msg);
         buf.set_status(Status(resp.resp.status.code, std::move(resp.resp.status.msg)));
         return;
     }
@@ -311,6 +312,55 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
 
     std::unique_lock<std::mutex> lck {_completed_lock};
     _completed_parts.emplace_back(std::move(completed_part));
+}
+
+// if enabled check
+// 1. issue a head object request for existence check
+// 2. check the file size
+Status check_after_upload(ObjStorageClient* client, const ObjectStorageResponse& upload_res,
+                          const ObjectStoragePathOptions& path_opt, int64_t bytes_appended,
+                          const std::string& put_or_comp) {
+    if (!config::enable_s3_object_check_after_upload) return Status::OK();
+
+    auto head_res = client->head_object(path_opt);
+
+    // clang-format off
+    auto err_msg = [&]() {
+        std::stringstream ss;
+        ss << "failed to check object after upload=" << put_or_comp
+            << " file_path=" << path_opt.path.native()
+            << fmt::format(" {}_err=", put_or_comp) << upload_res.status.msg
+            << fmt::format(" {}_code=", put_or_comp) << upload_res.status.code
+            << fmt::format(" {}_http_code=", put_or_comp) << upload_res.http_code
+            << fmt::format(" {}_request_id=", put_or_comp) << upload_res.request_id
+            << " head_err=" << head_res.resp.status.msg
+            << " head_code=" << head_res.resp.status.code
+            << " head_http_code=" << head_res.resp.http_code
+            << " head_request_id=" << head_res.resp.request_id;
+        return ss.str();
+    };
+    // clang-format on
+
+    // TODO(gavin): make it fail by injection
+    TEST_SYNC_POINT_CALLBACK("S3FileWriter::check_after_load", &head_res);
+    if (head_res.resp.status.code != ErrorCode::OK && head_res.resp.http_code != 200) {
+        LOG(WARNING) << "failed to issue head object after upload, " << err_msg();
+        DCHECK(false) << "failed to issue head object after upload, " << err_msg();
+        // FIXME(gavin): we should retry if this HEAD fails?
+        return Status::IOError(
+                "failed to issue head object after upload, status_code={}, http_code={}, err={}",
+                head_res.resp.status.code, head_res.resp.http_code, head_res.resp.status.msg);
+    }
+    if (head_res.file_size != bytes_appended) {
+        LOG(WARNING) << "failed to check size after upload, expected_size=" << bytes_appended
+                     << " actual_size=" << head_res.file_size << err_msg();
+        DCHECK_EQ(bytes_appended, head_res.file_size)
+                << "failed to check size after upload," << err_msg();
+        return Status::IOError(
+                "failed to check object size after upload, expected_size={} actual_size={}",
+                bytes_appended, head_res.file_size);
+    }
+    return Status::OK();
 }
 
 Status S3FileWriter::_complete() {
@@ -337,17 +387,18 @@ Status S3FileWriter::_complete() {
     }
 
     // check number of parts
-    int expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
-                              !!(_bytes_appended % config::s3_write_buffer_size);
-    int expected_num_parts2 =
+    int64_t expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
+                                  !!(_bytes_appended % config::s3_write_buffer_size);
+    int64_t expected_num_parts2 =
             (_bytes_appended % config::s3_write_buffer_size) ? _cur_part_num : _cur_part_num - 1;
     DCHECK_EQ(expected_num_parts1, expected_num_parts2)
             << " bytes_appended=" << _bytes_appended << " cur_part_num=" << _cur_part_num
             << " s3_write_buffer_size=" << config::s3_write_buffer_size;
-    if (_failed || _completed_parts.size() != expected_num_parts1 ||
+    if (_failed || _completed_parts.size() != static_cast<size_t>(expected_num_parts1) ||
         expected_num_parts1 != expected_num_parts2) {
         _st = Status::InternalError(
-                "error status={} failed={} #complete_parts={} #expected_parts={} "
+                "failed to complete multipart upload, error status={} failed={} #complete_parts={} "
+                "#expected_parts={} "
                 "completed_parts_list={} file_path={} file_size={} has left buffer not uploaded={}",
                 _st, _failed, _completed_parts.size(), expected_num_parts1, _dump_completed_part(),
                 _obj_storage_path_opts.path.native(), _bytes_appended, _pending_buf != nullptr);
@@ -363,10 +414,14 @@ Status S3FileWriter::_complete() {
               << " s3_write_buffer_size=" << config::s3_write_buffer_size;
     auto resp = client->complete_multipart_upload(_obj_storage_path_opts, _completed_parts);
     if (resp.status.code != ErrorCode::OK) {
-        LOG_WARNING("Compltet multi part upload failed because {}, file path {}", resp.status.msg,
+        LOG_WARNING("failed to complete multipart upload, err={}, file_path={}", resp.status.msg,
                     _obj_storage_path_opts.path.native());
         return {resp.status.code, std::move(resp.status.msg)};
     }
+
+    RETURN_IF_ERROR(check_after_upload(client.get(), resp, _obj_storage_path_opts, _bytes_appended,
+                                       "complete_multipart"));
+
     s3_file_created_total << 1;
     return Status::OK();
 }
@@ -408,11 +463,19 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     TEST_SYNC_POINT_RETURN_WITH_VOID("S3FileWriter::_put_object", this, &buf);
     auto resp = client->put_object(_obj_storage_path_opts, buf.get_string_view_data());
     if (resp.status.code != ErrorCode::OK) {
-        LOG_WARNING("put object failed because {}, file path {}", resp.status.msg,
-                    _obj_storage_path_opts.path.native());
+        LOG_WARNING("failed to put object, put object failed because {}, file path {}",
+                    resp.status.msg, _obj_storage_path_opts.path.native());
         buf.set_status({resp.status.code, std::move(resp.status.msg)});
         return;
     }
+
+    auto st = check_after_upload(client.get(), resp, _obj_storage_path_opts, _bytes_appended,
+                                 "put_object");
+    if (!st.ok()) {
+        buf.set_status(st);
+        return;
+    }
+
     s3_file_created_total << 1;
 }
 
@@ -424,5 +487,6 @@ std::string S3FileWriter::_dump_completed_part() const {
     }
     return ss.str();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

@@ -17,11 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
@@ -182,11 +180,11 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     }
 
     public boolean isRootUser() {
-        return user.equals(Auth.ROOT_USER);
+        return this.equals(ROOT);
     }
 
     public boolean isAdminUser() {
-        return user.equals(Auth.ADMIN_USER);
+        return this.equals(ADMIN);
     }
 
     public boolean isSystemUser() {
@@ -222,17 +220,10 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     }
 
     public static UserIdentity read(DataInput in) throws IOException {
-        // Use Gson in the VERSION_109
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_109) {
-            UserIdentity userIdentity = new UserIdentity();
-            userIdentity.readFields(in);
-            return userIdentity;
-        } else {
-            String json = Text.readString(in);
-            UserIdentity userIdentity = GsonUtils.GSON.fromJson(json, UserIdentity.class);
-            userIdentity.setIsAnalyzed();
-            return userIdentity;
-        }
+        String json = Text.readString(in);
+        UserIdentity userIdentity = GsonUtils.GSON.fromJson(json, UserIdentity.class);
+        userIdentity.setIsAnalyzed();
+        return userIdentity;
     }
 
     @Override
@@ -277,14 +268,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     public void write(DataOutput out) throws IOException {
         Preconditions.checkState(isAnalyzed);
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        user = Text.readString(in);
-        host = Text.readString(in);
-        isDomain = in.readBoolean();
-        isAnalyzed = true;
     }
 
     @Override

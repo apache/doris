@@ -18,16 +18,15 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/jsonb_value.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -37,27 +36,22 @@
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class BufferWritable;
 class IColumn;
 class ReadBuffer;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
-#include "common/compile_check_begin.h"
 class DataTypeJsonb final : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = JsonbField;
+    static constexpr PrimitiveType PType = TYPE_JSONB;
     static constexpr bool is_parametric = false;
 
-    const char* get_family_name() const override { return "JSONB"; }
-    TypeIndex get_type_id() const override { return TypeIndex::JSONB; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_JSONB);
-    }
+    const std::string get_family_name() const override { return "JSONB"; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_JSONB; }
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_JSONB;
     }
@@ -69,20 +63,14 @@ public:
                             int data_version) const override;
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
-    virtual Field get_default() const override {
-        std::string default_json = "null";
-        JsonBinaryValue binary_val(default_json.c_str(), static_cast<Int32>(default_json.size()));
-        // Throw exception if default_json.size() is large than INT32_MAX
-        return JsonbField(binary_val.value(), cast_set<Int32>(binary_val.size()));
-    }
+    Field get_default() const override;
 
-    Field get_field(const TExprNode& node) const override {
-        DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
-        DCHECK(node.__isset.json_literal);
-        JsonBinaryValue value(node.json_literal.value);
-        return Field(String(value.value(), value.size()));
-    }
+    Field get_field(const TExprNode& node) const override;
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 
     bool equals(const IDataType& rhs) const override;
 
@@ -95,8 +83,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    using SerDeType = DataTypeJsonbSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeJsonbSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 
 private:

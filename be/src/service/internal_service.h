@@ -38,27 +38,6 @@ class PHandShakeRequest;
 class PHandShakeResponse;
 class RuntimeState;
 
-template <typename T>
-concept CanCancel = requires(T* response) { response->mutable_status(); };
-
-template <typename T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
-    brpc::ClosureGuard closure_guard(done);
-    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
-}
-
-template <CanCancel T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
-    brpc::ClosureGuard closure_guard(done);
-    // Should use status to generate protobuf message, because it will encoding Backend Info
-    // into the error message and then we could know which backend's pool is full.
-    Status st = Status::Error<TStatusCode::CANCELLED>(
-            "fail to offer request to the work pool, pool={}", pool.get_info());
-    st.to_protobuf(response->mutable_status());
-    LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
-                 << pool.get_info();
-}
-
 class PInternalService : public PBackendService {
 public:
     PInternalService(ExecEnv* exec_env);
@@ -211,6 +190,10 @@ public:
     void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
                        PMultiGetResponse* response, google::protobuf::Closure* done) override;
 
+    void multiget_data_v2(google::protobuf::RpcController* controller,
+                          const PMultiGetRequestV2* request, PMultiGetResponseV2* response,
+                          google::protobuf::Closure* done) override;
+
     void tablet_fetch_data(google::protobuf::RpcController* controller,
                            const PTabletKeyLookupRequest* request,
                            PTabletKeyLookupResponse* response,
@@ -230,6 +213,20 @@ public:
                          const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
                          google::protobuf::Closure* done) override;
 
+    void delete_dictionary(google::protobuf::RpcController* controller,
+                           const PDeleteDictionaryRequest* request,
+                           PDeleteDictionaryResponse* response,
+                           google::protobuf::Closure* done) override;
+
+    void commit_refresh_dictionary(google::protobuf::RpcController* controller,
+                                   const PCommitRefreshDictionaryRequest* request,
+                                   PCommitRefreshDictionaryResponse* response,
+                                   google::protobuf::Closure* done) override;
+    void abort_refresh_dictionary(google::protobuf::RpcController* controller,
+                                  const PAbortRefreshDictionaryRequest* request,
+                                  PAbortRefreshDictionaryResponse* response,
+                                  google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -240,8 +237,6 @@ private:
                                     bool compact,
                                     const std::function<void(RuntimeState*, Status*)>& cb =
                                             std::function<void(RuntimeState*, Status*)>());
-
-    Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,

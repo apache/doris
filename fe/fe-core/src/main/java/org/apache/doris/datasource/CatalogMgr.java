@@ -17,13 +17,8 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.AlterCatalogCommentStmt;
-import org.apache.doris.analysis.AlterCatalogNameStmt;
-import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.ShowCatalogStmt;
-import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -56,7 +51,6 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ShowResultSet;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -125,7 +119,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         idToCatalog.put(catalog.getId(), catalog);
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).onRefresh(false);
+            ((ExternalCatalog) catalog).resetToUninitialized(false);
         }
         if (!Strings.isNullOrEmpty(catalog.getResource())) {
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
@@ -189,6 +183,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             throw e.apply(name);
         }
         return catalog;
+    }
+
+    public CatalogIf getCatalogOrDdlException(String name) throws DdlException {
+        return getCatalogOrException(name,
+                catalog -> new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
+                        ErrorCode.ERR_UNKNOWN_CATALOG));
     }
 
     public CatalogIf getCatalogOrAnalysisException(String name) throws AnalysisException {
@@ -296,6 +296,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 ConnectContext.get().removeLastDBOfCatalog(catalogName);
             }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
+            LOG.info("finished to drop catalog {}:{}", catalog.getName(), catalog.getId());
         } finally {
             writeUnlock();
         }
@@ -341,13 +342,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     /**
-     * Modify the catalog name into a new one and write the meta log.
-     */
-    public void alterCatalogName(AlterCatalogNameStmt stmt) throws UserException {
-        alterCatalogName(stmt.getCatalogName(), stmt.getNewCatalogName());
-    }
-
-    /**
      * Modify the catalog comment to a new one and write the meta log.
      */
     public void alterCatalogComment(String catalogName, String comment) throws UserException {
@@ -365,13 +359,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Modify the catalog comment to a new one and write the meta log.
-     */
-    public void alterCatalogComment(AlterCatalogCommentStmt stmt) throws UserException {
-        alterCatalogComment(stmt.getCatalogName(), stmt.getComment());
     }
 
     /**
@@ -397,26 +384,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Modify the catalog property and write the meta log.
-     */
-    public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
-        alterCatalogProps(stmt.getCatalogName(), stmt.getNewProperties());
-    }
-
-    /**
-     * List all catalog or get the special catalog with a name.
-     */
-    public ShowResultSet showCatalogs(ShowCatalogStmt showStmt) throws AnalysisException {
-        return showCatalogs(showStmt, InternalCatalog.INTERNAL_CATALOG_NAME);
-    }
-
-    public ShowResultSet showCatalogs(ShowCatalogStmt showStmt, String currentCtlg) throws AnalysisException {
-        List<List<String>> rows = showCatalogs(showStmt.getCatalogName(), showStmt.getPattern(), currentCtlg);
-
-        return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     public List<List<String>> showCatalogs(
@@ -531,12 +498,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return rows;
     }
 
-    public ShowResultSet showCreateCatalog(ShowCreateCatalogStmt showStmt) throws AnalysisException {
-        List<List<String>> rows = showCreateCatalog(showStmt.getCatalog());
-
-        return new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
     /**
      * Reply for create catalog event.
      */
@@ -560,6 +521,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
             }
             addCatalog(catalog);
+            LOG.info("finished to create catalog {}:{}, is replay: {}", catalog.getName(), catalog.getId(), isReplay);
         } finally {
             writeUnlock();
         }

@@ -17,12 +17,12 @@
 
 #include "olap/single_replica_compaction.h"
 
+#include <absl/strings/str_split.h>
 #include <curl/curl.h>
 
 #include "common/logging.h"
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -379,7 +379,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(local_path));
 
     // Get remote dir file list
-    string file_list_str;
+    std::string file_list_str;
     auto list_files_cb = [&remote_url_prefix, &file_list_str](HttpClient* client) {
         RETURN_IF_ERROR(client->init(remote_url_prefix));
         client->set_timeout_ms(LIST_REMOTE_FILE_TIMEOUT * 1000);
@@ -387,8 +387,8 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
         return Status::OK();
     };
     RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb));
-    std::vector<string> file_name_list =
-            strings::Split(file_list_str, "\n", strings::SkipWhitespace());
+    std::vector<std::string> file_name_list =
+            absl::StrSplit(file_list_str, "\n", absl::SkipWhitespace());
 
     // If the header file is not exist, the table couldn't loaded by olap engine.
     // Avoid of data is not complete, we copy the header file at last.
@@ -488,10 +488,10 @@ Status SingleReplicaCompaction::_release_snapshot(const std::string& ip, int por
     return Status::create(result.status);
 }
 
-Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
+Status SingleReplicaCompaction::_finish_clone(const std::string& clone_dir,
                                               const Version& output_version) {
     Status res = Status::OK();
-    std::vector<string> linked_success_files;
+    std::vector<std::string> linked_success_files;
     {
         do {
             // check clone dir existed
@@ -545,7 +545,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
             /// Traverse all downloaded clone files in CLONE dir.
             /// If it does not exist in local tablet dir, link the file to local tablet dir
             /// And save all linked files in linked_success_files.
-            for (const string& clone_file : clone_file_names) {
+            for (const std::string& clone_file : clone_file_names) {
                 if (local_file_names.find(clone_file) != local_file_names.end()) {
                     VLOG_NOTICE << "find same file when clone, skip it. "
                                 << "tablet=" << _tablet->tablet_id()

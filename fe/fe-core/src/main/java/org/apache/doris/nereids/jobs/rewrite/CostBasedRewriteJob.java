@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -86,12 +87,14 @@ public class CostBasedRewriteJob implements RewriteJob {
         if (checkHint.first) {
             checkHint.second.setStatus(Hint.HintStatus.SUCCESS);
             if (!((UseCboRuleHint) checkHint.second).isNotUseCboRule()) {
+                currentCtx.addPlanProcesses(applyCboRuleCtx.getPlanProcesses());
                 currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
             }
             return;
         }
         // If the candidate applied cbo rule is better, replace the original plan with it.
         if (appliedCboRuleCost.get().first.getValue() < skipCboRuleCost.get().first.getValue()) {
+            currentCtx.addPlanProcesses(applyCboRuleCtx.getPlanProcesses());
             currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
         }
     }
@@ -105,16 +108,27 @@ public class CostBasedRewriteJob implements RewriteJob {
      */
     private Pair<Boolean, Hint> checkRuleHint() {
         Pair<Boolean, Hint> checkResult = Pair.of(false, null);
-        if (rewriteJobs.get(0) instanceof RootPlanTreeRewriteJob) {
-            for (Rule rule : ((RootPlanTreeRewriteJob) rewriteJobs.get(0)).getRules()) {
-                checkResult = checkRuleHintWithHintName(rule.getRuleType());
-                if (checkResult.first) {
-                    return checkResult;
-                }
+        RewriteJob rewriteJob = rewriteJobs.get(0);
+        List<Rule> rules = ImmutableList.of();
+        if (rewriteJob instanceof AdaptiveTopDownRewriteJob) {
+            rules = ((AdaptiveTopDownRewriteJob) rewriteJob).getRules();
+        } else if (rewriteJob instanceof AdaptiveBottomUpRewriteJob) {
+            rules = ((AdaptiveBottomUpRewriteJob) rewriteJob).getRules();
+        } else if (rewriteJob instanceof RootPlanTreeRewriteJob) {
+            rules = ((RootPlanTreeRewriteJob) rewriteJob).getRules();
+        } else if (rewriteJob instanceof TopDownVisitorRewriteJob) {
+            rules = ((TopDownVisitorRewriteJob) rewriteJob).getRules().getAllRules();
+        } else if (rewriteJob instanceof BottomUpVisitorRewriteJob) {
+            rules = ((BottomUpVisitorRewriteJob) rewriteJob).getRules().getAllRules();
+        }
+        for (Rule rule : rules) {
+            checkResult = checkRuleHintWithHintName(rule.getRuleType());
+            if (checkResult.first) {
+                return checkResult;
             }
         }
-        if (rewriteJobs.get(0) instanceof CustomRewriteJob) {
-            checkResult = checkRuleHintWithHintName(((CustomRewriteJob) rewriteJobs.get(0)).getRuleType());
+        if (rewriteJob instanceof CustomRewriteJob) {
+            checkResult = checkRuleHintWithHintName(((CustomRewriteJob) rewriteJob).getRuleType());
         }
         return checkResult;
     }
@@ -158,20 +172,29 @@ public class CostBasedRewriteJob implements RewriteJob {
 
     private Optional<Pair<Cost, GroupExpression>> getCost(CascadesContext currentCtx,
             CascadesContext cboCtx, JobContext jobContext) {
-        // Do subtree rewrite
+        // Do subtree rewriter
         Rewriter.getCteChildrenRewriter(cboCtx, jobContext.getRemainJobs()).execute();
         CascadesContext rootCtx = currentCtx.getRoot();
         if (rootCtx.getRewritePlan() instanceof LogicalCTEAnchor) {
             // set subtree rewrite cache
             currentCtx.getStatementContext().getRewrittenCteProducer()
                     .put(currentCtx.getCurrentTree().orElse(null), (LogicalPlan) cboCtx.getRewritePlan());
+            // Do post tree rewrite
+            CascadesContext rootCtxCopy = CascadesContext.newCurrentTreeContext(rootCtx);
+            rootCtxCopy.withPlanProcess(currentCtx.showPlanProcess(), () -> {
+                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
+            });
+            // Do optimize
+            new Optimizer(rootCtxCopy).execute();
+            return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
+                    rootCtxCopy.getCurrentJobContext().getRequiredProperties());
+        } else {
+            // Do post tree rewrite
+            CascadesContext cboCtxCopy = CascadesContext.newCurrentTreeContext(cboCtx);
+            // Do optimize
+            new Optimizer(cboCtxCopy).execute();
+            return cboCtxCopy.getMemo().getRoot().getLowestCostPlan(
+                    cboCtxCopy.getCurrentJobContext().getRequiredProperties());
         }
-        // Do post tree rewrite
-        CascadesContext rootCtxCopy = CascadesContext.newCurrentTreeContext(rootCtx);
-        Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
-        // Do optimize
-        new Optimizer(rootCtxCopy).execute();
-        return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
-                rootCtxCopy.getCurrentJobContext().getRequiredProperties());
     }
 }

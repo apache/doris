@@ -18,6 +18,7 @@
 #include "runtime/snapshot_loader.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <absl/strings/str_split.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
@@ -29,15 +30,16 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <istream>
 #include <unordered_map>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
@@ -59,6 +61,7 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 struct LocalFileStat {
     uint64_t size;
@@ -96,6 +99,8 @@ public:
     void set_report_progress_callback(std::function<Status()> report_progress) {
         _report_progress_callback = std::move(report_progress);
     }
+
+    size_t get_download_file_num() { return _need_download_files.size(); }
 
     Status download();
 
@@ -188,7 +193,8 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
         RETURN_IF_ERROR(fs.upload(local_path, full_remote_path));
         break;
     default:
-        throw Exception(Status::FatalError("unknown fs type: {}", static_cast<int>(fs.type())));
+        throw doris::Exception(
+                Status::FatalError("unknown fs type: {}", static_cast<int>(fs.type())));
     }
     return Status::OK();
 }
@@ -350,7 +356,7 @@ Status SnapshotHttpDownloader::_list_remote_files() {
     };
     RETURN_IF_ERROR(HttpClient::execute_with_retry(kDownloadFileMaxRetry, 1, list_files_cb));
 
-    _remote_file_list = strings::Split(remote_file_list_str, "\n", strings::SkipWhitespace());
+    _remote_file_list = absl::StrSplit(remote_file_list_str, "\n", absl::SkipWhitespace());
 
     // find hdr file
     auto hdr_file =
@@ -426,6 +432,14 @@ Status SnapshotHttpDownloader::_link_same_rowset_files() {
         remote_rowset_metas.insert({rowset_meta.rowset_id_v2(), rowset_meta});
     }
 
+    std::unordered_map<std::string, const RowsetMetaPB&> local_rowset_metas;
+    for (const auto& rowset_meta : local_tablet_meta.rs_metas()) {
+        if (rowset_meta.has_resource_id()) {
+            continue;
+        }
+        local_rowset_metas.insert({rowset_meta.rowset_id_v2(), rowset_meta});
+    }
+
     for (const auto& local_rowset_meta : local_tablet_meta.rs_metas()) {
         if (local_rowset_meta.has_resource_id() || !local_rowset_meta.has_source_rowset_id()) {
             continue;
@@ -479,6 +493,66 @@ Status SnapshotHttpDownloader::_link_same_rowset_files() {
         }
     }
 
+    for (const auto& remote_rowset_meta : remote_tablet_meta.rs_metas()) {
+        if (remote_rowset_meta.has_resource_id() || !remote_rowset_meta.has_source_rowset_id()) {
+            continue;
+        }
+
+        auto local_rowset_meta = local_rowset_metas.find(remote_rowset_meta.source_rowset_id());
+        if (local_rowset_meta == local_rowset_metas.end()) {
+            continue;
+        }
+
+        const auto& local_rowset_id = local_rowset_meta->first;
+        const auto& local_rowset_meta_pb = local_rowset_meta->second;
+        const auto& remote_rowset_id = remote_rowset_meta.rowset_id_v2();
+        auto local_tablet_id = local_rowset_meta_pb.tablet_id();
+
+        if (remote_rowset_meta.start_version() != local_rowset_meta_pb.start_version() ||
+            remote_rowset_meta.end_version() != local_rowset_meta_pb.end_version()) {
+            continue;
+        }
+
+        LOG(INFO) << "remote rowset " << remote_rowset_id << " was derived from local tablet "
+                  << local_tablet_id << " rowset " << local_rowset_id
+                  << ", skip downloading these files";
+
+        for (const auto& remote_file : _remote_file_list) {
+            if (!remote_file.starts_with(remote_rowset_id)) {
+                continue;
+            }
+
+            std::string local_file = remote_file;
+            local_file.replace(0, remote_rowset_id.size(), local_rowset_id);
+            std::string local_file_path = _local_path + "/" + local_file;
+            std::string remote_file_path = _local_path + "/" + remote_file;
+
+            bool exist = false;
+            RETURN_IF_ERROR(io::global_local_filesystem()->exists(remote_file_path, &exist));
+            if (exist) {
+                continue;
+            }
+
+            LOG(INFO) << "link file from " << local_file_path << " to " << remote_file_path;
+            if (!io::global_local_filesystem()->link_file(local_file_path, remote_file_path)) {
+                std::string msg = fmt::format("link file failed from {} to {}, err: {}",
+                                              local_file_path, remote_file_path, strerror(errno));
+                LOG(WARNING) << msg;
+                return Status::InternalError(std::move(msg));
+            } else {
+                auto it = _local_files.find(local_file);
+                if (it != _local_files.end()) {
+                    _local_files[remote_file] = it->second;
+                } else {
+                    std::string msg =
+                            fmt::format("local file {} don't exist in _local_files, err: {}",
+                                        local_file, strerror(errno));
+                    LOG(WARNING) << msg;
+                    return Status::InternalError(std::move(msg));
+                }
+            }
+        }
+    }
     return Status::OK();
 }
 
@@ -556,7 +630,8 @@ Status SnapshotHttpDownloader::_download_files() {
     total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
     double copy_rate = 0.0;
     if (total_time_ms > 0) {
-        copy_rate = total_file_size / ((double)total_time_ms) / 1000;
+        copy_rate =
+                static_cast<double>(total_file_size) / static_cast<double>(total_time_ms) / 1000.0;
     }
     LOG(INFO) << fmt::format(
             "succeed to copy remote tablet {} to local tablet {}, total downloading {} files, "
@@ -665,17 +740,22 @@ Status SnapshotHttpDownloader::download() {
     return Status::OK();
 }
 
-SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
-                               const TNetworkAddress& broker_addr,
-                               const std::map<std::string, std::string>& prop)
-        : _engine(engine),
-          _env(env),
-          _job_id(job_id),
-          _task_id(task_id),
-          _broker_addr(broker_addr),
-          _prop(prop) {}
+BaseSnapshotLoader::BaseSnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+                                       const TNetworkAddress& broker_addr,
+                                       const std::map<std::string, std::string>& prop)
+        : _env(env), _job_id(job_id), _task_id(task_id), _broker_addr(broker_addr), _prop(prop) {
+    _resource_ctx = ResourceContext::create_shared();
+    TUniqueId tid;
+    tid.hi = _job_id;
+    tid.lo = _task_id;
+    _resource_ctx->task_controller()->set_task_id(tid);
+    std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("SnapshotLoader#Id={}", ((UniqueId)tid).to_string()));
+    _resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
+}
 
-Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
+Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type) {
         S3Conf s3_conf;
         S3URI s3_uri(location);
@@ -697,7 +777,10 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
     return Status::OK();
 }
 
-SnapshotLoader::~SnapshotLoader() = default;
+SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
+                               const TNetworkAddress& broker_addr,
+                               const std::map<std::string, std::string>& prop)
+        : BaseSnapshotLoader(env, job_id, task_id, broker_addr, prop), _engine(engine) {}
 
 Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_dest_path,
                               std::map<int64_t, std::vector<std::string>>* tablet_files) {
@@ -719,7 +802,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
     // we report to frontend for every 10 files, and we will cancel the job if
     // the job has already been cancelled in frontend.
     int report_counter = 0;
-    int total_num = src_to_dest_path.size();
+    int total_num = doris::cast_set<int>(src_to_dest_path.size());
     int finished_num = 0;
     for (const auto& iter : src_to_dest_path) {
         const std::string& src_path = iter.first;
@@ -818,7 +901,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
     // 2. for each src path, download it to local storage
     int report_counter = 0;
-    int total_num = src_to_dest_path.size();
+    int total_num = doris::cast_set<int>(src_to_dest_path.size());
     int finished_num = 0;
     for (const auto& iter : src_to_dest_path) {
         const std::string& remote_path = iter.first;
@@ -831,7 +914,9 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
         int32_t schema_hash = 0;
         RETURN_IF_ERROR(_get_tablet_id_and_schema_hash_from_file_path(local_path, &local_tablet_id,
                                                                       &schema_hash));
-        downloaded_tablet_ids->push_back(local_tablet_id);
+        if (downloaded_tablet_ids != nullptr) {
+            downloaded_tablet_ids->push_back(local_tablet_id);
+        }
 
         int64_t remote_tablet_id;
         RETURN_IF_ERROR(_get_tablet_id_from_remote_path(remote_path, &remote_tablet_id));
@@ -862,13 +947,13 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
         }
         DataDir* data_dir = tablet->data_dir();
 
-        for (auto& iter : remote_files) {
+        for (auto& remote_iter : remote_files) {
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
                                           TTaskType::type::DOWNLOAD));
 
             bool need_download = false;
-            const std::string& remote_file = iter.first;
-            const FileStat& file_stat = iter.second;
+            const std::string& remote_file = remote_iter.first;
+            const FileStat& file_stat = remote_iter.second;
             auto find = std::find(local_files.begin(), local_files.end(), remote_file);
             if (find == local_files.end()) {
                 // remote file does not exist in local, download it
@@ -983,13 +1068,13 @@ Status SnapshotLoader::remote_http_download(
         const std::vector<TRemoteTabletSnapshot>& remote_tablet_snapshots,
         std::vector<int64_t>* downloaded_tablet_ids) {
     // check if job has already been cancelled
+
+#ifndef BE_TEST
     int tmp_counter = 1;
     RETURN_IF_ERROR(_report_every(0, &tmp_counter, 0, 0, TTaskType::type::DOWNLOAD));
+#endif
     Status status = Status::OK();
 
-    int report_counter = 0;
-    int finished_num = 0;
-    int total_num = remote_tablet_snapshots.size();
     for (const auto& remote_tablet_snapshot : remote_tablet_snapshots) {
         auto local_tablet_id = remote_tablet_snapshot.local_tablet_id;
         const auto& local_path = remote_tablet_snapshot.local_snapshot_path;
@@ -1006,15 +1091,28 @@ Status SnapshotLoader::remote_http_download(
             return Status::RuntimeError(std::move(msg));
         }
 
+        if (downloaded_tablet_ids != nullptr) {
+            downloaded_tablet_ids->push_back(local_tablet_id);
+        }
+
         SnapshotHttpDownloader downloader(remote_tablet_snapshot, std::move(tablet), *this);
+#ifndef BE_TEST
+        int report_counter = 0;
+        int finished_num = 0;
+        int total_num = doris::cast_set<int>(remote_tablet_snapshots.size());
         downloader.set_report_progress_callback(
                 [this, &report_counter, &finished_num, &total_num]() {
                     return _report_every(10, &report_counter, finished_num, total_num,
                                          TTaskType::type::DOWNLOAD);
                 });
-        RETURN_IF_ERROR(downloader.download());
+#endif
 
+        RETURN_IF_ERROR(downloader.download());
+        _set_http_download_files_num(downloader.get_download_file_num());
+
+#ifndef BE_TEST
         ++finished_num;
+#endif
     }
 
     LOG(INFO) << "finished to download snapshots. job: " << _job_id << ", task id: " << _task_id;
@@ -1116,10 +1214,11 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         !cumu_compact_lock.owns_lock() || !cold_compact_lock.owns_lock() ||
         !build_idx_lock.owns_lock() || !meta_store_lock.owns_lock()) {
         // This error should be retryable
-        auto status = Status::ObtainLockFailed("failed to get tablet locks, tablet: {}", tablet_id);
-        LOG(WARNING) << status << ", snapshot path: " << snapshot_path
+        auto obtain_lock_status =
+                Status::ObtainLockFailed("failed to get tablet locks, tablet: {}", tablet_id);
+        LOG(WARNING) << obtain_lock_status << ", snapshot path: " << snapshot_path
                      << ", tablet path: " << tablet_path;
-        return status;
+        return obtain_lock_status;
     }
 
     std::vector<std::string> snapshot_files;
@@ -1182,25 +1281,6 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
 
     return status;
-}
-
-Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t tablet_id,
-                                          std::string* new_file_name) {
-    // eg:
-    // 10007.hdr
-    // 10007_2_2_0_0.idx
-    // 10007_2_2_0_0.dat
-    if (_end_with(file_name, ".hdr")) {
-        std::stringstream ss;
-        ss << tablet_id << ".hdr";
-        *new_file_name = ss.str();
-        return Status::OK();
-    } else if (_end_with(file_name, ".idx") || _end_with(file_name, ".dat")) {
-        *new_file_name = file_name;
-        return Status::OK();
-    } else {
-        return Status::InternalError("invalid tablet file name: {}", file_name);
-    }
 }
 
 Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::string& src_path,
@@ -1270,8 +1350,27 @@ Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_p
     return Status::OK();
 }
 
-Status SnapshotLoader::_get_tablet_id_from_remote_path(const std::string& remote_path,
-                                                       int64_t* tablet_id) {
+Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t tablet_id,
+                                          std::string* new_file_name) {
+    // eg:
+    // 10007.hdr
+    // 10007_2_2_0_0.idx
+    // 10007_2_2_0_0.dat
+    if (_end_with(file_name, ".hdr")) {
+        std::stringstream ss;
+        ss << tablet_id << ".hdr";
+        *new_file_name = ss.str();
+        return Status::OK();
+    } else if (_end_with(file_name, ".idx") || _end_with(file_name, ".dat")) {
+        *new_file_name = file_name;
+        return Status::OK();
+    } else {
+        return Status::InternalError("invalid tablet file name: {}", file_name);
+    }
+}
+
+Status BaseSnapshotLoader::_get_tablet_id_from_remote_path(const std::string& remote_path,
+                                                           int64_t* tablet_id) {
     // eg:
     // bos://xxx/../__tbl_10004/__part_10003/__idx_10004/__10005
     size_t pos = remote_path.find_last_of("_");
@@ -1289,8 +1388,8 @@ Status SnapshotLoader::_get_tablet_id_from_remote_path(const std::string& remote
 
 // only return CANCELLED if FE return that job is cancelled.
 // otherwise, return OK
-Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t finished_num,
-                                     int32_t total_num, TTaskType::type type) {
+Status BaseSnapshotLoader::_report_every(int report_threshold, int* counter, int32_t finished_num,
+                                         int32_t total_num, TTaskType::type type) {
     ++*counter;
     if (*counter <= report_threshold) {
         return Status::OK();
@@ -1330,8 +1429,8 @@ Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t
     return Status::OK();
 }
 
-Status SnapshotLoader::_list_with_checksum(const std::string& dir,
-                                           std::map<std::string, FileStat>* md5_files) {
+Status BaseSnapshotLoader::_list_with_checksum(const std::string& dir,
+                                               std::map<std::string, FileStat>* md5_files) {
     bool exists = true;
     std::vector<io::FileInfo> files;
     RETURN_IF_ERROR(_remote_fs->list(dir, true, &files, &exists));
@@ -1350,5 +1449,6 @@ Status SnapshotLoader::_list_with_checksum(const std::string& dir,
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // end namespace doris

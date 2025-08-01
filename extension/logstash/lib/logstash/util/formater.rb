@@ -51,9 +51,7 @@ class Formater
         case value
         when nil
           '' # empty str if this field does not exist in this event
-        when Array
-          value.join(",") # join by ',' if value is an array
-        when Hash
+        when Array, Hash
           value.to_json # convert hashes to json
         else
           value # otherwise return the value

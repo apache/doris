@@ -51,5 +51,18 @@ public class MergePercentileToArrayTest extends TestWithFeService implements Mem
                                 && p.getProjects().get(2).toSql().contains("element_at(percentile_array"))
                 );
     }
+
+    @Test
+    void testGrouping() {
+        String sql = "SELECT percentile(a, 0.11), percentile(a,0.25+0.1) as percentiles,sum(a) FROM t group by grouping sets((b),())";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalProject(logicalAggregate()).when(p ->
+                                p.getProjects().get(0).toSql().contains("element_at(percentile_array")
+                                        && p.getProjects().get(1).toSql().contains("element_at(percentile_array"))
+                );
+    }
 }
 

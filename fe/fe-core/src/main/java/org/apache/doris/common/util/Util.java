@@ -566,10 +566,10 @@ public class Util {
             // csv/csv_with_name/csv_with_names_and_types treat as csv format
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV)
                 || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
-                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
-                // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                || lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
             return TFileFormatType.FORMAT_CSV_PLAIN;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
+            return TFileFormatType.FORMAT_TEXT;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_WAL)) {
             return TFileFormatType.FORMAT_WAL;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
@@ -614,7 +614,11 @@ public class Util {
             return TFileCompressType.UNKNOWN;
         }
         final String upperCaseType = compressType.toUpperCase();
-        return TFileCompressType.valueOf(upperCaseType);
+        try {
+            return TFileCompressType.valueOf(upperCaseType);
+        } catch (IllegalArgumentException e) {
+            return TFileCompressType.UNKNOWN;
+        }
     }
 
     /**
@@ -694,6 +698,16 @@ public class Util {
         return sw.toString();
     }
 
+    public static Throwable getRootCause(Throwable t) {
+        Throwable p = t;
+        Throwable r = t;
+        while (p != null) {
+            r = p;
+            p = p.getCause();
+        }
+        return r;
+    }
+
     public static long sha256long(String str) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -737,5 +751,32 @@ public class Util {
 
     public static boolean isTempTableInCurrentSession(String tableName) {
         return getTempTableSessionId(tableName).equals(ConnectContext.get().getSessionId());
+    }
+
+    // randomly return the Long from given long arrays
+    public static Long getRandomLong(long... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the Long from given long arrays
+    public static Integer getRandomInt(int... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the String from given String arrays
+    public static String getRandomString(String... strs) {
+        if (strs == null || strs.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * strs.length);
+        return strs[index];
     }
 }

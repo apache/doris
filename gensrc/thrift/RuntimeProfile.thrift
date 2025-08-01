@@ -26,6 +26,7 @@ struct TCounter {
   2: required Metrics.TUnit type
   3: required i64 value 
   4: optional i64 level
+  5: optional string description
 }
 
 // A single runtime profile

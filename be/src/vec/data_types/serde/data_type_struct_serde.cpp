@@ -20,10 +20,12 @@
 #include "arrow/array/builder_nested.h"
 #include "common/status.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_struct.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
@@ -31,14 +33,21 @@ namespace vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 
-std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String& name) const {
-    size_t size = elem_serdes_ptrs.size();
+std::string DataTypeStructSerDe::get_name() const {
+    size_t size = elem_names.size();
+    std::stringstream s;
+
+    s << "Struct(";
     for (size_t i = 0; i < size; ++i) {
-        if (elem_names[i] == name) {
-            return {i};
+        if (i != 0) {
+            s << ", ";
         }
+        s << elem_names[i] << ":";
+        s << elem_serdes_ptrs[i]->get_name();
     }
-    return std::nullopt;
+    s << ")";
+
+    return s.str();
 }
 
 Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -111,6 +120,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     char quote_char = 0;
 
     auto elem_size = elem_serdes_ptrs.size();
+    DCHECK_EQ(elem_size, elem_names.size());
     int field_pos = 0;
 
     for (; idx < slice_size; ++idx) {
@@ -138,6 +148,15 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             next.trim_prefix();
             next.trim_quote();
             // check field_name
+            if (field_pos >= elem_size) {
+                // we should do column revert if error
+                for (size_t j = 0; j < field_pos; j++) {
+                    struct_column.get_column(j).pop_back(1);
+                }
+                return Status::InvalidArgument(
+                        "Actual struct field number is more than schema field number {}.",
+                        field_pos, elem_size);
+            }
             if (elem_names[field_pos] != next) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
@@ -158,7 +177,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (field_pos > elem_size) {
+            // field_pos should always less than elem_size, if not, we should return error
+            if (field_pos >= elem_size) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
                     struct_column.get_column(j).pop_back(1);
@@ -188,7 +208,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
         (key_added || !is_explicit_names)) {
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
-        if (field_pos > elem_size) {
+        /// field_pos should always less than elem_size, if not, we should return error
+        if (field_pos >= elem_size) {
             // we should do column revert if error
             for (size_t j = 0; j < field_pos; j++) {
                 struct_column.get_column(j).pop_back(1);
@@ -226,12 +247,12 @@ Status DataTypeStructSerDe::deserialize_column_from_json_vector(
 }
 
 void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena* mem_pool, int32_t col_id,
+                                                  Arena& arena, int32_t col_id,
                                                   int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
-    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    StringRef value = column.serialize_value_into_arena(row_num, arena, begin);
     result.writeStartBinary();
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();
@@ -258,6 +279,12 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
         }
     }
     auto& struct_column = static_cast<ColumnStruct&>(column);
+
+    for (auto i = slices.size(); i < struct_column.get_columns().size(); ++i) {
+        // Hive schema change will cause the number of sub-columns in the file to
+        // be inconsistent with the number of sub-columns of the column in the table.
+        slices.emplace_back(options.null_format, options.null_len);
+    }
     for (size_t loc = 0; loc < struct_column.get_columns().size(); loc++) {
         Status st = elem_serdes_ptrs[loc]->deserialize_one_cell_from_hive_text(
                 struct_column.get_column(loc), slices[loc], options,
@@ -298,41 +325,73 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
     return Status::OK();
 }
 
+Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                      JsonbWriter& writer) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(from_column);
+
+    if (!writer.writeStartObject()) {
+        return Status::InternalError("writeStartObject failed");
+    }
+
+    for (size_t i = 0; i < elem_serdes_ptrs.size(); ++i) {
+        // check key
+        if (elem_names[i].size() > std::numeric_limits<uint8_t>::max()) {
+            return Status::InternalError("key size exceeds max limit {} ", elem_names[i]);
+        }
+        // write key
+        if (!writer.writeKey(elem_names[i].data(), (uint8_t)elem_names[i].size())) {
+            return Status::InternalError("writeKey failed : {}", elem_names[i]);
+        }
+        // write value
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->serialize_column_to_jsonb(struct_column.get_column(i),
+                                                                       row_num, writer));
+    }
+
+    if (!writer.writeEndObject()) {
+        return Status::InternalError("writeEndObject failed");
+    }
+
+    return Status::OK();
+}
+
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
-void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int64_t start,
-                                                int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     for (auto r = start; r < end; ++r) {
         if (null_map != nullptr && (*null_map)[r]) {
-            checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
-                             builder.type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
+                                             builder.type()->name()));
             continue;
         }
-        checkArrowStatus(builder.Append(), struct_column.get_name(), builder.type()->name());
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column.get_name(),
+                                         builder.type()->name()));
         for (auto ei = 0; ei < struct_column.tuple_size(); ++ei) {
             auto* elem_builder = builder.field_builder(ei);
-            elem_serdes_ptrs[ei]->write_column_to_arrow(struct_column.get_column(ei), nullptr,
-                                                        elem_builder, r, r + 1, ctz);
+            RETURN_IF_ERROR(elem_serdes_ptrs[ei]->write_column_to_arrow(
+                    struct_column.get_column(ei), nullptr, elem_builder, r, r + 1, ctz));
         }
     }
+    return Status::OK();
 }
 
-void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int64_t start, int64_t end,
-                                                 const cctz::time_zone& ctz) const {
+Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     auto& struct_column = static_cast<ColumnStruct&>(column);
     const auto* concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
-        elem_serdes_ptrs[i]->read_column_from_arrow(
-                struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz);
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow(
+                struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz));
     }
+    return Status::OK();
 }
 
 template <bool is_binary_format>
@@ -349,7 +408,8 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
     bool begin = true;
     for (size_t j = 0; j < elem_serdes_ptrs.size(); ++j) {
         if (!begin) {
-            if (0 != result.push_string(", ", 2)) {
+            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
+                                        options.mysql_collection_delim.size())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }
@@ -415,14 +475,14 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (auto row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                    row_id + 1, buffer_list));
+                    row_id + 1, arena));
         }
     }
 

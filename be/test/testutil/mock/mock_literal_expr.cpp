@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "testutil/column_helper.h"
+#include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
@@ -42,6 +43,30 @@ TEST(MockLiteralTest, test) {
                                ColumnHelper::create_column_with_name<DataTypeInt64>({3}),
                                ColumnHelper::create_column_with_name<DataTypeInt64>({4}),
                        }));
+    }
+}
+
+TEST(MockLiteralTest, test_const) {
+    {
+        auto ctxs = MockLiteral::create_const<DataTypeInt64>({1, 2, 3, 4}, 5);
+        Block block;
+        for (auto& ctx : ctxs) {
+            int result_column_id = -1;
+            EXPECT_TRUE(ctx->execute(&block, &result_column_id));
+        }
+
+        materialize_block_inplace(block);
+
+        std::cout << block.dump_data() << std::endl;
+
+        EXPECT_TRUE(ColumnHelper::block_equal(
+                block,
+                Block {
+                        ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 1, 1, 1}),
+                        ColumnHelper::create_column_with_name<DataTypeInt64>({2, 2, 2, 2, 2}),
+                        ColumnHelper::create_column_with_name<DataTypeInt64>({3, 3, 3, 3, 3}),
+                        ColumnHelper::create_column_with_name<DataTypeInt64>({4, 4, 4, 4, 4}),
+                }));
     }
 }
 } // namespace doris::vectorized

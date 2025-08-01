@@ -24,8 +24,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -64,24 +62,6 @@ public class HashDistributionInfo extends DistributionInfo {
     @Override
     public void setBucketNum(int bucketNum) {
         this.bucketNum = bucketNum;
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int columnCount = in.readInt();
-        for (int i = 0; i < columnCount; i++) {
-            Column column = Column.read(in);
-            distributionColumns.add(column);
-        }
-        bucketNum = in.readInt();
-    }
-
-    public static DistributionInfo read(DataInput in) throws IOException {
-        DistributionInfo distributionInfo = new HashDistributionInfo();
-        distributionInfo.readFields(in);
-        return distributionInfo;
     }
 
     public boolean sameDistributionColumns(HashDistributionInfo other) {
@@ -127,16 +107,19 @@ public class HashDistributionInfo extends DistributionInfo {
     }
 
     @Override
-    public String toSql(boolean forSync) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("DISTRIBUTED BY HASH(");
-
+    public String getColumnsName() {
         List<String> colNames = Lists.newArrayList();
         for (Column column : distributionColumns) {
             colNames.add("`" + column.getName() + "`");
         }
-        String colList = Joiner.on(", ").join(colNames);
-        builder.append(colList);
+        return Joiner.on(", ").join(colNames);
+    }
+
+    @Override
+    public String toSql(boolean forSync) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("DISTRIBUTED BY HASH(");
+        builder.append(getColumnsName());
 
         if (autoBucket && !forSync) {
             builder.append(") BUCKETS AUTO");

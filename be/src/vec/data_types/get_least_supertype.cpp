@@ -28,24 +28,25 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_variant.h"
 
 namespace doris::vectorized {
 
-void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
+void get_numeric_type(const PrimitiveTypeSet& types, DataTypePtr* type) {
     bool all_numbers = true;
 
     size_t max_bits_of_signed_integer = 0;
@@ -59,29 +60,21 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
     };
 
     for (const auto& type : types) {
-        if (type == TypeIndex::UInt8) {
+        if (type == PrimitiveType::TYPE_BOOLEAN) {
             maximize(max_bits_of_unsigned_integer, 8);
-        } else if (type == TypeIndex::UInt16) {
-            maximize(max_bits_of_unsigned_integer, 16);
-        } else if (type == TypeIndex::UInt32) {
-            maximize(max_bits_of_unsigned_integer, 32);
-        } else if (type == TypeIndex::UInt64) {
-            maximize(max_bits_of_unsigned_integer, 64);
-        } else if (type == TypeIndex::UInt128) {
-            maximize(max_bits_of_unsigned_integer, 128);
-        } else if (type == TypeIndex::Int8 || type == TypeIndex::Enum8) {
+        } else if (type == PrimitiveType::TYPE_TINYINT) {
             maximize(max_bits_of_signed_integer, 8);
-        } else if (type == TypeIndex::Int16 || type == TypeIndex::Enum16) {
+        } else if (type == PrimitiveType::TYPE_SMALLINT) {
             maximize(max_bits_of_signed_integer, 16);
-        } else if (type == TypeIndex::Int32) {
+        } else if (type == PrimitiveType::TYPE_INT) {
             maximize(max_bits_of_signed_integer, 32);
-        } else if (type == TypeIndex::Int64) {
+        } else if (type == PrimitiveType::TYPE_BIGINT) {
             maximize(max_bits_of_signed_integer, 64);
-        } else if (type == TypeIndex::Int128) {
+        } else if (type == PrimitiveType::TYPE_LARGEINT) {
             maximize(max_bits_of_signed_integer, 128);
-        } else if (type == TypeIndex::Float32) {
+        } else if (type == PrimitiveType::TYPE_FLOAT) {
             maximize(max_mantissa_bits_of_floating, 24);
-        } else if (type == TypeIndex::Float64) {
+        } else if (type == PrimitiveType::TYPE_DOUBLE) {
             maximize(max_mantissa_bits_of_floating, 53);
         } else {
             all_numbers = false;
@@ -154,14 +147,12 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
             if (min_bit_width_of_integer <= 8) {
                 *type = std::make_shared<DataTypeUInt8>();
                 return;
-            } else if (min_bit_width_of_integer <= 16) {
-                *type = std::make_shared<DataTypeUInt16>();
-                return;
-            } else if (min_bit_width_of_integer <= 32) {
-                *type = std::make_shared<DataTypeUInt32>();
-                return;
             } else if (min_bit_width_of_integer <= 64) {
-                *type = std::make_shared<DataTypeUInt64>();
+                throw Exception(Status::InternalError(
+                        "min_bit_width_of_integer={}, max_bits_of_signed_integer={}, "
+                        "max_bits_of_unsigned_integer={}",
+                        min_bit_width_of_integer, max_bits_of_signed_integer,
+                        max_bits_of_unsigned_integer));
                 return;
             } else {
                 LOG(WARNING) << "Logical error: "
@@ -182,7 +173,7 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         non_nothing_types.reserve(types.size());
 
         for (const auto& type : types) {
-            if (!WhichDataType(type).is_nothing()) {
+            if (type->get_primitive_type() != PrimitiveType::INVALID_TYPE) {
                 non_nothing_types.emplace_back(type);
             }
         }
@@ -248,56 +239,33 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         }
     }
 
-    phmap::flat_hash_set<TypeIndex> type_ids;
+    phmap::flat_hash_set<PrimitiveType> type_ids;
     for (const auto& type : types) {
-        type_ids.insert(type->get_type_id());
+        type_ids.insert(type->get_primitive_type());
     }
     get_least_supertype_jsonb(type_ids, type);
 }
 
-void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
+void get_least_supertype_jsonb(const PrimitiveTypeSet& types, DataTypePtr* type) {
     if (types.empty()) {
         *type = std::make_shared<DataTypeNothing>();
         return;
     }
     if (types.size() == 1) {
-        WhichDataType which(*types.begin());
-        if (which.is_nothing()) {
+        auto which = *types.begin();
+        if (which == PrimitiveType::INVALID_TYPE) {
             *type = std::make_shared<DataTypeNothing>();
             return;
         }
-#define DISPATCH(TYPE)                                    \
-    if (which.idx == TypeIndex::TYPE) {                   \
-        *type = std::make_shared<DataTypeNumber<TYPE>>(); \
-        return;                                           \
-    }
-        FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-        if (which.is_string()) {
-            *type = std::make_shared<DataTypeString>();
-            return;
-        }
-        if (which.is_json()) {
-            *type = std::make_shared<DataTypeJsonb>();
-            return;
-        }
-        if (which.is_variant_type()) {
-            *type = std::make_shared<DataTypeObject>();
-            return;
-        }
-        if (which.is_date_v2()) {
-            *type = std::make_shared<DataTypeDateV2>();
-            return;
-        }
-        if (which.is_date_time_v2()) {
-            *type = std::make_shared<DataTypeDateTimeV2>();
-            return;
-        }
-        *type = std::make_shared<DataTypeJsonb>();
+        *type = DataTypeFactory::instance().create_data_type(which, false);
         return;
     }
-    if (types.contains(TypeIndex::String)) {
-        bool only_string = types.size() == 2 && types.contains(TypeIndex::Nothing);
+    if (std::any_of(types.begin(), types.end(),
+                    [&](PrimitiveType t) { return is_string_type(t); })) {
+        bool only_string =
+                types.size() == 2 && std::any_of(types.begin(), types.end(), [&](PrimitiveType t) {
+                    return t == PrimitiveType::INVALID_TYPE;
+                });
         if (!only_string) {
             *type = std::make_shared<DataTypeJsonb>();
             return;
@@ -305,8 +273,12 @@ void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
         *type = std::make_shared<DataTypeString>();
         return;
     }
-    if (types.contains(TypeIndex::JSONB)) {
-        bool only_json = types.size() == 2 && types.contains(TypeIndex::Nothing);
+    if (std::any_of(types.begin(), types.end(),
+                    [&](PrimitiveType t) { return t == PrimitiveType::TYPE_JSONB; })) {
+        bool only_json =
+                types.size() == 2 && std::any_of(types.begin(), types.end(), [&](PrimitiveType t) {
+                    return t == PrimitiveType::INVALID_TYPE;
+                });
         if (!only_json) {
             *type = std::make_shared<DataTypeJsonb>();
             return;
@@ -317,11 +289,11 @@ void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
 
     // If there are Nothing types, skip them
     {
-        TypeIndexSet non_nothing_types;
+        PrimitiveTypeSet non_nothing_types;
         non_nothing_types.reserve(types.size());
 
         for (const auto& type : types) {
-            if (type != TypeIndex::Nothing) {
+            if (type != PrimitiveType::INVALID_TYPE) {
                 non_nothing_types.emplace(type);
             }
         }

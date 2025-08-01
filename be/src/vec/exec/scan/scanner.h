@@ -57,6 +57,12 @@ public:
     Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
             RuntimeProfile* profile);
 
+    //only used for FileScanner read one line.
+    Scanner(RuntimeState* state, RuntimeProfile* profile)
+            : _state(state), _limit(1), _profile(profile), _total_rf_num(0) {
+        DorisMetrics::instance()->scanner_cnt->increment(1);
+    };
+
     virtual ~Scanner() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_state->query_mem_tracker());
         _input_block.clear();
@@ -129,6 +135,10 @@ public:
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
     void update_scan_cpu_timer();
+
+    // Some counters need to be updated realtime, for example, workload group policy need
+    // scan bytes to cancel the query exceed limit.
+    virtual void update_realtime_counters() {}
 
     RuntimeState* runtime_state() { return _state; }
 

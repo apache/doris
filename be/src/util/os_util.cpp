@@ -20,25 +20,21 @@
 
 #include "util/os_util.h"
 
+#include <absl/strings/numbers.h>
+#include <absl/strings/str_split.h>
 #include <fcntl.h>
 #include <glog/logging.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <fstream>
 #include <string>
 #include <vector>
 
-#include "gutil/macros.h"
-#include "gutil/strings/numbers.h"
-#include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
-#include "io/fs/local_file_system.h"
+#include "common/macros.h"
 
 using std::string;
 using std::vector;
-using strings::Split;
 
 namespace doris {
 
@@ -76,19 +72,19 @@ Status parse_stat(const std::string& buffer, std::string* name, ThreadStats* sta
     }
     string extracted_name = buffer.substr(open_paren + 1, close_paren - (open_paren + 1));
     string rest = buffer.substr(close_paren + 2);
-    std::vector<string> splits = Split(rest, " ", strings::SkipEmpty());
+    std::vector<string> splits = absl::StrSplit(rest, " ", absl::SkipEmpty());
     if (splits.size() < kMaxOffset) {
         return Status::IOError("Unrecognised /proc format");
     }
 
     int64_t tmp;
-    if (safe_strto64(splits[kUserTicks], &tmp)) {
+    if (absl::SimpleAtoi(splits[kUserTicks], &tmp)) {
         stats->user_ns = int64_t(tmp * (1e9 / kTicksPerSec));
     }
-    if (safe_strto64(splits[kKernelTicks], &tmp)) {
+    if (absl::SimpleAtoi(splits[kKernelTicks], &tmp)) {
         stats->kernel_ns = int64_t(tmp * (1e9 / kTicksPerSec));
     }
-    if (safe_strto64(splits[kIoWait], &tmp)) {
+    if (absl::SimpleAtoi(splits[kIoWait], &tmp)) {
         stats->iowait_ns = int64_t(tmp * (1e9 / kTicksPerSec));
     }
     if (name != nullptr) {

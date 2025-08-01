@@ -21,7 +21,8 @@ suite("aggregate_without_roll_up") {
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_agg_state = true"
-
+    sql "set disable_nereids_rules='ELIMINATE_CONST_JOIN_CONDITION,CONSTANT_PROPAGATION'"
+    
     sql """
     drop table if exists orders
     """

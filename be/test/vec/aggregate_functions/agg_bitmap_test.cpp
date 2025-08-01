@@ -26,7 +26,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
@@ -41,6 +40,7 @@ namespace doris::vectorized {
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory);
 
 TEST(AggBitmapTest, bitmap_union_test) {
+    Arena arena;
     std::string function_name = "bitmap_union";
     auto data_type = std::make_shared<DataTypeBitMap>();
     // Prepare test data.
@@ -63,7 +63,7 @@ TEST(AggBitmapTest, bitmap_union_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_bitmap.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -74,7 +74,7 @@ TEST(AggBitmapTest, bitmap_union_test) {
     agg_function->destroy(place);
 
     auto dst = agg_function->create_serialize_column();
-    agg_function->streaming_agg_serialize_to_column(column, dst, agg_test_batch_size, nullptr);
+    agg_function->streaming_agg_serialize_to_column(column, dst, agg_test_batch_size, arena);
 
     for (size_t i = 0; i != agg_test_batch_size; ++i) {
         EXPECT_EQ(std::to_string(i), assert_cast<ColumnBitmap&>(*dst).get_element(i).to_string());
@@ -82,6 +82,7 @@ TEST(AggBitmapTest, bitmap_union_test) {
 }
 
 TEST(AggBitmapTest, group_bitmap_xor_test) {
+    Arena arena;
     std::string function_name = "group_bitmap_xor";
     auto data_type = std::make_shared<DataTypeBitMap>();
     // Prepare test data.
@@ -124,7 +125,7 @@ TEST(AggBitmapTest, group_bitmap_xor_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_bitmap.get()};
     for (int i = 0; i < 3; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -149,6 +150,7 @@ TEST(AggBitmapTest, group_bitmap_xor_test) {
 }
 
 TEST(AggBitmapTest, bitmap_intersect_test) {
+    Arena arena;
     std::string function_name = "bitmap_intersect";
     auto data_type = std::make_shared<DataTypeBitMap>();
     // Prepare test data.
@@ -183,7 +185,7 @@ TEST(AggBitmapTest, bitmap_intersect_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_bitmap.get()};
     for (int i = 0; i < 2; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -207,6 +209,7 @@ TEST(AggBitmapTest, bitmap_intersect_test) {
 }
 
 TEST(AggBitmapTest, bitmap_union_count_test) {
+    Arena arena;
     std::string function_name = "bitmap_union_count";
     auto data_type = std::make_shared<DataTypeBitMap>();
     // Prepare test data.
@@ -231,7 +234,7 @@ TEST(AggBitmapTest, bitmap_union_count_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_bitmap.get()};
     for (int i = 0; i < values_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -241,17 +244,18 @@ TEST(AggBitmapTest, bitmap_union_count_test) {
     agg_function->destroy(place);
 }
 
-template <typename T>
+template <PrimitiveType T>
 void validate_bitmap_union_int_test() {
+    Arena arena;
     std::string function_name = "bitmap_union_int";
     DataTypePtr data_type;
-    if constexpr (std::is_same_v<T, Int8>) {
+    if constexpr (T == TYPE_TINYINT) {
         data_type = std::make_shared<DataTypeInt8>();
-    } else if constexpr (std::is_same_v<T, Int16>) {
+    } else if constexpr (T == TYPE_SMALLINT) {
         data_type = std::make_shared<DataTypeInt16>();
-    } else if constexpr (std::is_same_v<T, Int32>) {
+    } else if constexpr (T == TYPE_INT) {
         data_type = std::make_shared<DataTypeInt32>();
-    } else if constexpr (std::is_same_v<T, Int64>) {
+    } else if constexpr (T == TYPE_BIGINT) {
         data_type = std::make_shared<DataTypeInt64>();
     } else {
         LOG(FATAL) << "unsupported type";
@@ -260,10 +264,11 @@ void validate_bitmap_union_int_test() {
     // Prepare test data.
     auto column_int = data_type->create_column();
 
-    std::vector<T> values = {1, 2, 3, 4, 5, 1, 2, 3, 100};
+    std::vector<typename PrimitiveTypeTraits<T>::ColumnItemType> values = {1, 2, 3, 4,  5,
+                                                                           1, 2, 3, 100};
     auto values_size = values.size();
     for (int value : values) {
-        (*column_int).insert(value);
+        (*column_int).insert(Field::create_field<T>(value));
     }
 
     // Prepare test function and parameters.
@@ -278,7 +283,7 @@ void validate_bitmap_union_int_test() {
     // Do aggregation.
     const IColumn* column[1] = {column_int.get()};
     for (int i = 0; i < values_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -289,10 +294,10 @@ void validate_bitmap_union_int_test() {
 }
 
 TEST(AggBitmapTest, bitmap_union_int_test) {
-    validate_bitmap_union_int_test<Int8>();
-    validate_bitmap_union_int_test<Int16>();
-    validate_bitmap_union_int_test<Int32>();
-    validate_bitmap_union_int_test<Int64>();
+    validate_bitmap_union_int_test<TYPE_TINYINT>();
+    validate_bitmap_union_int_test<TYPE_SMALLINT>();
+    validate_bitmap_union_int_test<TYPE_INT>();
+    validate_bitmap_union_int_test<TYPE_BIGINT>();
 }
 
 } // namespace doris::vectorized

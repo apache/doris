@@ -63,12 +63,17 @@ public class ShowVariablesCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         PatternMatcher matcher = null;
         if (pattern != null) {
             matcher = PatternMatcherWrapper.createMysqlPattern(pattern, CaseSensibility.VARIABLES.getCaseSensibility());
         }
         List<List<String>> rows = VariableMgr.dump(type, ctx.getSessionVariable(), matcher);
-        return new ShowResultSet(META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 }

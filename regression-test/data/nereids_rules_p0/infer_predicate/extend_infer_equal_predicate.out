@@ -24,7 +24,7 @@ PhysicalResultSink
 
 -- !test_simple_compare_datetimev2 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.d_datetimev2 = t2.d_datetimev2)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((t1.d_datetimev2 = '2024-01-01 00:00:00'))
 ------PhysicalOlapScan[extend_infer_t1]
 ----filter((t2.d_datetimev2 = '2024-01-01 00:00:00'))
@@ -79,7 +79,7 @@ PhysicalResultSink
 
 -- !test_like_to_equal --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.d_char100 = t2.d_char100)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((t1.d_char100 = '012'))
 ------PhysicalOlapScan[extend_infer_t1]
 ----filter((t2.d_char100 = '012'))
@@ -156,10 +156,10 @@ PhysicalResultSink
 
 -- !test_multi_slot_in_predicate1 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_(a + c) = expr_(a + c))) otherCondition=()
-----filter(((t1.a + t1.c) < 10))
+--hashJoin[INNER_JOIN] hashCondition=((expr_(cast(a as BIGINT) + cast(c as BIGINT)) = expr_(cast(a as BIGINT) + cast(c as BIGINT)))) otherCondition=()
+----filter(((cast(a as BIGINT) + cast(c as BIGINT)) < 10))
 ------PhysicalOlapScan[extend_infer_t3]
-----filter(((t2.a + t2.c) < 10))
+----filter(((cast(a as BIGINT) + cast(c as BIGINT)) < 10))
 ------PhysicalOlapScan[extend_infer_t4]
 
 -- !test_multi_slot_in_predicate2 --

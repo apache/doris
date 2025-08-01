@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
@@ -45,11 +47,14 @@ import org.apache.doris.nereids.pattern.PatternMatcher;
 import org.apache.doris.nereids.processor.post.Validator;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -119,14 +124,19 @@ public class PlanChecker {
     }
 
     public PlanChecker analyze() {
+        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
+        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
-        InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         return this;
     }
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
+        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.setCteContext(new CTEContext());
         Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
         disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
@@ -140,6 +150,9 @@ public class PlanChecker {
 
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
+        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
         return this;
@@ -168,6 +181,14 @@ public class PlanChecker {
         return this;
     }
 
+    public List<PlanProcess> explainPlanProcess() {
+        NereidsPlanner planner = new NereidsPlanner(
+                new StatementContext(connectContext, new OriginStatement("", 0)));
+        planner.planWithLock((LogicalPlan) cascadesContext.getRewritePlan(), PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
+        this.cascadesContext = planner.getCascadesContext();
+        return cascadesContext.getPlanProcesses();
+    }
+
     public List<PlanProcess> explainPlanProcess(String sql) {
         NereidsParser parser = new NereidsParser();
         LogicalPlan command = parser.parseSingle(sql);
@@ -184,8 +205,16 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
+                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
+        cascadesContext.toMemo();
+        MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
+    public PlanChecker applyCustom(CustomRewriter customRewriter) {
+        CustomRewriteJob customRewriteJob = new CustomRewriteJob(() -> customRewriter, RuleType.TEST_REWRITE);
+        customRewriteJob.execute(cascadesContext.getCurrentJobContext());
         cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
@@ -219,7 +248,7 @@ public class PlanChecker {
 
     public PlanChecker applyBottomUp(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteBottomUpJob::new, true)))
+                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteBottomUpJob::new, true)))
                 .execute();
         cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
@@ -244,8 +273,12 @@ public class PlanChecker {
     }
 
     public PlanChecker rewrite() {
-        Rewriter.getWholeTreeRewriter(cascadesContext).execute();
-        cascadesContext.toMemo();
+        cascadesContext.withPlanProcess(true, () -> {
+            Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+            MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(), cascadesContext);
+            InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
+            cascadesContext.toMemo();
+        });
         return this;
     }
 
@@ -564,8 +597,10 @@ public class PlanChecker {
 
     public PlanChecker checkExplain(String sql, Consumer<NereidsPlanner> consumer) {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
-                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+                statementContext);
+        connectContext.setStatementContext(statementContext);
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
         nereidsPlanner.plan(adapter);
@@ -575,8 +610,9 @@ public class PlanChecker {
 
     public PlanChecker checkPlannerResult(String sql, Consumer<NereidsPlanner> consumer) {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(
-                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        connectContext.setStatementContext(statementContext);
         nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         consumer.accept(nereidsPlanner);
         return this;

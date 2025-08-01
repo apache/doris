@@ -18,7 +18,16 @@
 #pragma once
 
 #include <cstdint>
+// clang20 + -O1 causes warnings about pass-failed
+// error: loop not unrolled: the optimizer was unable to perform the requested transformation; the transformation might be disabled or specified as part of an unsupported transformation ordering [-Werror,-Wpass-failed=transform-warning]
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpass-failed"
+#endif
 #include <memory>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #include <string>
 #include <vector>
 
@@ -92,12 +101,6 @@ protected:
 
     virtual Status update_delete_bitmap() = 0;
 
-    void agg_and_remove_old_version_delete_bitmap(
-            std::vector<RowsetSharedPtr>& pre_rowsets,
-            std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
-                    to_remove_vec,
-            DeleteBitmapPtr& new_delete_bitmap);
-
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
@@ -109,6 +112,9 @@ protected:
     int64_t _input_rowsets_total_size {0};
     int64_t _input_row_num {0};
     int64_t _input_num_segments {0};
+
+    int64_t _local_read_bytes_total {};
+    int64_t _remote_read_bytes_total {};
 
     Merger::Statistics _stats;
 
@@ -154,6 +160,10 @@ public:
 
     int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
 
+    int64_t calc_input_rowsets_total_size() const;
+
+    int64_t calc_input_rowsets_row_num() const;
+
 protected:
     // Convert `_tablet` from `BaseTablet` to `Tablet`
     Tablet* tablet();
@@ -175,8 +185,6 @@ private:
     bool handle_ordered_data_compaction();
 
     Status do_compact_ordered_rowsets();
-
-    void process_old_version_delete_bitmap();
 
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 

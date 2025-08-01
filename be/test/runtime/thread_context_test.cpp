@@ -76,7 +76,8 @@ TEST_F(ThreadContextTest, SingleScoped) {
 
     // SwitchResourceContext
     {
-        auto scoped = SwitchResourceContext(rc2);
+        auto scoped = AttachTask(rc1);
+        auto scoped2 = SwitchResourceContext(rc2);
         EXPECT_TRUE(thread_context()->is_attach_task());
         EXPECT_EQ(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label(),
                   "UT-ThreadContextTest2");

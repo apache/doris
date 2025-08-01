@@ -10,6 +10,8 @@ set(TEST_LINK_LIBS ResourceManager ${TEST_LINK_LIBS})
 
 add_executable(codec_test codec_test.cpp)
 
+add_executable(document_message_test document_message_test.cpp)
+
 add_executable(keys_test keys_test.cpp)
 
 add_executable(doris_txn_test doris_txn_test.cpp)
@@ -17,14 +19,19 @@ add_executable(doris_txn_test doris_txn_test.cpp)
 add_executable(txn_kv_test txn_kv_test.cpp)
 set_target_properties(txn_kv_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 
-add_executable(recycler_test recycler_test.cpp mock_accessor.cpp)
+add_executable(recycler_test
+    recycler_test.cpp
+    recycler_operation_log_test.cpp)
 
 add_executable(mem_txn_kv_test mem_txn_kv_test.cpp)
+
+add_executable(meta_reader_test meta_reader_test.cpp)
 
 add_executable(meta_service_test
    meta_service_test.cpp
    meta_service_job_test.cpp
    meta_service_http_test.cpp
+   meta_service_operation_log_test.cpp
    meta_service_tablet_stats_test.cpp
    schema_kv_test.cpp
 )
@@ -43,11 +50,15 @@ add_executable(log_test log_test.cpp)
 
 add_executable(resource_test resource_test.cpp)
 
+add_executable(rpc_kv_bvar_test rpc_kv_bvar_test.cpp)
+
 add_executable(http_encode_key_test http_encode_key_test.cpp)
 
 add_executable(fdb_injection_test fdb_injection_test.cpp)
 
 add_executable(s3_accessor_test s3_accessor_test.cpp)
+
+add_executable(s3_accessor_mock_test s3_accessor_mock_test.cpp)
 
 add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
 
@@ -57,7 +68,11 @@ add_executable(util_test util_test.cpp)
 
 add_executable(network_util_test network_util_test.cpp)
 
-add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp mock_accessor.cpp)
+add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
+
+add_executable(versionstamp_test versionstamp_test.cpp)
+
+add_executable(versioned_value_test versioned_value_test.cpp)
 
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
@@ -65,6 +80,8 @@ message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 target_link_libraries(codec_test ${TEST_LINK_LIBS})
 
 target_link_libraries(keys_test ${TEST_LINK_LIBS})
+
+target_link_libraries(meta_reader_test ${TEST_LINK_LIBS})
 
 target_link_libraries(meta_service_test ${TEST_LINK_LIBS})
 
@@ -82,9 +99,13 @@ target_link_libraries(log_test ${TEST_LINK_LIBS})
 
 target_link_libraries(resource_test ${TEST_LINK_LIBS})
 
+target_link_libraries(rpc_kv_bvar_test ${TEST_LINK_LIBS})
+
 target_link_libraries(http_encode_key_test ${TEST_LINK_LIBS})
 
 target_link_libraries(s3_accessor_test ${TEST_LINK_LIBS})
+
+target_link_libraries(s3_accessor_mock_test ${TEST_LINK_LIBS})
 
 target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
 
@@ -96,8 +117,15 @@ target_link_libraries(network_util_test ${TEST_LINK_LIBS})
 
 target_link_libraries(txn_lazy_commit_test ${TEST_LINK_LIBS})
 
+target_link_libraries(versionstamp_test ${TEST_LINK_LIBS})
+
 # FDB related tests need to be linked with libfdb_c
 set(FDB_LINKER_FLAGS "-lfdb_c -L${THIRDPARTY_DIR}/lib")
+
+target_link_libraries(document_message_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS}
+)
 
 target_link_libraries(doris_txn_test
     ${FDB_LINKER_FLAGS}
@@ -123,11 +151,15 @@ target_link_libraries(fdb_injection_test
     ${FDB_LINKER_FLAGS}
     ${TEST_LINK_LIBS})
 
+target_link_libraries(versioned_value_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS})
+
 install(FILES
     ${BASE_DIR}/script/run_all_tests.sh
     ${BASE_DIR}/conf/fdb.cluster
     ${BASE_DIR}/conf/doris_cloud.conf
-    ${BASE_DIR}/conf/lsan_suppression.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
     ${BASE_DIR}/test/fdb_metric_example.json
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE

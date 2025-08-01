@@ -38,12 +38,13 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class TupleDescriptor;
 
 TableConnector::TableConnector(const TupleDescriptor* tuple_desc, bool use_transaction,
@@ -55,10 +56,11 @@ TableConnector::TableConnector(const TupleDescriptor* tuple_desc, bool use_trans
           _tuple_desc(tuple_desc),
           _sql_str(sql_str) {}
 
-void TableConnector::init_profile(doris::RuntimeProfile* profile) {
-    _convert_tuple_timer = ADD_TIMER(profile, "TupleConvertTime");
-    _result_send_timer = ADD_TIMER(profile, "ResultSendTime");
-    _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
+void TableConnector::init_profile(doris::RuntimeProfile* operator_profile) {
+    RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+    _convert_tuple_timer = ADD_TIMER(custom_profile, "TupleConvertTime");
+    _result_send_timer = ADD_TIMER(custom_profile, "ResultSendTime");
+    _sent_rows_counter = ADD_COUNTER(custom_profile, "NumSentRows", TUnit::UNIT);
 }
 
 std::u16string TableConnector::utf8_to_u16string(const char* first, const char* last) {
@@ -99,7 +101,7 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
 
 Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_ptr,
                                            const vectorized::DataTypePtr& type_ptr,
-                                           const TypeDescriptor& type, int row,
+                                           const vectorized::DataTypePtr& type, size_t row,
                                            TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
         if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::SAP_HANA) {
@@ -131,7 +133,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         column = column_ptr.get();
     }
     auto [item, size] = column->get_data_at(row);
-    switch (type.type) {
+    switch (type->get_primitive_type()) {
     case TYPE_BOOLEAN:
         if (table_type == TOdbcTableType::SAP_HANA) {
             fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const bool*>(item));
@@ -190,7 +192,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)item);
 
         char buf[64];
-        char* pos = value.to_string(buf, type.scale);
+        char* pos = value.to_string(buf, type->get_scale());
         std::string str(buf, pos - buf - 1);
         extra_convert_func(str, false);
         break;
@@ -231,8 +233,11 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
             if (arr_nested->is_null_at(idx)) {
                 fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
             } else {
-                RETURN_IF_ERROR(convert_column_data(arr_nested, nested_type, type.children[0], idx,
-                                                    table_type));
+                RETURN_IF_ERROR(convert_column_data(arr_nested, nested_type,
+                                                    assert_cast<const vectorized::DataTypeArray*>(
+                                                            vectorized::remove_nullable(type).get())
+                                                            ->get_nested_type(),
+                                                    idx, table_type));
             }
             first_value = false;
         }
@@ -259,9 +264,10 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     }
     default: {
         return Status::InternalError("can't convert this type to mysql type. type = {}",
-                                     type.debug_string());
+                                     type->get_name());
     }
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris

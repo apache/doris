@@ -86,6 +86,13 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
+    public String getFingerprint() {
+        return Utils.toSqlString("Filter[" + getGroupIdWithPrefix() + "]",
+                "predicates", getPredicate().getFingerprint()
+        );
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

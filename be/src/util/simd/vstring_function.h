@@ -19,8 +19,6 @@
 
 #ifdef __AVX2__
 #include <immintrin.h>
-
-#include "gutil/macros.h"
 #endif
 #include <unistd.h>
 
@@ -34,7 +32,7 @@
 
 namespace doris {
 
-static constexpr std::array<uint8, 256> UTF8_BYTE_LENGTH = {
+static constexpr std::array<uint8_t, 256> UTF8_BYTE_LENGTH = {
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -205,6 +203,7 @@ public:
     }
 
     // Gcc will do auto simd in this function
+    // if input empty, return true
     static bool is_ascii(const StringRef& str) {
 #ifdef __AVX2__
         return validate_ascii_fast_avx(str.data, str.size);
@@ -246,7 +245,7 @@ public:
         auto src_str_end = src_str + length;
 
 #if defined(__SSE2__) || defined(__aarch64__)
-        constexpr auto step = sizeof(uint64);
+        constexpr auto step = sizeof(uint64_t);
         if (src_str + step < src_str_end) {
             const auto hex_map = _mm_loadu_si128(reinterpret_cast<const __m128i*>(hex_table));
             const auto mask_map = _mm_set1_epi8(0x0F);

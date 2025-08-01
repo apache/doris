@@ -21,6 +21,8 @@
 #include "olap/hll.h"
 #include "util/slice.h"
 #include "vec/columns/column_complex.h"
+#include "vec/data_types/common_data_type_serder_test.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/serde/data_type_hll_serde.h"
 
 namespace doris::vectorized {
@@ -62,14 +64,16 @@ TEST(HLLSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, &pool, 0, 0);
+    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         hll_serde->read_one_cell_from_jsonb(*column_hll, it->value());
@@ -116,7 +120,6 @@ TEST(HLLSerdeTest, serializeOneCellToJson) {
     column_hll->insert_value(hll);
     ASSERT_EQ(column_hll->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = hll_serde->serialize_one_cell_to_json(*column_hll, 0, buffer_writer, formatOptions);
@@ -162,7 +165,6 @@ TEST(HLLSerdeTest, serializeColumnToJson) {
     column_hll->insert_value(hll);
     ASSERT_EQ(column_hll->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = hll_serde->serialize_column_to_json(*column_hll, 0, 2, buffer_writer, formatOptions);
@@ -195,5 +197,28 @@ TEST(HLLSerdeTest, serializeColumnToJson) {
                   except_column->get_element(j).to_string());
     }
     std::cout << "test serialize/deserialize_column_from_json_vector" << std::endl;
+}
+
+TEST(HLLSerdeTest, SerdeArrowTest) {
+    auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
+    auto column_hll = ColumnHLL::create();
+    column_hll->insert_value(HyperLogLog::empty());
+    HyperLogLog hll;
+    hll.update(123);
+    column_hll->insert_value(hll);
+    ASSERT_EQ(column_hll->size(), 2);
+
+    auto block = std::make_shared<Block>();
+    DataTypePtr st = std::make_shared<DataTypeHLL>();
+    vectorized::ColumnWithTypeAndName type_and_name(column_hll->get_ptr(), st, "hll");
+    block->insert(type_and_name);
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    EXPECT_EQ(record_batch->column(0)->ToString(), "[\n  00,\n  01017B00000000000000\n]");
+
+    // TODO, support `DataTypeHLLSerDe::read_column_from_arrow`
+    // CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    // CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+    std::cout << "test write/read_column_to_arrow " << std::endl;
 }
 } // namespace doris::vectorized

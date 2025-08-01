@@ -42,11 +42,10 @@ class IColumn;
 
 namespace doris::vectorized {
 
-class DataTypeIPv4 final : public DataTypeNumberBase<IPv4> {
+class DataTypeIPv4 final : public DataTypeNumberBase<PrimitiveType::TYPE_IPV4> {
 public:
-    TypeIndex get_type_id() const override { return TypeIndex::IPv4; }
-    TypeDescriptor get_type_as_type_descriptor() const override { return {TYPE_IPV4}; }
-    const char* get_family_name() const override { return "IPv4"; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_IPV4; }
+    const std::string get_family_name() const override { return "IPv4"; }
     std::string do_get_name() const override { return "IPv4"; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -57,7 +56,8 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<IPv4>::template to_string_batch_impl<DataTypeIPv4>(column, column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_IPV4>::template to_string_batch_impl<DataTypeIPv4>(
+                column, column_to);
     }
 
     size_t number_length() const;
@@ -65,12 +65,13 @@ public:
     std::string to_string(const IPv4& value) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    Field get_field(const TExprNode& node) const override { return (IPv4)node.ipv4_literal.value; }
+    Field get_field(const TExprNode& node) const override;
 
     MutableColumnPtr create_column() const override;
 
+    using SerDeType = DataTypeIPv4SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeIPv4SerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 };
 

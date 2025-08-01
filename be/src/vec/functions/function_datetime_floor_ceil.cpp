@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#if !defined(__APPLE__)
 #include <experimental/bits/simd.h>
+#endif
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -44,10 +46,10 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -56,6 +58,15 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
+
+// FIXME: This file contains widespread UB due to unsafe type-punning casts.
+//        These must be properly refactored to eliminate reliance on reinterpret-style behavior.
+//
+// Temporarily suppress GCC 15+ warnings on user-defined type casts to allow build to proceed.
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-user-defined"
+#endif
 
 namespace doris::vectorized {
 struct DayCeil;
@@ -85,7 +96,8 @@ class FunctionDateTimeFloorCeil : public IFunction {
 public:
     using DateValueType = date_cast::TypeToValueTypeV<DateType>;
     using NativeType = DateType::FieldType;
-    using DeltaDataType = DataTypeNumber<Int32>;
+    static constexpr PrimitiveType PType = DateType::PType;
+    using DeltaDataType = DataTypeInt32;
     // return date type = DateType
     static constexpr auto name = Flag::name;
 
@@ -121,11 +133,10 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (const auto* sources =
-                    check_and_get_column<ColumnVector<NativeType>>(source_col.get())) {
-            auto col_to = ColumnVector<NativeType>::create();
+        if (const auto* sources = check_and_get_column<ColumnVector<PType>>(source_col.get())) {
+            auto col_to = ColumnVector<PType>::create();
             col_to->resize(input_rows_count);
-            auto null_map = ColumnVector<UInt8>::create();
+            auto null_map = ColumnUInt8::create();
             null_map->get_data().resize_fill(input_rows_count, false);
 
             if constexpr (ArgNum == 1) {
@@ -134,8 +145,8 @@ public:
                 const IColumn& delta_column = *block.get_by_position(arguments[1]).column;
                 if (const auto* const_second_column =
                             check_and_get_column<ColumnConst>(delta_column)) {
-                    if (block.get_by_position(arguments[1]).type->get_type_id() !=
-                        TypeIndex::Int32) {
+                    if (block.get_by_position(arguments[1]).type->get_primitive_type() !=
+                        PrimitiveType::TYPE_INT) {
                         // time_round(datetime, const(origin))
                         vector_const_anchor(sources->get_data(),
                                             const_second_column->get_field().get<NativeType>(),
@@ -148,13 +159,13 @@ public:
                     }
                 } else {
                     if (const auto* delta_vec_column0 =
-                                check_and_get_column<ColumnVector<NativeType>>(delta_column)) {
+                                check_and_get_column<ColumnVector<PType>>(delta_column)) {
                         // time_round(datetime, origin)
                         vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),
                                              col_to->get_data(), null_map->get_data());
                     } else {
                         const auto* delta_vec_column1 =
-                                check_and_get_column<ColumnVector<Int32>>(delta_column);
+                                check_and_get_column<ColumnInt32>(delta_column);
                         DCHECK(delta_vec_column1 != nullptr);
                         // time_round(datetime, period)
                         vector_vector_period(sources->get_data(), delta_vec_column1->get_data(),
@@ -176,12 +187,10 @@ public:
                     vector_const_const(sources->get_data(), arg1.get<Int32>(),
                                        arg2.get<NativeType>(), col_to->get_data(),
                                        null_map->get_data());
-
                 } else if (arg1_const && !arg2_const) {
                     Field arg1;
                     arg1_col->get(0, arg1);
-                    const auto arg2_column =
-                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    const auto arg2_column = check_and_get_column<ColumnVector<PType>>(*arg2_col);
                     // time_round(datetime, const(period), origin)
                     vector_const_vector(sources->get_data(), arg1.get<Int32>(),
                                         arg2_column->get_data(), col_to->get_data(),
@@ -189,15 +198,14 @@ public:
                 } else if (!arg1_const && arg2_const) {
                     Field arg2;
                     arg2_col->get(0, arg2);
-                    const auto* arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
+                    const auto* arg1_column = check_and_get_column<ColumnInt32>(*arg1_col);
                     // time_round(datetime, period, const(origin))
                     vector_vector_const(sources->get_data(), arg1_column->get_data(),
                                         arg2.get<NativeType>(), col_to->get_data(),
                                         null_map->get_data());
                 } else {
-                    const auto* arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
-                    const auto arg2_column =
-                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    const auto* arg1_column = check_and_get_column<ColumnInt32>(*arg1_col);
+                    const auto arg2_column = check_and_get_column<ColumnVector<PType>>(*arg2_col);
                     DCHECK(arg1_column != nullptr);
                     DCHECK(arg2_column != nullptr);
                     // time_round(datetime, period, origin)
@@ -242,18 +250,42 @@ private:
             memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
-        for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], period, res[i])));
+
+        // expand codes for const input periods
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                            \
+    case X: {                                                                                     \
+        for (int i = 0; i < dates.size(); ++i) {                                                  \
+            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args<X>(dates[i], period, res[i]))); \
+        }                                                                                         \
+        return;                                                                                   \
+    }
+#define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
+        switch (period) {
+            // expand for some constant period
+            BOOST_PP_REPEAT(12, EXPANDER, ~)
+        default:
+            for (int i = 0; i < dates.size(); ++i) {
+                SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], period, res[i])));
+            }
         }
+#undef EXPAND_CODE_FOR_CONST_INPUT
+#undef EXPANDER
     }
 
     static void vector_const_const(const PaddedPODArray<NativeType>& dates, const Int32 period,
                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
                                    NullMap& null_map) {
+        if (auto cast_date = binary_cast<NativeType, DateValueType>(origin_date);
+            cast_date == DateValueType::FIRST_DAY) {
+            vector_const_period(dates, period, res, null_map);
+            return;
+        }
+
         if (period < 1) {
             memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
+
         // expand codes for const input periods
 #define EXPAND_CODE_FOR_CONST_INPUT(X)                                   \
     case X: {                                                            \
@@ -262,7 +294,7 @@ private:
             res[i] = origin_date;                                        \
             auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]); \
             auto& ts1 = (DateValueType&)(res[i]);                        \
-            SET_NULLMAP_IF_FALSE(time_round_two_args(ts2, X, ts1))       \
+            SET_NULLMAP_IF_FALSE(time_round_two_args<X>(ts2, X, ts1))    \
         }                                                                \
         return;                                                          \
     }
@@ -359,31 +391,34 @@ private:
         auto ts_arg = binary_cast<NativeType, DateValueType>(date);
         auto& ts_res = (DateValueType&)(res);
         if constexpr (Flag::Unit == WEEK) {
-            // Only week use the FIRST SUNDAY
-            ts_res = DateValueType::FIRST_SUNDAY;
+            ts_res = DateValueType::FIRST_DAY;
             return time_round_two_args(ts_arg, 1, ts_res);
         } else {
             return time_round_one_arg(ts_arg, ts_res);
         }
     }
 
-    ALWAYS_INLINE static bool time_round_reinterpret_two_args(NativeType date, Int32 period,
-                                                              NativeType& res) {
+    template <int const_period = 0>
+    static bool time_round_reinterpret_two_args(NativeType date, Int32 period, NativeType& res) {
         auto ts_arg = binary_cast<NativeType, DateValueType>(date);
         auto& ts_res = (DateValueType&)(res);
 
-        if (can_use_optimize(period)) {
-            floor_opt(ts_arg, ts_res, period);
-            return true;
-        } else {
-            if constexpr (Flag::Unit == WEEK) {
-                ts_res = DateValueType::FIRST_SUNDAY;
+        if constexpr (const_period == 0) {
+            if (can_use_optimize(period)) {
+                floor_opt(ts_arg, ts_res, period);
+                return true;
             } else {
-                // Only week use the FIRST SUNDAY
                 ts_res = DateValueType::FIRST_DAY;
+                return time_round_two_args(ts_arg, period, ts_res);
             }
-
-            return time_round_two_args(ts_arg, period, ts_res);
+        } else {
+            if (can_use_optimize(const_period)) {
+                floor_opt(ts_arg, ts_res, const_period);
+                return true;
+            } else {
+                ts_res = DateValueType::FIRST_DAY;
+                return time_round_two_args<const_period>(ts_arg, const_period, ts_res);
+            }
         }
     }
 
@@ -448,6 +483,7 @@ private:
         }
     }
 
+    template <Int32 const_period = 0>
     static bool time_round_two_args(const DateValueType& ts_arg, const Int32 period,
                                     DateValueType& ts_res) {
         int64_t diff;
@@ -488,7 +524,7 @@ private:
                 trivial_part_ts_res = ts_res.second();
             }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.second_diff(ts_res);
+                diff = ts_arg.datetime_diff_in_seconds(ts_res);
                 trivial_part_ts_res = 0;
                 trivial_part_ts_arg = 0;
             }
@@ -527,7 +563,7 @@ private:
                 trivial_part_ts_res = ts_res.second();
             }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.second_diff(ts_res);
+                diff = ts_arg.datetime_diff_in_seconds(ts_res);
                 trivial_part_ts_res = 0;
                 trivial_part_ts_arg = 0;
             }
@@ -570,7 +606,7 @@ private:
                         ts_res.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
             }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.second_diff(ts_res);
+                diff = ts_arg.datetime_diff_in_seconds(ts_res);
                 trivial_part_ts_arg = ts_arg.microsecond();
                 trivial_part_ts_res = ts_res.microsecond();
             }
@@ -587,7 +623,14 @@ private:
         }
 
         //round down/up inside time period(several time-units)
-        int64_t delta_inside_period = diff >= 0 ? diff % period : (diff % period + period) % period;
+        int64_t delta_inside_period;
+        if constexpr (const_period != 0) {
+            delta_inside_period = diff >= 0 ? diff % const_period
+                                            : (diff % const_period + const_period) % const_period;
+        } else {
+            delta_inside_period = diff >= 0 ? diff % period : (diff % period + period) % period;
+        }
+
         int64_t step = diff - delta_inside_period +
                        (Flag::Type == FLOOR        ? 0
                         : delta_inside_period == 0 ? 0
@@ -791,3 +834,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
 #undef FLOOR
 #undef CEIL
 } // namespace doris::vectorized
+
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic pop
+#endif

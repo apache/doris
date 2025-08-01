@@ -477,6 +477,61 @@ suite ("test_varchar_sc_in_complex") {
 //            """
 //        qt_sc_after " select * from there_level_nested_type order by c0; "
 
+        // case7. do not support enlarge char length in nested types
+        def tableName2 = "test_enlarge_char_length_nested"
+        sql """ DROP TABLE IF EXISTS ${tableName2} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName2}
+            (
+                k BIGINT NOT NULL,
+                c1 ARRAY<CHAR(10)>,
+                c2 MAP<CHAR(10), CHAR(10)>,
+                c3 STRUCT<col:CHAR(10)>,
+                c4 ARRAY<VARCHAR(10)>,
+                c5 MAP<VARCHAR(10), VARCHAR(10)>,
+                c6 STRUCT<col:VARCHAR(10)>
+            ) DISTRIBUTED BY HASH(k) BUCKETS 1
+              PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
+        """
+        test {
+            sql """ ALTER TABLE ${tableName2} MODIFY COLUMN c1 ARRAY<CHAR(20)> """
+            exception "Cannot change char(10) to char(20) in nested types"
+        }
+        test {
+            sql """ ALTER TABLE ${tableName2} MODIFY COLUMN c2 MAP<CHAR(20), CHAR(20)> """
+            exception "Cannot change char(10) to char(20) in nested types"
+        }
+        test {
+            sql """ ALTER TABLE ${tableName2} MODIFY COLUMN c3 STRUCT<col:CHAR(20)> """
+            exception "Cannot change char(10) to char(20) in nested types"
+        }
+
+        // case8. do not support convert from char to varchar and varchar to char in nested types
+        test {
+            sql """ ALTER TABLE ${tableName2} MODIFY COLUMN c1 ARRAY<VARCHAR(20)> """
+            exception "Cannot change char(10) to varchar(20) in nested types"
+        }
+        test {
+            sql """ ALTER TABLE ${tableName2} MODIFY COLUMN c2 MAP<VARCHAR(20), VARCHAR(20)> """
+            exception "Cannot change char(10) to varchar(20) in nested types"
+        }
+        test {
+            sql """ ALTER TABLE ${tableName2} MODIFY COLUMN c3 STRUCT<col:VARCHAR(20)> """
+            exception "Cannot change char(10) to varchar(20) in nested types"
+        }
+
+        test {
+            sql """ ALTER TABLE ${tableName2} MODIFY COLUMN c4 ARRAY<CHAR(20)> """
+            exception "Cannot change varchar(10) to char(20) in nested types"
+        }
+        test {
+            sql """ ALTER TABLE ${tableName2} MODIFY COLUMN c5 MAP<CHAR(20), CHAR(20)> """
+            exception "Cannot change varchar(10) to char(20) in nested types"
+        }
+        test {
+            sql """ ALTER TABLE ${tableName2} MODIFY COLUMN c6 STRUCT<col:CHAR(20)> """
+            exception "Cannot change varchar(10) to char(20) in nested types"
+        }
     } finally {
          try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

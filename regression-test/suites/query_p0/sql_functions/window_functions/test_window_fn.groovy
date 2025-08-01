@@ -193,7 +193,7 @@ suite("test_window_fn") {
 
     // rank
     qt_sql  """ 
-        SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM ${tbName1} order by depname
+        SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM ${tbName1} order by depname,salary,empno;
     """
     qt_sql """
         SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary, empno) 
@@ -208,7 +208,7 @@ suite("test_window_fn") {
         FROM ${tbName1} order by s, r;
     """
     qt_sql """
-        SELECT * FROM ( select *, row_number() OVER (ORDER BY salary) as a from ${tbName1} ) as t where t.a < 10;
+        SELECT * FROM ( select *, row_number() OVER (ORDER BY empno) as a from ${tbName1} ) as t where t.a < 10 order by empno;
     """
     qt_sql """
         SELECT row_number() OVER (ORDER BY unique2) FROM ${tbName2} WHERE unique2 < 10;
@@ -399,7 +399,278 @@ suite("test_window_fn") {
     sql """set enable_nereids_planner=true;"""
     sql """SELECT SUM(MAX(c1) OVER (PARTITION BY c2, c3)) FROM  test_window_in_agg;"""
 
-    sql "DROP TABLE IF EXISTS test_window_in_agg;"
+    sql "DROP TABLE IF EXISTS test2;"
+
+    sql """ DROP TABLE IF EXISTS test2; """
+
+    sql """ CREATE TABLE IF NOT EXISTS test2 (
+                    `pk` int NULL, 
+                    `col_datetime_3__undef_signed_not_null` datetime(3) not null
+                    )
+    DUPLICATE KEY(pk) 
+    DISTRIBUTED BY HASH(pk) BUCKETS 3 
+    PROPERTIES ( 
+        "replication_num" = "1"
+    ); 
+    """
+
+    sql """ INSERT into test2 (pk, col_datetime_3__undef_signed_not_null) values 
+                                                    ('0', '2005-01-11 03:43:25.000'),
+                                                    ('1', '2000-05-27 10:52:55.000'),
+                                                    ('2', '2003-07-22 04:04:57.000'),
+                                                    ('3', '2024-07-01 00:00:00.000'),
+                                                    ('4', '9999-12-31 00:00:00.000'),
+                                                    ('5', '2022-03-13 01:30:00'),
+                                                    ('6', '2022-03-13 04:45:00'),
+                                                    ('7', '2022-03-13 07:15:00'),
+                                                    ('8', '2022-03-13 10:05:00'),
+                                                    ('9', '2022-03-13 12:50:00'); 
+
+    """
+
+    qt_sql_window_null """
+        select col_datetime_3__undef_signed_not_null,pk, max(col_datetime_3__undef_signed_not_null) over (order by pk rows between 4 preceding and 2 preceding) as res from test2 order by pk;
+    """
+
+
+    sql "DROP TABLE IF EXISTS test_baseall_null"
+    sql """
+         CREATE TABLE IF NOT EXISTS `test_baseall_null` (
+             `k0` boolean null comment "",
+             `k1` tinyint(4) null comment "",
+             `k2` smallint(6) null comment "",
+             `k3` int(11) null comment "",
+             `k4` bigint(20) null comment "",
+             `k5` decimal(12, 6) null comment "",
+             `k6` char(5) null comment "",
+             `k10` date null comment "",
+             `k11` datetime null comment "",
+             `k7` varchar(20) null comment "",
+             `k8` double max null comment "",
+             `k9` float sum null comment "",
+             `k12` string replace null comment "",
+             `k13` largeint(40) replace null comment ""
+         ) engine=olap
+         DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+         """
+
+    streamLoad {
+         table "test_baseall_null"
+         db 'regression_test_query_p0_sql_functions_window_functions'
+         set 'column_separator', ','
+         file "../../baseall.txt"
+    }
+    sql "sync"
+
+    sql "DROP TABLE IF EXISTS test_baseall_not"
+    sql """
+         CREATE TABLE IF NOT EXISTS `test_baseall_not` (
+             `k0` boolean not null comment "",
+             `k1` tinyint(4) not null comment "",
+             `k2` smallint(6) not null comment "",
+             `k3` int(11) not null comment "",
+             `k4` bigint(20) not null comment "",
+             `k5` decimal(12, 6) not null comment "",
+             `k6` char(5) not null comment "",
+             `k10` date not null comment "",
+             `k11` datetime not null comment "",
+             `k7` varchar(20) not null comment "",
+             `k8` double max not null comment "",
+             `k9` float sum not null comment "",
+             `k12` string replace not null comment "",
+             `k13` largeint(40) replace not null comment ""
+         ) engine=olap
+         DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+    """
+
+    qt_sql_table_count """
+        select count(1) from test_baseall_null;
+    """
+
+    sql """
+        insert into test_baseall_not select * from test_baseall_null where k1 is not null; 
+    """
+
+    qt_sql_table_count2 """
+        select count(1) from test_baseall_not;
+    """
+
+    qt_sql_test_1 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between unbounded preceding and 2 following) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_test_2 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range between unbounded preceding and unbounded following) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_test_3 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between 2 following and 3 following) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_test_4 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between 4 preceding and 2 preceding) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_test_5 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between unbounded preceding and 2 following) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_6 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range between unbounded preceding and unbounded following) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_7 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between 2 following and 3 following) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_8 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between 4 preceding and 2 preceding) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_1 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows 2 preceding) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_2 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows current row) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_3 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_4 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows unbounded preceding) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_5 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range unbounded preceding) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_6 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_7 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_8 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_9 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_10 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 PRECEDING AND 3 FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_11 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 3 PRECEDING AND 2 PRECEDING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_12 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 FOLLOWING AND 3 FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_13 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND 3 FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_14 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND 2 PRECEDING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_15 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_16 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 FOLLOWING AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_17 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 1 PRECEDING AND CURRENT ROW) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_18 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN CURRENT ROW AND 1 FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+
+    qt_sql_test_1 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows 2 preceding) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_2 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows current row) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_3 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_4 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows unbounded preceding) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_5 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range unbounded preceding) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_6 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_7 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_8 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_9 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_10 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 PRECEDING AND 3 FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_11 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 3 PRECEDING AND 2 PRECEDING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_12 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 FOLLOWING AND 3 FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_13 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND 3 FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_14 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND 2 PRECEDING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_15 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_16 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 FOLLOWING AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_17 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 1 PRECEDING AND CURRENT ROW) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_18 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN CURRENT ROW AND 1 FOLLOWING) from test_baseall_null order by k6,k1;
+    """
 }
 
 

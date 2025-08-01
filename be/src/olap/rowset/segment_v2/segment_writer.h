@@ -31,10 +31,9 @@
 
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -83,8 +82,7 @@ class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
-                           const SegmentWriterOptions& opts,
-                           InvertedIndexFileWriter* inverted_file_writer);
+                           const SegmentWriterOptions& opts, IndexFileWriter* inverted_file_writer);
     ~SegmentWriter();
 
     Status init();
@@ -147,12 +145,12 @@ public:
 
     Status close_inverted_index(int64_t* inverted_index_file_size) {
         // no inverted index
-        if (_inverted_index_file_writer == nullptr) {
+        if (_index_file_writer == nullptr) {
             *inverted_index_file_size = 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_inverted_index_file_writer->close());
-        *inverted_index_file_size = _inverted_index_file_writer->get_index_file_total_size();
+        RETURN_IF_ERROR(_index_file_writer->close());
+        *inverted_index_file_size = _index_file_writer->get_index_file_total_size();
         return Status::OK();
     }
 
@@ -189,8 +187,8 @@ private:
 
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
-                            string* encoded_keys);
-    void _encode_rowid(const uint32_t rowid, string* encoded_keys);
+                            std::string* encoded_keys);
+    void _encode_rowid(const uint32_t rowid, std::string* encoded_keys);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
@@ -214,7 +212,7 @@ private:
     // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
     // Not owned. owned by RowsetWriter or SegmentFlusher
-    InvertedIndexFileWriter* _inverted_index_file_writer = nullptr;
+    IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys

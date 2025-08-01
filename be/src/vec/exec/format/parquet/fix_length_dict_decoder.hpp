@@ -122,7 +122,8 @@ protected:
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) override {
         size_t dict_items_size = _dict_items.size();
-        std::vector<StringRef> dict_values(dict_items_size);
+        std::vector<StringRef> dict_values;
+        dict_values.reserve(dict_items_size);
         for (size_t i = 0; i < dict_items_size; ++i) {
             dict_values.emplace_back(_dict_items[i], _type_length);
         }
@@ -132,7 +133,8 @@ protected:
 
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override {
         auto res = ColumnString::create();
-        std::vector<StringRef> dict_values(dict_column->size());
+        std::vector<StringRef> dict_values;
+        dict_values.reserve(dict_column->size());
         const auto& data = dict_column->get_data();
         for (size_t i = 0; i < dict_column->size(); ++i) {
             dict_values.emplace_back(_dict_items[data[i]], _type_length);

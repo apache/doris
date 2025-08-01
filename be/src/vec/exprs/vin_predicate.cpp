@@ -68,7 +68,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     std::string head(_is_not_in ? "not_" : "");
     std::string real_function_name = head + std::string(function_name);
     auto arg_type = remove_nullable(argument_template[0].type);
-    if (is_struct(arg_type) || is_array(arg_type) || is_map(arg_type)) {
+    if (is_complex_type(arg_type->get_primitive_type())) {
         real_function_name = "collection_" + real_function_name;
     }
     _function = SimpleFunctionFactory::instance().get_function(

@@ -27,10 +27,25 @@ inline TQueryOptions create_fake_query_options() {
 }
 
 struct MockQueryContext : public QueryContext {
-    MockQueryContext()
-            : QueryContext(TUniqueId {}, ExecEnv::GetInstance(), create_fake_query_options(),
-                           TNetworkAddress {}, true, TNetworkAddress {},
-                           QuerySource::GROUP_COMMIT_LOAD) {}
+    ENABLE_FACTORY_CREATOR(MockQueryContext);
+
+    MockQueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
+                     TNetworkAddress coord_address, bool is_nereids,
+                     TNetworkAddress current_connect_fe_addr, QuerySource query_type)
+            : QueryContext(query_id, exec_env, query_options, coord_address, is_nereids,
+                           current_connect_fe_addr, query_type) {}
+
+    static std::shared_ptr<MockQueryContext> create(
+            TUniqueId query_id = TUniqueId(), ExecEnv* exec_env = ExecEnv::GetInstance(),
+            const TQueryOptions& query_options = create_fake_query_options(),
+            TNetworkAddress coord_address = TNetworkAddress(), bool is_nereids = true,
+            TNetworkAddress current_connect_fe_addr = TNetworkAddress(),
+            QuerySource query_type = QuerySource::GROUP_COMMIT_LOAD) {
+        auto ctx = MockQueryContext::create_shared(query_id, exec_env, query_options, coord_address,
+                                                   is_nereids, current_connect_fe_addr, query_type);
+        ctx->init_query_task_controller();
+        return ctx;
+    }
 };
 
 } // namespace doris

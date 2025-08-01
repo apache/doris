@@ -17,22 +17,17 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-class UniqueTest extends TestWithFeService {
-    Slot slot1 = new SlotReference("1", IntegerType.INSTANCE, false);
-    Slot slot2 = new SlotReference("2", IntegerType.INSTANCE, false);
-    Slot slot3 = new SlotReference("1", IntegerType.INSTANCE, false);
-    Slot slot4 = new SlotReference("1", IntegerType.INSTANCE, false);
+import java.util.Optional;
 
+class UniqueTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -69,7 +64,7 @@ class UniqueTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUnique(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
-                .analyze("select id, sum(id), avg(id), max(id), min(id) from agg group by id")
+                .analyze("select id, sum(id), avg(id), max(id), min(id), topn(id,2) from agg group by id")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
@@ -141,7 +136,7 @@ class UniqueTest extends TestWithFeService {
     @Test
     void testSetOp() {
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select name from agg limit 1 except select name from agg")
+                .analyze("(select name from agg limit 1) except select name from agg")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
@@ -375,8 +370,8 @@ class UniqueTest extends TestWithFeService {
                 .analyze("select id, row_number() over() from agg where id =1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getTrait().isUniqueAndNotNull(plan.getOutput().get(0)));
+        Assertions.assertEquals(Optional.of(new IntegerLiteral(1)),
+                plan.getLogicalProperties().getTrait().getUniformValue(plan.getOutput().get(0)));
         Assertions.assertTrue(plan.getLogicalProperties()
                 .getTrait().isUniqueAndNotNull(plan.getOutput().get(1)));
     }

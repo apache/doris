@@ -18,11 +18,11 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.DppConfig;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.UserProperty;
 
 import com.google.common.collect.Lists;
@@ -33,11 +33,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.util.List;
 
 public class UserPropertyTest {
@@ -79,30 +74,9 @@ public class UserPropertyTest {
     }
 
     @Test
-    public void testNormal() throws IOException, DdlException {
-        // mock catalog
-        fakeEnv = new FakeEnv();
-        FakeEnv.setMetaVersion(FeConstants.meta_version);
-
-        String qualifiedUser = "root";
-        UserProperty property = new UserProperty(qualifiedUser);
-        // To image
-        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
-        DataOutputStream outputStream = new DataOutputStream(byteStream);
-        property.write(outputStream);
-        outputStream.flush();
-
-        DataInputStream inputStream = new DataInputStream(new ByteArrayInputStream(byteStream.toByteArray()));
-        UserProperty newProperty = UserProperty.read(inputStream);
-        Assert.assertEquals(qualifiedUser, newProperty.getQualifiedUser());
-    }
-
-    @Test
     public void testUpdate() throws UserException {
         List<Pair<String, String>> properties = Lists.newArrayList();
         properties.add(Pair.of("MAX_USER_CONNECTIONS", "100"));
-        properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
-        properties.add(Pair.of("default_load_cluster", "dpp-cluster"));
         properties.add(Pair.of("max_qUERY_instances", "3000"));
         properties.add(Pair.of("parallel_fragment_exec_instance_num", "2000"));
         properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
@@ -112,8 +86,6 @@ public class UserPropertyTest {
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
         Assert.assertEquals(100, userProperty.getMaxConn());
-        Assert.assertEquals("/user/palo2", userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
-        Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
         Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
         Assert.assertEquals(2000, userProperty.getParallelFragmentExecInstanceNum());
         Assert.assertEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
@@ -129,10 +101,6 @@ public class UserPropertyTest {
 
             if (key.equalsIgnoreCase("max_user_connections")) {
                 Assert.assertEquals("100", value);
-            } else if (key.equalsIgnoreCase("load_cluster.dpp-cluster.hadoop_palo_path")) {
-                Assert.assertEquals("/user/palo2", value);
-            } else if (key.equalsIgnoreCase("default_load_cluster")) {
-                Assert.assertEquals("dpp-cluster", value);
             } else if (key.equalsIgnoreCase("max_query_instances")) {
                 Assert.assertEquals("3000", value);
             } else if (key.equalsIgnoreCase("sql_block_rules")) {
@@ -143,24 +111,6 @@ public class UserPropertyTest {
                 Assert.assertEquals("500", value);
             }
         }
-
-        // get cluster info
-        DppConfig dppConfig = userProperty.getLoadClusterInfo("dpp-cluster").second;
-        Assert.assertEquals(8070, dppConfig.getHttpPort());
-
-        // set palo path null
-        properties.clear();
-        properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", null));
-        userProperty.update(properties);
-        Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
-
-        // remove dpp-cluster
-        properties.clear();
-        properties.add(Pair.of("load_cluster.dpp-cluster", null));
-        Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
-        userProperty.update(properties);
-        Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second);
-        Assert.assertEquals(null, userProperty.getDefaultLoadCluster());
 
         // sql block rule
         properties.clear();
@@ -191,5 +141,45 @@ public class UserPropertyTest {
             Assert.assertTrue(e.getMessage().contains("is not valid"));
         }
         Assert.assertEquals(-1, userProperty.getCpuResourceLimit());
+    }
+
+    @Test
+    public void testUpdateInitCatalog(@Mocked Env env, @Mocked CatalogMgr catalogMgr) throws UserException {
+        CatalogIf internalCatalog = new InternalCatalog();
+        new Expectations() {
+            {
+                Env.getCurrentEnv();
+                minTimes = 1;
+                result = env;
+
+                env.getCatalogMgr();
+                minTimes = 1;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog(anyString);
+                minTimes = 2;
+                result = null;
+                result = internalCatalog;
+            }
+        };
+
+        // for non exist catalog, use internal
+        List<Pair<String, String>> properties = Lists.newArrayList();
+        properties.add(Pair.of("default_init_catalog", "non_exist_catalog"));
+        UserProperty userProperty = new UserProperty();
+        try {
+            userProperty.update(properties);
+            Assert.fail();
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("not exists"));
+        }
+        Assert.assertEquals("internal",  userProperty.getInitCatalog());
+
+        // for exist catalog, use it directly
+        properties = Lists.newArrayList();
+        properties.add(Pair.of("default_init_catalog", "exist_catalog"));
+        userProperty = new UserProperty();
+        userProperty.update(properties);
+        Assert.assertEquals("exist_catalog",  userProperty.getInitCatalog());
     }
 }

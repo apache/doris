@@ -30,6 +30,16 @@ suite("test_math_unary_alway_nullable") {
         select acos(-1.1), acos(-1.1) is NULL, number from numbers("number"="10")
     """
 
+    qt_acosh_1 """
+        select acosh(-1.1), acosh(-1.1) is null;
+    """
+    qt_acosh_2 """
+        select acosh(0.0), acosh(0.0) is null;
+    """
+    qt_acosh_3 """
+        select acosh(1.1), acosh(1.1) is NULL, number from numbers("number"="10")
+    """
+
     qt_asin_1 """
         select asin(1.1), asin(1.1) is null;
     """
@@ -38,6 +48,16 @@ suite("test_math_unary_alway_nullable") {
     """
     qt_asin_3 """
         select asin(-1.1), asin(-1.1) is NULL, number from numbers("number"="10")
+    """
+
+    qt_atanh_1 """
+        select atanh(-1.0), atanh(-1.0) is null;
+    """
+    qt_atanh_2 """
+        select atanh(1.0), atanh(1.0) is null;
+    """
+    qt_atanh_3 """
+        select atanh(0.0), atanh(0.0) is NULL, number from numbers("number"="10")
     """
 
     qt_sqrt_1 """
@@ -70,8 +90,16 @@ suite("test_math_unary_alway_nullable") {
         select rowid, acos(val), acos(val) is null from test_math_unary_alway_nullable order by rowid;
     """
 
+    qt_acosh_tbl_1 """
+        select rowid, acosh(val), acosh(val) is null from test_math_unary_alway_nullable order by rowid;
+    """
+
     qt_asin_tbl_1 """
         select rowid, asin(val), asin(val) is null from test_math_unary_alway_nullable order by rowid;
+    """
+
+    qt_atanh_tbl_1 """
+        select rowid, atanh(val), atanh(val) is null from test_math_unary_alway_nullable order by rowid;
     """
 
     qt_sqrt_tbl_1 """
@@ -80,6 +108,15 @@ suite("test_math_unary_alway_nullable") {
 
     qt_dsqrt_tbl_1 """
         select rowid, dsqrt(val), dsqrt(val) is null from test_math_unary_alway_nullable order by rowid;
+    """
+
+    sql """
+        insert into test_math_unary_alway_nullable values
+        (9, 1.2), (10, 2.2), (11, 3.4), (12, 5.6)
+    """
+
+    qt_dlog_tbl_1 """
+        select rowid, log(val), ln(val), log(3), ln(3) from test_math_unary_alway_nullable order by rowid;
     """
 
 }

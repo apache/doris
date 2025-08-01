@@ -23,7 +23,7 @@
 #include <string>
 
 namespace doris::segment_v2 {
-
+#include "common/compile_check_begin.h"
 ICUTokenizer::ICUTokenizer() {
     this->lowercase = false;
     this->ownReader = false;
@@ -65,13 +65,13 @@ Token* ICUTokenizer::next(Token* token) {
         subString.toUTF8String(utf8Str_);
     }
 
-    token->setNoCopy(utf8Str_.data(), 0, utf8Str_.size());
+    token->setNoCopy(utf8Str_.data(), 0, static_cast<int32_t>(utf8Str_.size()));
     return token;
 }
 
 void ICUTokenizer::reset(lucene::util::Reader* reader) {
     const char* buf = nullptr;
-    int32_t len = reader->read((const void**)&buf, 0, reader->size());
+    int32_t len = reader->read((const void**)&buf, 0, static_cast<int32_t>(reader->size()));
     buffer_ = icu::UnicodeString::fromUTF8(icu::StringPiece(buf, len));
     if (!buffer_.isEmpty() && buffer_.isBogus()) {
         _CLTHROWT(CL_ERR_Runtime, "Failed to convert UTF-8 string to UnicodeString.");
@@ -80,3 +80,4 @@ void ICUTokenizer::reset(lucene::util::Reader* reader) {
 }
 
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

@@ -17,37 +17,38 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.Queriable;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.analysis.ValueList;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,10 +59,21 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class AuditLogHelper {
 
     private static final Logger LOG = LogManager.getLogger(AuditLogHelper.class);
+    private static final Set<String> LOG_PLAN_INFO_TYPES = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+
+    static {
+        LOG_PLAN_INFO_TYPES.add("SELECT");
+        LOG_PLAN_INFO_TYPES.add("INSERT");
+        LOG_PLAN_INFO_TYPES.add("UPDATE");
+        LOG_PLAN_INFO_TYPES.add("DELETE");
+    }
 
     /**
      * Add a new method to wrap original logAuditLog to catch all exceptions. Because write audit
@@ -89,27 +101,21 @@ public class AuditLogHelper {
         if (origStmt == null) {
             return null;
         }
+        // 1. handle insert statement first
+        Optional<String> res = handleInsertStmt(origStmt, parsedStmt);
+        if (res.isPresent()) {
+            return res.get();
+        }
+
+        // 2. handle other statement
         int maxLen = GlobalVariable.auditPluginMaxSqlLength;
-        if (origStmt.length() <= maxLen) {
-            return origStmt.replace("\n", "\\n")
-                .replace("\t", "\\t")
-                .replace("\r", "\\r");
-        }
-        origStmt = truncateByBytes(origStmt)
-            .replace("\n", "\\n")
-            .replace("\t", "\\t")
-            .replace("\r", "\\r");
+        origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
+                + " */");
+        return origStmt;
+    }
+
+    private static Optional<String> handleInsertStmt(String origStmt, StatementBase parsedStmt) {
         int rowCnt = 0;
-        // old planner
-        if (parsedStmt instanceof NativeInsertStmt) {
-            QueryStmt queryStmt = ((NativeInsertStmt) parsedStmt).getQueryStmt();
-            if (queryStmt instanceof SelectStmt) {
-                ValueList list = ((SelectStmt) queryStmt).getValueList();
-                if (list != null && list.getRows() != null) {
-                    rowCnt = list.getRows().size();
-                }
-            }
-        }
         // nereids planner
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
@@ -121,17 +127,18 @@ public class AuditLogHelper {
             }
         }
         if (rowCnt > 0) {
-            return origStmt + " ... /* total " + rowCnt + " rows, truncated audit_plugin_max_sql_length="
-                + GlobalVariable.auditPluginMaxSqlLength + " */";
+            // This is an insert statement.
+            int maxLen = Math.max(0,
+                    Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
+            origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
+                    + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
+            return Optional.of(origStmt);
         } else {
-            return origStmt
-                + " ... /* truncated audit_plugin_max_sql_length="
-                + GlobalVariable.auditPluginMaxSqlLength + " */";
+            return Optional.empty();
         }
     }
 
-    private static String truncateByBytes(String str) {
-        int maxLen = Math.min(GlobalVariable.auditPluginMaxSqlLength, str.getBytes().length);
+    private static String truncateByBytes(String str, int maxLen, String suffix) {
         // use `getBytes().length` to get real byte length
         if (maxLen >= str.getBytes().length) {
             return str;
@@ -144,7 +151,7 @@ public class AuditLogHelper {
         decoder.onMalformedInput(CodingErrorAction.IGNORE);
         decoder.decode(buffer, charBuffer, true);
         decoder.flush(charBuffer);
-        return new String(charBuffer.array(), 0, charBuffer.position());
+        return new String(charBuffer.array(), 0, charBuffer.position()) + suffix;
     }
 
     /**
@@ -159,11 +166,12 @@ public class AuditLogHelper {
         }
         int cnt = 0;
         for (Plan child : children) {
-            if (child instanceof UnboundOneRowRelation) {
+            if (child instanceof OneRowRelation) {
                 cnt++;
             } else if (child instanceof InlineTable) {
                 cnt += ((InlineTable) child).getConstantExprsList().size();
             } else if (child instanceof LogicalUnion) {
+                cnt += ((LogicalUnion) child).getConstantExprsList().size();
                 cnt += countValues(child.children());
             }
         }
@@ -185,16 +193,18 @@ public class AuditLogHelper {
             LOG.warn("Failed to get cloud cluster", e);
         }
         String cluster = Config.isCloudMode() ? cloudCluster : "";
+        String stmtType = getStmtType(parsedStmt);
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         // ATTN: MUST reset, otherwise, the same AuditEventBuilder instance will be used in the next query.
         auditEventBuilder.reset();
         auditEventBuilder
+                .setEventType(EventType.AFTER_QUERY)
+                .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
-                .setSqlHash(ctx.getSqlHash())
-                .setEventType(EventType.AFTER_QUERY)
+                .setFeIp(FrontendOptions.getLocalHostAddress())
                 .setCtl(catalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : catalog.getName())
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString())
@@ -202,25 +212,98 @@ public class AuditLogHelper {
                 .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :
                         ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
                 .setQueryTime(elapseMs)
+                .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
+                .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
                 .setScanRows(statistics == null ? 0 : statistics.getScanRows())
+                .setReturnRows(ctx.getReturnRows())
                 .setSpillWriteBytesToLocalStorage(statistics == null ? 0 :
                         statistics.getSpillWriteBytesToLocalStorage())
                 .setSpillReadBytesFromLocalStorage(statistics == null ? 0 :
                         statistics.getSpillReadBytesFromLocalStorage())
-                .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
-                .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
-                .setReturnRows(ctx.getReturnRows())
-                .setStmtId(ctx.getStmtId())
-                .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
-                .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
-                .setWorkloadGroup(ctx.getWorkloadGroupName())
+                .setScanBytesFromLocalStorage(statistics == null ? 0 :
+                        statistics.getScanBytesFromLocalStorage())
+                .setScanBytesFromRemoteStorage(statistics == null ? 0 :
+                        statistics.getScanBytesFromRemoteStorage())
                 .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables())
-                .setCommandType(ctx.getCommand().toString());
+                .setCommandType(ctx.getCommand().toString())
+                .setStmtType(stmtType)
+                .setStmtId(ctx.getStmtId())
+                .setSqlHash(ctx.getSqlHash())
+                .setIsQuery(ctx.getState().isQuery())
+                .setIsNereids(ctx.getState().isNereids())
+                .setisInternal(ctx.getState().isInternal())
+                .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
+                .setWorkloadGroup(ctx.getWorkloadGroupName());
+
+        // sql mode
+        if (ctx.sessionVariable != null) {
+            try {
+                auditEventBuilder.setSqlMode(SqlModeHelper.decode(ctx.sessionVariable.getSqlMode()));
+            } catch (Exception e) {
+                LOG.warn("decode sql mode {} failed.", ctx.sessionVariable.getSqlMode(), e);
+            }
+        }
+
+        // TODO only for slow query?
+        if (ctx.getExecutor() != null && LOG_PLAN_INFO_TYPES.contains(stmtType)) {
+            auditEventBuilder.setHitSqlCache(ctx.getExecutor().isCached());
+            auditEventBuilder.setHandledInFe(ctx.getExecutor().isHandleQueryInFe());
+
+            SummaryProfile summaryProfile = ctx.getExecutor().getSummaryProfile();
+            // parse time
+            auditEventBuilder.setParseTimeMs(summaryProfile.getParseSqlTimeMs());
+            // plan time
+            auditEventBuilder.setPlanTimesMs(summaryProfile.getPlanTime());
+            // meta time
+            auditEventBuilder.setGetMetaTimeMs(summaryProfile.getMetaTime());
+            // schedule time
+            auditEventBuilder.setScheduleTimeMs(summaryProfile.getScheduleTime());
+            // changed variables
+            if (ctx.sessionVariable != null) {
+                List<List<String>> changedVars = VariableMgr.dumpChangedVars(ctx.sessionVariable);
+                StringBuilder changedVarsStr = new StringBuilder();
+                changedVarsStr.append("{");
+                for (int i = 0; i < changedVars.size(); i++) {
+                    if (i > 0) {
+                        changedVarsStr.append(",");
+                    }
+                    changedVarsStr.append("\"").append(changedVars.get(i).get(0)).append("\"")
+                            .append(":").append("\"").append(changedVars.get(i).get(1)).append("\"");
+                }
+                changedVarsStr.append("}");
+                auditEventBuilder.setChangedVariables(changedVarsStr.toString());
+            }
+
+            if (ctx.getExecutor() != null && ctx.getExecutor().planner() != null
+                    && ctx.getExecutor().planner() instanceof NereidsPlanner) {
+                // queried tables and views list, in audit log schema, its data type is array<string>
+                NereidsPlanner nereidsPlanner = (NereidsPlanner) ctx.getExecutor().planner();
+                String tables = "[" + nereidsPlanner.getStatementContext()
+                        .getTables().keySet().stream()
+                        .map(list -> "\"" + String.join(".", list) + "\"")
+                        .collect(Collectors.joining(",")) + "]";
+                auditEventBuilder.setQueriedTablesAndViews(tables);
+
+                if (nereidsPlanner.getCascadesContext() != null
+                        && nereidsPlanner.getCascadesContext().getMaterializationContexts() != null
+                        && nereidsPlanner.getPhysicalPlan() != null) {
+                    Set<List<String>> chosenMvCtx = MaterializationContext
+                            .getChosenMvsQualifiers(nereidsPlanner.getCascadesContext()
+                                    .getMaterializationContexts(), nereidsPlanner.getPhysicalPlan());
+                    String chosenMvsStr = "["
+                            + chosenMvCtx.stream()
+                            .map(list -> "\"" + String.join(".", list) + "\"")
+                            .collect(Collectors.joining(","))
+                            + "]";
+                    auditEventBuilder.setChosenMViews(chosenMvsStr);
+                }
+            }
+        }
 
         if (ctx.getState().isQuery()) {
             if (MetricRepo.isInit) {
-                if (!ctx.getSessionVariable().internalSession) {
+                if (!ctx.getState().isInternal()) {
                     MetricRepo.COUNTER_QUERY_ALL.increase(1L);
                     MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
                 }
@@ -233,41 +316,32 @@ public class AuditLogHelper {
                     return;
                 }
                 MetricRepo.increaseClusterQueryAll(cloudCluster);
-                if (ctx.getState().getStateType() == MysqlStateType.ERR
-                        && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
-                    // err query
-                    if (!ctx.getSessionVariable().internalSession) {
+                if (!ctx.getState().isInternal()) {
+                    if (ctx.getState().getStateType() == MysqlStateType.ERR
+                            && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
+                        // err query
                         MetricRepo.COUNTER_QUERY_ERR.increase(1L);
                         MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
                         MetricRepo.increaseClusterQueryErr(cloudCluster);
-                    }
-                } else if (ctx.getState().getStateType() == MysqlStateType.OK
-                        || ctx.getState().getStateType() == MysqlStateType.EOF) {
-                    // ok query
-                    if (!ctx.getSessionVariable().internalSession) {
+                    } else if (ctx.getState().getStateType() == MysqlStateType.OK
+                            || ctx.getState().getStateType() == MysqlStateType.EOF) {
+                        // ok query
                         MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
                         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
                         MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
-                    }
-
-                    if (elapseMs > Config.qe_slow_log_ms) {
-                        String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
-                        auditEventBuilder.setSqlDigest(sqlDigest);
-                        MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
+                        if (elapseMs > Config.qe_slow_log_ms) {
+                            String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
+                            auditEventBuilder.setSqlDigest(sqlDigest);
+                            MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
+                        }
                     }
                 }
             }
-            auditEventBuilder.setIsQuery(true)
-                    .setScanBytesFromLocalStorage(
+            auditEventBuilder.setScanBytesFromLocalStorage(
                             statistics == null ? 0 : statistics.getScanBytesFromLocalStorage())
                     .setScanBytesFromRemoteStorage(
                             statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
-        } else {
-            auditEventBuilder.setIsQuery(false);
         }
-        auditEventBuilder.setIsNereids(ctx.getState().isNereids);
-
-        auditEventBuilder.setFeIp(FrontendOptions.getLocalHostAddress());
 
         boolean isAnalysisErr = ctx.getState().getStateType() == MysqlStateType.ERR
                 && ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR;
@@ -284,7 +358,6 @@ public class AuditLogHelper {
             }
         }
         auditEventBuilder.setStmt(handleStmt(encryptSql, parsedStmt));
-        auditEventBuilder.setStmtType(getStmtType(parsedStmt));
 
         if (!Env.getCurrentEnv().isMaster()) {
             if (ctx.executor != null && ctx.executor.isForwardToMaster()) {
@@ -299,7 +372,11 @@ public class AuditLogHelper {
         if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && ctx.getState().getErrorCode() == null) {
             auditEventBuilder.setState(String.valueOf(MysqlStateType.OK));
         }
-        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEventBuilder.build());
+        AuditEvent event = auditEventBuilder.build();
+        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("submit audit event: {}", event.queryId);
+        }
     }
 
     private static String getStmtType(StatementBase stmt) {
@@ -316,3 +393,4 @@ public class AuditLogHelper {
         }
     }
 }
+

@@ -30,6 +30,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -37,8 +38,8 @@ namespace doris {
 static const int MAX_WARNINGS = 1000;
 
 std::unique_ptr<doris::FunctionContext> FunctionContext::create_context(
-        RuntimeState* state, const doris::TypeDescriptor& return_type,
-        const std::vector<doris::TypeDescriptor>& arg_types) {
+        RuntimeState* state, const vectorized::DataTypePtr& return_type,
+        const std::vector<vectorized::DataTypePtr>& arg_types) {
     auto ctx = std::unique_ptr<doris::FunctionContext>(new doris::FunctionContext());
     ctx->_state = state;
     ctx->_return_type = return_type;
@@ -59,6 +60,7 @@ std::unique_ptr<FunctionContext> FunctionContext::clone() {
     new_context->_constant_cols = _constant_cols;
     new_context->_fragment_local_fn_state = _fragment_local_fn_state;
     new_context->_check_overflow_for_decimal = _check_overflow_for_decimal;
+    new_context->_enable_strict_mode = _enable_strict_mode;
     new_context->_string_as_jsonb_string = _string_as_jsonb_string;
     new_context->_jsonb_string_as_string = _jsonb_string_as_string;
     return new_context;
@@ -107,11 +109,11 @@ bool FunctionContext::add_warning(const char* warning_msg) {
     }
 }
 
-const doris::TypeDescriptor* FunctionContext::get_arg_type(int arg_idx) const {
+const vectorized::DataTypePtr FunctionContext::get_arg_type(int arg_idx) const {
     if (arg_idx < 0 || arg_idx >= _arg_types.size()) {
         return nullptr;
     }
-    return &_arg_types[arg_idx];
+    return _arg_types[arg_idx];
 }
 
 bool FunctionContext::is_col_constant(int i) const {
@@ -132,7 +134,7 @@ int FunctionContext::get_num_args() const {
     return cast_set<int>(_arg_types.size());
 }
 
-const doris::TypeDescriptor& FunctionContext::get_return_type() const {
+const vectorized::DataTypePtr FunctionContext::get_return_type() const {
     return _return_type;
 }
 

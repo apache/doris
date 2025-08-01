@@ -21,8 +21,8 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -30,11 +30,9 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
-#include "gtest/gtest_pred_impl.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
-#include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -42,26 +40,6 @@
 #include "vec/data_types/data_type_quantilestate.h"
 
 namespace doris::vectorized {
-TEST(ColumnComplexTest, BasicTest) {
-    using ColumnSTLString = ColumnComplexType<std::string>;
-    auto column = ColumnSTLString::create();
-    EXPECT_EQ(column->size(), 0);
-    std::string val0 = "";
-    std::string val1 = "str-1";
-
-    column->insert_data(reinterpret_cast<const char*>(&val0), sizeof(val0));
-    column->insert_data(reinterpret_cast<const char*>(&val1), sizeof(val1));
-
-    StringRef ref = column->get_data_at(0);
-    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), "");
-    ref = column->get_data_at(1);
-    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), val1);
-}
-
-// Test the compile failed
-TEST(ColumnComplexTest, DataTypeBitmapTest) {
-    std::make_shared<DataTypeBitMap>();
-}
 
 TEST(ColumnComplexTest, GetDataAtTest) {
     auto column_bitmap = ColumnBitmap::create();
@@ -273,6 +251,11 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     }
     column_bitmap_verify->insert_many_strings(bitmap_strings.data(), column_bitmap->size());
     column_hll_verify->insert_many_strings(hll_strings.data(), column_hll->size());
+
+    ASSERT_EQ(column_hll_verify->clone_resized(0)->size(), 0);
+    ASSERT_EQ(column_hll_verify->clone_resized(1)->size(), 1);
+    ASSERT_EQ(column_hll_verify->clone_resized(1024)->size(), 1024);
+
     column_quantile_state_verify->insert_many_strings(quantile_state_strings.data(),
                                                       column_quantile_state->size());
     ASSERT_EQ(rows, column_bitmap_verify->size());
@@ -293,6 +276,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     auto column_bitmap_verify2 = column_bitmap_verify->clone_empty();
     auto column_hll_verify2 = column_hll_verify->clone_resized(0);
     auto column_quantile_state_verify2 = column_quantile_state_verify->clone_empty();
+
     ASSERT_EQ(column_bitmap_verify2->size(), 0);
     ASSERT_EQ(column_hll_verify2->size(), 0);
     ASSERT_EQ(column_quantile_state_verify2->size(), 0);
@@ -500,37 +484,6 @@ TEST(ColumnComplexTest, GetDataAtTest) {
         ASSERT_EQ(column_hll->operator[](i), column_hll_perm3->operator[](permute_idx[i]));
     }
     std::cout << "16. test more val data value and permute success" << std::endl;
-
-    IColumn::Offsets offsets {1, 2, 3, 4, 5};
-    auto column_bitmap_replicate = column_bitmap->replicate(offsets);
-    auto column_hll_replicate = column_hll->replicate(offsets);
-    auto column_quantile_state_replicate = column_quantile_state->replicate(offsets);
-    ASSERT_EQ(column_bitmap_replicate->size(), 5);
-    ASSERT_EQ(column_hll_replicate->size(), 5);
-    ASSERT_EQ(column_quantile_state_replicate->size(), 5);
-    for (int i = 0; i < 5; ++i) {
-        ASSERT_EQ(column_quantile_state->operator[](i),
-                  column_quantile_state_replicate->operator[](i));
-        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_replicate->operator[](i));
-        ASSERT_EQ(column_hll->operator[](i), column_hll_replicate->operator[](i));
-    }
-
-    IColumn::Offsets offsets2 {2, 4, 6, 8, 10};
-    std::vector<int> res_idx {0, 0, 1, 1, 2, 2, 3, 3, 4, 4};
-    auto column_bitmap_replicate2 = column_bitmap->replicate(offsets2);
-    auto column_hll_replicate2 = column_hll->replicate(offsets2);
-    auto column_quantile_state_replicate2 = column_quantile_state->replicate(offsets2);
-    ASSERT_EQ(column_bitmap_replicate2->size(), 10);
-    ASSERT_EQ(column_hll_replicate2->size(), 10);
-    ASSERT_EQ(column_quantile_state_replicate2->size(), 10);
-    ASSERT_EQ(column_quantile_state->size(), 5);
-    for (int i = 0; i < 10; ++i) {
-        ASSERT_EQ(column_quantile_state->operator[](res_idx[i]),
-                  column_quantile_state_replicate2->operator[](i));
-        ASSERT_EQ(column_bitmap->operator[](res_idx[i]), column_bitmap_replicate2->operator[](i));
-        ASSERT_EQ(column_hll->operator[](res_idx[i]), column_hll_replicate2->operator[](i));
-    }
-    std::cout << "17. test more val data value and replicate success" << std::endl;
 }
 
 class ColumnBitmapTest : public testing::Test {
@@ -572,7 +525,7 @@ public:
         const auto rows = column.size();
         for (size_t i = 0; i != rows; ++i) {
             auto field = column[i];
-            ASSERT_EQ(field.get_type(), Field::Types::Bitmap);
+            ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_BITMAP);
             dst_column->insert(field);
         }
 
@@ -620,7 +573,7 @@ public:
         const auto rows = column.size();
         for (size_t i = 0; i != rows; ++i) {
             auto field = column[i];
-            ASSERT_EQ(field.get_type(), Field::Types::QuantileState);
+            ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_QUANTILE_STATE);
             dst_column->insert(field);
         }
 
@@ -682,7 +635,7 @@ TEST_F(ColumnBitmapTest, OperatorValidate) {
     auto& bitmap_column = assert_cast<ColumnBitmap&>(*column.get());
     for (size_t i = 0; i != row_size; ++i) {
         auto field = bitmap_column[i];
-        ASSERT_EQ(field.get_type(), Field::Types::Bitmap);
+        ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_BITMAP);
         const auto& bitmap = vectorized::get<BitmapValue&>(field);
 
         ASSERT_EQ(bitmap.cardinality(), i + 1);
@@ -732,6 +685,24 @@ TEST_F(ColumnQuantileStateTest, OperatorValidate) {
     check_serialize_and_deserialize(column);
 
     check_field_type(column);
+}
+
+TEST(ColumnComplexTest, TestErase) {
+    using ColumnTest = ColumnComplexType<TYPE_BITMAP>;
+
+    auto column_test = ColumnTest::create();
+
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+
+    column_test->erase(1, 0);
+
+    column_test->erase(3, 1);
+
+    EXPECT_EQ(column_test->size(), 4);
 }
 
 } // namespace doris::vectorized

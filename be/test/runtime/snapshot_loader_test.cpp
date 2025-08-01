@@ -17,22 +17,34 @@
 
 #include "runtime/snapshot_loader.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest_pred_impl.h>
 
+#include <boost/algorithm/string/replace.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <system_error>
+#include <utility>
 
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "exec/tablet_info.h"
+#include "http/action/download_action.h"
+#include "http/ev_http_server.h"
+#include "http/http_channel.h"
+#include "http/http_handler.h"
+#include "http/http_request.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/delta_writer.h"
@@ -49,6 +61,7 @@
 #include "olap/tablet_manager.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/txn_manager.h"
+#include "runtime/cluster_info.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -56,13 +69,28 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
+static std::string storage_root_path;
+
+class MockDownloadHandler : public HttpHandler {
+public:
+    MockDownloadHandler() = default;
+    void handle(HttpRequest* req) override {
+        std::vector<std::string> allow_path {fmt::format("{}", storage_root_path)};
+        DownloadAction action(ExecEnv::GetInstance(), nullptr, allow_path);
+        action.handle(req);
+    }
+};
+
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
-static std::string storage_root_path;
+static EvHttpServer* s_server = nullptr;
+static MockDownloadHandler mock_download_handler;
+static std::string hostname;
+static std::string address;
+static ClusterInfo cluster_info;
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -85,8 +113,18 @@ static void set_up() {
     ASSERT_TRUE(s.ok()) << s;
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    cluster_info.token = "fake_token";
+    exec_env->set_cluster_info(&cluster_info);
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     exec_env->set_storage_engine(std::move(engine));
+    s_server = new EvHttpServer(1234, 3);
+    s_server->register_handler(GET, "/api/_tablet/_download", &mock_download_handler);
+    s_server->register_handler(POST, "/api/_tablet/_download", &mock_download_handler);
+    s_server->register_handler(HEAD, "/api/_tablet/_download", &mock_download_handler);
+
+    static_cast<void>(s_server->start());
+    address = "127.0.0.1:" + std::to_string(1234);
+    hostname = "http://" + address;
 }
 
 static void tear_down() {
@@ -99,6 +137,9 @@ static void tear_down() {
         return;
     }
 
+    Status st = io::global_local_filesystem()->delete_directory(storage_root_path);
+    ASSERT_TRUE(st.ok()) << st;
+    delete s_server;
     // Status s = io::global_local_filesystem()->delete_directory(storage_root_path);
     // EXPECT_TRUE(s.ok()) << "delete directory " << s;
 }
@@ -166,8 +207,7 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     for (const auto& slot_desc : tuple_desc->slots()) {
         std::cout << "slot_desc: " << slot_desc->col_name() << std::endl;
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
 
     std::cout << "total column " << block.mutate_columns().size() << std::endl;
@@ -207,7 +247,9 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     RowsetSharedPtr rowset = tablet_related_rs.begin()->second;
 
     TabletPublishStatistics stats;
-    res = engine_ref->txn_manager()->publish_txn(partition_id, tablet, txn_id, version, &stats);
+    std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+    res = engine_ref->txn_manager()->publish_txn(partition_id, tablet, txn_id, version, &stats,
+                                                 extend_tablet_txn_info_lifetime);
     ASSERT_TRUE(res.ok()) << res;
     std::cout << "start to add inc rowset:" << rowset->rowset_id()
               << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -302,7 +344,7 @@ TEST_F(SnapshotLoaderTest, DirMoveTaskIsIdempotent) {
     std::cout << "version: " << version.first << ", " << version.second << std::endl;
 
     // 3. make a snapshot
-    string snapshot_path;
+    std::string snapshot_path;
     bool allow_incremental_clone = false; // not used
     TSnapshotRequest snapshot_request;
     snapshot_request.tablet_id = tablet_id;
@@ -339,5 +381,85 @@ TEST_F(SnapshotLoaderTest, DirMoveTaskIsIdempotent) {
     ASSERT_EQ(version.first, last_version.first);
     ASSERT_EQ(version.second, last_version.second);
 }
+TEST_F(SnapshotLoaderTest, TestLinkSameRowsetFiles) {
+    // 1. Create a tablet
+    int64_t tablet_id = 222;
+    int32_t schema_hash = 333;
+    int64_t partition_id = 444;
+    TCreateTabletReq req = create_tablet(partition_id, tablet_id, schema_hash);
+    RuntimeProfile profile("CreateTablet");
+    Status status = engine_ref->create_tablet(req, &profile);
+    EXPECT_TRUE(status.ok());
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
+    EXPECT_TRUE(tablet != nullptr);
 
+    // 2. Add a rowset to the tablet
+    add_rowset(tablet_id, schema_hash, partition_id, 100, 100);
+    auto version = tablet->max_version();
+    std::cout << "Original version: " << version.first << ", " << version.second << std::endl;
+
+    // 3. Make a snapshot of the tablet
+    std::string snapshot_path;
+    bool allow_incremental_clone = false;
+    TSnapshotRequest snapshot_request;
+    snapshot_request.tablet_id = tablet_id;
+    snapshot_request.schema_hash = schema_hash;
+    snapshot_request.version = version.second;
+    status = engine_ref->snapshot_mgr()->make_snapshot(snapshot_request, &snapshot_path,
+                                                       &allow_incremental_clone);
+    ASSERT_TRUE(status.ok());
+    std::cout << "snapshot_path: " << snapshot_path << std::endl;
+    snapshot_path = fmt::format("{}/{}/{}", snapshot_path, tablet_id, schema_hash);
+
+    // 4. Create a destination path for "remote" snapshot
+    std::string remote_snapshot_dir = storage_root_path + "/remote_snapshot";
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(remote_snapshot_dir).ok());
+    std::string remote_tablet_path =
+            fmt::format("{}/{}/{}", remote_snapshot_dir, tablet_id, schema_hash);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(remote_tablet_path).ok());
+
+    // 5. Copy snapshot files to remote path and calls convert_rowset_ids
+    std::vector<io::FileInfo> snapshot_files;
+    bool is_exists = false;
+    ASSERT_TRUE(io::global_local_filesystem()
+                        ->list(snapshot_path, true, &snapshot_files, &is_exists)
+                        .ok());
+    for (const auto& file : snapshot_files) {
+        std::string src_file = snapshot_path + "/" + file.file_name;
+        std::string dst_file = remote_tablet_path + "/" + file.file_name;
+        ASSERT_TRUE(io::global_local_filesystem()->copy_path(src_file, dst_file).ok());
+    }
+
+    int64_t dest_tablet_id = 333;
+    int32_t dest_schema_hash = 444;
+    std::string dest_path = fmt::format("{}/dest_snapshot/{}/{}", storage_root_path, dest_tablet_id,
+                                        dest_schema_hash);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(dest_path).ok());
+
+    std::string src_hdr = remote_tablet_path + "/" + std::to_string(tablet_id) + ".hdr";
+    std::string dst_hdr = remote_tablet_path + "/" + std::to_string(dest_tablet_id) + ".hdr";
+    ASSERT_TRUE(io::global_local_filesystem()->rename(src_hdr, dst_hdr).ok());
+    auto guards = engine_ref->snapshot_mgr()->convert_rowset_ids(
+            remote_tablet_path, dest_tablet_id, 0, 0, partition_id, dest_schema_hash);
+
+    // 7. Setup a remote tablet snapshot for download
+    TRemoteTabletSnapshot remote_snapshot;
+    remote_snapshot.remote_tablet_id = dest_tablet_id;
+    remote_snapshot.local_tablet_id = tablet_id;
+    remote_snapshot.local_snapshot_path = snapshot_path;
+    remote_snapshot.remote_snapshot_path = remote_tablet_path;
+    remote_snapshot.remote_be_addr.hostname = "127.0.0.1";
+    remote_snapshot.remote_be_addr.port = 1234;
+    remote_snapshot.remote_token = "fake_token";
+
+    // 8. Download the snapshot
+    std::vector<TRemoteTabletSnapshot> remote_snapshots = {remote_snapshot};
+    std::vector<int64_t> downloaded_tablet_ids;
+    SnapshotLoader loader(*engine_ref, ExecEnv::GetInstance(), 3L, tablet_id);
+    status = loader.remote_http_download(remote_snapshots, &downloaded_tablet_ids);
+    ASSERT_TRUE(status.ok());
+
+    // 9. Verify skip download files
+    ASSERT_EQ(loader.get_http_download_files_num(), 0);
+}
 } // namespace doris

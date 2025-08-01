@@ -57,7 +57,7 @@ struct DistinctStreamingAggOperatorTest : public ::testing::Test {
         LocalStateInfo info {.parent_profile = &profile,
                              .scan_ranges = {},
                              .shared_state = nullptr,
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .task_idx = 0};
         EXPECT_TRUE(local_state->init(state.get(), info));
         state->resize_op_id_to_local_state(-100);

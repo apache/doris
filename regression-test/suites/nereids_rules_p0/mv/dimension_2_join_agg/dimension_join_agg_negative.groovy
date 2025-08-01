@@ -29,7 +29,7 @@ suite("dimension_join_agg_negative") {
     sql """CREATE TABLE `orders_negative` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
-      `o_orderstatus` VARCHAR(1) NULL,
+      `o_orderstatus` VARCHAR(20) NULL,
       `o_totalprice` DECIMAL(15, 2)  NULL,
       `o_orderpriority` VARCHAR(15) NULL,
       `o_clerk` VARCHAR(15) NULL,

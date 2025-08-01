@@ -162,7 +162,7 @@ std::string VCSVTransformer::_gen_csv_header_types() {
     std::string types;
     int num_columns = (int)_output_vexpr_ctxs.size();
     for (int i = 0; i < num_columns; ++i) {
-        types += type_to_string(_output_vexpr_ctxs[i]->root()->type().type);
+        types += type_to_string(_output_vexpr_ctxs[i]->root()->data_type()->get_primitive_type());
         if (i < num_columns - 1) {
             types += _column_separator;
         }

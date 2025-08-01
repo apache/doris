@@ -93,7 +93,8 @@ class HyperGraphAggTest extends SqlTestBase {
                 null, new BitSet()).get(0);
         StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2, p2,
                 null, new BitSet()).get(0);
-        RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
+        RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations(), 8)
+                .get(0);
         SlotMapping sm = SlotMapping.generate(rm);
         return LogicalCompatibilityContext.from(rm, sm, st1, st2);
     }

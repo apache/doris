@@ -71,9 +71,12 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             Pair<CTEContext, List<LogicalCTEProducer<Plan>>> result = analyzeCte(logicalCTE, ctx.cascadesContext);
             CascadesContext outerCascadesCtx = CascadesContext.newContextWithCteContext(
                     ctx.cascadesContext, logicalCTE.child(), result.first);
-            outerCascadesCtx.newAnalyzer().analyze();
+            outerCascadesCtx.withPlanProcess(ctx.cascadesContext.showPlanProcess(), () -> {
+                outerCascadesCtx.newAnalyzer().analyze();
+            });
             ctx.cascadesContext.setLeadingDisableJoinReorder(outerCascadesCtx.isLeadingDisableJoinReorder());
             Plan root = outerCascadesCtx.getRewritePlan();
+            ctx.cascadesContext.addPlanProcesses(outerCascadesCtx.getPlanProcesses());
             // should construct anchor from back to front, because the cte behind depends on the front
             for (int i = result.second.size() - 1; i >= 0; i--) {
                 root = new LogicalCTEAnchor<>(result.second.get(i).getCteId(), result.second.get(i), root);
@@ -95,14 +98,15 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
             CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
                     cascadesContext, parsedCtePlan, outerCteCtx);
-            innerCascadesCtx.newAnalyzer().analyze();
+            innerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+                innerCascadesCtx.newAnalyzer().analyze();
+            });
+            cascadesContext.addPlanProcesses(innerCascadesCtx.getPlanProcesses());
             LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
             checkColumnAlias(aliasQuery, analyzedCtePlan.getOutput());
             CTEId cteId = StatementScopeIdGenerator.newCTEId();
             LogicalSubQueryAlias<Plan> logicalSubQueryAlias =
                     aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
-            BindExpression.checkSameNameSlot(logicalSubQueryAlias.child(0).getOutput(),
-                    logicalSubQueryAlias.getAlias());
             outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
             outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
             cteProducerPlans.add(new LogicalCTEProducer<>(cteId, logicalSubQueryAlias));

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -396,6 +397,27 @@ class ExpressionEstimationTest {
     }
 
     @Test
+    public void testNonNullable() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(20200101000000.0)
+                .setMaxExpr(new StringLiteral("2021abcdefg"))
+                .setNumNulls(10)
+                .setMaxValue(20210101000000.0);
+        slotToColumnStat.put(a, builder.build());
+        Statistics stats = new Statistics(1000, slotToColumnStat);
+
+        ColumnStatistic est = ExpressionEstimation.estimate(a, stats);
+        Assertions.assertEquals(10, est.numNulls);
+
+        est = ExpressionEstimation.estimate(new NonNullable(a), stats);
+        Assertions.assertEquals(0, est.numNulls);
+    }
+
+    @Test
     public void testLiteral() {
         Statistics stats = new Statistics(1000, new HashMap<>());
 
@@ -446,5 +468,14 @@ class ExpressionEstimationTest {
         Assertions.assertEquals(est.ndv, 0);
         Assertions.assertEquals(est.avgSizeByte, 1);
         Assertions.assertEquals(est.numNulls, 1);
+    }
+
+    @Test
+    public void testThrowException() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Cast cast = new Cast(a, DateType.INSTANCE);
+        // do not throw any exception
+        ColumnStatistic est = ExpressionEstimation.estimate(cast, null);
+        Assertions.assertTrue(est.isUnKnown());
     }
 }

@@ -30,7 +30,7 @@ public:
                      const TQueryOptions& query_options, const io::IOContext* io_ctx);
     ~DisjunctionQuery() override = default;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
@@ -38,7 +38,7 @@ private:
     const io::IOContext* _io_ctx = nullptr;
 
     std::wstring _field_name;
-    std::vector<std::string> _terms;
+    std::vector<TermInfo> _term_infos;
 };
 
 } // namespace doris::segment_v2

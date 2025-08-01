@@ -22,9 +22,6 @@ import org.apache.doris.resource.Tag;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
-
 /**
  * Backend heartbeat response contains Backend's be port, http port and brpc port
  */
@@ -153,15 +150,6 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public long getBeMemory() {
         return beMemory;
-    }
-
-    @Override
-    protected void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        beId = in.readLong();
-        bePort = in.readInt();
-        httpPort = in.readInt();
-        brpcPort = in.readInt();
     }
 
     @Override

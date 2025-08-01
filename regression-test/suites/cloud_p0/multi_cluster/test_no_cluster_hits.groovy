@@ -29,7 +29,8 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         'cloud_cluster_check_interval_second=1',
         'sys_log_verbose_modules=org',
         'max_query_retry_time=2000',
-        'heartbeat_interval_second=1'
+        'heartbeat_interval_second=1',
+        'workload_group_check_interval_ms=1'
     ]
     options.setFeNum(3)
     options.setBeNum(3)
@@ -56,7 +57,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         // no cluster auth
         sql """GRANT SELECT_PRIV ON *.*.* TO ${user}"""
         try {
-            connectInDocker(user = user, password = '') {
+            connectInDocker(user, '') {
                 // errCode = 2, detailMessage = the user is not granted permission to the compute group, 
                 // ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP, you can contact the system administrator and request that they grant you the appropriate compute group permissions, use SQL `GRANT USAGE_PRIV ON COMPUTE GROUP {compute_group_name} TO {user}
                 sql """select * from information_schema.columns"""
@@ -70,7 +71,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         logger.info("show cluster1 : {}", result)
         def currentCluster = result.stream().filter(cluster -> cluster.is_current == "TRUE").findFirst().orElse(null)
         sql """GRANT USAGE_PRIV ON COMPUTE GROUP ${currentCluster.cluster} TO $user"""
-        connectInDocker(user = user, password = '') {
+        connectInDocker(user, '') {
             try {
                 sql """select * from information_schema.columns"""
             } catch (Exception e) {
@@ -92,8 +93,13 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
             """
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ComputeGroupException: COMPUTE_GROUPS_NO_ALIVE_BE"))
-            assertTrue(e.getMessage().contains("are in an abnormal state"))
+            // assertTrue(e.getMessage().contains("ComputeGroupException: COMPUTE_GROUPS_NO_ALIVE_BE"))
+            // assertTrue(e.getMessage().contains("are in an abnormal state"))
+
+            // The new optimizer code modifies the path and returns a different exception message
+            // exception: errCode = 2, detailMessage = No backend available as scan node, please check the status of your
+// backends.[1747384136706: not alive, 1747384136705: not alive, 1747384136704: not alive]
+            assertTrue(e.getMessage().contains("No backend available as scan node"))
         }
         
         try {
@@ -116,15 +122,15 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
 
         sql """REVOKE USAGE_PRIV ON COMPUTE GROUP ${currentCluster.cluster} from $user"""
         try {
-            connectInDocker(user = user, password = '') {
+            connectInDocker(user, '') {
                 sql """SET PROPERTY FOR '${user}' 'default_cloud_cluster' = '${currentCluster.cluster}'"""
-                // errCode = 2, detailMessage = tablet 10901 err: default cluster compute_cluster check auth failed, ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP
+                //errCode = 2, detailMessage = set default compute group failed, user test_no_cluster_hits_user has no permission to use compute group 'compute_cluster', please grant use privilege first , ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP, you canuse SQL `GRANT USAGE_PRIV ON COMPUTE GROUP {compute_group_name} TO {user}`
                 sql """select * from $table"""
             }
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP"))
-            assertTrue(e.getMessage().contains("check auth failed"))
+            assertTrue(e.getMessage().contains("ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP"))
+            assertTrue(e.getMessage().contains("set default compute group failed"))
         } 
 
         // no cluster
@@ -139,21 +145,20 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         logger.info("ms addr={}, port={}", ms.host, ms.httpPort)
         drop_cluster(currentCluster.cluster, cloudClusterId, ms)
 
-        dockerAwaitUntil(5) {
+        awaitUntil(5) {
             result = sql_return_maparray """show clusters"""
             logger.info("show cluster2 : {}", result) 
             result.size() == 0
         }
 
         try {
-            // errCode = 2, detailMessage = tablet 10916 err: The current compute group compute_cluster is not registered in the system, ComputeGroupException: CURRENT_COMPUTE_GROUP_NOT_EXIST, you can contact the administrator to confirm if the current compute group has been dropped
+            // errCode = 2, detailMessage = Can not find compute group:compute_cluster
             sql """
                 select * from $table
             """
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ComputeGroupException: CURRENT_COMPUTE_GROUP_NOT_EXIST"))
-            assertTrue(e.getMessage().contains("is not registered in the system"))
+            assertTrue(e.getMessage().contains("Can not find compute group"))
         } 
     }
 }

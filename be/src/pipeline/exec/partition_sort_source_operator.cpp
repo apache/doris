@@ -29,9 +29,9 @@ Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     RETURN_IF_ERROR(PipelineXLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
+    _get_sorted_timer = ADD_TIMER(custom_profile(), "GetSortedTime");
     _sorted_partition_output_rows_counter =
-            ADD_COUNTER(profile(), "SortedPartitionOutputRows", TUnit::UNIT);
+            ADD_COUNTER(custom_profile(), "SortedPartitionOutputRows", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -96,9 +96,8 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     }
     if (current_eos) {
         // current sort have eos, so get next idx
-        sorters[local_state._sort_idx].reset(nullptr);
         local_state._sort_idx++;
-        std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+        std::unique_lock<std::mutex> lc(local_state._shared_state->prepared_finish_lock);
         if (local_state._sort_idx < sorter_size &&
             !sorters[local_state._sort_idx]->prepared_finish()) {
             local_state._dependency->block();

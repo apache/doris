@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -113,11 +111,5 @@ public class ModifyBackendOp extends BackendOp {
         }
         sb.append(")");
         return sb.toString();
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new ModifyBackendClause(ids, hostInfos, properties, tagMap,
-                analyzedProperties, isLoadDisabled, isQueryDisabled);
     }
 }

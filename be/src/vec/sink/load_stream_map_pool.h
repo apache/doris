@@ -49,7 +49,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/ref_counted.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
@@ -98,6 +97,15 @@ public:
     // send CLOSE_LOAD to all streams, return ERROR if any.
     // only call this method after release() returns true.
     void close_load(bool incremental);
+
+    std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> get_streams_for_node() {
+        decltype(_streams_for_node) snapshot;
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            snapshot = _streams_for_node;
+        }
+        return snapshot;
+    }
 
 private:
     const UniqueId _load_id;

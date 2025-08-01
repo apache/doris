@@ -24,6 +24,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -34,7 +35,6 @@
 
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/stringprintf.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
@@ -42,6 +42,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "util/debug_points.h"
+#include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -55,6 +56,8 @@ class Block;
 class PathInData;
 class IDataType;
 } // namespace vectorized
+
+#include "common/compile_check_begin.h"
 
 struct OlapTableIndexSchema;
 class TColumn;
@@ -89,6 +92,8 @@ public:
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
     bool is_auto_increment() const { return _is_auto_increment; }
+    bool is_seqeunce_col() const { return _col_name == SEQUENCE_COL; }
+    bool is_on_update_current_timestamp() const { return _is_on_update_current_timestamp; }
     bool is_variant_type() const { return _type == FieldType::OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
@@ -100,7 +105,7 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                _type == FieldType::OLAP_FIELD_TYPE_STRING ||
                _type == FieldType::OLAP_FIELD_TYPE_HLL ||
-               _type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+               _type == FieldType::OLAP_FIELD_TYPE_BITMAP ||
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
@@ -111,18 +116,20 @@ public:
                                                            int32_t parent_unique_id);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
-    size_t length() const { return _length; }
-    void set_length(size_t length) { _length = length; }
+    int32_t length() const { return _length; }
+    void set_length(int32_t length) { _length = length; }
     void set_default_value(const std::string& default_value) {
         _default_value = default_value;
         _has_default_value = true;
     }
-    size_t index_length() const { return _index_length; }
-    void set_index_length(size_t index_length) { _index_length = index_length; }
+    int32_t index_length() const { return _index_length; }
+    void set_index_length(int32_t index_length) { _index_length = index_length; }
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_is_auto_increment(bool is_auto_increment) { _is_auto_increment = is_auto_increment; }
-    void set_has_default_value(bool has) { _has_default_value = has; }
+    void set_is_on_update_current_timestamp(bool is_on_update_current_timestamp) {
+        _is_on_update_current_timestamp = is_on_update_current_timestamp;
+    }
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
@@ -132,6 +139,7 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
+    bool has_char_type() const;
 
     void set_aggregation_method(FieldAggregationMethod agg) {
         _aggregation = agg;
@@ -144,7 +152,7 @@ public:
     void add_sub_column(TabletColumn& sub_column);
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
-    const TabletColumn& get_sub_column(uint32_t i) const { return *_sub_columns[i]; }
+    const TabletColumn& get_sub_column(uint64_t i) const { return *_sub_columns[i]; }
     const std::vector<TabletColumnPtr>& get_sub_columns() const { return _sub_columns; }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -214,6 +222,7 @@ private:
     std::string _aggregation_name;
     bool _is_nullable = false;
     bool _is_auto_increment = false;
+    bool _is_on_update_current_timestamp {false};
 
     bool _has_default_value = false;
     std::string _default_value;
@@ -264,8 +273,8 @@ public:
     int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
     IndexType index_type() const { return _index_type; }
-    const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
-    const std::map<string, string>& properties() const { return _properties; }
+    const std::vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
+    const std::map<std::string, std::string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
         if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
@@ -292,19 +301,19 @@ private:
     std::string _index_name;
     IndexType _index_type;
     std::vector<int32_t> _col_unique_ids;
-    std::map<string, string> _properties;
+    std::map<std::string, std::string> _properties;
 };
 
 using TabletIndexPtr = std::shared_ptr<TabletIndex>;
 
 class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
-    enum ColumnType { NORMAL = 0, DROPPED = 1, VARIANT = 2 };
+    enum class ColumnType { NORMAL = 0, DROPPED = 1, VARIANT = 2 };
     // TODO(yingchun): better to make constructor as private to avoid
     // manually init members incorrectly, and define a new function like
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema();
-    virtual ~TabletSchema();
+    ~TabletSchema() override;
 
     // Init from pb
     // ignore_extracted_columns: ignore the extracted columns from variant column
@@ -358,6 +367,7 @@ public:
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
     size_t num_variant_columns() const { return _num_variant_columns; };
+    size_t num_virtual_columns() const { return _num_virtual_columns; }
     KeysType keys_type() const { return _keys_type; }
     SortType sort_type() const { return _sort_type; }
     size_t sort_col_num() const { return _sort_col_num; }
@@ -398,6 +408,19 @@ public:
     long row_store_page_size() const { return _row_store_page_size; }
     void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
     long storage_page_size() const { return _storage_page_size; }
+    void set_storage_dict_page_size(long storage_dict_page_size) {
+        _storage_dict_page_size = storage_dict_page_size;
+    }
+    long storage_dict_page_size() const { return _storage_dict_page_size; }
+    bool has_global_row_id() const {
+        for (auto [col_name, _] : _field_name_to_index) {
+            if (col_name.start_with(StringRef(BeConsts::GLOBAL_ROWID_COL.data(),
+                                              BeConsts::GLOBAL_ROWID_COL.size()))) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
@@ -479,8 +502,8 @@ public:
     // only reserve extracted columns
     void reserve_extracted_columns();
 
-    string get_all_field_names() const {
-        string str = "[";
+    std::string get_all_field_names() const {
+        std::string str = "[";
         for (auto p : _field_name_to_index) {
             if (str.size() > 1) {
                 str += ", ";
@@ -492,8 +515,8 @@ public:
     }
 
     // Dump [(name, type, is_nullable), ...]
-    string dump_structure() const {
-        string str = "[";
+    std::string dump_structure() const {
+        std::string str = "[";
         for (auto p : _cols) {
             if (str.size() > 1) {
                 str += ", ";
@@ -511,8 +534,8 @@ public:
         return str;
     }
 
-    string dump_full_schema() const {
-        string str = "[";
+    std::string dump_full_schema() const {
+        std::string str = "[";
         for (auto p : _cols) {
             if (str.size() > 1) {
                 str += ", ";
@@ -546,23 +569,36 @@ private:
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
     TabletSchema(const TabletSchema&) = default;
 
-    void clear_column_cache_handlers();
-    void clear_index_cache_handlers();
-
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
     std::vector<TabletColumnPtr> _cols;
-    std::vector<Cache::Handle*> _column_cache_handlers;
 
     std::vector<TabletIndexPtr> _indexes;
-    std::vector<Cache::Handle*> _index_cache_handlers;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
-    std::unordered_map<int32_t, int32_t> _field_id_to_index;
+    std::unordered_map<int32_t, int32_t> _field_uniqueid_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
-    size_t _num_columns = 0;
+
+    // index_type/col_unique_id/suffix -> idx in _indexes
+    using IndexKey = std::tuple<IndexType, int32_t, std::string>;
+    struct IndexKeyHash {
+        size_t operator()(const IndexKey& t) const {
+            uint32_t seed = 0;
+            seed = doris::HashUtil::hash((const char*)&std::get<0>(t), sizeof(std::get<0>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)&std::get<1>(t), sizeof(std::get<1>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)std::get<2>(t).c_str(),
+                                         static_cast<uint32_t>(std::get<2>(t).size()), seed);
+            return seed;
+        }
+    };
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> _col_id_suffix_to_index;
+
+    int32_t _num_columns = 0;
     size_t _num_variant_columns = 0;
+    size_t _num_virtual_columns = 0;
     size_t _num_key_columns = 0;
     std::vector<uint32_t> _cluster_key_uids;
     size_t _num_null_columns = 0;
@@ -572,6 +608,7 @@ private:
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     long _storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+    long _storage_dict_page_size = segment_v2::STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 
@@ -595,7 +632,8 @@ private:
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
     bool _enable_variant_flatten_nested = false;
-    int64_t _vl_field_mem_size {0}; // variable length field
+
+    std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -603,4 +641,5 @@ bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
+#include "common/compile_check_end.h"
 } // namespace doris

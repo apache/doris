@@ -32,7 +32,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/types.h"
@@ -59,9 +58,10 @@ public:
     void set_type_length(int32_t type_length) { _type_length = type_length; }
 
     // Set the data to be decoded
-    virtual void set_data(Slice* data) {
+    virtual Status set_data(Slice* data) {
         _data = data;
         _offset = 0;
+        return Status::OK();
     }
 
     // Write the decoded values batch to doris's column
@@ -95,13 +95,14 @@ public:
     ~BaseDictDecoder() override = default;
 
     // Set the data to be decoded
-    void set_data(Slice* data) override {
+    Status set_data(Slice* data) override {
         _data = data;
         _offset = 0;
         uint8_t bit_width = *data->data;
         _index_batch_decoder = std::make_unique<RleBatchDecoder<uint32_t>>(
                 reinterpret_cast<uint8_t*>(data->data) + 1, static_cast<int>(data->size) - 1,
                 bit_width);
+        return Status::OK();
     }
 
 protected:

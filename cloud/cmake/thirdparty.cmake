@@ -89,6 +89,9 @@ add_thirdparty(aws-checksums LIB64)
 add_thirdparty(aws-c-s3 LIB64)
 add_thirdparty(aws-c-sdkutils LIB64)
 add_thirdparty(aws-s2n LIBNAME "lib/libs2n.a")
+add_thirdparty(aws-cpp-sdk-identity-management LIB64)
+add_thirdparty(aws-cpp-sdk-sts LIB64)
+
 # end aws libs
 add_thirdparty(jsoncpp LIB64)
 add_thirdparty(uuid LIB64)

@@ -31,13 +31,11 @@
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/path_in_data.h"
 
 namespace doris {
 enum class FieldType;
@@ -46,6 +44,7 @@ namespace vectorized {
 class Block;
 class IColumn;
 struct ColumnWithTypeAndName;
+struct ParseConfig;
 } // namespace vectorized
 } // namespace doris
 
@@ -68,7 +67,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 /// If both of types are signed/unsigned integers and size of left field type
 /// is less than right type, we don't need to convert field,
 /// because all integer fields are stored in Int64/UInt64.
-bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeIndex& rhs);
+bool is_conversion_required_between_integers(const PrimitiveType& lhs, const PrimitiveType& rhs);
 
 struct ExtraInfo {
     // -1 indicates it's not a Frontend generated column
@@ -86,7 +85,12 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 // 3. encode sparse sub columns
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseConfig& config);
-Status encode_variant_sparse_subcolumns(ColumnObject& column);
+Status encode_variant_sparse_subcolumns(ColumnVariant& column);
+
+// check if the tuple_paths has ambiguous paths
+// situation:
+// throw exception if there exists a prefix with matched names, but not matched structure (is Nested, number of dimensions).
+Status check_variant_has_no_ambiguous_paths(const std::vector<PathInData>& paths);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
@@ -98,13 +102,13 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 
 // Get least common types for extracted columns which has Path info,
 // with a speicified variant column's unique id
-void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                std::unordered_set<PathInData, PathInData::Hash>* path_set);
+Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  std::unordered_set<PathInData, PathInData::Hash>* path_set);
 
-void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                const std::unordered_set<PathInData, PathInData::Hash>& path_set);
+Status update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  const std::unordered_set<PathInData, PathInData::Hash>& path_set);
 
 // inherit attributes like index/agg info from it's parent column
 void inherit_column_attributes(TabletSchemaSPtr& schema);
@@ -115,8 +119,8 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema);
 
 // get sorted subcolumns of variant
-vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
-        const vectorized::ColumnObject::Subcolumns& subcolumns);
+vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(
+        const vectorized::ColumnVariant::Subcolumns& subcolumns);
 
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);

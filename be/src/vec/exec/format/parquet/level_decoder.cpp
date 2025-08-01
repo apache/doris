@@ -93,7 +93,15 @@ size_t doris::vectorized::LevelDecoder::get_levels(doris::vectorized::level_t* l
         _num_levels -= num_decoded;
         return num_decoded;
     } else if (_encoding == tparquet::Encoding::BIT_PACKED) {
-        // TODO(gaoxin): BIT_PACKED encoding
+        n = std::min((size_t)_num_levels, n);
+        for (size_t i = 0; i < n; ++i) {
+            if (!_bit_packed_decoder.GetValue(_bit_width, &levels[i])) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Failed to decode BIT_PACKED levels");
+            }
+        }
+        _num_levels -= n;
+        return n;
     }
     return 0;
 }

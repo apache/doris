@@ -46,7 +46,7 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     std::vector<std::string> column_types;
     for (const auto& desc : _file_slot_descs) {
         column_names.emplace_back(desc->col_name());
-        column_types.emplace_back(JniConnector::get_jni_type(desc->type()));
+        column_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
     }
     std::map<String, String> params;
     params["db_name"] = range.table_format_params.paimon_params.db_name;
@@ -79,8 +79,9 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
             params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
         }
     }
+    int64_t self_split_weight = range.__isset.self_split_weight ? range.self_split_weight : -1;
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/paimon/PaimonJniScanner",
-                                                    params, column_names);
+                                                    params, column_names, self_split_weight);
 }
 
 Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
@@ -103,16 +104,8 @@ Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
-Status PaimonJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                                    std::unordered_set<std::string>* missing_cols) {
-    for (const auto& desc : _file_slot_descs) {
-        name_to_type->emplace(desc->col_name(), desc->type());
-    }
-    return Status::OK();
-}
-
 Status PaimonJniReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);

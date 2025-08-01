@@ -57,7 +57,7 @@ Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
 }
 
 Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index,
-                                             ColumnValueRangeType& col_val_range,
+                                             const ColumnValueRangeType& col_val_range,
                                              const FieldSchema* col_schema,
                                              std::vector<int>& skipped_ranges,
                                              const cctz::time_zone& ctz) {

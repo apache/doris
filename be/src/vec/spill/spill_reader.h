@@ -27,6 +27,8 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/runtime_profile.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -55,14 +57,16 @@ public:
 
     size_t block_count() const { return block_count_; }
 
-    void set_counters(RuntimeProfile* profile) {
-        _read_file_timer = profile->get_counter("SpillReadFileTime");
-        _deserialize_timer = profile->get_counter("SpillReadDerializeBlockTime");
-        _read_block_count = profile->get_counter("SpillReadBlockCount");
-        _read_block_data_size = profile->get_counter("SpillReadBlockBytes");
-        _read_file_size = profile->get_counter("SpillReadFileBytes");
-        _read_rows_count = profile->get_counter("SpillReadRows");
-        _read_file_count = profile->get_counter("SpillReadFileCount");
+    void set_counters(RuntimeProfile* operator_profile) {
+        RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+        DCHECK(custom_profile != nullptr);
+        _read_file_timer = custom_profile->get_counter("SpillReadFileTime");
+        _deserialize_timer = custom_profile->get_counter("SpillReadDerializeBlockTime");
+        _read_block_count = custom_profile->get_counter("SpillReadBlockCount");
+        _read_block_data_size = custom_profile->get_counter("SpillReadBlockBytes");
+        _read_file_size = custom_profile->get_counter("SpillReadFileBytes");
+        _read_rows_count = custom_profile->get_counter("SpillReadRows");
+        _read_file_count = custom_profile->get_counter("SpillReadFileCount");
     }
 
 private:
@@ -73,7 +77,7 @@ private:
     size_t block_count_ = 0;
     size_t read_block_index_ = 0;
     size_t max_sub_block_size_ = 0;
-    std::unique_ptr<char[]> read_buff_;
+    PaddedPODArray<char> read_buff_;
     std::vector<size_t> block_start_offsets_;
 
     PBlock pb_block_;

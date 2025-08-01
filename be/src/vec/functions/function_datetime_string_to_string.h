@@ -25,12 +25,12 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -42,9 +42,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/date_format_type.h"
-#include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -67,7 +65,9 @@ public:
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        if constexpr (has_variadic_argument) {
+            return Transform::get_variadic_argument_types();
+        }
         return {};
     }
 
@@ -134,7 +134,7 @@ public:
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
 
         const auto* nullable_column = check_and_get_column<ColumnNullable>(source_col.get());
-        const auto* sources = assert_cast<const ColumnVector<typename Transform::FromType>*>(
+        const auto* sources = assert_cast<const ColumnVector<Transform::FromPType>*>(
                 nullable_column ? nullable_column->get_nested_column_ptr().get()
                                 : source_col.get());
 

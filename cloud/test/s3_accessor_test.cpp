@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "common/configbase.h"
 #include "common/logging.h"
+#include "cpp/aws_common.h"
 #include "cpp/sync_point.h"
 
 using namespace doris;
@@ -41,21 +42,25 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    if (cloud::config::test_s3_ak.empty()) {
-        std::cout << "empty test_s3_ak, skip S3AccessorTest" << std::endl;
-        return 0;
-    }
-
     if (!cloud::init_glog("s3_accessor_test")) {
         std::cerr << "failed to init glog" << std::endl;
         return -1;
     }
+    LOG(INFO) << "s3_accessor_test starting";
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
 
 namespace doris::cloud {
 namespace {
+
+class S3AccessorTest : public testing::Test {
+    void SetUp() override {
+        if (cloud::config::test_s3_ak.empty()) {
+            GTEST_SKIP() << "empty test_s3_ak, skip S3AccessorTest";
+        }
+    }
+};
 
 void test_s3_accessor(S3Accessor& accessor) {
     std::string file1 = "data/10000/1_0.dat";
@@ -196,7 +201,7 @@ void test_s3_accessor(S3Accessor& accessor) {
 
 } // namespace
 
-TEST(S3AccessorTest, s3) {
+TEST_F(S3AccessorTest, s3) {
     std::shared_ptr<S3Accessor> accessor;
     int ret = S3Accessor::create(
             S3Conf {
@@ -238,7 +243,7 @@ TEST(S3AccessorTest, s3) {
     test_s3_accessor(*accessor);
 }
 
-TEST(S3AccessorTest, azure) {
+TEST_F(S3AccessorTest, azure) {
     std::shared_ptr<S3Accessor> accessor;
     int ret = S3Accessor::create(
             S3Conf {
@@ -280,7 +285,7 @@ TEST(S3AccessorTest, azure) {
     test_s3_accessor(*accessor);
 }
 
-TEST(S3AccessorTest, gcs) {
+TEST_F(S3AccessorTest, gcs) {
     std::shared_ptr<S3Accessor> accessor;
     int ret = S3Accessor::create(
             S3Conf {
@@ -322,7 +327,7 @@ TEST(S3AccessorTest, gcs) {
     test_s3_accessor(*accessor);
 }
 
-TEST(S3AccessorTest, path_style_test) {
+TEST_F(S3AccessorTest, path_style_test) {
     ObjectStoreInfoPB obj_info;
     obj_info.set_prefix("doris-debug-instance-prefix");
     obj_info.set_provider(ObjectStoreInfoPB_Provider_S3);
@@ -388,4 +393,83 @@ TEST(S3AccessorTest, path_style_test) {
     }
 }
 
+class S3AccessorRoleTest : public testing::Test {
+    static void SetUpTestSuite() {
+        if (!std::getenv("AWS_ROLE_ARN") || !std::getenv("AWS_EXTERNAL_ID") ||
+            !std::getenv("AWS_ENDPOINT") || !std::getenv("AWS_REGION") ||
+            !std::getenv("AWS_BUCKET") || !std::getenv("AWS_PREFIX")) {
+            return;
+        }
+
+        role_arn = std::getenv("AWS_ROLE_ARN");
+        external_id = std::getenv("AWS_EXTERNAL_ID");
+        endpoint = std::getenv("AWS_ENDPOINT");
+        region = std::getenv("AWS_REGION");
+        bucket = std::getenv("AWS_BUCKET");
+        prefix = std::getenv("AWS_PREFIX");
+    }
+
+    void SetUp() override {
+        if (role_arn.empty() || external_id.empty() || endpoint.empty() || region.empty() ||
+            bucket.empty() || prefix.empty()) {
+            GTEST_SKIP() << "Skipping S3 test, because AWS environment not set";
+        }
+    }
+
+public:
+    static std::string endpoint;
+    static std::string region;
+    static std::string bucket;
+    static std::string prefix;
+    static std::string role_arn;
+    static std::string external_id;
+};
+
+std::string S3AccessorRoleTest::endpoint;
+std::string S3AccessorRoleTest::region;
+std::string S3AccessorRoleTest::bucket;
+std::string S3AccessorRoleTest::prefix;
+std::string S3AccessorRoleTest::role_arn;
+std::string S3AccessorRoleTest::external_id;
+
+TEST_F(S3AccessorRoleTest, s3) {
+    std::shared_ptr<S3Accessor> accessor;
+    int ret = S3Accessor::create(
+            S3Conf {.endpoint = endpoint,
+                    .region = region,
+                    .bucket = bucket,
+                    .prefix = prefix + "/S3AccessorRoleTest/" + butil::GenerateGUID(),
+                    .cred_provider_type = CredProviderType::InstanceProfile,
+                    .role_arn = role_arn,
+                    .external_id = external_id,
+                    .provider = S3Conf::S3},
+            &accessor);
+    ASSERT_EQ(ret, 0);
+
+    auto* sp = SyncPoint::get_instance();
+    std::vector<SyncPoint::CallbackGuard> guards;
+    sp->set_call_back(
+            "S3ObjListIterator",
+            [](auto&& args) {
+                auto* req = try_any_cast<Aws::S3::Model::ListObjectsV2Request*>(args[0]);
+                req->SetMaxKeys(7);
+            },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "S3ObjClient::delete_objects",
+            [](auto&& args) {
+                auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
+                *delete_batch_size = 7;
+            },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "ObjStorageClient::delete_objects_recursively_",
+            [](auto&& args) {
+                auto* delete_batch_size = try_any_cast<size_t*>(args);
+                *delete_batch_size = 7;
+            },
+            &guards.emplace_back());
+
+    test_s3_accessor(*accessor);
+}
 } // namespace doris::cloud

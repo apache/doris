@@ -21,7 +21,6 @@
 #include <utility>
 
 #include "exprs/bitmapfilter_predicate.h"
-#include "gutil/integral_types.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -88,7 +87,7 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
     }
     // call function
     uint32_t num_columns_without_result = block->columns();
-    auto res_data_column = ColumnVector<UInt8>::create(block->rows());
+    auto res_data_column = ColumnUInt8::create(block->rows());
 
     ColumnPtr argument_column =
             block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -102,13 +101,13 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
         auto column_nullmap = assert_cast<const ColumnNullable*>(argument_column.get())
                                       ->get_null_map_column_ptr();
         _filter->find_batch(column_nested->get_raw_data().data,
-                            (uint8*)column_nullmap->get_raw_data().data, sz, ptr);
+                            (uint8_t*)column_nullmap->get_raw_data().data, sz, ptr);
     } else {
         _filter->find_batch(argument_column->get_raw_data().data, nullptr, sz, ptr);
     }
 
     if (_data_type->is_nullable()) {
-        auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
+        auto null_map = ColumnUInt8::create(block->rows(), 0);
         block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
                        _data_type, _expr_name});
     } else {
@@ -127,7 +126,7 @@ const std::string& vectorized::VBitmapPredicate::expr_name() const {
     return _expr_name;
 }
 
-void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase>& filter) {
+void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase> filter) {
     _filter = filter;
 }
 

@@ -19,8 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
@@ -31,8 +31,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -53,6 +51,8 @@ public class ScalarFunction extends Function {
     private String prepareFnSymbol;
     @SerializedName("cfs")
     private String closeFnSymbol;
+
+    TDictFunction dictFunction = null;
 
     // Only used for serialization
     protected ScalarFunction() {
@@ -209,6 +209,10 @@ public class ScalarFunction extends Function {
         return closeFnSymbol;
     }
 
+    public void setDictFunction(TDictFunction dictFunction) {
+        this.dictFunction = dictFunction;
+    }
+
     @Override
     public String toSql(boolean ifNotExists) {
         StringBuilder sb = new StringBuilder("CREATE ");
@@ -254,18 +258,10 @@ public class ScalarFunction extends Function {
         } else {
             fn.getScalarFn().setSymbol("");
         }
+        if (dictFunction != null) {
+            fn.setDictFunction(dictFunction);
+        }
         return fn;
-    }
-
-    public void readFields(DataInput input) throws IOException {
-        super.readFields(input);
-        symbolName = Text.readString(input);
-        if (input.readBoolean()) {
-            prepareFnSymbol = Text.readString(input);
-        }
-        if (input.readBoolean()) {
-            closeFnSymbol = Text.readString(input);
-        }
     }
 
     @Override

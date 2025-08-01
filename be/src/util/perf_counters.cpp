@@ -33,14 +33,13 @@
 #include <unordered_map>
 #include <utility>
 
-#include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
+#include "absl/strings/substitute.h"
 #include "util/pretty_printer.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 #define COUNTER_SIZE (sizeof(void*))
 #define PRETTY_PRINT_WIDTH 13
 
@@ -66,8 +65,8 @@ enum PERF_IO_IDX {
 
 // Wrapper around sys call.  This syscall is hard to use and this is how it is recommended
 // to be used.
-static inline int sys_perf_event_open(struct perf_event_attr* attr, pid_t pid, int cpu,
-                                      int group_fd, unsigned long flags) {
+static inline auto sys_perf_event_open(struct perf_event_attr* attr, pid_t pid, int cpu,
+                                       int64_t group_fd, unsigned long flags) {
     attr->size = sizeof(*attr);
     return syscall(__NR_perf_event_open, attr, pid, cpu, group_fd, flags);
 }
@@ -211,7 +210,7 @@ bool PerfCounters::init_sys_counter(Counter counter) {
         return false;
     }
 
-    int fd = sys_perf_event_open(&attr, getpid(), -1, _group_fd, 0);
+    auto fd = sys_perf_event_open(&attr, getpid(), -1, _group_fd, 0);
 
     if (fd < 0) {
         return false;
@@ -294,7 +293,7 @@ bool PerfCounters::init_proc_self_status_counter(Counter counter) {
 bool PerfCounters::get_sys_counters(std::vector<int64_t>& buffer) {
     for (int i = 0; i < _counters.size(); i++) {
         if (_counters[i].source == SYS_PERF_COUNTER) {
-            int num_bytes = read(_counters[i].fd, &buffer[i], COUNTER_SIZE);
+            auto num_bytes = read((int)_counters[i].fd, &buffer[i], COUNTER_SIZE);
 
             if (num_bytes != COUNTER_SIZE) {
                 return false;
@@ -397,7 +396,7 @@ PerfCounters::PerfCounters() : _group_fd(-1) {}
 PerfCounters::~PerfCounters() {
     for (int i = 0; i < _counters.size(); ++i) {
         if (_counters[i].source == SYS_PERF_COUNTER) {
-            close(_counters[i].fd);
+            close((int)_counters[i].fd);
         }
     }
 }
@@ -512,9 +511,9 @@ void PerfCounters::pretty_print(std::ostream* s) const {
 
     stream << std::endl;
 
-    for (int s = 0; s < _snapshots.size(); s++) {
-        stream << std::setw(8) << _snapshot_names[s];
-        const std::vector<int64_t>& snapshot = _snapshots[s];
+    for (int ss = 0; ss < _snapshots.size(); s++) {
+        stream << std::setw(8) << _snapshot_names[ss];
+        const std::vector<int64_t>& snapshot = _snapshots[ss];
 
         for (int i = 0; i < snapshot.size(); ++i) {
             stream << std::setw(PRETTY_PRINT_WIDTH)
@@ -529,13 +528,13 @@ void PerfCounters::pretty_print(std::ostream* s) const {
 
 // Refactor below
 
-int PerfCounters::parse_int(const string& state_key) {
+int PerfCounters::parse_int(const std::string& state_key) {
     auto it = _process_state.find(state_key);
     if (it != _process_state.end()) return atoi(it->second.c_str());
     return -1;
 }
 
-int64_t PerfCounters::parse_int64(const string& state_key) {
+int64_t PerfCounters::parse_int64(const std::string& state_key) {
     auto it = _process_state.find(state_key);
     if (it != _process_state.end()) {
         StringParser::ParseResult result;
@@ -546,16 +545,16 @@ int64_t PerfCounters::parse_int64(const string& state_key) {
     return -1;
 }
 
-string PerfCounters::parse_string(const string& state_key) {
+std::string PerfCounters::parse_string(const std::string& state_key) {
     auto it = _process_state.find(state_key);
     if (it != _process_state.end()) return it->second;
-    return string();
+    return "";
 }
 
-int64_t PerfCounters::parse_bytes(const string& state_key) {
+int64_t PerfCounters::parse_bytes(const std::string& state_key) {
     auto it = _process_state.find(state_key);
     if (it != _process_state.end()) {
-        vector<string> fields = split(it->second, " ");
+        std::vector<std::string> fields = split(it->second, " ");
         // We expect state_value such as, e.g., '16129508', '16129508 kB', '16129508 mB'
         StringParser::ParseResult result;
         int64_t state_value =
@@ -577,7 +576,7 @@ void PerfCounters::refresh_proc_status() {
         if (fields.size() < 2) continue;
         boost::algorithm::trim(fields[1]);
         std::string key = fields[0].substr(0, fields[0].size() - 1);
-        _process_state[strings::Substitute("status/$0", key)] = fields[1];
+        _process_state[absl::Substitute("status/$0", key)] = fields[1];
     }
 
     if (statusinfo.is_open()) statusinfo.close();

@@ -73,4 +73,100 @@ suite("test_struct_insert") {
 
     // select the table and check whether the data is correct
     qt_select "select * from ${testTable} order by k1"
+
+  sql "DROP TABLE IF EXISTS test_struct_insert_into"
+    sql """
+    CREATE TABLE IF NOT EXISTS test_struct_insert_into (
+        id INT,
+        s STRUCT<a:INT>,
+        s1 STRUCT<a:INT, b:VARCHAR(20)>,
+        s2 struct<a:int, s:struct<a:int>>,
+        s3 struct<a:int, s:struct<a:int, b:varchar(20)>>,
+        s4 STRUCT<a:INT, s:STRUCT<b:INT, s:STRUCT<c:INT>>>,
+        s5 STRUCT<a:INT, b:STRUCT<c:INT, d:VARCHAR(10)>, e:INT>
+    ) PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
+    // insert into table
+    // right cases
+    sql "INSERT INTO test_struct_insert_into VALUES(1, {1}, {1, 'a'}, {1, {1}}, {1, {1, 'a'}}, {1, {1, {1}}}, {1, {1, 'a'}, 1})"
+
+    qt_select "select * from test_struct_insert_into order by id"
+
+    sql """INSERT INTO test_struct_insert_into VALUES (
+             2,
+             '{10}',                      -- s: right
+             '{20, "valid"}',             -- s1: right
+             '{30, {31}}',                -- s2: right（outer a=30，s.a=31）
+             '{40, {41, "nested"}}',      -- s3: right（a=40，s.a=41, s.b="nested"）
+             '{50, {51, {52}}}',          -- s4: right（a=50 -> s.b=51 -> s.s.c=52）
+             '{60, {61, "text"}, 70}'     -- s5: right（a=60, b.c=61, b.d="text", e=70）
+         );"""
+
+    qt_select "select * from test_struct_insert_into order by id"
+
+    sql """
+    INSERT INTO test_struct_insert_into VALUES (
+         3,
+        '{10, 20}',       -- s:  more -> NULL
+        '{30, "valid"}',  -- s1: right
+        NULL,             -- s2: NULL
+        '{40, {41, "valid"}}',     -- s3: right
+        '{50, {51, null}}',     -- s4: s.s is null
+        '{60, NULL, 70}'  -- s5: b is NULL
+    );
+    """
+
+    qt_select "select * from test_struct_insert_into order by id"
+
+   sql """
+    INSERT INTO test_struct_insert_into VALUES (
+       4,
+       '{"invalid"}',      -- s.a type invalid cast -> s.a is NULL
+       '{40, 50}',         -- right
+       '{50, {"invalid"}}',-- s2.s.a type invalid cast -> s2.s is {"a":null}
+       '{60, {70, 80}}',   -- right
+       '{90, {"invalid", {100}}}',  -- s4.s.b type invalid cast -> s4.s is NULL
+       '{100, {110, 120}, "invalid"}'  -- s5.e type invalid cast -> s5.e is NULL
+   );
+   """
+   qt_select "select * from test_struct_insert_into order by id"
+
+   sql """
+   INSERT INTO test_struct_insert_into VALUES (
+       5,
+       '{10}',
+       '{20, "valid"}',
+       '{30, {31, 32}}',       -- s2.s more -> s2.s is NULL
+       '{40, {41, "nested", 42}}',  -- s3.s more -> s3.s is NULL
+       '{50, {51, {52, 53}}}',      -- s4.s.s more -> s4.s.s is NULL
+       '{60, {61, "text", 62}, 70}' -- s5.b more -> s5.b is NULL
+   );
+   """
+  qt_select "select * from test_struct_insert_into order by id"
+    sql """
+    INSERT INTO test_struct_insert_into VALUES (
+        6,
+        '{10}',
+        '{20}',                -- s1 less  -> s1 is NULL
+        '{30, {31}}',          -- s2 right
+        '{40, {41}}',          -- s3.s less  -> s3.s is NULL
+        '{50, {51}}',          -- s4.s less  -> s4.s is NULL
+        '{60, {61}, 70}'       -- s5.b less  -> s5.b is NULL
+    );
+    """
+    qt_select "select * from test_struct_insert_into order by id"
+
+    sql """
+    INSERT INTO test_struct_insert_into VALUES (
+        7,
+        '{10}',                  -- right
+        '{20, }',                -- s1.b is empty
+        '{30, }',                -- s2.s is empty
+        '{40, {41, "nested"}}',   -- right
+        '{50, {51, {52}}}',       -- right  
+        '{60, {61, }, 70}'      -- s5.b.d is empty
+    );
+    """
+     qt_select "select * from test_struct_insert_into order by id"
 }

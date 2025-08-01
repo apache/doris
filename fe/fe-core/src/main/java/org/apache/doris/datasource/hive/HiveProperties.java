@@ -47,6 +47,12 @@ public class HiveProperties {
     public static final String PROP_NULL_FORMAT = "serialization.null.format";
     public static final String DEFAULT_NULL_FORMAT = "\\N";
 
+    public static final String PROP_SKIP_HEADER_COUNT = "skip.header.line.count";
+    public static final String DEFAULT_SKIP_HEADER_COUNT = "0";
+
+    public static final String PROP_SKIP_FOOTER_COUNT = "skip.footer.line.count";
+    public static final String DEFAULT_SKIP_FOOTER_COUNT = "0";
+
     // The following properties are used for OpenCsvSerde.
     public static final String PROP_SEPARATOR_CHAR = OpenCSVSerde.SEPARATORCHAR;
     public static final String DEFAULT_SEPARATOR_CHAR = ",";
@@ -54,6 +60,10 @@ public class HiveProperties {
     public static final String DEFAULT_QUOTE_CHAR = "\"";
     public static final String PROP_ESCAPE_CHAR = OpenCSVSerde.ESCAPECHAR;
     public static final String DEFAULT_ESCAPE_CHAR = "\\";
+
+    // org.openx.data.jsonserde.JsonSerDe
+    public static final String PROP_OPENX_IGNORE_MALFORMED_JSON = "ignore.malformed.json";
+    public static final String DEFAULT_OPENX_IGNORE_MALFORMED_JSON = "false";
 
     public static final Set<String> HIVE_SERDE_PROPERTIES = ImmutableSet.of(
             PROP_FIELD_DELIMITER,
@@ -66,14 +76,21 @@ public class HiveProperties {
             PROP_MAP_KV_DELIMITER,
             PROP_ESCAPE_DELIMITER,
             PROP_ESCAPE_CHAR,
-            PROP_NULL_FORMAT);
+            PROP_NULL_FORMAT,
+            PROP_SKIP_HEADER_COUNT,
+            PROP_SKIP_FOOTER_COUNT);
 
     public static String getFieldDelimiter(Table table) {
+        return getFieldDelimiter(table, false);
+    }
+
+    public static String getFieldDelimiter(Table table, boolean supportMultiChar) {
         // This method is used for text format.
         Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_FIELD_DELIMITER);
         Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SERIALIZATION_FORMAT);
-        return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat));
+        String delimiter = HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat);
+        return supportMultiChar ? delimiter : HiveMetaStoreClientHelper.getByte(delimiter);
     }
 
     public static String getSeparatorChar(Table table) {
@@ -129,6 +146,24 @@ public class HiveProperties {
     public static String getEscapeChar(Table table) {
         Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_ESCAPE_CHAR);
         return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_ESCAPE_CHAR, escapeChar);
+    }
+
+    public static int getSkipHeaderCount(Table table) {
+        Optional<String> skipHeaderCount = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SKIP_HEADER_COUNT);
+        return Integer
+                .parseInt(HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_SKIP_HEADER_COUNT, skipHeaderCount));
+    }
+
+    public static int getSkipFooterCount(Table table) {
+        Optional<String> skipFooterCount = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SKIP_FOOTER_COUNT);
+        return Integer
+                .parseInt(HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_SKIP_FOOTER_COUNT, skipFooterCount));
+    }
+
+    public static String getOpenxJsonIgnoreMalformed(Table table) {
+        Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(table,
+                PROP_OPENX_IGNORE_MALFORMED_JSON);
+        return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_OPENX_IGNORE_MALFORMED_JSON, escapeChar);
     }
 
     // Set properties to table

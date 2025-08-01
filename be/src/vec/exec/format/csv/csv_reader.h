@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exec/decompressor.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/slice.h"
@@ -40,8 +41,6 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-class LineReader;
-class Decompressor;
 class SlotDescriptor;
 class RuntimeProfile;
 class RuntimeState;
@@ -49,7 +48,6 @@ class RuntimeState;
 namespace io {
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
 struct ScannerCounter;
@@ -137,17 +135,16 @@ private:
 
 class EncloseCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<EncloseCsvTextFieldSplitter> {
 public:
-    explicit EncloseCsvTextFieldSplitter(
-            bool trim_tailing_space, bool trim_ends,
-            std::shared_ptr<EncloseCsvLineReaderContext> line_reader_ctx, size_t value_sep_len = 1,
-            char trimming_char = 0)
+    explicit EncloseCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                                         std::shared_ptr<EncloseCsvLineReaderCtx> line_reader_ctx,
+                                         size_t value_sep_len = 1, char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
               _text_line_reader_ctx(std::move(line_reader_ctx)) {}
 
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
 private:
-    std::shared_ptr<EncloseCsvLineReaderContext> _text_line_reader_ctx;
+    std::shared_ptr<EncloseCsvLineReaderCtx> _text_line_reader_ctx;
 };
 
 class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFieldSplitter> {
@@ -170,22 +167,6 @@ private:
     std::string _value_sep;
 };
 
-class HiveCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveCsvTextFieldSplitter> {
-public:
-    explicit HiveCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                      std::string value_sep, size_t value_sep_len = 1,
-                                      char trimming_char = 0, char escape_char = 0)
-            : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _value_sep(std::move(value_sep)),
-              _escape_char(escape_char) {}
-
-    void do_split(const Slice& line, std::vector<Slice>* splitted_values);
-
-private:
-    std::string _value_sep;
-    char _escape_char;
-};
-
 class CsvReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(CsvReader);
 
@@ -193,58 +174,67 @@ public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
+    ~CsvReader() override = default;
 
-    CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-              const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
-              io::IOContext* io_ctx);
-    ~CsvReader() override;
-
-    Status init_reader(bool is_query);
+    Status init_reader(bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
+    Status init_schema_reader() override;
     // get schema of csv file from first one line or first two lines.
     // if file format is FORMAT_CSV_DEFLATE and if
     // 1. header_type is empty, get schema from first line.
     // 2. header_type is CSV_WITH_NAMES, get schema from first line.
     // 3. header_type is CSV_WITH_NAMES_AND_TYPES, get schema from first two line.
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
     Status close() override;
 
+protected:
+    // init options for type serde
+    virtual Status _init_options();
+    virtual Status _create_line_reader();
+    virtual Status _deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column, Slice& slice);
+    virtual Status _deserialize_nullable_string(IColumn& column, Slice& slice);
+    // check the utf8 encoding of a line.
+    // return error status to stop processing.
+    // If return Status::OK but "success" is false, which means this is load request
+    // and the line is skipped as unqualified row, and the process should continue.
+    virtual Status _validate_line(const Slice& line, bool* success);
+
+    RuntimeProfile* _profile = nullptr;
+    const TFileScanRangeParams& _params;
+    std::string _value_separator;
+    size_t _value_separator_length;
+    std::string _line_delimiter;
+    size_t _line_delimiter_length;
+    char _escape = 0;
+    vectorized::DataTypeSerDeSPtrs _serdes;
+    vectorized::DataTypeSerDe::FormatOptions _options;
+    std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
+    int64_t _start_offset;
+    int64_t _size;
+    io::FileReaderSPtr _file_reader;
+    std::unique_ptr<LineReader> _line_reader;
+    std::unique_ptr<Decompressor> _decompressor;
+
 private:
-    // used for stream/broker load of csv file.
     Status _create_decompressor();
+    Status _create_file_reader(bool need_schema);
     Status _fill_dest_columns(const Slice& line, Block* block,
                               std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
-    Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
-    bool _is_null(const Slice& slice);
-    bool _is_array(const Slice& slice);
     void _init_system_properties();
     void _init_file_description();
 
-    //if from_json = false , deserialize from hive_text
-    template <bool from_json>
-    Status deserialize_nullable_string(IColumn& column, Slice& slice);
-
-    // used for parse table schema of csv file.
-    // Currently, this feature is for table valued function.
-    Status _prepare_parse(size_t* read_line, bool* is_parse_name);
     Status _parse_col_nums(size_t* col_nums);
     Status _parse_col_names(std::vector<std::string>* col_names);
     // TODO(ftw): parse type
-    Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
-
-    // check the utf8 encoding of a line.
-    // return error status to stop processing.
-    // If return Status::OK but "success" is false, which means this is load request
-    // and the line is skipped as unqualified row, and the process should continue.
-    Status _validate_line(const Slice& line, bool* success);
+    Status _parse_col_types(size_t col_nums, std::vector<DataTypePtr>* col_types);
 
     // If the CSV file is an UTF8 encoding with BOM,
     // then remove the first 3 bytes at the beginning of this file
@@ -252,9 +242,7 @@ private:
     const uint8_t* _remove_bom(const uint8_t* ptr, size_t& size);
 
     RuntimeState* _state = nullptr;
-    RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
-    const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
     io::FileSystemProperties _system_properties;
     io::FileDescription _file_description;
@@ -271,33 +259,19 @@ private:
     std::vector<int> _col_idxs;
     // True if this is a load task
     bool _is_load = false;
-
-    io::FileReaderSPtr _file_reader;
-    std::unique_ptr<LineReader> _line_reader;
     bool _line_reader_eof;
-    std::unique_ptr<Decompressor> _decompressor;
-
+    // For schema reader
+    size_t _read_line = 0;
+    bool _is_parse_name = false;
     TFileFormatType::type _file_format_type;
     bool _is_proto_format;
     TFileCompressType::type _file_compress_type;
-    int64_t _size;
+
     // When we fetch range start from 0, header_type="csv_with_names" skip first line
     // When we fetch range start from 0, header_type="csv_with_names_and_types" skip first two line
     // When we fetch range doesn't start from 0 will always skip the first line
     int _skip_lines;
-
-    std::string _value_separator;
-    std::string _line_delimiter;
-
-    std::string _array_delimiter;
     char _enclose = 0;
-    char _escape = 0;
-
-    vectorized::DataTypeSerDeSPtrs _serdes;
-    vectorized::DataTypeSerDe::FormatOptions _options;
-
-    size_t _value_separator_length;
-    size_t _line_delimiter_length;
     bool _trim_double_quotes = false;
     bool _trim_tailing_spaces = false;
     // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes
@@ -305,11 +279,8 @@ private:
     bool _keep_cr = false;
 
     io::IOContext* _io_ctx = nullptr;
-
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
-    std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
-    TTextSerdeType::type _text_serde_type;
     std::vector<int> _use_nullable_string_opt;
 };
 } // namespace vectorized

@@ -144,7 +144,6 @@ suite("test_load_and_schema_change_row_store_ck", "p0") {
     sql """alter table tbl_scalar_types_dup_ck_1 set ("row_store_columns" = "k1,c_datetimev2")"""    
     wait_job_done.call("tbl_scalar_types_dup_ck_1")
     qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_ck_1"
-    sql "set enable_short_circuit_query_access_column_store = false"
     // TODO
     //test {
     //    sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ * from tbl_scalar_types_dup_ck_1 where k1 = -2147303679"
@@ -159,9 +158,8 @@ suite("test_load_and_schema_change_row_store_ck", "p0") {
     sql """alter table tbl_scalar_types_dup_ck_1 set ("row_store_columns" = "k1,c_decimalv3")"""    
     wait_job_done.call("tbl_scalar_types_dup_ck_1")
     test {
-        sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ k1,c_datetimev2 from tbl_scalar_types_dup_ck_1 where k1 = -2147303679"
+        sql "select /*+ SET_VAR(enable_nereids_planner=true, enable_short_circuit_query_access_column_store=false)*/ k1,c_datetimev2 from tbl_scalar_types_dup_ck_1 where k1 = -2147303679"
         exception("Not support column store")
     }
-    qt_sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ k1, c_decimalv3 from tbl_scalar_types_dup_ck_1 where k1 = -2147303679"
-    sql "set enable_short_circuit_query_access_column_store = true"
+    qt_sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ k1, c_decimalv3 from tbl_scalar_types_dup_ck_1 where k1 = -2147303679"
 }

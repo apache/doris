@@ -23,6 +23,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group_manager.h"
 
 namespace doris {
 
@@ -31,10 +32,12 @@ public:
     ThreadMemTrackerMgrTest() = default;
     ~ThreadMemTrackerMgrTest() override = default;
 
-    void SetUp() override {}
+    void SetUp() override { _wg_manager = std::make_unique<WorkloadGroupMgr>(); }
+
+    void TearDown() override { _wg_manager.reset(); }
 
 protected:
-    std::shared_ptr<WorkloadGroup> workload_group;
+    std::unique_ptr<WorkloadGroupMgr> _wg_manager;
 };
 
 TEST_F(ThreadMemTrackerMgrTest, ConsumeMemory) {
@@ -43,7 +46,6 @@ TEST_F(ThreadMemTrackerMgrTest, ConsumeMemory) {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ConsumeMemory");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
-    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -104,7 +106,6 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedSwitchMemTracker3");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t1);
-    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -177,7 +178,6 @@ TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
     std::shared_ptr<MemTracker> t3 = std::make_shared<MemTracker>("UT-MultiMemTracker3");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t1);
-    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -239,7 +239,6 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ReserveMemory");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
-    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -250,7 +249,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
     thread_context->thread_mem_tracker_mgr->consume(size2);
     EXPECT_EQ(t->consumption(), size1 + size2);
 
-    auto st = thread_context->try_reserve_memory(size3);
+    auto st = thread_context->thread_mem_tracker_mgr->try_reserve(size3);
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size1 + size2 + size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
@@ -289,7 +288,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
     EXPECT_EQ(t->consumption(), size1 + size2);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
 
-    st = thread_context->try_reserve_memory(size3);
+    st = thread_context->thread_mem_tracker_mgr->try_reserve(size3);
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size1 + size2 + size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
@@ -337,13 +336,12 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedReserveMemory");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
-    rc->set_workload_group(workload_group);
 
     int64_t size2 = 4 * 1024 * 1024;
     int64_t size3 = size2 * 2;
 
     thread_context->attach_task(rc);
-    auto st = thread_context->thread_mem_tracker_mgr->try_reserve(size3, false);
+    auto st = thread_context->thread_mem_tracker_mgr->try_reserve(size3);
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
@@ -355,7 +353,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
     EXPECT_EQ(t->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
-    st = thread_context->try_reserve_memory(size2);
+    st = thread_context->thread_mem_tracker_mgr->try_reserve(size2);
     EXPECT_TRUE(st.ok()) << st.to_string();
     // ThreadMemTrackerMgr _reserved_mem = size3 - size2 + size2
     // ThreadMemTrackerMgr _untracked_mem = 0
@@ -363,9 +361,9 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(),
               size3); // size3 - size2 + size2
 
-    st = thread_context->try_reserve_memory(size3);
+    st = thread_context->thread_mem_tracker_mgr->try_reserve(size3);
     EXPECT_TRUE(st.ok()) << st.to_string();
-    st = thread_context->try_reserve_memory(size3);
+    st = thread_context->thread_mem_tracker_mgr->try_reserve(size3);
     EXPECT_TRUE(st.ok()) << st.to_string();
     thread_context->thread_mem_tracker_mgr->consume(size3);
     thread_context->thread_mem_tracker_mgr->consume(size2);
@@ -396,21 +394,20 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedSwitchMemTrackerReserveMemory3");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t1);
-    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
     int64_t size3 = size2 * 2;
 
     thread_context->attach_task(rc);
-    auto st = thread_context->try_reserve_memory(size3);
+    auto st = thread_context->thread_mem_tracker_mgr->try_reserve(size3);
     EXPECT_TRUE(st.ok()) << st.to_string();
     thread_context->thread_mem_tracker_mgr->consume(size2);
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
     thread_context->thread_mem_tracker_mgr->attach_limiter_tracker(t2);
-    st = thread_context->try_reserve_memory(size3);
+    st = thread_context->thread_mem_tracker_mgr->try_reserve(size3);
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(t2->consumption(), size3);
@@ -422,7 +419,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
     thread_context->thread_mem_tracker_mgr->attach_limiter_tracker(t3);
-    st = thread_context->try_reserve_memory(size3);
+    st = thread_context->thread_mem_tracker_mgr->try_reserve(size3);
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(t2->consumption(), size3 + size2);
@@ -456,6 +453,99 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
     EXPECT_EQ(t1->consumption(), size2); // size3 - _reserved_mem
     // size3 - size2 - (_reserved_mem + _untracked_mem)
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, ReserveMemoryFailed) {
+    std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
+    std::shared_ptr<MemTrackerLimiter> t = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER, "UT-ReserveMemory", 1024);
+    std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(t);
+    {
+        WorkloadGroupInfo wg_info {.id = 1,
+                                   .memory_limit = 2048,
+                                   .enable_memory_overcommit = false,
+                                   .memory_high_watermark = 100};
+        auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+        rc->set_workload_group(wg);
+        thread_context->attach_task(rc);
+
+        EXPECT_EQ(t->consumption(), 0);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+
+        auto st = thread_context->thread_mem_tracker_mgr->try_reserve(1024);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        EXPECT_EQ(t->consumption(), 1024);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 1024);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 1024);
+
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(1024);
+        EXPECT_EQ(st.code(), ErrorCode::QUERY_MEMORY_EXCEEDED) << st.to_string();
+        EXPECT_EQ(t->consumption(), 1024);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 1024);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 1024);
+
+        t->set_limit(1024L * 1024);
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(1024);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        EXPECT_EQ(t->consumption(), 2048);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 2048);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 2048);
+
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(1024);
+        EXPECT_EQ(st.code(), ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED) << st.to_string();
+        EXPECT_EQ(t->consumption(), 2048);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 2048);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 2048);
+
+        thread_context->thread_mem_tracker_mgr->shrink_reserved();
+        EXPECT_EQ(t->consumption(), 0);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
+
+        thread_context->detach_task();
+        EXPECT_EQ(t->consumption(), 0);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
+    }
+
+    {
+        WorkloadGroupInfo wg_info {.id = 2, .memory_limit = 1024, .enable_memory_overcommit = true};
+        auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+        rc->set_workload_group(wg);
+        thread_context->attach_task(rc);
+
+        auto st = thread_context->thread_mem_tracker_mgr->try_reserve(1024L * 1024);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        EXPECT_EQ(t->consumption(), 1024L * 1024);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 1024L * 1024);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 1024L * 1024);
+
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(1024);
+        EXPECT_EQ(st.code(), ErrorCode::QUERY_MEMORY_EXCEEDED) << st.to_string();
+        EXPECT_EQ(t->consumption(), 1024L * 1024);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 1024L * 1024);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 1024L * 1024);
+
+        t->set_limit(-1);
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(1024L * 1024 * 1024);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        EXPECT_EQ(t->consumption(), 1024L * 1024 + 1024L * 1024 * 1024);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 1024L * 1024 + 1024L * 1024 * 1024);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(),
+                  1024L * 1024 + 1024L * 1024 * 1024);
+
+        thread_context->thread_mem_tracker_mgr->shrink_reserved();
+        EXPECT_EQ(t->consumption(), 0);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
+
+        thread_context->detach_task();
+        EXPECT_EQ(t->consumption(), 0);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
+    }
 }
 
 } // end namespace doris

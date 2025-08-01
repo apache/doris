@@ -32,16 +32,14 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
-#include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/workload_management/resource_context.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 #include "workload_group/workload_group.h"
 
 namespace doris {
@@ -49,6 +47,7 @@ namespace doris {
 namespace pipeline {
 class PipelineFragmentContext;
 class PipelineTask;
+class Dependency;
 } // namespace pipeline
 
 struct ReportStatusRequest {
@@ -61,6 +60,7 @@ struct ReportStatusRequest {
     TUniqueId fragment_instance_id;
     int backend_num;
     RuntimeState* runtime_state;
+    std::string load_error_url;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -82,58 +82,6 @@ class QueryContext : public std::enable_shared_from_this<QueryContext> {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
-    class QueryTaskController : public TaskController {
-        ENABLE_FACTORY_CREATOR(QueryTaskController);
-
-    public:
-        static std::unique_ptr<TaskController> create(QueryContext* query_ctx);
-
-        bool is_cancelled() const override;
-        Status cancel(const Status& reason, int fragment_id);
-        Status cancel(const Status& reason) override { return cancel(reason, -1); }
-
-    private:
-        QueryTaskController(const std::shared_ptr<QueryContext>& query_ctx)
-                : query_ctx_(query_ctx) {}
-
-        const std::weak_ptr<QueryContext> query_ctx_;
-    };
-
-    class QueryMemoryContext : public MemoryContext {
-        ENABLE_FACTORY_CREATOR(QueryMemoryContext);
-
-    public:
-        static std::unique_ptr<MemoryContext> create();
-
-        int64_t revokable_bytes() override {
-            // TODO
-            return 0;
-        }
-
-        bool ready_do_revoke() override {
-            // TODO
-            return true;
-        }
-
-        Status revoke(int64_t bytes) override {
-            // TODO
-            return Status::OK();
-        }
-
-        Status enter_arbitration(Status reason) override {
-            // TODO, pause the pipeline
-            return Status::OK();
-        }
-
-        Status leave_arbitration(Status reason) override {
-            // TODO, start pipeline
-            return Status::OK();
-        }
-
-    private:
-        QueryMemoryContext() = default;
-    };
-
     static std::shared_ptr<QueryContext> create(TUniqueId query_id, ExecEnv* exec_env,
                                                 const TQueryOptions& query_options,
                                                 TNetworkAddress coord_addr, bool is_nereids,
@@ -149,7 +97,7 @@ public:
 
     void init_query_task_controller();
 
-    ExecEnv* exec_env() { return _exec_env; }
+    ExecEnv* exec_env() const { return _exec_env; }
 
     bool is_timeout(timespec now) const {
         if (_timeout_second <= 0) {
@@ -157,15 +105,6 @@ public:
         }
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
-
-    void set_thread_token(int concurrency, bool is_serial) {
-        _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
-                is_serial ? ThreadPool::ExecutionMode::SERIAL
-                          : ThreadPool::ExecutionMode::CONCURRENT,
-                concurrency);
-    }
-
-    ThreadPoolToken* get_token() { return _thread_token.get(); }
 
     void set_ready_to_execute(Status reason);
 
@@ -185,10 +124,6 @@ public:
 
     void set_ready_to_execute_only();
 
-    std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
-        return _shared_hash_table_controller;
-    }
-
     bool has_runtime_predicate(int source_node_id) {
         return _runtime_predicates.contains(source_node_id);
     }
@@ -204,7 +139,7 @@ public:
         }
     }
 
-    void set_workload_group(WorkloadGroupPtr& wg);
+    Status set_workload_group(WorkloadGroupPtr& wg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -240,6 +175,7 @@ public:
     bool enable_force_spill() const {
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
+    const TQueryOptions& query_options() const { return _query_options; }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
@@ -259,54 +195,22 @@ public:
         return _memory_sufficient_dependency.get();
     }
 
-    std::vector<pipeline::PipelineTask*> get_revocable_tasks() const;
-
-    Status revoke_memory();
-
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
     }
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> get_merge_controller_handler() const {
+        return _merge_controller_handler;
+    }
 
     bool is_nereids() const { return _is_nereids; }
 
     WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const {
+        DCHECK(_resource_ctx->memory_context()->mem_tracker() != nullptr);
         return _resource_ctx->memory_context()->mem_tracker();
-    }
-
-    void increase_revoking_tasks_count() { _revoking_tasks_count.fetch_add(1); }
-
-    void decrease_revoking_tasks_count();
-
-    int get_revoking_tasks_count() const { return _revoking_tasks_count.load(); }
-
-    void get_revocable_info(size_t* revocable_size, size_t* memory_usage,
-                            bool* has_running_task) const;
-    size_t get_revocable_size() const;
-
-    // This method is called by workload group manager to set query's memlimit using slot
-    // If user set query limit explicitly, then should use less one
-    void set_mem_limit(int64_t new_mem_limit) {
-        _resource_ctx->memory_context()->mem_tracker()->set_limit(new_mem_limit);
-    }
-
-    int64_t get_mem_limit() const {
-        return _resource_ctx->memory_context()->mem_tracker()->limit();
-    }
-
-    // The new memlimit should be less than user set memlimit.
-    void set_adjusted_mem_limit(int64_t new_mem_limit) {
-        _adjusted_mem_limit = std::min<int64_t>(new_mem_limit, _user_set_mem_limit);
-    }
-
-    // Expected mem limit is the limit when workload group reached limit.
-    int64_t adjusted_mem_limit() { return _adjusted_mem_limit; }
-
-    MemTrackerLimiter* get_mem_tracker() {
-        return _resource_ctx->memory_context()->mem_tracker().get();
     }
 
     int32_t get_slot_count() const {
@@ -320,6 +224,7 @@ public:
     TNetworkAddress coord_addr;
     TNetworkAddress current_connect_fe;
     TQueryGlobals query_globals;
+    const TQueryGlobals get_query_globals() const { return query_globals; }
 
     ObjectPool obj_pool;
 
@@ -348,37 +253,11 @@ public:
         return _using_brpc_stubs;
     }
 
-    void set_low_memory_mode() { _low_memory_mode = true; }
-
-    bool low_memory_mode() { return _low_memory_mode; }
-
-    void disable_reserve_memory() { _enable_reserve_memory = false; }
-
-    bool enable_reserve_memory() const {
-        return _query_options.__isset.enable_reserve_memory &&
-               _query_options.enable_reserve_memory && _enable_reserve_memory;
+    void set_low_memory_mode() {
+        // will not return from low memory mode to non-low memory mode.
+        _resource_ctx->task_controller()->set_low_memory_mode(true);
     }
-
-    void update_paused_reason(const Status& st) {
-        std::lock_guard l(_paused_mutex);
-        if (_paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
-            return;
-        } else if (_paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
-            if (st.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
-                _paused_reason = st;
-                return;
-            } else {
-                return;
-            }
-        } else {
-            _paused_reason = st;
-        }
-    }
-
-    Status paused_reason() {
-        std::lock_guard l(_paused_mutex);
-        return _paused_reason;
-    }
+    bool low_memory_mode() { return _resource_ctx->task_controller()->low_memory_mode(); }
 
     bool is_pure_load_task() {
         return _query_source == QuerySource::STREAM_LOAD ||
@@ -386,9 +265,12 @@ public:
                _query_source == QuerySource::GROUP_COMMIT_LOAD;
     }
 
-    std::string debug_string();
+    void set_load_error_url(std::string error_url);
+    std::string get_load_error_url();
 
 private:
+    friend class QueryTaskController;
+
     int _timeout_second;
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
@@ -397,20 +279,9 @@ private:
 
     std::shared_ptr<ResourceContext> _resource_ctx;
 
-    std::mutex _revoking_tasks_mutex;
-    std::atomic<int> _revoking_tasks_count = 0;
-
-    // A token used to submit olap scanner to the "_limited_scan_thread_pool",
-    // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
-    // And will be shared by all instances of this query.
-    // So that we can control the max thread that a query can be used to execute.
-    // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
-
     void _init_resource_context();
     void _init_query_mem_tracker();
 
-    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
@@ -434,14 +305,6 @@ private:
 
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
-
-    std::mutex _paused_mutex;
-    Status _paused_reason;
-    std::atomic<int64_t> _paused_count = 0;
-    std::atomic<bool> _low_memory_mode = false;
-    std::atomic<bool> _enable_reserve_memory = true;
-    int64_t _user_set_mem_limit = 0;
-    std::atomic<int64_t> _adjusted_mem_limit = 0;
 
     std::mutex _profile_mutex;
     timespec _query_arrival_timestamp;
@@ -475,7 +338,10 @@ private:
     void _report_query_profile();
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-    _collect_realtime_query_profile() const;
+    _collect_realtime_query_profile();
+
+    std::mutex _error_url_lock;
+    std::string _load_error_url;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
@@ -484,7 +350,7 @@ public:
             const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profile,
             std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
 
-    TReportExecStatusParams get_realtime_exec_status() const;
+    TReportExecStatusParams get_realtime_exec_status();
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
@@ -492,6 +358,8 @@ public:
 
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
     QuerySource get_query_source() const { return this->_query_source; }
+
+    const TQueryOptions get_query_options() const { return _query_options; }
 };
 
 } // namespace doris

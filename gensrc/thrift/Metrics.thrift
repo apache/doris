@@ -21,31 +21,31 @@ namespace java org.apache.doris.thrift
 // Metric and counter data types.
 enum TUnit {
   // A dimensionless numerical quantity
-  UNIT,
+  UNIT = 0,
   // Rate of a dimensionless numerical quantity
-  UNIT_PER_SECOND,
-  CPU_TICKS,
-  BYTES
-  BYTES_PER_SECOND,
-  TIME_NS,
-  DOUBLE_VALUE,
+  UNIT_PER_SECOND = 1,
+  CPU_TICKS = 2,
+  BYTES = 3,
+  BYTES_PER_SECOND = 4,
+  TIME_NS = 5,
+  DOUBLE_VALUE = 6,
   // No units at all, may not be a numerical quantity
   // It is used as a label now, so do not treat it as 
   // a real counter.
-  NONE,
-  TIME_MS,
-  TIME_S
+  NONE = 7,
+  TIME_MS = 8,
+  TIME_S = 9
 }
 
 // The kind of value that a metric represents.
 enum TMetricKind {
   // May go up or down over time
-  GAUGE,
+  GAUGE = 0,
   // A strictly increasing value
-  COUNTER,
+  COUNTER = 1,
   // Fixed; will never change
-  PROPERTY,
-  STATS,
-  SET,
-  HISTOGRAM
+  PROPERTY = 2,
+  STATS = 3,
+  SET = 4,
+  HISTOGRAM = 5
 }

@@ -137,6 +137,9 @@ public:
     void get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
                                   const TGetRealtimeExecStatusRequest& request) override;
 
+    void get_dictionary_status(TDictionaryStatusList& result,
+                               const std::vector<int64_t>& dictionary_id) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////

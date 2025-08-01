@@ -57,6 +57,37 @@ public abstract class DataType {
 
     protected static final NereidsParser PARSER = new NereidsParser();
 
+    private static class TypeMapLoader {
+        static final Map<org.apache.doris.catalog.PrimitiveType, DataType> LEGACY_MAP = initMap();
+
+        private static Map<org.apache.doris.catalog.PrimitiveType, DataType> initMap() {
+            return ImmutableMap.<org.apache.doris.catalog.PrimitiveType, DataType>builder()
+                    .put(Type.BOOLEAN.getPrimitiveType(), BooleanType.INSTANCE)
+                    .put(Type.TINYINT.getPrimitiveType(), TinyIntType.INSTANCE)
+                    .put(Type.SMALLINT.getPrimitiveType(), SmallIntType.INSTANCE)
+                    .put(Type.INT.getPrimitiveType(), IntegerType.INSTANCE)
+                    .put(Type.BIGINT.getPrimitiveType(), BigIntType.INSTANCE)
+                    .put(Type.LARGEINT.getPrimitiveType(), LargeIntType.INSTANCE)
+                    .put(Type.FLOAT.getPrimitiveType(), FloatType.INSTANCE)
+                    .put(Type.DOUBLE.getPrimitiveType(), DoubleType.INSTANCE)
+                    .put(Type.CHAR.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.VARCHAR.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.STRING.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.DATE.getPrimitiveType(), DateType.INSTANCE)
+                    .put(Type.DATEV2.getPrimitiveType(), DateType.INSTANCE)
+                    .put(Type.DATETIME.getPrimitiveType(), DateTimeType.INSTANCE)
+                    .put(Type.DATETIMEV2.getPrimitiveType(), DateTimeV2Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMALV2.getPrimitiveType(), DecimalV2Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL32.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL64.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL128.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
+                    .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .build();
+        }
+    }
+
     // use class and supplier here to avoid class load deadlock.
     private static final Map<Class<? extends PrimitiveType>, Supplier<DataType>> PROMOTION_MAP
             = ImmutableMap.<Class<? extends PrimitiveType>, Supplier<DataType>>builder()
@@ -85,7 +116,12 @@ public abstract class DataType {
             .add(DateType.class, () -> ImmutableList.of(
                     DateTimeType.INSTANCE, DateV2Type.INSTANCE, StringType.INSTANCE))
             .add(DateV2Type.class, () -> ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
+            .add(TimeV2Type.class, () -> ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE))
             .build();
+
+    public static Map<org.apache.doris.catalog.PrimitiveType, DataType> legacyTypeToNereidsType() {
+        return TypeMapLoader.LEGACY_MAP;
+    }
 
     /**
      * create a specific Literal for a given dataType
@@ -250,7 +286,17 @@ public abstract class DataType {
                 dataType = DateV2Type.INSTANCE;
                 break;
             case "time":
-                dataType = TimeType.INSTANCE;
+            case "timev2":
+                switch (types.size()) {
+                    case 1:
+                        dataType = TimeV2Type.INSTANCE;
+                        break;
+                    case 2:
+                        dataType = TimeV2Type.of(Integer.parseInt(types.get(1)));
+                        break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
                 break;
             case "datetime":
                 switch (types.size()) {
@@ -347,8 +393,8 @@ public abstract class DataType {
             case DATETIME: return DateTimeType.INSTANCE;
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;
-            case TIMEV2: return TimeV2Type.INSTANCE;
-            case TIME: return TimeType.INSTANCE;
+            case TIME: return TimeV2Type.INSTANCE;
+            case TIMEV2: return TimeV2Type.of(((ScalarType) type).getScalarScale());
             case HLL: return HllType.INSTANCE;
             case BITMAP: return BitmapType.INSTANCE;
             case QUANTILE_STATE: return QuantileStateType.INSTANCE;
@@ -525,15 +571,7 @@ public abstract class DataType {
     }
 
     public boolean isTimeType() {
-        return this instanceof TimeType;
-    }
-
-    public boolean isTimeV2Type() {
         return this instanceof TimeV2Type;
-    }
-
-    public boolean isTimeLikeType() {
-        return isTimeType() || isTimeV2Type();
     }
 
     public boolean isNullType() {
@@ -630,6 +668,10 @@ public abstract class DataType {
 
     public boolean isOnlyMetricType() {
         return isObjectType() || isComplexType() || isJsonType() || isVariantType();
+    }
+
+    public boolean isObjectOrVariantType() {
+        return isObjectType() || isVariantType();
     }
 
     public boolean isObjectType() {

@@ -143,7 +143,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
      * bitmap runtime filter requires bitmap column on right.
      */
     private boolean joinOrderMatchBitmapRuntimeFilterOrder(LogicalJoin<GroupPlan, GroupPlan> join) {
-        if (!ConnectContext.get().getSessionVariable().isRuntimeFilterTypeEnabled(TRuntimeFilterType.BITMAP)) {
+        if (!ConnectContext.get().getSessionVariable().allowedRuntimeFilterType(TRuntimeFilterType.BITMAP)) {
             return false;
         }
         for (Expression expr : join.getOtherJoinConjuncts()) {

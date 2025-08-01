@@ -20,14 +20,11 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
@@ -36,10 +33,6 @@ import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 
@@ -56,7 +49,6 @@ import java.util.Collections;
  * inputs are also sorted individually on the same SortInfo parameter.
  */
 public class ExchangeNode extends PlanNode {
-    private static final Logger LOG = LogManager.getLogger(ExchangeNode.class);
 
     public static final String EXCHANGE_NODE = "EXCHANGE";
     public static final String MERGING_EXCHANGE_NODE = "MERGING-EXCHANGE";
@@ -88,32 +80,6 @@ public class ExchangeNode extends PlanNode {
         this.partitionType = partitionType;
     }
 
-    /**
-     * Create ExchangeNode that consumes output of inputNode.
-     * An ExchangeNode doesn't have an input node as a child, which is why we
-     * need to compute the cardinality here.
-     */
-    public ExchangeNode(PlanNodeId id, PlanNode inputNode, boolean copyConjuncts) {
-        super(id, inputNode, EXCHANGE_NODE, StatisticalType.EXCHANGE_NODE);
-        offset = 0;
-        children.add(inputNode);
-        if (!copyConjuncts) {
-            this.conjuncts = Lists.newArrayList();
-        }
-        // Only apply the limit at the receiver if there are multiple senders.
-        if (inputNode.getFragment().isPartitioned()) {
-            limit = inputNode.limit;
-        }
-        if (!(inputNode instanceof ExchangeNode)) {
-            offset = inputNode.offset;
-        }
-        computeTupleIds();
-    }
-
-    public boolean isFunctionalExchange() {
-        return mergeInfo != null || limit != -1 || offset != 0;
-    }
-
     @Override
     public final void computeTupleIds() {
         PlanNode inputNode = getChild(0);
@@ -133,30 +99,6 @@ public class ExchangeNode extends PlanNode {
             tblRefIds.addAll(getChild(0).getTblRefIds());
             nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
         }
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        Preconditions.checkState(conjuncts.isEmpty());
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            return;
-        }
-        computeStats(analyzer);
-    }
-
-    @Override
-    protected void computeStats(Analyzer analyzer) throws UserException {
-        Preconditions.checkState(children.size() == 1);
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Exchange:" + id + ", cardinality: " + cardinality);
-        }
-    }
-
-    public SortInfo getMergeInfo() {
-        return mergeInfo;
     }
 
     /**
@@ -234,7 +176,7 @@ public class ExchangeNode extends PlanNode {
     @Override
     public boolean isSerialOperator() {
         return (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isUseSerialExchange()
-                || partitionType == TPartitionType.UNPARTITIONED) && mergeInfo != null;
+                || partitionType == TPartitionType.UNPARTITIONED) && mergeInfo == null;
     }
 
     @Override

@@ -29,7 +29,7 @@ const std::chrono::sys_days PartitionColumnTransformUtils::EPOCH = std::chrono::
         std::chrono::year {1970} / std::chrono::January / std::chrono::day {1});
 
 std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
-        const doris::iceberg::PartitionField& field, const TypeDescriptor& source_type) {
+        const doris::iceberg::PartitionField& field, const DataTypePtr& source_type) {
     auto& transform = field.transform();
     static const std::regex has_width(R"((\w+)\[(\d+)\])");
     std::smatch width_match;
@@ -39,7 +39,7 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         int parsed_width = std::stoi(width_match[2]);
 
         if (name == "truncate") {
-            switch (source_type.type) {
+            switch (source_type->get_primitive_type()) {
             case TYPE_INT: {
                 return std::make_unique<IntegerTruncatePartitionColumnTransform>(source_type,
                                                                                  parsed_width);
@@ -55,33 +55,33 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
                                                                                 parsed_width);
             }
             case TYPE_DECIMALV2: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal128V2>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMALV2>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL32: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal32>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL32>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL64: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal64>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL64>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL128I: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal128V3>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL128I>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL256: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal256>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL256>>(
                         source_type, parsed_width);
             }
             default: {
                 throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                        "Unsupported type {} for partition column transform {}",
-                                       source_type.debug_string(), transform);
+                                       source_type->get_name(), transform);
             }
             }
         } else if (name == "bucket") {
-            switch (source_type.type) {
+            switch (source_type->get_primitive_type()) {
             case TYPE_INT: {
                 return std::make_unique<IntBucketPartitionColumnTransform>(source_type,
                                                                            parsed_width);
@@ -105,29 +105,29 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
                                                                                  parsed_width);
             }
             case TYPE_DECIMALV2: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal128V2>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMALV2>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL32: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal32>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMAL32>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL64: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal64>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMAL64>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL128I: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal128V3>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMAL128I>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL256: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal256>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMAL256>>(
                         source_type, parsed_width);
             }
             default: {
                 throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                        "Unsupported type {} for partition column transform {}",
-                                       source_type.debug_string(), transform);
+                                       source_type->get_name(), transform);
             }
             }
         }
@@ -136,7 +136,7 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
     if (transform == "identity") {
         return std::make_unique<IdentityPartitionColumnTransform>(source_type);
     } else if (transform == "year") {
-        switch (source_type.type) {
+        switch (source_type->get_primitive_type()) {
         case TYPE_DATEV2: {
             return std::make_unique<DateYearPartitionColumnTransform>(source_type);
         }
@@ -146,11 +146,11 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Unsupported type {} for partition column transform {}",
-                                   source_type.debug_string(), transform);
+                                   source_type->get_name(), transform);
         }
         }
     } else if (transform == "month") {
-        switch (source_type.type) {
+        switch (source_type->get_primitive_type()) {
         case TYPE_DATEV2: {
             return std::make_unique<DateMonthPartitionColumnTransform>(source_type);
         }
@@ -160,11 +160,11 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Unsupported type {} for partition column transform {}",
-                                   source_type.debug_string(), transform);
+                                   source_type->get_name(), transform);
         }
         }
     } else if (transform == "day") {
-        switch (source_type.type) {
+        switch (source_type->get_primitive_type()) {
         case TYPE_DATEV2: {
             return std::make_unique<DateDayPartitionColumnTransform>(source_type);
         }
@@ -174,18 +174,18 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Unsupported type {} for partition column transform {}",
-                                   source_type.debug_string(), transform);
+                                   source_type->get_name(), transform);
         }
         }
     } else if (transform == "hour") {
-        switch (source_type.type) {
+        switch (source_type->get_primitive_type()) {
         case TYPE_DATETIMEV2: {
             return std::make_unique<TimestampHourPartitionColumnTransform>(source_type);
         }
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Unsupported type {} for partition column transform {}",
-                                   source_type.debug_string(), transform);
+                                   source_type->get_name(), transform);
         }
         }
     } else if (transform == "void") {
@@ -193,7 +193,7 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
     } else {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Unsupported type {} for partition column transform {}",
-                               source_type.debug_string(), transform);
+                               source_type->get_name(), transform);
     }
 }
 
@@ -201,15 +201,15 @@ std::string PartitionColumnTransform::name() const {
     return "default";
 }
 
-std::string PartitionColumnTransform::to_human_string(const TypeDescriptor& type,
+std::string PartitionColumnTransform::to_human_string(const DataTypePtr type,
                                                       const std::any& value) const {
     return get_partition_value(type, value);
 }
 
-std::string PartitionColumnTransform::get_partition_value(const TypeDescriptor& type,
+std::string PartitionColumnTransform::get_partition_value(const DataTypePtr type,
                                                           const std::any& value) const {
     if (value.has_value()) {
-        switch (type.type) {
+        switch (type->get_primitive_type()) {
         case TYPE_BOOLEAN: {
             return std::any_cast<bool>(value) ? "true" : "false";
         }
@@ -254,27 +254,27 @@ std::string PartitionColumnTransform::get_partition_value(const TypeDescriptor& 
         case TYPE_DATETIMEV2: {
             char buf[64];
             char* pos = std::any_cast<DateV2Value<DateTimeV2ValueType>>(value).to_string(
-                    buf, type.scale);
+                    buf, type->get_scale());
             return std::string(buf, pos - buf - 1);
         }
         case TYPE_DECIMALV2: {
-            return std::any_cast<Decimal128V2>(value).to_string(type.scale);
+            return std::any_cast<Decimal128V2>(value).to_string(type->get_scale());
         }
         case TYPE_DECIMAL32: {
-            return std::any_cast<Decimal32>(value).to_string(type.scale);
+            return std::any_cast<Decimal32>(value).to_string(type->get_scale());
         }
         case TYPE_DECIMAL64: {
-            return std::any_cast<Decimal64>(value).to_string(type.scale);
+            return std::any_cast<Decimal64>(value).to_string(type->get_scale());
         }
         case TYPE_DECIMAL128I: {
-            return std::any_cast<Decimal128V3>(value).to_string(type.scale);
+            return std::any_cast<Decimal128V3>(value).to_string(type->get_scale());
         }
         case TYPE_DECIMAL256: {
-            return std::any_cast<Decimal256>(value).to_string(type.scale);
+            return std::any_cast<Decimal256>(value).to_string(type->get_scale());
         }
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "Unsupported type {} for partition", type.debug_string());
+                                   "Unsupported type {} for partition", type->get_name());
         }
         }
     }

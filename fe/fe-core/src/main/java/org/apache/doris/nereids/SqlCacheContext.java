@@ -35,6 +35,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.cache.CacheProxy;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
@@ -43,6 +44,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
@@ -55,8 +58,9 @@ import java.util.Set;
 
 /** SqlCacheContext */
 public class SqlCacheContext {
+    private static final Logger LOG = LogManager.getLogger(SqlCacheContext.class);
     private final UserIdentity userIdentity;
-    private final TUniqueId queryId;
+    private volatile TUniqueId queryId;
     // if contains udf/udaf/tableValuesFunction we can not process it and skip use sql cache
     private volatile boolean cannotProcessExpression;
     private volatile String originSql;
@@ -95,9 +99,8 @@ public class SqlCacheContext {
 
     private volatile CacheKeyType cacheKeyType = CacheKeyType.SQL;
 
-    public SqlCacheContext(UserIdentity userIdentity, TUniqueId queryId) {
+    public SqlCacheContext(UserIdentity userIdentity) {
         this.userIdentity = Objects.requireNonNull(userIdentity, "userIdentity cannot be null");
-        this.queryId = Objects.requireNonNull(queryId, "queryId cannot be null");
     }
 
     public String getPhysicalPlan() {
@@ -140,11 +143,22 @@ public class SqlCacheContext {
             return;
         }
 
+        long version = 0;
+        try {
+            if (tableIf instanceof OlapTable) {
+                version = ((OlapTable) tableIf).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            // in cloud, getVisibleVersion throw exception, disable sql cache temporary
+            setHasUnsupportedTables(true);
+            LOG.warn("table {}, in cloud getVisibleVersion exception", tableIf.getName(), e);
+        }
+
         usedTables.put(
                 new FullTableName(database.getCatalog().getName(), database.getFullName(), tableIf.getName()),
                 new TableVersion(
                         tableIf.getId(),
-                        tableIf instanceof OlapTable ? ((OlapTable) tableIf).getVisibleVersion() : 0L,
+                        version,
                         tableIf.getType()
                 )
         );
@@ -422,6 +436,10 @@ public class SqlCacheContext {
         this.cacheKeyType = cacheKeyType;
     }
 
+    public void setQueryId(TUniqueId queryId) {
+        this.queryId = queryId;
+    }
+
     /** FullTableName */
     @lombok.Data
     @lombok.AllArgsConstructor
@@ -460,7 +478,6 @@ public class SqlCacheContext {
     @lombok.AllArgsConstructor
     public static class ScanTable {
         public final FullTableName fullTableName;
-        public final long latestVersion;
         public final List<Long> scanPartitions = Lists.newArrayList();
 
         public void addScanPartition(Long partitionId) {

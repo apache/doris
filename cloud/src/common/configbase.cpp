@@ -26,6 +26,7 @@
 #include <list>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <sstream>
 #include <utility>
 
@@ -38,7 +39,7 @@ namespace doris::cloud::config {
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
-std::mutex mutable_string_config_lock;
+std::shared_mutex mutable_string_config_lock;
 std::mutex conf_persist_lock;
 
 // trim string
@@ -406,7 +407,7 @@ bool do_set_config(const Register::Field& feild, const std::string& value, bool 
     UPDATE_FIELD(feild, value, double, need_persist);
     {
         // add lock to ensure thread safe
-        std::lock_guard<std::mutex> lock(mutable_string_config_lock);
+        std::unique_lock<std::shared_mutex> lock(mutable_string_config_lock);
         UPDATE_FIELD(feild, value, std::string, need_persist);
     }
     return false;
@@ -456,5 +457,9 @@ std::pair<bool, std::string> set_config(std::unordered_map<std::string, std::str
     return {false, fmt::format("dump config modification to custom_conf_path={} "
                                "failed, plz check config::custom_conf_path and io status",
                                custom_conf_path)};
+}
+
+std::shared_mutex* get_mutable_string_config_lock() {
+    return &mutable_string_config_lock;
 }
 } // namespace doris::cloud::config

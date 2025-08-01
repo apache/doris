@@ -35,6 +35,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -63,6 +64,11 @@ public class ShowGrantsCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (userIdent != null) {
             if (isAll) {
@@ -88,7 +94,10 @@ public class ShowGrantsCommand extends ShowCommand {
             throw new AnalysisException(String.format("User: %s does not exist", userIdent));
         }
         List<List<String>> infos = Env.getCurrentEnv().getAuth().getAuthInfo(userIdent);
-        return new ShowResultSet(META_DATA, infos);
+
+        // order by UserIdentity
+        infos.sort(Comparator.comparing(list -> list.isEmpty() ? "" : list.get(0)));
+        return new ShowResultSet(getMetaData(), infos);
     }
 
     @Override

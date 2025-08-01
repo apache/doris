@@ -28,7 +28,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Physical properties used in cascades.
+ * Physical properties used in cascades. If upstream mismatches downstream, a PhysicalDistribute will be generated.
  */
 public class PhysicalProperties {
 
@@ -51,6 +51,9 @@ public class PhysicalProperties {
 
     public static PhysicalProperties SINK_RANDOM_PARTITIONED
             = new PhysicalProperties(DistributionSpecHiveTableSinkUnPartitioned.INSTANCE);
+
+    // gather then broadcast to all BE with exact one instance
+    public static PhysicalProperties ALL_SINGLETON = new PhysicalProperties(DistributionSpecAllSingleton.INSTANCE);
 
     private final OrderSpec orderSpec;
 

@@ -17,18 +17,42 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+
 import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /** ExpressionNormalizationAndOptimization */
 public class ExpressionNormalizationAndOptimization extends ExpressionRewrite {
+
+    public static final ExpressionNormalizationAndOptimization FULL_RULE_INSTANCE
+            = new ExpressionNormalizationAndOptimization(true);
+
+    public static final ExpressionNormalizationAndOptimization NO_MIN_MAX_RANGE_INSTANCE
+            = new ExpressionNormalizationAndOptimization(false);
+
     /** ExpressionNormalizationAndOptimization */
-    public ExpressionNormalizationAndOptimization() {
-        super(new ExpressionRuleExecutor(
-                ImmutableList.<ExpressionRewriteRule>builder()
-                        .addAll(ExpressionNormalization.NORMALIZE_REWRITE_RULES)
-                        .addAll(ExpressionOptimization.OPTIMIZE_REWRITE_RULES)
-                        .addAll(ExpressionOptimization.ADD_RANGE)
-                        .build()
-        ));
+    public ExpressionNormalizationAndOptimization(boolean addRange) {
+        super(new ExpressionRuleExecutor(buildRewriteRule(addRange)));
+    }
+
+    // The ADD_RANGE will add 'AND (slot min max range)' to the expression, later the added min max range condition
+    // can be pushed down. At the beginning of rewrite phase, should add ADD_RANGE rules to infer the min max range.
+    // After push down the ranges, don't optimize the expression with the add ranges.
+    // So CONSTANT_PROPAGATION and PUSH_DOWN_FILTER will exclude ADD_RANGE rules.
+    private static List<ExpressionRewriteRule<ExpressionRewriteContext>> buildRewriteRule(boolean addRange) {
+        ImmutableList.Builder<ExpressionRewriteRule<ExpressionRewriteContext>> builder = ImmutableList.builder();
+        builder.addAll(ExpressionNormalization.NORMALIZE_REWRITE_RULES)
+                .addAll(ExpressionOptimization.OPTIMIZE_REWRITE_RULES);
+        if (addRange) {
+            builder.addAll(ExpressionOptimization.ADD_RANGE);
+        }
+        return builder.build();
+    }
+
+    @Override
+    public Expression rewrite(Expression expression, ExpressionRewriteContext expressionRewriteContext) {
+        return super.rewrite(expression, expressionRewriteContext);
     }
 }

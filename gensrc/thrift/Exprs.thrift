@@ -22,78 +22,80 @@ include "Types.thrift"
 include "Opcodes.thrift"
 
 enum TExprNodeType {
-  AGG_EXPR,
-  ARITHMETIC_EXPR,
-  BINARY_PRED,
-  BOOL_LITERAL,
-  CASE_EXPR,
-  CAST_EXPR,
-  COMPOUND_PRED,
-  DATE_LITERAL,
-  FLOAT_LITERAL,
-  INT_LITERAL,
-  DECIMAL_LITERAL,
-  IN_PRED,
-  IS_NULL_PRED,
-  LIKE_PRED,
-  LITERAL_PRED,
-  NULL_LITERAL,
-  SLOT_REF,
-  STRING_LITERAL,
-  TUPLE_IS_NULL_PRED,
-  INFO_FUNC,
-  FUNCTION_CALL,
-  ARRAY_LITERAL,
+  AGG_EXPR = 0,
+  ARITHMETIC_EXPR = 1,
+  BINARY_PRED = 2,
+  BOOL_LITERAL = 3,
+  CASE_EXPR = 4,
+  CAST_EXPR = 5,
+  COMPOUND_PRED = 6,
+  DATE_LITERAL = 7,
+  FLOAT_LITERAL = 8,
+  INT_LITERAL = 9,
+  DECIMAL_LITERAL = 10,
+  IN_PRED = 11,
+  IS_NULL_PRED = 12,
+  LIKE_PRED = 13,
+  LITERAL_PRED = 14,
+  NULL_LITERAL = 15,
+  SLOT_REF = 16,
+  STRING_LITERAL = 17,
+  TUPLE_IS_NULL_PRED = 18,
+  INFO_FUNC = 19,
+  FUNCTION_CALL = 20,
+  ARRAY_LITERAL = 21,
   
   // TODO: old style compute functions. this will be deprecated
-  COMPUTE_FUNCTION_CALL,
-  LARGE_INT_LITERAL,
-
+  COMPUTE_FUNCTION_CALL = 22,
+  LARGE_INT_LITERAL = 23,
+  
   // only used in runtime filter
-  BLOOM_PRED,
-
+  BLOOM_PRED = 24,
+  
   // for josn
-  JSON_LITERAL,
-
+  JSON_LITERAL = 25,
+  
   // only used in runtime filter
-  BITMAP_PRED,
-
+  BITMAP_PRED = 26,
+  
   // for fulltext search
-  MATCH_PRED,
-
+  MATCH_PRED = 27,
+  
   // for map 
-  MAP_LITERAL,
-
+  MAP_LITERAL = 28,
+  
   // for struct
-  STRUCT_LITERAL,
-
+  STRUCT_LITERAL = 29,
+  
   // for schema change
-  SCHEMA_CHANGE_EXPR,
+  SCHEMA_CHANGE_EXPR = 30,
   // for lambda function expr
-  LAMBDA_FUNCTION_EXPR,
-  LAMBDA_FUNCTION_CALL_EXPR,
+  LAMBDA_FUNCTION_EXPR = 31,
+  LAMBDA_FUNCTION_CALL_EXPR = 32,
   // for column_ref expr
-  COLUMN_REF,
-
-  IPV4_LITERAL,
-  IPV6_LITERAL
-
+  COLUMN_REF = 33,
+  
+  IPV4_LITERAL = 34,
+  IPV6_LITERAL = 35,
+  
   // only used in runtime filter
   // to prevent push to storage layer
-  NULL_AWARE_IN_PRED,
-  NULL_AWARE_BINARY_PRED,
+  NULL_AWARE_IN_PRED = 36,
+  NULL_AWARE_BINARY_PRED = 37,
+  TIMEV2_LITERAL = 38,
+  VIRTUAL_SLOT_REF = 39,
 }
 
 //enum TAggregationOp {
-//  INVALID,
-//  COUNT,
-//  MAX,
-//  DISTINCT_PC,
-//  MERGE_PC,
-//  DISTINCT_PCSA,
-//  MERGE_PCSA,
-//  MIN,
-//  SUM,
+//  INVALID = 0,
+//  COUNT = 1,
+//  MAX = 2,
+//  DISTINCT_PC = 3,
+//  MERGE_PC = 4,
+//  DISTINCT_PCSA = 5,
+//  MERGE_PCSA = 6,
+//  MIN = 7,
+//  SUM = 8,
 //}
 //
 //struct TAggregateExpr {
@@ -117,6 +119,10 @@ struct TCaseExpr {
 
 struct TDateLiteral {
   1: required string value
+}
+
+struct TTimeV2Literal {
+  1: required double value
 }
 
 struct TFloatLiteral {
@@ -161,6 +167,7 @@ struct TMatchPredicate {
   3: optional map<string, string> char_filter_map;
   4: optional bool parser_lowercase = true;
   5: optional string parser_stopwords = "";
+  6: optional string custom_analyzer = "";
 }
 
 struct TLiteralPredicate {
@@ -169,8 +176,8 @@ struct TLiteralPredicate {
 }
 
 enum TNullSide {
-   LEFT,
-   RIGHT
+   LEFT = 0,
+   RIGHT = 1
 }
 
 struct TTupleIsNullPredicate {
@@ -182,6 +189,7 @@ struct TSlotRef {
   1: required Types.TSlotId slot_id
   2: required Types.TTupleId tuple_id
   3: optional i32 col_unique_id
+  4: optional bool is_virtual_slot
 }
 
 struct TColumnRef {
@@ -268,6 +276,7 @@ struct TExprNode {
   34: optional TIPv4Literal ipv4_literal
   35: optional TIPv6Literal ipv6_literal
   36: optional string label // alias name, a/b in `select xxx as a, count(1) as b`
+  37: optional TTimeV2Literal timev2_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

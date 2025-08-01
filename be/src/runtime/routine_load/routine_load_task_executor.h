@@ -88,7 +88,7 @@ private:
     // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
     Status _prepare_ctx(const PKafkaMetaProxyRequest& request,
                         std::shared_ptr<StreamLoadContext> ctx);
-    bool _reach_memory_limit();
+    bool _reach_memory_limit(std::string& reason);
 
 private:
     ExecEnv* _exec_env = nullptr;

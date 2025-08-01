@@ -21,19 +21,18 @@
 
 #include <ostream>
 
-#include "gutil/strings/substitute.h"
+#include "common/cast_set.h"
 #include "short_key_index.h"
 #include "util/bvar_helper.h"
 #include "util/coding.h"
 
-using strings::Substitute;
-
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static bvar::Adder<size_t> g_short_key_index_memory_bytes("doris_short_key_index_memory_bytes");
 
 Status ShortKeyIndexBuilder::add_item(const Slice& key) {
-    put_varint32(&_offset_buf, _key_buf.size());
+    put_varint32(&_offset_buf, cast_set<uint32_t>(_key_buf.size()));
     _key_buf.append(key.data, key.size);
     _num_items++;
     return Status::OK();
@@ -42,12 +41,12 @@ Status ShortKeyIndexBuilder::add_item(const Slice& key) {
 Status ShortKeyIndexBuilder::finalize(uint32_t num_segment_rows, std::vector<Slice>* body,
                                       segment_v2::PageFooterPB* page_footer) {
     page_footer->set_type(segment_v2::SHORT_KEY_PAGE);
-    page_footer->set_uncompressed_size(_key_buf.size() + _offset_buf.size());
+    page_footer->set_uncompressed_size(cast_set<uint32_t>(_key_buf.size() + _offset_buf.size()));
 
     segment_v2::ShortKeyFooterPB* footer = page_footer->mutable_short_key_page_footer();
     footer->set_num_items(_num_items);
-    footer->set_key_bytes(_key_buf.size());
-    footer->set_offset_bytes(_offset_buf.size());
+    footer->set_key_bytes(cast_set<uint32_t>(_key_buf.size()));
+    footer->set_offset_bytes(cast_set<uint32_t>(_offset_buf.size()));
     footer->set_segment_id(_segment_id);
     footer->set_num_rows_per_block(_num_rows_per_block);
     footer->set_num_segment_rows(num_segment_rows);
@@ -104,4 +103,5 @@ ShortKeyIndexDecoder::~ShortKeyIndexDecoder() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

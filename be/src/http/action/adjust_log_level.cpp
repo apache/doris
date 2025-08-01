@@ -22,12 +22,13 @@
 #include "common/logging.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
+#include "util/string_util.h"
 
 namespace doris {
 
 // **Note**: If the module_name does not exist in the vlog modules, vlog
 // would create corresponding module for it.
-std::tuple<std::string, int, int> handle_request(HttpRequest* req) {
+Result<std::tuple<std::string, int, int>> handle_request(HttpRequest* req) {
     auto parse_param = [&req](std::string param) {
         const auto& value = req->param(param);
         if (value.empty()) {
@@ -38,21 +39,33 @@ std::tuple<std::string, int, int> handle_request(HttpRequest* req) {
     };
     const auto& module = parse_param("module");
     const auto& level = parse_param("level");
-    int new_level = std::stoi(level);
-    return std::make_tuple(module, google::SetVLOGLevel(module.c_str(), new_level), new_level);
+    auto result = safe_stoi(level, "level");
+    if (result.has_value()) {
+        return std::make_tuple(module, google::SetVLOGLevel(module.c_str(), result.value()),
+                               result.value());
+    } else {
+        return unexpected(std::move(result).error());
+    }
 }
 
 void AdjustLogLevelAction::handle(HttpRequest* req) {
     try {
         auto handle_result = handle_request(req);
-        auto msg =
-                fmt::format("adjust vlog of {} from {} to {} succeed", std::get<0>(handle_result),
-                            std::get<1>(handle_result), std::get<2>(handle_result));
-        LOG(INFO) << msg;
-        HttpChannel::send_reply(req, msg);
+        if (handle_result.has_value()) {
+            auto msg = fmt::format(
+                    "adjust vlog of {} from {} to {} succeed", std::get<0>(handle_result.value()),
+                    std::get<1>(handle_result.value()), std::get<2>(handle_result.value()));
+            LOG(INFO) << msg;
+            HttpChannel::send_reply(req, msg);
+        } else {
+            LOG(WARNING) << "adjust log level failed, error: " << handle_result.error();
+            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
+                                    handle_result.error().to_string_no_stack());
+            return;
+        }
     } catch (const std::exception& e) {
-        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
         LOG(WARNING) << "adjust log level failed, error: " << e.what();
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
         return;
     }
 }

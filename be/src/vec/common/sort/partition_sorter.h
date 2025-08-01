@@ -88,14 +88,15 @@ public:
 
     Status append_block(Block* block) override;
 
-    Status prepare_for_read() override;
+    Status prepare_for_read(bool is_spill) override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
     size_t data_size() const override { return _state->data_size(); }
-    int64 get_output_rows() const { return _output_total_rows; }
+    int64_t get_output_rows() const { return _output_total_rows; }
     void reset_sorter_state(RuntimeState* runtime_state);
     bool prepared_finish() { return _prepared_finish; }
+    void set_prepared_finish() { _prepared_finish = true; }
 
 private:
     Status _read_row_num(Block* block, bool* eos, int batch_size);
@@ -116,12 +117,12 @@ private:
 
     std::unique_ptr<MergeSorterState> _state;
     const RowDescriptor& _row_desc;
-    int64 _output_total_rows = 0;
-    int64 _output_distinct_rows = 0;
-    int64 _partition_inner_limit = 0;
+    int64_t _output_total_rows = 0;
+    int64_t _output_distinct_rows = 0;
+    int64_t _partition_inner_limit = 0;
     TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::type::ROW_NUMBER;
     SortCursorCmp* _previous_row = nullptr;
-    std::atomic_bool _prepared_finish = false;
+    bool _prepared_finish = false;
 };
 
 #include "common/compile_check_end.h"

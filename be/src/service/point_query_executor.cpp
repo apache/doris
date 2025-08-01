@@ -33,9 +33,9 @@
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
@@ -54,7 +54,6 @@
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
 #include "util/thrift_util.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -64,6 +63,8 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 class PointQueryResultBlockBuffer final : public vectorized::MySQLResultBlockBuffer {
 public:
@@ -93,6 +94,8 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     for (auto* slot : slots) {
         missing_cids.insert(slot->col_unique_id());
     }
+    // insert delete sign column id
+    missing_cids.insert(schema.columns()[schema.delete_sign_idx()]->unique_id());
     if (target_rs_column_id == -1) {
         // no row store columns
         return;
@@ -149,8 +152,12 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
+    bool has_delete_sign = false;
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
         auto* slot = tuple_desc()->slots()[i];
+        if (slot->col_name() == DELETE_SIGN) {
+            has_delete_sign = true;
+        }
         _col_uid_to_idx[slot->col_unique_id()] = i;
         _col_default_values[i] = slot->col_default_value();
     }
@@ -162,7 +169,9 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     }
 
     // get the delete sign idx in block
-    _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+    if (has_delete_sign) {
+        _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+    }
 
     if (schema.have_column(BeConsts::ROW_STORE_COL)) {
         const auto& column = *DORIS_TRY(schema.column(BeConsts::ROW_STORE_COL));
@@ -284,17 +293,17 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         auto reusable_ptr = std::make_shared<Reusable>();
         TDescriptorTable t_desc_tbl;
         TExprList t_output_exprs;
-        uint32_t len = request->desc_tbl().size();
+        auto len = cast_set<uint32_t>(request->desc_tbl().size());
         RETURN_IF_ERROR(
                 deserialize_thrift_msg(reinterpret_cast<const uint8_t*>(request->desc_tbl().data()),
                                        &len, false, &t_desc_tbl));
-        len = request->output_expr().size();
+        len = cast_set<uint32_t>(request->output_expr().size());
         RETURN_IF_ERROR(deserialize_thrift_msg(
                 reinterpret_cast<const uint8_t*>(request->output_expr().data()), &len, false,
                 &t_output_exprs));
         _reusable = reusable_ptr;
         TQueryOptions t_query_options;
-        len = request->query_options().size();
+        len = cast_set<uint32_t>(request->query_options().size());
         if (request->has_query_options()) {
             RETURN_IF_ERROR(deserialize_thrift_msg(
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
@@ -378,7 +387,7 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
     // 1. get primary key from conditions
     std::vector<OlapTuple> olap_tuples;
     olap_tuples.resize(request->key_tuples().size());
-    for (size_t i = 0; i < request->key_tuples().size(); ++i) {
+    for (int i = 0; i < request->key_tuples().size(); ++i) {
         const KeyTuple& key_tuple = request->key_tuples(i);
         for (const std::string& key_col : key_tuple.key_column_rep()) {
             olap_tuples[i].add_value(key_col);
@@ -402,7 +411,9 @@ Status PointQueryExecutor::_lookup_row_key() {
     Status st;
     if (_version >= 0) {
         CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
-        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(_version));
+        SyncOptions options;
+        options.query_version = _version;
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(options));
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
@@ -448,12 +459,12 @@ Status PointQueryExecutor::_lookup_row_data() {
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         if (_row_read_ctxs[i]._cached_row_data.valid()) {
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(),
                     _row_read_ctxs[i]._cached_row_data.data().data,
                     _row_read_ctxs[i]._cached_row_data.data().size, _reusable->get_col_uid_to_idx(),
                     *_result_block, _reusable->get_col_default_values(),
-                    _reusable->include_col_uids());
+                    _reusable->include_col_uids()));
             continue;
         }
         if (!_row_read_ctxs[i]._row_location.has_value()) {
@@ -468,10 +479,10 @@ Status PointQueryExecutor::_lookup_row_data() {
                     *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
                     use_row_cache));
             // serilize value to block, currently only jsonb row formt
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(), value.data(), value.size(),
                     _reusable->get_col_uid_to_idx(), *_result_block,
-                    _reusable->get_col_default_values(), _reusable->include_col_uids());
+                    _reusable->get_col_default_values(), _reusable->include_col_uids()));
         }
         if (!_reusable->missing_col_uids().empty()) {
             if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
@@ -508,9 +519,14 @@ Status PointQueryExecutor::_lookup_row_data() {
                 vectorized::MutableColumnPtr column =
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
-                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                        *_tablet->tablet_schema(), _reusable->tuple_desc()->slots()[pos], row_id,
-                        column, _read_stats, iter));
+                SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
+                                                                row_id, column, _read_stats, iter));
+                if (_tablet->tablet_schema()
+                            ->column_by_uid(slot->col_unique_id())
+                            .has_char_type()) {
+                    column->shrink_padding_chars();
+                }
             }
         }
     }
@@ -523,7 +539,7 @@ Status PointQueryExecutor::_lookup_row_data() {
         // thus missing in include_col_uids and missing_col_uids
         for (size_t i = 0; i < _result_block->columns(); ++i) {
             auto column = _result_block->get_by_position(i).column;
-            int padding_rows = _row_hits - column->size();
+            int padding_rows = _row_hits - cast_set<int>(column->size());
             if (padding_rows > 0) {
                 column->assume_mutable()->insert_many_defaults(padding_rows);
             }
@@ -593,5 +609,7 @@ Status PointQueryExecutor::_output_data() {
     _reusable->return_block(_result_block);
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

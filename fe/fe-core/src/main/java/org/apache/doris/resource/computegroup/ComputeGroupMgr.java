@@ -19,10 +19,13 @@ package org.apache.doris.resource.computegroup;
 
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Set;
 
@@ -34,11 +37,16 @@ public class ComputeGroupMgr {
         this.systemInfoService = systemInfoService;
     }
 
-    public ComputeGroup getComputeGroupByName(String name) {
+    public ComputeGroup getComputeGroupByName(String name) throws UserException {
         if (Config.isCloudMode()) {
-            return new CloudComputeGroup("", name, (CloudSystemInfoService) systemInfoService);
+            CloudSystemInfoService cloudSystemInfoService = (CloudSystemInfoService) systemInfoService;
+            String clusterId = cloudSystemInfoService.getCloudClusterIdByName(name);
+            if (StringUtils.isEmpty(clusterId)) {
+                throw new UserException("Can not find compute group:" + name);
+            }
+            return new CloudComputeGroup(clusterId, name, cloudSystemInfoService);
         } else {
-            return new ComputeGroup("", name, systemInfoService);
+            return new ComputeGroup(name, name, systemInfoService);
         }
     }
 
@@ -47,13 +55,21 @@ public class ComputeGroupMgr {
         for (Tag tag : rgTags) {
             tagStrSet.add(tag.value);
         }
-        return new MergedComputeGroup(tagStrSet, systemInfoService);
+        return new MergedComputeGroup(String.join(",", tagStrSet), tagStrSet, systemInfoService);
     }
 
     // to be compatible with resource tag's logic, if root/admin user not specify a resource tag,
     // which means return all backends.
     public ComputeGroup getAllBackendComputeGroup() {
         return new AllBackendComputeGroup(systemInfoService);
+    }
+
+    public Set<String> getAllComputeGroupIds() {
+        Set<String> ret = Sets.newHashSet();
+        for (Backend backend : systemInfoService.getAllClusterBackendsNoException().values()) {
+            ret.add(backend.getComputeGroup());
+        }
+        return ret;
     }
 
 }

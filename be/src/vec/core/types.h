@@ -26,14 +26,15 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "util/binary_cast.hpp"
 #include "vec/common/int_exp.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/wide_integer_to_string.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class BitmapValue;
 class HyperLogLog;
 class QuantileState;
@@ -50,64 +51,6 @@ namespace vectorized {
 /// Data types for representing elementary values from a database in RAM.
 
 struct Null {};
-
-// The identifier should be less than int16, because castexpr using the identifier
-// instead of type name as type parameter. It will using int16 as column type.
-enum class TypeIndex {
-    Nothing = 0,
-    UInt8 = 1,
-    UInt16 = 2,
-    UInt32 = 3,
-    UInt64 = 4,
-    UInt128 = 5,
-    Int8 = 6,
-    Int16 = 7,
-    Int32 = 8,
-    Int64 = 9,
-    Int128 = 10,
-    Float32 = 11,
-    Float64 = 12,
-    Date = 13,
-    DateTime = 14,
-    String = 15,
-    FixedString = 16,
-    Enum8 = 17,
-    Enum16 = 18,
-    Decimal32 = 19,
-    Decimal64 = 20,
-    Decimal128V2 = 21,
-    UUID = 22,
-    Array = 23,
-    Tuple = 24,
-    Set = 25,
-    Interval = 26,
-    Nullable = 27,
-    Function = 28,
-    AggregateFunction = 29,
-    LowCardinality = 30,
-    BitMap = 31,
-    HLL = 32,
-    DateV2 = 33,
-    DateTimeV2 = 34,
-    TimeV2 = 35,
-    FixedLengthObject = 36,
-    JSONB = 37,
-    Decimal128V3 = 38,
-    Map = 39,
-    Struct = 40,
-    VARIANT = 41,
-    QuantileState = 42,
-    Time = 43,
-    AggState = 44,
-    Decimal256 = 45,
-    IPv4 = 46,
-    IPv6 = 47,
-    Int256
-};
-
-struct Consted {
-    TypeIndex tp;
-};
 
 using UInt8 = uint8_t;
 using UInt16 = uint16_t;
@@ -150,189 +93,17 @@ inline constexpr bool IsNumber<Float32> = true;
 template <>
 inline constexpr bool IsNumber<Float64> = true;
 
-template <typename T>
-struct TypeName;
-
-// only used at predicate_column
-template <>
-struct TypeName<bool> {
-    static const char* get() { return "bool"; }
-};
-template <>
-struct TypeName<decimal12_t> {
-    static const char* get() { return "decimal12_t"; }
-};
-template <>
-struct TypeName<uint24_t> {
-    static const char* get() { return "uint24_t"; }
-};
-template <>
-struct TypeName<StringRef> {
-    static const char* get() { return "StringRef"; }
-};
-
-template <>
-struct TypeName<UInt8> {
-    static const char* get() { return "UInt8"; }
-};
-template <>
-struct TypeName<UInt16> {
-    static const char* get() { return "UInt16"; }
-};
-template <>
-struct TypeName<UInt32> {
-    static const char* get() { return "UInt32"; }
-};
-template <>
-struct TypeName<UInt64> {
-    static const char* get() { return "UInt64"; }
-};
-template <>
-struct TypeName<Int8> {
-    static const char* get() { return "Int8"; }
-};
-template <>
-struct TypeName<Int16> {
-    static const char* get() { return "Int16"; }
-};
-template <>
-struct TypeName<Int32> {
-    static const char* get() { return "Int32"; }
-};
-template <>
-struct TypeName<Int64> {
-    static const char* get() { return "Int64"; }
-};
-template <>
-struct TypeName<Float32> {
-    static const char* get() { return "Float32"; }
-};
-template <>
-struct TypeName<Float64> {
-    static const char* get() { return "Float64"; }
-};
-template <>
-struct TypeName<String> {
-    static const char* get() { return "String"; }
-};
-template <>
-struct TypeName<BitmapValue> {
-    static const char* get() { return "BitMap"; }
-};
-template <>
-struct TypeName<HyperLogLog> {
-    static const char* get() { return "HLL"; }
-};
-
-template <>
-struct TypeName<QuantileState> {
-    static const char* get() { return "QuantileState"; }
-};
-
-template <>
-struct TypeName<DecimalV2Value> {
-    static const char* get() { return "decimalv2"; }
-};
-
-template <>
-struct TypeName<VecDateTimeValue> {
-    static const char* get() { return "Datetime"; }
-};
-
-template <>
-struct TypeName<DateV2Value<DateV2ValueType>> {
-    static const char* get() { return "DateV2"; }
-};
-
-template <>
-struct TypeName<DateV2Value<DateTimeV2ValueType>> {
-    static const char* get() { return "DatetimeV2"; }
-};
-
-template <typename T>
-struct TypeId;
-template <>
-struct TypeId<UInt8> {
-    static constexpr const TypeIndex value = TypeIndex::UInt8;
-};
-template <>
-struct TypeId<UInt16> {
-    static constexpr const TypeIndex value = TypeIndex::UInt16;
-};
-template <>
-struct TypeId<UInt32> {
-    static constexpr const TypeIndex value = TypeIndex::UInt32;
-};
-template <>
-struct TypeId<UInt64> {
-    static constexpr const TypeIndex value = TypeIndex::UInt64;
-};
-template <>
-struct TypeId<Int8> {
-    static constexpr const TypeIndex value = TypeIndex::Int8;
-};
-template <>
-struct TypeId<Int16> {
-    static constexpr const TypeIndex value = TypeIndex::Int16;
-};
-template <>
-struct TypeId<Int32> {
-    static constexpr const TypeIndex value = TypeIndex::Int32;
-};
-template <>
-struct TypeId<Int64> {
-    static constexpr const TypeIndex value = TypeIndex::Int64;
-};
-template <>
-struct TypeId<Float32> {
-    static constexpr const TypeIndex value = TypeIndex::Float32;
-};
-template <>
-struct TypeId<Float64> {
-    static constexpr const TypeIndex value = TypeIndex::Float64;
-};
-template <>
-struct TypeId<String> {
-    static constexpr const TypeIndex value = TypeIndex::String;
-};
-
 /// Not a data type in database, defined just for convenience.
 using Strings = std::vector<String>;
 
 template <>
 inline constexpr bool IsNumber<IPv6> = true;
-template <>
-struct TypeName<IPv6> {
-    static const char* get() { return "IPv6"; }
-};
-template <>
-struct TypeId<IPv6> {
-    static constexpr const TypeIndex value = TypeIndex::IPv6;
-};
-
 using Int128 = __int128;
 
 template <>
 inline constexpr bool IsNumber<Int128> = true;
 template <>
-struct TypeName<Int128> {
-    static const char* get() { return "Int128"; }
-};
-template <>
 inline constexpr bool IsNumber<wide::Int256> = true;
-template <>
-struct TypeName<wide::Int256> {
-    static const char* get() { return "Int256"; }
-};
-template <>
-struct TypeId<Int128> {
-    static constexpr const TypeIndex value = TypeIndex::Int128;
-};
-
-template <>
-struct TypeId<wide::Int256> {
-    static constexpr const TypeIndex value = TypeIndex::Int256;
-};
 
 using Date = Int64;
 using DateTime = Int64;
@@ -355,7 +126,7 @@ inline constexpr Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
 }
 // gcc report error if add constexpr in declaration
 template <>
-inline wide::Int256 decimal_scale_multiplier<wide::Int256>(UInt32 scale) {
+inline constexpr wide::Int256 decimal_scale_multiplier<wide::Int256>(UInt32 scale) {
     return common::exp10_i256(scale);
 }
 template <typename T>
@@ -404,10 +175,10 @@ std::string decimal_to_string(const T& value, UInt32 scale) {
     if constexpr (std::is_same_v<T, wide::Int256>) {
         std::string num_str {wide::to_string(whole_part)};
         auto* end = fmt::format_to(str.data() + pos, "{}", num_str);
-        pos = end - str.data();
+        pos = cast_set<int>(end - str.data());
     } else {
         auto end = fmt::format_to(str.data() + pos, "{}", whole_part);
-        pos = end - str.data();
+        pos = cast_set<int>(end - str.data());
     }
 
     if (scale) {
@@ -461,10 +232,10 @@ size_t decimal_to_string(const T& value, char* dst, UInt32 scale, const T& scale
     if constexpr (std::is_same_v<T, wide::Int256>) {
         std::string num_str {wide::to_string(whole_part)};
         auto* end = fmt::format_to(dst + pos, "{}", num_str);
-        pos = end - dst;
+        pos = cast_set<int>(end - dst);
     } else {
         auto end = fmt::format_to(dst + pos, "{}", whole_part);
-        pos = end - dst;
+        pos = cast_set<int>(end - dst);
     }
 
     if (LIKELY(scale)) {
@@ -488,10 +259,10 @@ size_t decimal_to_string(const T& value, char* dst, UInt32 scale, const T& scale
             if constexpr (std::is_same_v<T, wide::Int256>) {
                 std::string num_str {wide::to_string(frac_part)};
                 auto* end = fmt::format_to(&dst[pos], "{}", num_str);
-                pos = end - dst;
+                pos = cast_set<int>(end - dst);
             } else {
                 auto end = fmt::format_to(&dst[pos], "{}", frac_part);
-                pos = end - dst;
+                pos = cast_set<int>(end - dst);
             }
         }
     }
@@ -517,11 +288,18 @@ template <typename T>
 concept DecimalNativeTypeConcept = std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
                                    std::is_same_v<T, Int128> || std::is_same_v<T, wide::Int256>;
 
+struct Decimal128V3;
+#include "common/compile_check_avoid_begin.h"
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
+//TODO: split to individual file of Decimal
 template <DecimalNativeTypeConcept T>
 struct Decimal {
     using NativeType = T;
+    static constexpr PrimitiveType PType = std::is_same_v<T, Int32>    ? TYPE_DECIMAL32
+                                           : std::is_same_v<T, Int64>  ? TYPE_DECIMAL64
+                                           : std::is_same_v<T, Int128> ? TYPE_DECIMALV2
+                                                                       : TYPE_DECIMAL256;
 
     static constexpr bool IsInt256 = std::is_same_v<T, wide::Int256>;
 
@@ -548,7 +326,9 @@ struct Decimal {
         return T(value);
     }
 
-    static Decimal double_to_decimal(double value_) {
+    static Decimal double_to_decimalv2(double value_)
+        requires(std::is_same_v<T, Int128>)
+    {
         DecimalV2Value decimal_value;
         decimal_value.assign_from_double(value_);
         return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));
@@ -581,20 +361,6 @@ struct Decimal {
 
     operator T() const { return value; }
 
-    operator wide::Int256() const
-        requires(!IsInt256)
-    {
-        wide::Int256 result;
-        wide::Int256::_impl::wide_integer_from_builtin(result, value);
-        return result;
-    }
-
-    operator Int128() const
-        requires(IsInt256)
-    {
-        return (Int128)value.items[0] + ((Int128)(value.items[1]) << 64);
-    }
-
     const Decimal<T>& operator++() {
         value++;
         return *this;
@@ -625,11 +391,7 @@ struct Decimal {
         return *this;
     }
 
-    auto operator<=>(const Decimal<T>& x) const
-        requires(!Decimal<T>::IsInt256)
-    {
-        return value <=> x.value;
-    }
+    auto operator<=>(const Decimal<T>& x) const { return value <=> x.value; }
 
     auto operator==(const Decimal<T>& x) const { return value == x.value; }
 
@@ -685,6 +447,7 @@ inline Decimal<T> operator%(const Decimal<T>& x, const Decimal<T>& y) {
 }
 
 struct Decimal128V3 : public Decimal<Int128> {
+    static constexpr PrimitiveType PType = TYPE_DECIMAL128I;
     Decimal128V3() = default;
 
 #define DECLARE_NUMERIC_CTOR(TYPE) \
@@ -702,11 +465,17 @@ struct Decimal128V3 : public Decimal<Int128> {
 #undef DECLARE_NUMERIC_CTOR
 
     template <typename U>
-    Decimal128V3(const Decimal<U>& x) {
-        value = x;
+    Decimal128V3(const Decimal<U>& x)
+        requires(!Decimal<U>::IsInt256)
+    {
+        value = x.value;
+    }
+    static Decimal128V3 from_int_frac(Int128 integer, Int128 fraction, int scale) {
+        return {integer * common::exp10_i128(scale) + fraction};
     }
 };
 
+#include "common/compile_check_avoid_end.h"
 using Decimal32 = Decimal<Int32>;
 using Decimal64 = Decimal<Int64>;
 using Decimal128V2 = Decimal<Int128>;
@@ -725,49 +494,6 @@ inline bool operator>=(const Decimal256& x, const Decimal256& y) {
     return x.value >= y.value;
 }
 
-template <>
-struct TypeName<Decimal32> {
-    static const char* get() { return "Decimal32"; }
-};
-template <>
-struct TypeName<Decimal64> {
-    static const char* get() { return "Decimal64"; }
-};
-template <>
-struct TypeName<Decimal128V2> {
-    static const char* get() { return "Decimal128V2"; }
-};
-template <>
-struct TypeName<Decimal128V3> {
-    static const char* get() { return "Decimal128V3"; }
-};
-
-template <>
-struct TypeName<Decimal256> {
-    static const char* get() { return "Decimal256"; }
-};
-
-template <>
-struct TypeId<Decimal32> {
-    static constexpr const TypeIndex value = TypeIndex::Decimal32;
-};
-template <>
-struct TypeId<Decimal64> {
-    static constexpr const TypeIndex value = TypeIndex::Decimal64;
-};
-template <>
-struct TypeId<Decimal128V2> {
-    static constexpr const TypeIndex value = TypeIndex::Decimal128V2;
-};
-template <>
-struct TypeId<Decimal128V3> {
-    static constexpr const TypeIndex value = TypeIndex::Decimal128V3;
-};
-template <>
-struct TypeId<Decimal256> {
-    static constexpr const TypeIndex value = TypeIndex::Decimal256;
-};
-
 template <typename T>
 constexpr bool IsDecimalNumber = false;
 template <>
@@ -778,6 +504,8 @@ template <>
 inline constexpr bool IsDecimalNumber<Decimal128V2> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal128V3> = true;
+template <>
+inline constexpr bool IsDecimalNumber<DecimalV2Value> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal256> = true;
 
@@ -792,20 +520,22 @@ template <>
 inline constexpr bool IsDecimal128V3<Decimal128V3> = true;
 
 template <typename T>
+constexpr bool IsDecimal64 = false;
+template <>
+inline constexpr bool IsDecimal64<Decimal64> = true;
+
+template <typename T>
+constexpr bool IsDecimal32 = false;
+template <>
+inline constexpr bool IsDecimal32<Decimal32> = true;
+
+template <typename T>
 constexpr bool IsDecimal256 = false;
 template <>
 inline constexpr bool IsDecimal256<Decimal256> = true;
 
 template <typename T>
 constexpr bool IsDecimalV2 = IsDecimal128V2<T> && !IsDecimal128V3<T>;
-
-template <typename T, typename U>
-using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
-                                          std::conditional_t<IsDecimalNumber<T>, Decimal128V3, U>>;
-
-template <typename T, typename U>
-using DisposeDecimal256 = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
-                                             std::conditional_t<IsDecimalNumber<T>, Decimal256, U>>;
 
 template <typename T>
 constexpr bool IsFloatNumber = false;
@@ -839,113 +569,9 @@ struct NativeType<Decimal256> {
     using Type = wide::Int256;
 };
 
-// NOLINTBEGIN(readability-function-size)
-inline const char* getTypeName(TypeIndex idx) {
-    switch (idx) {
-    case TypeIndex::Nothing:
-        return "Nothing";
-    case TypeIndex::UInt8:
-        return TypeName<UInt8>::get();
-    case TypeIndex::UInt16:
-        return TypeName<UInt16>::get();
-    case TypeIndex::UInt32:
-        return TypeName<UInt32>::get();
-    case TypeIndex::UInt64:
-        return TypeName<UInt64>::get();
-    case TypeIndex::UInt128:
-        return "UInt128";
-    case TypeIndex::Int8:
-        return TypeName<Int8>::get();
-    case TypeIndex::Int16:
-        return TypeName<Int16>::get();
-    case TypeIndex::Int32:
-        return TypeName<Int32>::get();
-    case TypeIndex::Int64:
-        return TypeName<Int64>::get();
-    case TypeIndex::Int128:
-        return TypeName<Int128>::get();
-    case TypeIndex::Int256:
-        return TypeName<wide::Int256>::get();
-    case TypeIndex::Float32:
-        return TypeName<Float32>::get();
-    case TypeIndex::Float64:
-        return TypeName<Float64>::get();
-    case TypeIndex::Date:
-        return "Date";
-    case TypeIndex::DateTime:
-        return "DateTime";
-    case TypeIndex::DateV2:
-        return "DateV2";
-    case TypeIndex::DateTimeV2:
-        return "DateTimeV2";
-    case TypeIndex::TimeV2:
-        return "TimeV2";
-    case TypeIndex::IPv4:
-        return "IPv4";
-    case TypeIndex::IPv6:
-        return "IPv6";
-    case TypeIndex::String:
-        return TypeName<String>::get();
-    case TypeIndex::FixedString:
-        return "FixedString";
-    case TypeIndex::Enum8:
-        return "Enum8";
-    case TypeIndex::Enum16:
-        return "Enum16";
-    case TypeIndex::Decimal32:
-        return TypeName<Decimal32>::get();
-    case TypeIndex::Decimal64:
-        return TypeName<Decimal64>::get();
-    case TypeIndex::Decimal128V2:
-        return TypeName<Decimal128V2>::get();
-    case TypeIndex::Decimal128V3:
-        return TypeName<Decimal128V3>::get();
-    case TypeIndex::Decimal256:
-        return TypeName<Decimal256>::get();
-    case TypeIndex::UUID:
-        return "UUID";
-    case TypeIndex::Array:
-        return "Array";
-    case TypeIndex::Tuple:
-        return "Tuple";
-    case TypeIndex::Map:
-        return "Map";
-    case TypeIndex::Set:
-        return "Set";
-    case TypeIndex::Interval:
-        return "Interval";
-    case TypeIndex::Nullable:
-        return "Nullable";
-    case TypeIndex::Function:
-        return "Function";
-    case TypeIndex::AggregateFunction:
-        return "AggregateFunction";
-    case TypeIndex::LowCardinality:
-        return "LowCardinality";
-    case TypeIndex::VARIANT:
-        return "Variant";
-    case TypeIndex::BitMap:
-        return TypeName<BitmapValue>::get();
-    case TypeIndex::HLL:
-        return TypeName<HyperLogLog>::get();
-    case TypeIndex::FixedLengthObject:
-        return "FixedLengthObject";
-    case TypeIndex::JSONB:
-        return "JSONB";
-    case TypeIndex::Struct:
-        return "Struct";
-    case TypeIndex::QuantileState:
-        return TypeName<QuantileState>::get();
-    case TypeIndex::AggState:
-        return "AggState";
-    case TypeIndex::Time:
-        return "Time";
-    }
-
-    throw Exception(Status::FatalError("__builtin_unreachable"));
-}
 // NOLINTEND(readability-function-size)
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris
 
 /// Specialization of `std::hash` for the Decimal<T> types.
@@ -981,23 +607,28 @@ struct std::hash<doris::vectorized::Decimal256> {
     }
 };
 
-constexpr bool typeindex_is_int(doris::vectorized::TypeIndex index) {
-    using TypeIndex = doris::vectorized::TypeIndex;
-    switch (index) {
-    case TypeIndex::UInt8:
-    case TypeIndex::UInt16:
-    case TypeIndex::UInt32:
-    case TypeIndex::UInt64:
-    case TypeIndex::UInt128:
-    case TypeIndex::Int8:
-    case TypeIndex::Int16:
-    case TypeIndex::Int32:
-    case TypeIndex::Int64:
-    case TypeIndex::Int128: {
-        return true;
+template <typename T>
+struct fmt::formatter<doris::vectorized::Decimal<T>> {
+    constexpr auto parse(format_parse_context& ctx) {
+        const auto* it = ctx.begin();
+        const auto* end = ctx.end();
+
+        /// Only support {}.
+        if (it != end && *it != '}') {
+            throw format_error("invalid format");
+        }
+
+        return it;
     }
-    default: {
-        return false;
+
+    template <typename FormatContext>
+    auto format(const doris::vectorized::Decimal<T>& value, FormatContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", to_string(value.value));
     }
-    }
-}
+};
+
+extern template struct fmt::formatter<doris::vectorized::Decimal32>;
+extern template struct fmt::formatter<doris::vectorized::Decimal64>;
+extern template struct fmt::formatter<doris::vectorized::Decimal128V2>;
+extern template struct fmt::formatter<doris::vectorized::Decimal128V3>;
+extern template struct fmt::formatter<doris::vectorized::Decimal256>;

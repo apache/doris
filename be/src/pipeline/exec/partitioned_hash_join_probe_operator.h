@@ -59,10 +59,16 @@ public:
     Status finish_spilling(uint32_t partition_index);
 
     template <bool spilled>
-    void update_build_profile(RuntimeProfile* child_profile);
+    void update_build_custom_profile(RuntimeProfile* child_profile);
 
     template <bool spilled>
-    void update_probe_profile(RuntimeProfile* child_profile);
+    void update_probe_custom_profile(RuntimeProfile* child_profile);
+
+    template <bool spilled>
+    void update_build_common_profile(RuntimeProfile* child_profile);
+
+    template <bool spilled>
+    void update_probe_common_profile(RuntimeProfile* child_profile);
 
     std::string debug_string(int indentation_level = 0) const override;
 
@@ -92,8 +98,6 @@ private:
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
     bool _need_to_setup_internal_operators {true};
-
-    std::shared_ptr<Dependency> _spill_dependency;
 
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
@@ -169,8 +173,6 @@ private:
 
     [[nodiscard]] Status _setup_internal_operators(PartitionedHashJoinProbeLocalState& local_state,
                                                    RuntimeState* state) const;
-    [[nodiscard]] Status _setup_internal_operator_for_non_spill(
-            PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state);
 
     bool _should_revoke_memory(RuntimeState* state) const;
 

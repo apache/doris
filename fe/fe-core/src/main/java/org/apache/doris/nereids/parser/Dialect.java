@@ -66,7 +66,11 @@ public enum Dialect {
     /**
      * oracle parser dialect
      */
-    ORACLE("oracle");
+    ORACLE("oracle"),
+    /**
+     * starrocks parser dialect
+     */
+    STARROCKS("starrocks");
 
     public static final int MAX_DIALECT_SIZE = Dialect.values().length;
 

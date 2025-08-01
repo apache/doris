@@ -195,10 +195,10 @@ public class TrinoConnectorExternalTable extends ExternalTable {
             return ScalarType.createDateV2Type();
         } else if (type instanceof TimestampType) {
             TimestampType timestampType = (TimestampType) type;
-            return ScalarType.createDatetimeV2Type(timestampType.getPrecision());
+            return ScalarType.createDatetimeV2Type(getMaxDatetimePrecision(timestampType.getPrecision()));
         } else if (type instanceof TimestampWithTimeZoneType) {
             TimestampWithTimeZoneType timestampWithTimeZoneType = (TimestampWithTimeZoneType) type;
-            return ScalarType.createDatetimeV2Type(timestampWithTimeZoneType.getPrecision());
+            return ScalarType.createDatetimeV2Type(getMaxDatetimePrecision(timestampWithTimeZoneType.getPrecision()));
         } else if (type instanceof io.trino.spi.type.ArrayType) {
             Type elementType = trinoConnectorTypeToDorisType(
                     ((io.trino.spi.type.ArrayType) type).getElementType());
@@ -223,6 +223,10 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         } else {
             throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
+    }
+
+    private int getMaxDatetimePrecision(int precision) {
+        return Math.min(precision, 6);
     }
 
     public ConnectorTableHandle getConnectorTableHandle() {

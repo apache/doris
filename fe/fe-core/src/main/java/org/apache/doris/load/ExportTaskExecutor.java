@@ -198,7 +198,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         // Since originStmt is empty, reverting to the old optimizer when the new optimizer is enabled is meaningless.
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(exportJob.getTableName().getDb());
-        connectContext.setQualifiedUser(exportJob.getQualifiedUser());
         connectContext.setCurrentUserIdentity(exportJob.getUserIdentity());
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());

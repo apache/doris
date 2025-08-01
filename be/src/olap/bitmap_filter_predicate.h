@@ -20,14 +20,10 @@
 #include <cstdint>
 
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
 #include "olap/wrapper_field.h"
-#include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
 template <PrimitiveType T>
@@ -68,6 +64,8 @@ public:
         return _specific_filter->contains_any(min_value, max_value);
     }
 
+    using ColumnPredicate::evaluate;
+
     Status evaluate(BitmapIndexIterator*, uint32_t, roaring::Roaring*) const override {
         return Status::OK();
     }
@@ -102,7 +100,6 @@ private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
 
-    int get_filter_id() const override { return _filter->get_filter_id(); }
     bool is_runtime_filter() const override { return true; }
 };
 
@@ -118,8 +115,7 @@ uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColu
     } else {
         new_size = evaluate<false>(column, nullptr, sel, size);
     }
-    _evaluated_rows += size;
-    _passed_rows += new_size;
+    update_filter_info(size - new_size, size);
     return new_size;
 }
 } //namespace doris

@@ -15,11 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <brpc/controller.h>
 #include <brpc/uri.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
+#include <google/protobuf/message.h>
+#include <google/protobuf/util/json_util.h>
 
 #include <bit>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -29,16 +33,19 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-service/meta_service_tablet_stats.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/codec.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
 
@@ -79,6 +86,21 @@ struct KeyInfoSetter {
     std::vector<const std::string*> params;
 };
 // clang-format on
+
+template <typename Message>
+static std::shared_ptr<Message> parse_json(const std::string& json) {
+    static_assert(std::is_base_of_v<google::protobuf::Message, Message>);
+    auto ret = std::make_shared<Message>();
+    auto st = google::protobuf::util::JsonStringToMessage(json, ret.get());
+    if (st.ok()) return ret;
+    std::string err = "failed to strictly parse json message, error: " + st.ToString();
+    LOG_WARNING(err).tag("json", json);
+    // ignore unknown fields
+    // google::protobuf::util::JsonParseOptions json_parse_options;
+    // json_parse_options.ignore_unknown_fields = true;
+    // return google::protobuf::util::JsonStringToMessage(body, req, json_parse_options);
+    return nullptr;
+}
 
 using param_type = const std::vector<const std::string*>;
 
@@ -177,41 +199,45 @@ static std::string parse_tablet_stats(const ValueBuf& buf) {
 }
 
 // See keys.h to get all types of key, e.g: MetaRowsetKeyInfo
-// key_type -> {{param1, param2 ...}, key_encoding_func, value_parsing_func}
-// where params are the input for key_encoding_func
+// key_type -> {{param_name1, param_name2 ...}, key_encoding_func, serialized_pb_to_json_parsing_func, json_to_proto_parsing_func}
+// where param names are the input for key_encoding_func
 // clang-format off
+//                        key_type
 static std::unordered_map<std::string_view,
-                          std::tuple<std::vector<std::string_view>, std::function<std::string(param_type&)>, std::function<std::string(const ValueBuf&)>>> param_set {
-    {"InstanceKey",                {{"instance_id"},                                                 [](param_type& p) { return instance_key(KeyInfoSetter<InstanceKeyInfo>{p}.get()); }                                      , parse<InstanceInfoPB>}}          ,
-    {"TxnLabelKey",                {{"instance_id", "db_id", "label"},                               [](param_type& p) { return txn_label_key(KeyInfoSetter<TxnLabelKeyInfo>{p}.get()); }                                     , parse_txn_label}}                ,
-    {"TxnInfoKey",                 {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_info_key(KeyInfoSetter<TxnInfoKeyInfo>{p}.get()); }                                       , parse<TxnInfoPB>}}               ,
-    {"TxnIndexKey",                {{"instance_id", "txn_id"},                                       [](param_type& p) { return txn_index_key(KeyInfoSetter<TxnIndexKeyInfo>{p}.get()); }                                     , parse<TxnIndexPB>}}              ,
-    {"TxnRunningKey",              {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_running_key(KeyInfoSetter<TxnRunningKeyInfo>{p}.get()); }                                 , parse<TxnRunningPB>}}            ,
-    {"PartitionVersionKey",        {{"instance_id", "db_id", "tbl_id", "partition_id"},              [](param_type& p) { return partition_version_key(KeyInfoSetter<PartitionVersionKeyInfo>{p}.get()); }                     , parse<VersionPB>}}               ,
-    {"TableVersionKey",            {{"instance_id", "db_id", "tbl_id"},                              [](param_type& p) { return table_version_key(KeyInfoSetter<TableVersionKeyInfo>{p}.get()); }                             , parse<VersionPB>}}               ,
-    {"MetaRowsetKey",              {{"instance_id", "tablet_id", "version"},                         [](param_type& p) { return meta_rowset_key(KeyInfoSetter<MetaRowsetKeyInfo>{p}.get()); }                                 , parse<doris::RowsetMetaCloudPB>}}     ,
-    {"MetaRowsetTmpKey",           {{"instance_id", "txn_id", "tablet_id"},                          [](param_type& p) { return meta_rowset_tmp_key(KeyInfoSetter<MetaRowsetTmpKeyInfo>{p}.get()); }                          , parse<doris::RowsetMetaCloudPB>}}     ,
-    {"MetaTabletKey",              {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return meta_tablet_key(KeyInfoSetter<MetaTabletKeyInfo>{p}.get()); }                                 , parse<doris::TabletMetaCloudPB>}}     ,
-    {"MetaTabletIdxKey",           {{"instance_id", "tablet_id"},                                    [](param_type& p) { return meta_tablet_idx_key(KeyInfoSetter<MetaTabletIdxKeyInfo>{p}.get()); }                          , parse<TabletIndexPB>}}           ,
-    {"RecycleIndexKey",            {{"instance_id", "index_id"},                                     [](param_type& p) { return recycle_index_key(KeyInfoSetter<RecycleIndexKeyInfo>{p}.get()); }                             , parse<RecycleIndexPB>}}          ,
-    {"RecyclePartKey",             {{"instance_id", "part_id"},                                      [](param_type& p) { return recycle_partition_key(KeyInfoSetter<RecyclePartKeyInfo>{p}.get()); }                          , parse<RecyclePartitionPB>}}      ,
-    {"RecycleRowsetKey",           {{"instance_id", "tablet_id", "rowset_id"},                       [](param_type& p) { return recycle_rowset_key(KeyInfoSetter<RecycleRowsetKeyInfo>{p}.get()); }                           , parse<RecycleRowsetPB>}}         ,
-    {"RecycleTxnKey",              {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return recycle_txn_key(KeyInfoSetter<RecycleTxnKeyInfo>{p}.get()); }                                 , parse<RecycleTxnPB>}}            ,
-    {"StatsTabletKey",             {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return stats_tablet_key(KeyInfoSetter<StatsTabletKeyInfo>{p}.get()); }                               , parse_tablet_stats}}           ,
-    {"JobTabletKey",               {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return job_tablet_key(KeyInfoSetter<JobTabletKeyInfo>{p}.get()); }                                   , parse<TabletJobInfoPB>}}         ,
-    {"CopyJobKey",                 {{"instance_id", "stage_id", "table_id", "copy_id", "group_id"},  [](param_type& p) { return copy_job_key(KeyInfoSetter<CopyJobKeyInfo>{p}.get()); }                                       , parse<CopyJobPB>}}               ,
-    {"CopyFileKey",                {{"instance_id", "stage_id", "table_id", "obj_key", "obj_etag"},  [](param_type& p) { return copy_file_key(KeyInfoSetter<CopyFileKeyInfo>{p}.get()); }                                     , parse<CopyFilePB>}}              ,
-    {"RecycleStageKey",            {{"instance_id", "stage_id"},                                     [](param_type& p) { return recycle_stage_key(KeyInfoSetter<RecycleStageKeyInfo>{p}.get()); }                             , parse<RecycleStagePB>}}          ,
-    {"JobRecycleKey",              {{"instance_id"},                                                 [](param_type& p) { return job_check_key(KeyInfoSetter<JobRecycleKeyInfo>{p}.get()); }                                   , parse<JobRecyclePB>}}            ,
-    {"MetaSchemaKey",              {{"instance_id", "index_id", "schema_version"},                   [](param_type& p) { return meta_schema_key(KeyInfoSetter<MetaSchemaKeyInfo>{p}.get()); }                                 , parse_tablet_schema}}            ,
-    {"MetaDeleteBitmap",           {{"instance_id", "tablet_id", "rowest_id", "version", "seg_id"},  [](param_type& p) { return meta_delete_bitmap_key(KeyInfoSetter<MetaDeleteBitmapInfo>{p}.get()); }                       , parse_delete_bitmap}}            ,
-    {"MetaDeleteBitmapUpdateLock", {{"instance_id", "table_id", "partition_id"},                     [](param_type& p) { return meta_delete_bitmap_update_lock_key( KeyInfoSetter<MetaDeleteBitmapUpdateLockInfo>{p}.get()); }, parse<DeleteBitmapUpdateLockPB>}},
-    {"MetaPendingDeleteBitmap",    {{"instance_id", "tablet_id"},                                    [](param_type& p) { return meta_pending_delete_bitmap_key( KeyInfoSetter<MetaPendingDeleteBitmapInfo>{p}.get()); }       , parse<PendingDeleteBitmapPB>}}   ,
-    {"RLJobProgressKey",           {{"instance_id", "db_id", "job_id"},                              [](param_type& p) { return rl_job_progress_key_info( KeyInfoSetter<RLJobProgressKeyInfo>{p}.get()); }                    , parse<RoutineLoadProgressPB>}}   ,
-    {"MetaServiceRegistryKey",     {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_registry_key(); }                                                         , parse<ServiceRegistryPB>}}       ,
-    {"MetaServiceArnInfoKey",      {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_arn_info_key(); }                                                         , parse<RamUserPB>}}               ,
-    {"MetaServiceEncryptionKey",   {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_encryption_key_info_key(); }                                              , parse<EncryptionKeyInfoPB>}}     ,
-    {"StorageVaultKey",           {{"instance_id", "vault_id"},                              [](param_type& p) { return storage_vault_key(KeyInfoSetter<StorageVaultKeyInfo>{p}.get()); }                    , parse<StorageVaultPB>}}   ,};
+                                     // params                      key_encoding_func                        serialized_pb_to_json_parsing_func           json_to_proto_parsing_func
+                          std::tuple<std::vector<std::string_view>, std::function<std::string(param_type&)>, std::function<std::string(const ValueBuf&)>, std::function<std::shared_ptr<google::protobuf::Message>(const std::string&)>>> param_set {
+    {"InstanceKey",                {{"instance_id"},                                                 [](param_type& p) { return instance_key(KeyInfoSetter<InstanceKeyInfo>{p}.get());                                      }, parse<InstanceInfoPB>           , parse_json<InstanceInfoPB>}},
+    {"TxnLabelKey",                {{"instance_id", "db_id", "label"},                               [](param_type& p) { return txn_label_key(KeyInfoSetter<TxnLabelKeyInfo>{p}.get());                                     }, parse_txn_label                 , parse_json<TxnLabelPB>}},
+    {"TxnInfoKey",                 {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_info_key(KeyInfoSetter<TxnInfoKeyInfo>{p}.get());                                       }, parse<TxnInfoPB>                , parse_json<TxnInfoPB>}},
+    {"TxnIndexKey",                {{"instance_id", "txn_id"},                                       [](param_type& p) { return txn_index_key(KeyInfoSetter<TxnIndexKeyInfo>{p}.get());                                     }, parse<TxnIndexPB>               , parse_json<TxnIndexPB>}},
+    {"TxnRunningKey",              {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_running_key(KeyInfoSetter<TxnRunningKeyInfo>{p}.get());                                 }, parse<TxnRunningPB>             , parse_json<TxnRunningPB>}},
+    {"PartitionVersionKey",        {{"instance_id", "db_id", "tbl_id", "partition_id"},              [](param_type& p) { return partition_version_key(KeyInfoSetter<PartitionVersionKeyInfo>{p}.get());                     }, parse<VersionPB>                , parse_json<VersionPB>}},
+    {"TableVersionKey",            {{"instance_id", "db_id", "tbl_id"},                              [](param_type& p) { return table_version_key(KeyInfoSetter<TableVersionKeyInfo>{p}.get());                             }, parse<VersionPB>                , parse_json<VersionPB>}},
+    {"MetaRowsetKey",              {{"instance_id", "tablet_id", "version"},                         [](param_type& p) { return meta_rowset_key(KeyInfoSetter<MetaRowsetKeyInfo>{p}.get());                                 }, parse<doris::RowsetMetaCloudPB> , parse_json<doris::RowsetMetaCloudPB>}},
+    {"MetaRowsetTmpKey",           {{"instance_id", "txn_id", "tablet_id"},                          [](param_type& p) { return meta_rowset_tmp_key(KeyInfoSetter<MetaRowsetTmpKeyInfo>{p}.get());                          }, parse<doris::RowsetMetaCloudPB> , parse_json<doris::RowsetMetaCloudPB>}},
+    {"MetaTabletKey",              {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return meta_tablet_key(KeyInfoSetter<MetaTabletKeyInfo>{p}.get());                                 }, parse<doris::TabletMetaCloudPB> , parse_json<doris::TabletMetaCloudPB>}},
+    {"MetaTabletIdxKey",           {{"instance_id", "tablet_id"},                                    [](param_type& p) { return meta_tablet_idx_key(KeyInfoSetter<MetaTabletIdxKeyInfo>{p}.get());                          }, parse<TabletIndexPB>            , parse_json<TabletIndexPB>}},
+    {"RecycleIndexKey",            {{"instance_id", "index_id"},                                     [](param_type& p) { return recycle_index_key(KeyInfoSetter<RecycleIndexKeyInfo>{p}.get());                             }, parse<RecycleIndexPB>           , parse_json<RecycleIndexPB>}},
+    {"RecyclePartKey",             {{"instance_id", "part_id"},                                      [](param_type& p) { return recycle_partition_key(KeyInfoSetter<RecyclePartKeyInfo>{p}.get());                          }, parse<RecyclePartitionPB>       , parse_json<RecyclePartitionPB>}},
+    {"RecycleRowsetKey",           {{"instance_id", "tablet_id", "rowset_id"},                       [](param_type& p) { return recycle_rowset_key(KeyInfoSetter<RecycleRowsetKeyInfo>{p}.get());                           }, parse<RecycleRowsetPB>          , parse_json<RecycleRowsetPB>}},
+    {"RecycleTxnKey",              {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return recycle_txn_key(KeyInfoSetter<RecycleTxnKeyInfo>{p}.get());                                 }, parse<RecycleTxnPB>             , parse_json<RecycleTxnPB>}},
+    {"StatsTabletKey",             {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return stats_tablet_key(KeyInfoSetter<StatsTabletKeyInfo>{p}.get());                               }, parse_tablet_stats              , parse_json<TabletStatsPB>}},
+    {"JobTabletKey",               {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return job_tablet_key(KeyInfoSetter<JobTabletKeyInfo>{p}.get());                                   }, parse<TabletJobInfoPB>          , parse_json<TabletJobInfoPB>}},
+    {"CopyJobKey",                 {{"instance_id", "stage_id", "table_id", "copy_id", "group_id"},  [](param_type& p) { return copy_job_key(KeyInfoSetter<CopyJobKeyInfo>{p}.get());                                       }, parse<CopyJobPB>                , parse_json<CopyJobPB>}},
+    {"CopyFileKey",                {{"instance_id", "stage_id", "table_id", "obj_key", "obj_etag"},  [](param_type& p) { return copy_file_key(KeyInfoSetter<CopyFileKeyInfo>{p}.get());                                     }, parse<CopyFilePB>               , parse_json<CopyFilePB>}},
+    {"RecycleStageKey",            {{"instance_id", "stage_id"},                                     [](param_type& p) { return recycle_stage_key(KeyInfoSetter<RecycleStageKeyInfo>{p}.get());                             }, parse<RecycleStagePB>           , parse_json<RecycleStagePB>}},
+    {"JobRecycleKey",              {{"instance_id"},                                                 [](param_type& p) { return job_check_key(KeyInfoSetter<JobRecycleKeyInfo>{p}.get());                                   }, parse<JobRecyclePB>             , parse_json<JobRecyclePB>}},
+    {"MetaSchemaKey",              {{"instance_id", "index_id", "schema_version"},                   [](param_type& p) { return meta_schema_key(KeyInfoSetter<MetaSchemaKeyInfo>{p}.get());                                 }, parse_tablet_schema             , parse_json<doris::TabletSchemaCloudPB>}},
+    {"MetaDeleteBitmap",           {{"instance_id", "tablet_id", "rowest_id", "version", "seg_id"},  [](param_type& p) { return meta_delete_bitmap_key(KeyInfoSetter<MetaDeleteBitmapInfo>{p}.get());                       }, parse_delete_bitmap             , parse_json<DeleteBitmapPB>}},
+    {"MetaDeleteBitmapUpdateLock", {{"instance_id", "table_id", "partition_id"},                     [](param_type& p) { return meta_delete_bitmap_update_lock_key(KeyInfoSetter<MetaDeleteBitmapUpdateLockInfo>{p}.get()); }, parse<DeleteBitmapUpdateLockPB> , parse_json<DeleteBitmapUpdateLockPB>}},
+    {"MetaPendingDeleteBitmap",    {{"instance_id", "tablet_id"},                                    [](param_type& p) { return meta_pending_delete_bitmap_key(KeyInfoSetter<MetaPendingDeleteBitmapInfo>{p}.get());        }, parse<PendingDeleteBitmapPB>    , parse_json<PendingDeleteBitmapPB>}},
+    {"RLJobProgressKey",           {{"instance_id", "db_id", "job_id"},                              [](param_type& p) { return rl_job_progress_key_info(KeyInfoSetter<RLJobProgressKeyInfo>{p}.get());                     }, parse<RoutineLoadProgressPB>    , parse_json<RoutineLoadProgressPB>}},
+    {"StorageVaultKey",            {{"instance_id", "vault_id"},                                     [](param_type& p) { return storage_vault_key(KeyInfoSetter<StorageVaultKeyInfo>{p}.get());                             }, parse<StorageVaultPB>           , parse_json<StorageVaultPB>}},
+    {"MetaSchemaPBDictionaryKey",  {{"instance_id", "index_id"},                                     [](param_type& p) { return meta_schema_pb_dictionary_key(KeyInfoSetter<MetaSchemaPBDictionaryInfo>{p}.get());          }, parse<SchemaCloudDictionary>    , parse_json<SchemaCloudDictionary>}},
+    {"MetaServiceRegistryKey",     {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_registry_key();                                                         }, parse<ServiceRegistryPB>        , parse_json<ServiceRegistryPB>}},
+    {"MetaServiceArnInfoKey",      {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_arn_info_key();                                                         }, parse<RamUserPB>                , parse_json<RamUserPB>}},
+    {"MetaServiceEncryptionKey",   {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_encryption_key_info_key();                                              }, parse<EncryptionKeyInfoPB>      , parse_json<EncryptionKeyInfoPB>}},
+};
 // clang-format on
 
 static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string& key) {
@@ -225,9 +251,10 @@ static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string& k
                                    (key_type.empty() ? "(empty)" : key_type)));
         return status;
     }
+    auto& key_params = std::get<0>(it->second);
     std::remove_cv_t<param_type> params;
-    params.reserve(std::get<0>(it->second).size());
-    for (auto& i : std::get<0>(it->second)) {
+    params.reserve(key_params.size());
+    for (auto& i : key_params) {
         auto p = uri.GetQuery(i.data());
         if (p == nullptr || p->empty()) {
             status.set_code(MetaServiceCode::INVALID_ARGUMENT);
@@ -236,7 +263,8 @@ static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string& k
         }
         params.emplace_back(p);
     }
-    key = std::get<1>(it->second)(params);
+    auto& key_encoding_function = std::get<1>(it->second);
+    key = key_encoding_function(params);
     return status;
 }
 
@@ -280,7 +308,7 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
             value.iters.push_back(std::move(it));
         } while (more);
     } else {
-        err = cloud::get(txn.get(), key, &value, true);
+        err = cloud::blob_get(txn.get(), key, &value, true);
     }
 
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -292,12 +320,147 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
         return http_json_reply(MetaServiceCode::KV_TXN_GET_ERR,
                                fmt::format("failed to get kv, key={}", hex(key)));
     }
-    auto readable_value = std::get<2>(it->second)(value);
+    auto& value_parsing_function = std::get<2>(it->second);
+    auto readable_value = value_parsing_function(value);
     if (readable_value.empty()) [[unlikely]] {
         return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR,
                                fmt::format("failed to parse value, key={}", hex(key)));
     }
     return http_text_reply(MetaServiceCode::OK, "", readable_value);
+}
+
+std::string handle_kv_output(std::string_view key, std::string_view value,
+                             std::string_view original_value_json,
+                             std::string_view serialized_value_to_save) {
+    std::stringstream final_output;
+    final_output << "original_value_hex=" << hex(value) << "\n"
+                 << "key_hex=" << hex(key) << "\n"
+                 << "original_value_json=" << original_value_json << "\n"
+                 << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
+    std::string final_json_str = final_output.str();
+    LOG(INFO) << final_json_str;
+    if (final_json_str.size() > 25000) {
+        std::string file_path = fmt::format("/tmp/{}.txt", hex(key));
+        LOG(INFO) << "write to file=" << file_path << ", key=" << hex(key)
+                  << " size=" << final_json_str.size();
+        try {
+            std::ofstream kv_file(file_path);
+            if (kv_file.is_open()) {
+                kv_file << final_json_str;
+                kv_file.close();
+            }
+        } catch (...) {
+            LOG(INFO) << "write tmp file failed.";
+        }
+    }
+
+    return final_json_str;
+}
+
+HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
+    const brpc::URI& uri = cntl->http_request().uri();
+    std::string body = cntl->request_attachment().to_string();
+    LOG(INFO) << "set value, body=" << body;
+
+    std::string key;
+    if (auto hex_key = http_query(uri, "key"); !hex_key.empty()) {
+        key = unhex(hex_key);
+    } else { // Encode key from params
+        auto st = encode_key(uri, key);
+        if (st.code() != MetaServiceCode::OK) {
+            return http_json_reply(st);
+        }
+    }
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) [[unlikely]] {
+        return http_json_reply(MetaServiceCode::KV_TXN_CREATE_ERR,
+                               fmt::format("failed to create txn, err={}", err));
+    }
+
+    std::string_view key_type = http_query(uri, "key_type");
+    auto it = param_set.find(key_type);
+    if (it == param_set.end()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("key_type not supported: {}",
+                                           (key_type.empty() ? "(empty)" : key_type)));
+    }
+    auto& json_parsing_function = std::get<3>(it->second);
+    std::shared_ptr<google::protobuf::Message> pb_to_save = json_parsing_function(body);
+    if (pb_to_save == nullptr) {
+        LOG(WARNING) << "invalid input json value for key_type=" << key_type;
+        return http_json_reply(
+                MetaServiceCode::INVALID_ARGUMENT,
+                fmt::format("invalid input json value, cannot parse json to pb, key_type={}",
+                            key_type));
+    }
+
+    LOG(INFO) << "parsed pb to save key_type=" << key_type << " key=" << hex(key)
+              << " pb_to_save=" << proto_to_json(*pb_to_save);
+
+    // ATTN:
+    // StatsTabletKey is special, it has a series of keys, we only handle the base stat key
+    // MetaSchemaPBDictionaryKey, MetaSchemaKey, MetaDeleteBitmapKey are splited in to multiple KV
+    ValueBuf value;
+    err = cloud::blob_get(txn.get(), key, &value, true);
+
+    bool kv_found = true;
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // it is possible the key-value to set is non-existed
+        kv_found = false;
+    } else if (err != TxnErrorCode::TXN_OK) {
+        return http_json_reply(MetaServiceCode::KV_TXN_GET_ERR,
+                               fmt::format("failed to get kv, key={}", hex(key)));
+    }
+
+    auto concat = [](const std::vector<std::string>& keys) {
+        std::stringstream s;
+        for (auto& i : keys) s << hex(i) << ", ";
+        return s.str();
+    };
+    LOG(INFO) << "set value, key_type=" << key_type << " " << value.keys().size() << " keys=["
+              << concat(value.keys()) << "]";
+
+    std::string original_value_json;
+    if (kv_found) {
+        auto& serialized_value_to_json_parsing_function = std::get<2>(it->second);
+        original_value_json = serialized_value_to_json_parsing_function(value);
+        if (original_value_json.empty()) [[unlikely]] {
+            LOG(WARNING) << "failed to parse value, key=" << hex(key)
+                         << " val=" << hex(value.value());
+            return http_json_reply(MetaServiceCode::UNDEFINED_ERR,
+                                   fmt::format("failed to parse value, key={}", hex(key)));
+        } else {
+            LOG(INFO) << "original_value_json=" << original_value_json;
+        }
+    }
+    std::string serialized_value_to_save = pb_to_save->SerializeAsString();
+    if (serialized_value_to_save.empty()) {
+        LOG(WARNING) << "failed to serialize, key=" << hex(key);
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR,
+                               fmt::format("failed to serialize, key={}", hex(key)));
+    }
+    // we need to remove the original KVs, it may be a range of keys
+    // and the number of final keys may be less than the initial number of keys
+    if (kv_found) value.remove(txn.get());
+
+    // TODO(gavin): use cloud::blob_put() to deal with split-multi-kv and special keys
+    // StatsTabletKey is special, it has a series of keys, we only handle the base stat key
+    // MetaSchemaPBDictionaryKey, MetaSchemaKey, MetaDeleteBitmapKey are splited in to multiple KV
+    txn->put(key, serialized_value_to_save);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        std::stringstream ss;
+        ss << "failed to commit txn when set value, err=" << err << " key=" << hex(key);
+        LOG(WARNING) << ss.str();
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, ss.str());
+    }
+    LOG(WARNING) << "set_value saved, key=" << hex(key);
+
+    std::string final_json_str =
+            handle_kv_output(key, value.value(), original_value_json, serialized_value_to_save);
+
+    return http_text_reply(MetaServiceCode::OK, "", final_json_str);
 }
 
 HttpResponse process_http_encode_key(const brpc::URI& uri) {

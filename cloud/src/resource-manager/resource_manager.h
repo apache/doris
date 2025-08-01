@@ -23,8 +23,8 @@
 #include <shared_mutex>
 #include <string>
 
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
 
@@ -108,13 +108,31 @@ public:
     virtual std::pair<TxnErrorCode, std::string> get_instance(std::shared_ptr<Transaction> txn,
                                                               const std::string& instance_id,
                                                               InstanceInfoPB* inst_pb);
-    // return err msg
+    /**
+     * Modifies the nodes associated with a given instance.
+     * This function allows adding and removing nodes from the instance.
+     *
+     * @param instance_id The ID of the instance to modify nodes for.
+     * @param to_add A vector of NodeInfo structures representing nodes to be added.
+     * @param to_del A vector of NodeInfo structures representing nodes to be removed.
+     * @return An error message if the operation fails, or an empty string for success.
+     */
     virtual std::string modify_nodes(const std::string& instance_id,
                                      const std::vector<NodeInfo>& to_add,
                                      const std::vector<NodeInfo>& to_del);
 
+    /**
+     * Checks the validity of the parameters for a cluster.
+     * This function verifies if the provided cluster parameters meet the required conditions.
+     *
+     * @param cluster The ClusterPB structure containing the cluster parameters to validate.
+     * @param err Output parameter to store any error message if validation fails.
+     * @param check_master_num Flag indicating whether to check the number of master nodes.
+     * @param check_cluster_name Flag indicating whether to check the cluster name is empty, just add_cluster need.
+     * @return True if the parameters are valid, false otherwise.
+     */
     bool check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
-                                    bool check_master_num);
+                                    bool check_master_num, bool check_cluster_name);
 
     /**
      * Check cloud_unique_id is degraded format, and get instance_id from cloud_unique_id
@@ -145,23 +163,30 @@ public:
     virtual std::pair<MetaServiceCode, std::string> refresh_instance(
             const std::string& instance_id);
 
+    /**
+     * Refreshes the cache of given instance from provided InstanceInfoPB. This process
+     * removes the instance in cache and then replaces it with provided instance state.
+     *
+     * @param instance_id instance to manipulate
+     * @param instance the instance info to refresh from
+     */
+    virtual void refresh_instance(const std::string& instance_id, const InstanceInfoPB& instance);
+
+    virtual bool is_version_read_enabled(std::string_view instance_id) const;
+
+    virtual bool is_version_write_enabled(std::string_view instance_id) const;
+
 private:
-    void add_cluster_to_index(const std::string& instance_id, const ClusterPB& cluster);
-
-    void remove_cluster_from_index(const std::string& instance_id, const ClusterPB& cluster);
-
-    void update_cluster_to_index(const std::string& instance_id, const ClusterPB& original,
-                                 const ClusterPB& now);
-
-    void remove_cluster_from_index_no_lock(const std::string& instance_id,
-                                           const ClusterPB& cluster);
-
     void add_cluster_to_index_no_lock(const std::string& instance_id, const ClusterPB& cluster);
 
-private:
-    std::shared_mutex mtx_;
+    MultiVersionStatus get_instance_multi_version_status(std::string_view instance_id) const;
+
+    mutable std::shared_mutex mtx_;
     // cloud_unique_id -> NodeInfo
     std::multimap<std::string, NodeInfo> node_info_;
+
+    // instance_id -> MultiVersionStatus
+    std::unordered_map<std::string, MultiVersionStatus> instance_multi_version_status_;
 
     std::shared_ptr<TxnKv> txn_kv_;
 };

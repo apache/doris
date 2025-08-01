@@ -31,7 +31,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -52,6 +51,7 @@ void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory)
 class AggMinMaxByTest : public ::testing::TestWithParam<std::string> {};
 
 TEST_P(AggMinMaxByTest, min_max_by_test) {
+    Arena arena;
     std::string min_max_by_type = GetParam();
     // Prepare test data.
     auto column_vector_value = ColumnInt32::create();
@@ -60,8 +60,9 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
     auto max_pair = std::make_pair<std::string, int32_t>("foo_0", 0);
     auto min_pair = max_pair;
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_value->insert(cast_to_nearest_field_type(i));
-        column_vector_key_int32->insert(cast_to_nearest_field_type(agg_test_batch_size - i));
+        column_vector_value->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
+        column_vector_key_int32->insert(
+                Field::create_field<TYPE_INT>(cast_to_nearest_field_type(agg_test_batch_size - i)));
         std::string str_val = fmt::format("foo_{}", i);
         if (max_pair.first < str_val) {
             max_pair.first = str_val;
@@ -71,7 +72,8 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
             min_pair.first = str_val;
             min_pair.second = i;
         }
-        column_vector_key_str->insert(Field(cast_to_nearest_field_type(str_val)));
+        column_vector_key_str->insert(
+                Field::create_field<TYPE_STRING>(cast_to_nearest_field_type(str_val)));
     }
 
     // Prepare test function and parameters.
@@ -94,7 +96,7 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
                                      i == 0 ? (IColumn*)column_vector_key_int32.get()
                                             : (IColumn*)column_vector_key_str.get()};
         for (int j = 0; j < agg_test_batch_size; j++) {
-            agg_function->add(place, columns, j, nullptr);
+            agg_function->add(place, columns, j, arena);
         }
 
         // Check result.

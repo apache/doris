@@ -17,6 +17,7 @@
 
 #include "http/utils.h"
 
+#include <absl/strings/str_split.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <sys/stat.h>
@@ -208,7 +209,13 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req, bool is_acqu
         return;
     }
 
-    VLOG_DEBUG << "list dir: " << dir_path << ", file count: " << files.size();
+    VLOG_DEBUG << "list dir: " << dir_path << ", exists: " << exists
+               << ", file count: " << files.size();
+
+    if (!exists) {
+        HttpChannel::send_error(req, HttpStatus::NOT_FOUND);
+        return;
+    }
 
     const std::string FILE_DELIMITER_IN_DIR_RESPONSE = "\n";
 
@@ -269,7 +276,8 @@ Status list_remote_files_v2(const std::string& address, const std::string& token
         return status;
     }
 
-    std::vector<string> file_list = strings::Split(file_list_str, "\n", strings::SkipWhitespace());
+    std::vector<std::string> file_list =
+            absl::StrSplit(file_list_str, "\n", absl::SkipWhitespace());
     if (file_list.size() % 2 != 0) {
         return Status::InternalError("batch download files: invalid file list, size is not even");
     }

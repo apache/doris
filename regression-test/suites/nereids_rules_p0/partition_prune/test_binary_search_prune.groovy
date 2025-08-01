@@ -17,6 +17,7 @@
 
 suite("test_binary_search_prune") {
 
+    sql "drop table if exists table_200_undef_partitions2_keys3_properties4_distributed_by54 force"
     sql """create table table_200_undef_partitions2_keys3_properties4_distributed_by54 (
             col_date_undef_signed_not_null date  not null ,
                     col_bigint_undef_signed_not_null bigint  not null ,
@@ -58,7 +59,8 @@ suite("test_binary_search_prune") {
         ORDER BY
         field1
         LIMIT 10000;"""
-        contains("partitions=2/8 (p0,p6)")
+        contains("partitions=1/8 (p6)")
     }
 
+    sql "drop table if exists table_200_undef_partitions2_keys3_properties4_distributed_by54 force"
 }

@@ -43,9 +43,19 @@ DB_ADMIN_PASSWD=$PASSWD
 
 COMPUTE_GROUP_NAME=${COMPUTE_GROUP_NAME}
 
+ENABLE_WORKLOAD_GROUP=${ENABLE_WORKLOAD_GROUP:-false}
+WORKLOAD_GROUP_PATH="/sys/fs/cgroup/cpu/doris"
+
 log_stderr()
 {
     echo "[`date`] $@" >&2
+}
+
+function add_workloadgroup_config()
+{
+    if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
+          echo "doris_cgroup_cpu_path=$WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
+    fi
 }
 
 update_conf_from_configmap()
@@ -208,7 +218,7 @@ function create_account()
         log_stderr "the 'root' account have set password! not need auto create management account."
         return 0
     fi
-    if echo $users | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
        log_stderr "the $DB_ADMIN_USER have exist in doris."
        return 0
     fi
@@ -240,12 +250,85 @@ function check_and_register()
     fi
 }
 
+
+function make_dir_for_workloadgroup() {
+    output=$(cat /proc/filesystems | grep cgroup)
+    if [ -z "$output" ]; then
+        log_stderr "[error] The host machine does not have cgroup installed, so the workload group function will be limited."
+        exit 1
+    fi
+
+    mkdir -p /sys/fs/cgroup/cpu/doris
+    chmod 770 /sys/fs/cgroup/cpu/doris
+    chown -R root:root /sys/fs/cgroup/cpu/doris
+
+    if [[ -f "/sys/fs/cgroup/cgroup.controllers" ]]; then
+        log_stderr "[info] The host machine cgroup version: v2."
+        chmod a+w /sys/fs/cgroup/cgroup.procs
+    else
+        log_stderr "[info] The host machine cgroup version: v1."
+    fi
+}
+
+mount_kerberos_config()
+{
+    if [[ ! -n "$KRB5_MOUNT_PATH" ]]; then
+        return
+    fi
+
+    KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
+    # If the krb5 directory does not exist, need to create it.
+    if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
+        log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
+        mkdir -p "$KRB5_CONFIG_DIR"
+    fi
+
+    log_stderr "[info] Creating krb5 symlinks for each file from $KRB5_MOUNT_PATH to $KRB5_CONFIG_DIR"
+    # The files under KRB5_MONT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KRB5_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating krb5 symlink for $filename"
+            ln -sf "$file" "$KRB5_CONFIG_DIR/$filename"
+        fi
+    done
+
+    if [[ "$KEYTAB_MOUNT_PATH" == "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] KEYTAB_MOUNT_PATH is same as KEYTAB_FINAL_USED_PATH, skip creating symlinks"
+        return
+    fi
+
+    # If the keytab directory does not exist, need to create it.
+    if [[ ! -d "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] Creating keytab directory: $KEYTAB_FINAL_USED_PATH"
+        mkdir -p "$KEYTAB_FINAL_USED_PATH"
+    fi
+
+    log_stderr "[info] Creating keytab symlinks for each file from $KEYTAB_MOUNT_PATH to $KEYTAB_FINAL_USED_PATH"
+    # The files under KEYTAB_MOUNT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KEYTAB_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating keytab symlink for $filename"
+            ln -sf "$file" "$KEYTAB_FINAL_USED_PATH/$filename"
+        fi
+    done
+}
+
+
+# scripts start position.
 fe_addrs=$1
 if [[ "x$fe_addrs" == "x" ]]; then
     echo "need fe address as paramter!"
     echo "  Example $0 <fe_addr>"
     exit 1
 fi
+
+if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
+      log_stderr '[info] Enable workload group !'
+      make_dir_for_workloadgroup
+fi
+
 
 # pre check for starting
 if cat /proc/cpuinfo | grep -q "avx2" &>/dev/null; then
@@ -255,6 +338,8 @@ else
 fi
 
 update_conf_from_configmap
+add_workloadgroup_config
+mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 collect_env_info
@@ -263,6 +348,5 @@ check_and_register $fe_addrs
 ./doris-debug --component be
 log_stderr "run start_be.sh"
 # the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal
-# befor doris 2.0.2 ,doris start with : start_xx.sh
 # sine doris 2.0.2 ,doris start with : start_xx.sh --console  doc: https://doris.apache.org/docs/dev/install/standard-deployment/#version--202
 $DORIS_HOME/bin/start_be.sh --console

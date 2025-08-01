@@ -37,24 +37,20 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
+
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
-
 struct AggregateFunctionBitmapUnionOp {
     static constexpr auto name = "bitmap_union";
 
     template <typename T>
     static void add(BitmapValue& res, const T& data, bool& is_first) {
         res.add(data);
+        is_first = false;
     }
 
     static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) {
@@ -68,6 +64,9 @@ struct AggregateFunctionBitmapUnionOp {
 
     static void add_batch(BitmapValue& res, std::vector<const BitmapValue*>& data, bool& is_first) {
         res.fastunion(data);
+        // after fastunion, res myabe have many datas, so is_first should be false
+        // then call add function will not reset res
+        is_first = false;
     }
 
     static void merge(BitmapValue& res, const BitmapValue& data, bool& is_first) {
@@ -160,7 +159,7 @@ public:
             : IAggregateFunctionDataHelper<Data, Derived>(argument_types_) {}
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena*) const override {
+                                           const size_t num_rows, Arena& arena) const override {
         auto& col = assert_cast<ColumnBitmap&>(*dst);
         char place[sizeof(Data)];
         col.resize(num_rows);
@@ -171,7 +170,7 @@ public:
                 assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->destroy(place);
             });
             assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->add(place, columns, i,
-                                                                                nullptr);
+                                                                                arena);
             data[i] = std::move(this->data(place).value);
         }
     }
@@ -187,10 +186,10 @@ public:
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena*) const override {
-        auto& col = assert_cast<const ColumnBitmap&>(column);
+                                           Arena&) const override {
+        const auto& col = assert_cast<const ColumnBitmap&>(column);
         const size_t num_rows = column.size();
-        auto* data = col.get_data().data();
+        const auto* data = col.get_data().data();
 
         for (size_t i = 0; i != num_rows; ++i) {
             this->data(place).merge(data[i]);
@@ -199,18 +198,18 @@ public:
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
-                                                 Arena*) const override {
+                                                 Arena&) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
-        auto& col = assert_cast<const ColumnBitmap&>(column);
-        auto* data = col.get_data().data();
+        const auto& col = assert_cast<const ColumnBitmap&>(column);
+        const auto* data = col.get_data().data();
         for (size_t i = begin; i <= end; ++i) {
             this->data(place).merge(data[i]);
         }
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena&,
                                    const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnBitmap&>(*column);
         const auto* data = col.get_data().data();
@@ -220,7 +219,7 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                            AggregateDataPtr rhs, const IColumn* column, Arena&,
                                             const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnBitmap&>(*column);
         const auto* data = col.get_data().data();
@@ -270,26 +269,44 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeBitMap>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
     }
 
     void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
-                  std::vector<int>& rows, Arena*) const override {
+                  std::vector<int>& rows, Arena&) const override {
+        // now this only for bitmap_union function
         if constexpr (std::is_same_v<Op, AggregateFunctionBitmapUnionOp>) {
             const auto& column = assert_cast<const ColVecType&>(*columns[0]);
             std::vector<const BitmapValue*> values;
-            for (int i = 0; i < rows.size(); ++i) {
-                values.push_back(&(column.get_data()[rows[i]]));
+            for (auto row : rows) {
+                values.push_back(&(column.get_data()[row]));
             }
             this->data(place).add_batch(values);
         }
     }
 
+    void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
+                         const IColumn** columns, Arena& arena, bool has_null) override {
+        // now this only for bitmap_union function
+        if constexpr (std::is_same_v<Op, AggregateFunctionBitmapUnionOp>) {
+            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+            std::vector<const BitmapValue*> values;
+            for (size_t i = batch_begin; i <= batch_end; ++i) {
+                values.push_back(&(column.get_data()[i]));
+            }
+            this->data(place).add_batch(values);
+        } else {
+            for (size_t i = batch_begin; i <= batch_end; ++i) {
+                this->add(place, columns, i, arena);
+            }
+        }
+    }
+
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(
                 const_cast<AggregateFunctionBitmapData<Op>&>(this->data(rhs)).get());
     }
@@ -299,7 +316,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 
@@ -319,7 +336,7 @@ class AggregateFunctionBitmapCount final
                   AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>> {
 public:
     // using ColVecType = ColumnBitmap;
-    using ColVecResult = ColumnVector<Int64>;
+    using ColVecResult = ColumnInt64;
     using AggFunctionData = AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>;
 
     AggregateFunctionBitmapCount(const DataTypes& argument_types_)
@@ -327,13 +344,20 @@ public:
                       AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>,
                       AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>>(argument_types_) {}
 
-    String get_name() const override { return "count"; }
+    String get_name() const override {
+        if constexpr (std::is_same_v<ColVecType, ColumnBitmap>) {
+            return "bitmap_union_count";
+        } else {
+            return "bitmap_union_int";
+        }
+    }
+
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         if constexpr (arg_is_nullable) {
-            auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
+            const auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
             if (!nullable_column.is_null_at(row_num)) {
                 const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                         nullable_column.get_nested_column());
@@ -347,30 +371,63 @@ public:
     }
 
     void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
-                  std::vector<int>& rows, Arena*) const override {
+                  std::vector<int>& rows, Arena&) const override {
+        // now this only for bitmap_union_count function
         if constexpr (arg_is_nullable && std::is_same_v<ColVecType, ColumnBitmap>) {
-            auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
+            const auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
             const auto& column =
                     assert_cast<const ColVecType&>(nullable_column.get_nested_column());
             std::vector<const BitmapValue*> values;
-            for (int i = 0; i < rows.size(); ++i) {
-                if (!nullable_column.is_null_at(rows[i])) {
-                    values.push_back(&(column.get_data()[rows[i]]));
+            for (auto row : rows) {
+                if (!nullable_column.is_null_at(row)) {
+                    values.push_back(&(column.get_data()[row]));
                 }
             }
             this->data(place).add_batch(values);
         } else if constexpr (std::is_same_v<ColVecType, ColumnBitmap>) {
             const auto& column = assert_cast<const ColVecType&>(*columns[0]);
             std::vector<const BitmapValue*> values;
-            for (int i = 0; i < rows.size(); ++i) {
-                values.push_back(&(column.get_data()[rows[i]]));
+            for (auto row : rows) {
+                values.push_back(&(column.get_data()[row]));
             }
             this->data(place).add_batch(values);
         }
     }
 
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena& arena) const override {
+        // now this only for bitmap_union_count function
+        if constexpr (std::is_same_v<ColVecType, ColumnBitmap>) {
+            auto lambda_function = [&](const IColumn& data_column, const NullMap* null_map) {
+                const auto& column = assert_cast<const ColVecType&>(data_column);
+                std::vector<const BitmapValue*> values;
+                for (size_t i = 0; i < batch_size; ++i) {
+                    if constexpr (arg_is_nullable) {
+                        if ((*null_map)[i]) {
+                            continue; // skip null value
+                        }
+                    }
+                    values.push_back(&(column.get_data()[i]));
+                }
+                this->data(place).add_batch(values);
+            };
+
+            if constexpr (arg_is_nullable) {
+                const auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
+                lambda_function(nullable_column.get_nested_column(),
+                                &(nullable_column.get_null_map_data()));
+            } else {
+                lambda_function(*columns[0], nullptr);
+            }
+        } else {
+            for (size_t i = 0; i < batch_size; ++i) {
+                this->add(place, columns, i, arena);
+            }
+        }
+    }
+
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(const_cast<AggFunctionData&>(this->data(rhs)).get());
     }
 
@@ -379,7 +436,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

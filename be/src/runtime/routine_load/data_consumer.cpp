@@ -17,6 +17,7 @@
 
 #include "runtime/routine_load/data_consumer.h"
 
+#include <absl/strings/str_split.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <librdkafka/rdkafkacpp.h>
@@ -31,7 +32,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "runtime/exec_env.h"
 #include "runtime/small_file_mgr.h"
 #include "service/backend_options.h"
@@ -102,7 +102,7 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
         if (starts_with(item.second, "FILE:")) {
             // file property should has format: FILE:file_id:md5
             std::vector<std::string> parts =
-                    strings::Split(item.second, ":", strings::SkipWhitespace());
+                    absl::StrSplit(item.second, ":", absl::SkipWhitespace());
             if (parts.size() != 3) {
                 return Status::InternalError("PAUSE: Invalid file property of kafka: " +
                                              item.second);
@@ -243,7 +243,8 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                 // ignore msg with length 0.
                 // put empty msg into queue will cause the load process shutting down.
                 break;
-            } else if (!queue->blocking_put(msg.get())) {
+            } else if (!queue->controlled_blocking_put(msg.get(),
+                                                       config::blocking_queue_cv_wait_timeout_ms)) {
                 // queue is shutdown
                 done = true;
             } else {
@@ -270,7 +271,8 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             VLOG_NOTICE << "consumer meet partition eof: " << _id
                         << " partition offset: " << msg->offset();
             _consuming_partition_ids.erase(msg->partition());
-            if (!queue->blocking_put(msg.get())) {
+            if (!queue->controlled_blocking_put(msg.get(),
+                                                config::blocking_queue_cv_wait_timeout_ms)) {
                 done = true;
             } else if (_consuming_partition_ids.size() <= 0) {
                 LOG(INFO) << "all partitions meet eof: " << _id;
@@ -418,6 +420,10 @@ Status KafkaDataConsumer::get_offsets_for_times(const std::vector<PIntegerPair>&
 Status KafkaDataConsumer::get_latest_offsets_for_partitions(
         const std::vector<int32_t>& partition_ids, std::vector<PIntegerPair>* offsets,
         int timeout) {
+    DBUG_EXECUTE_IF("KafkaDataConsumer.get_latest_offsets_for_partitions.timeout", {
+        // sleep 60s
+        std::this_thread::sleep_for(std::chrono::seconds(60));
+    });
     MonotonicStopWatch watch;
     watch.start();
     for (int32_t partition_id : partition_ids) {

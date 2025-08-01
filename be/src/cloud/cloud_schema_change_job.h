@@ -36,7 +36,7 @@ public:
     // This method is idempotent for a same request.
     Status process_alter_tablet(const TAlterTabletReqV2& request);
 
-    void clean_up_on_failed();
+    void clean_up_on_failure();
 
 private:
     Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
@@ -56,6 +56,7 @@ private:
     int64_t _output_cumulative_point = 0;
     // absolute expiration time in second
     int64_t _expiration;
+    int64_t _initiator;
 };
 
 } // namespace doris

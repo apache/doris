@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.types.DataType;
@@ -56,6 +57,26 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
     @Override
     public String toString() {
         return "(" + left().toString() + " " + symbol + " " + right().toString() + ")";
+    }
+
+    @Override
+    public String getFingerprint() {
+        String leftFingerprint = left().toString();
+        String rightFingerprint = right().toString();
+        // 1. expression with function will not be parameterized:
+        // case: cast(c1 as varchar(20)) = "31904"
+        // leftFingerprint: "substring(cast(c1#48 as VARCHAR(20)), 1, 20)"
+        // above '1' and '20' will not and should not be parameterized.
+        // 2. foldable expression likes "substring("3190400", 1, 5)"
+        // will not be seen since it has been folded as '31904' at former stage,
+        // so it is safe during the plan matching and runtime stats recording.
+        if (left() instanceof Literal) {
+            leftFingerprint = ((Literal) left()).getFingerprint();
+        }
+        if (right() instanceof Literal) {
+            rightFingerprint = ((Literal) right()).getFingerprint();
+        }
+        return "(" + leftFingerprint + " " + symbol + " " + rightFingerprint + ")";
     }
 
     @Override

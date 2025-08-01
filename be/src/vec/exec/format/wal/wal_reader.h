@@ -24,12 +24,14 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 struct ScannerCounter;
 class WalReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(WalReader);
+
 public:
     WalReader(RuntimeState* state);
     ~WalReader() override = default;
     Status init_reader(const TupleDescriptor* tuple_descriptor);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
     Status close() override {

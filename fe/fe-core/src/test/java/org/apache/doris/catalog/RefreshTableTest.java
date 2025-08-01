@@ -18,9 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
@@ -35,8 +33,13 @@ import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -126,8 +129,13 @@ public class RefreshTableTest extends TestWithFeService {
     public void testRefreshPriv() throws Exception {
         Auth auth = Env.getCurrentEnv().getAuth();
         // create user1
-        auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
-                "create user 'user1'@'%' identified by 'pwd1';", rootCtx));
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create user 'user1'@'%' identified by 'pwd1';";
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(rootCtx, sql);
+        if (parsed instanceof CreateUserCommand) {
+            ((CreateUserCommand) parsed).run(rootCtx, stmtExecutor);
+        }
 
         // mock login user1
         UserIdentity user1 = new UserIdentity("user1", "%");
@@ -140,9 +148,11 @@ public class RefreshTableTest extends TestWithFeService {
 
         // add drop priv to user1
         rootCtx.setThreadLocalInfo();
-        GrantStmt grantStmt = (GrantStmt) parseAndAnalyzeStmt(
-                "grant drop_priv on test1.db1.tbl11 to 'user1'@'%';", rootCtx);
-        auth.grant(grantStmt);
+        LogicalPlan logicalPlan1 = nereidsParser.parseSingle("grant drop_priv on test1.db1.tbl11 to 'user1'@'%';");
+        Assertions.assertTrue(logicalPlan1 instanceof GrantTablePrivilegeCommand);
+        GrantTablePrivilegeCommand command1 = (GrantTablePrivilegeCommand) logicalPlan1;
+        command1.validate();
+        auth.grantTablePrivilegeCommand(command1);
         ConnectContext.remove();
 
         // user1 can do refresh table

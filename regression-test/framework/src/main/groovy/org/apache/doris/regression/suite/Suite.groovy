@@ -23,8 +23,6 @@ import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 
-import static java.util.concurrent.TimeUnit.SECONDS
-
 import com.google.common.base.Strings
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
@@ -83,6 +81,9 @@ import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSetMetaData
 import org.junit.Assert
+
+import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
 
 @Slf4j
 class Suite implements GroovyInterceptable {
@@ -280,13 +281,22 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, connInfo.conn.getMetaData().getURL(), actionSupplier)
     }
 
-    public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
-        def connInfo = context.threadLocalConn.get()
-        Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
-            {
-                connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-            }
-        )
+    // delete 'dockerAwaitUntil', should call 'Awaitility.await()...' directly or use 'awaitUntil(..., f)'
+    // public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+    //     def connInfo = context.threadLocalConn.get()
+    //     Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+    //         {
+    //             connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+    //         }
+    //     )
+    // }
+    public void awaitUntil(int atMostSeconds, double intervalSecond = 1, Closure actionSupplier) {
+        Awaitility
+            .with().pollInSameThread()
+            .await()
+            .atMost(atMostSeconds, TimeUnit.SECONDS)
+            .pollInterval((int) (1000 * intervalSecond), TimeUnit.MILLISECONDS)
+            .until(actionSupplier)
     }
 
     // more explaination can see example file: demo_p0/docker_action.groovy
@@ -321,6 +331,7 @@ class Suite implements GroovyInterceptable {
 
     private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
         logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
+        def originConnection = context.threadLocalConn.get()
         try {
             cluster.destroy(true)
             cluster.init(options, isCloud)
@@ -328,7 +339,7 @@ class Suite implements GroovyInterceptable {
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
             Frontend fe = null
-            for (def i=0; fe == null && i<30; i++) {
+            for (def i=0; (fe == null || !fe.alive) && i<30; i++) {
                 if (options.connectToFollower) {
                     fe = cluster.getOneFollowerFe()
                 } else {
@@ -337,7 +348,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000)
             }
 
-            logger.info("get fe {}", fe)
+            logger.info("get fe host {} , queryPort {}", fe.host, fe.queryPort)
             assertNotNull(fe)
             if (!isCloud) {
                 for (def be : cluster.getAllBackends()) {
@@ -347,18 +358,18 @@ class Suite implements GroovyInterceptable {
 
             // wait be report
             Thread.sleep(5000)
-            def url = String.format(
+            def jdbcUrl = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
-            def conn = DriverManager.getConnection(url, user, password)
-            def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
-            logger.info("try create database if not exists {}", context.dbName)
-            JdbcUtils.executeToList(conn, sql)
-
-            url = Config.buildUrlWithDb(url, context.dbName)
-            logger.info("connect to docker cluster: suite={}, url={}", name, url)
-            connect(user, password, url, actionSupplier)
+            cluster.jdbcUrl = jdbcUrl
+            context.threadLocalConn.remove()
+            actionSupplier.call()
         } finally {
+            if (originConnection == null) {
+                context.threadLocalConn.remove()
+            } else {
+                context.threadLocalConn.set(originConnection)
+            }
             if (!context.config.dockerEndNoKill) {
                 cluster.destroy(context.config.dockerEndDeleteFiles)
             }
@@ -652,7 +663,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getCurDbConnectUrl() {
-        return context.config.getConnectionUrlByDbName(getCurDbName())
+        return Config.buildUrlWithDb(context.getJdbcUrl(), getCurDbName())
     }
 
     long getDbId() {
@@ -758,6 +769,55 @@ class Suite implements GroovyInterceptable {
         } else {
             runAction(new ExplainAction(context), actionSupplier)
         }
+    }
+
+    void waitAllDictionariesReady() {
+        logger.info("wait all dictionaries ready")
+        def result
+        for (int _ = 0; _ < 30 ; _++)
+        {
+            result = sql ("show dictionaries")
+            boolean isReady = true
+            for (def i = 0; i < result.size(); i++) {
+                if (result[i][4] != "NORMAL") {
+                    logger.info("dictionary: ${result[i][1]}, status: ${result[i][4]}")
+                    isReady = false
+                    break;
+                }
+            }
+            if (isReady) {
+                logger.info("all dictionaries are ready")
+                return
+            }
+            sleep(1000)
+        }
+        throw new RuntimeException("dictionaries are not ready, status: ${result}")
+    }
+
+    void waitDictionaryReady(String dictName) {
+        logger.info("wait dictionary ${dictName} ready")
+        def result
+        for (int _ = 0; _ < 30 ; _++)
+        {
+            result = sql ("show dictionaries")
+            boolean isReady = true
+            for (def i = 0; i < result.size(); i++) {
+                if (result[i][1] == dictName)
+                {
+                    if (result[i][4] != "NORMAL") {
+                        logger.info("dictionary: ${result[i][1]}, status: ${result[i][4]}")
+                        isReady = false
+                    }
+                    break;
+                }
+            }
+            if (isReady) {
+                logger.info("dictionary ${dictName} are ready")
+                return
+            }
+            sleep(1000)
+        }
+        throw new RuntimeException("dictionary ${dictName} are not ready, status: ${result}")
     }
 
     void flightRecord(Closure actionSupplier) {
@@ -1589,6 +1649,13 @@ class Suite implements GroovyInterceptable {
     }
 
     DebugPoint GetDebugPoint() {
+        def execType = RegressionTest.getGroupExecType(group);
+        if (execType != RegressionTest.GroupExecType.SINGLE
+            && execType != RegressionTest.GroupExecType.DOCKER) {
+            throw new Exception("Debug point must use in nonConcurrent suite or docker suite, "
+                    + "need add 'nonConcurrent' or 'docker' to suite's belong groups, "
+                    + "see example demo_p0/debugpoint_action.groovy.")
+        }
         return debugPoint
     }
 
@@ -1784,9 +1851,10 @@ class Suite implements GroovyInterceptable {
     }
 
     void testFoldConst(String foldSql) {
+        def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
         String openFoldConstant = "set debug_skip_fold_constant=false";
         sql(openFoldConstant)
-        logger.info(foldSql)
+        // logger.info(foldSql)
         Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
         tupleResult = JdbcUtils.executeToStringList(context.getConnection(), foldSql)
         def (resultByFoldConstant, meta) = tupleResult
@@ -1794,13 +1862,25 @@ class Suite implements GroovyInterceptable {
         String closeFoldConstant = "set debug_skip_fold_constant=true";
         sql(closeFoldConstant)
         logger.info(foldSql)
-        List<List<Object>> resultExpected = sql(foldSql)
+        Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult2 = JdbcUtils.executeToStringList(context.getConnection(), foldSql)
+        List<List<Object>> resultExpected = tupleResult2.first
         logger.info("result expected: " + resultExpected.toString())
 
-        String errorMsg = OutputUtils.checkOutput(resultExpected.iterator(), resultByFoldConstant.iterator(),
+        // restore debug_skip_fold_constant original value
+        sql("set debug_skip_fold_constant=${sessionVarOrigValue[0][0]}")
+
+        String errorMsg = null
+        try {
+            errorMsg = OutputUtils.checkOutput(resultExpected.iterator(), resultByFoldConstant.iterator(),
                     { row -> OutputUtils.toCsvString(row as List<Object>) },
                     { row ->  OutputUtils.toCsvString(row) },
                     "check output failed", meta)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Check output failed, sql:\n${foldSql}. error message: \n${errorMsg}", t)
+        }
+        if (errorMsg != null) {
+            throw new IllegalStateException(errorMsg);
+        }
     }
 
     String getJobName(String dbName, String mtmvName) {
@@ -1903,8 +1983,7 @@ class Suite implements GroovyInterceptable {
 
     void waitAddFeFinished(String host, int port) {
         logger.info("waiting for ${host}:${port}")
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             logger.info("frontends ${frontends}")
             boolean matched = false
@@ -1916,12 +1995,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropFeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        logger.info("waiting drop fe ${host}:${port}");
+        awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             boolean matched = false
             for (frontend: frontends) {
@@ -1930,13 +2009,12 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waitAddBeFinished(String host, int port) {
         logger.info("waiting ${host}:${port} added");
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -1947,12 +2025,11 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return matched;
-        });
+        }
     }
 
     void waitDropBeFinished(String host, int port) {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        awaitUntil(60, 0.1) {
             def ipList = [:]
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
@@ -1963,7 +2040,7 @@ class Suite implements GroovyInterceptable {
                 }
             }
             return !matched;
-        });
+        }
     }
 
     void waiteCreateTableFinished(String tableName) {
@@ -2016,17 +2093,6 @@ class Suite implements GroovyInterceptable {
         }
 
         return result.values().toList()
-    }
-
-    // enable_sync_mv_cost_based_rewrite is true or not
-    boolean enable_sync_mv_cost_based_rewrite () {
-        def showVariable = "show variables like 'enable_sync_mv_cost_based_rewrite';"
-        List<List<Object>> result = sql(showVariable)
-        logger.info("enable_sync_mv_cost_based_rewrite = " + result)
-        if (result.isEmpty()) {
-            return false;
-        }
-        return Boolean.parseBoolean(result.get(0).get(1));
     }
 
     // Given tables to decide whether the table partition row count statistic is ready or not
@@ -2101,49 +2167,34 @@ class Suite implements GroovyInterceptable {
     }
 
     // mv not part in rewrite process
-    void mv_not_part_in(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean isContain = result.contains("${mv_name}")
-                    Assert.assertFalse(isContain)
-                }
-            }
-        }
+    void mv_not_part_in(query_sql, mv_name) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name)
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
-                boolean success = !result.contains("${mv_name} chose") && !result.contains("${mv_name} not chose")
+                boolean success = !result.contains(".${mv_name} chose") && !result.contains(".${mv_name} not chose")
                 && !result.contains("${mv_name} fail")
+                if (!success) {
+                    logger.info("mv_not_part_in fail =" + result)
+                }
                 Assert.assertEquals(true, success)
             }
         }
     }
 
     // multi mv all not part in rewrite process
-    void mv_all_not_part_in(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean isContain = false;
-                    for (String mv_name : mv_names) {
-                        isContain = isContain || result.contains("${mv_name}")
-                    }
-                    Assert.assertFalse(isContain)
-                }
-            }
-        }
+    void mv_all_not_part_in(query_sql, mv_names) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    success = !result.contains("${mv_name} chose") && !result.contains("${mv_name} not chose")
-                            && !result.contains("${mv_name} fail")
+                    success = !result.contains(".${mv_name} chose") && !result.contains(".${mv_name} not chose")
+                            && !result.contains(".${mv_name} fail")
+                }
+                if (!success) {
+                    logger.info("mv_all_not_part_in fail =" + result)
                 }
                 Assert.assertEquals(true, success)
             }
@@ -2151,58 +2202,31 @@ class Suite implements GroovyInterceptable {
     }
 
     // mv part in rewrite process, rewrte success and chosen by cbo
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
-    void mv_rewrite_success(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                               is_partition_statistics_ready = true) {
-        logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+    void mv_rewrite_success(query_sql, mv_name, is_partition_statistics_ready = true) {
+        logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
             // If partition statistics is no ready, degrade to without check cbo chosen
-            mv_rewrite_success_without_check_chosen(query_sql, mv_name, sync_cbo_rewrite)
-            return
-        }
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                contains("(${mv_name})")
-            }
+            mv_rewrite_success_without_check_chosen(query_sql, mv_name)
             return
         }
         explain {
             sql(" memo plan ${query_sql}")
-            contains("${mv_name} chose")
+            contains(".${mv_name} chose")
         }
     }
 
     // multi mv part in rewrite process, all rewrte success and chosen by cbo
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
-    void mv_rewrite_all_success( query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                                   is_partition_statistics_ready = true) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+    void mv_rewrite_all_success( query_sql, mv_names, is_partition_statistics_ready = true) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
             // If partition statistics is no ready, degrade to without check cbo chosen
-            mv_rewrite_all_success_without_check_chosen(query_sql, mv_names, sync_cbo_rewrite)
-            return
-        }
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean success = true;
-                    for (String mv_name : mv_names) {
-                        success = success && result.contains("(${mv_name})")
-                    }
-                    if (!success) {
-                        logger.info("mv_rewrite_all_success fail =" + result)
-                    }
-                    Assert.assertEquals(true, success)
-                }
-            }
+            mv_rewrite_all_success_without_check_chosen(query_sql, mv_names)
             return
         }
         explain {
@@ -2210,7 +2234,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    def contains = result.contains("${mv_name} chose")
+                    def contains = result.contains(".${mv_name} chose")
                     if (!contains) {
                         logger.info("mv_rewrite_all_success fail =" + result)
                     }
@@ -2221,32 +2245,14 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, any of them rewrte success and chosen by cbo
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
-    void mv_rewrite_any_success(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                                   is_partition_statistics_ready = true) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+    void mv_rewrite_any_success(query_sql, mv_names, is_partition_statistics_ready = true) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
             // If partition statistics is no ready, degrade to without check cbo chosen
-            mv_rewrite_any_success_without_check_chosen(query_sql, mv_names, sync_cbo_rewrite)
-            return
-        }
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean success = false;
-                    for (String mv_name : mv_names) {
-                        success = success || result.contains("(${mv_name})")
-                    }
-                    if (!success) {
-                        logger.info("mv_rewrite_any_success fail =" + result)
-                    }
-                    Assert.assertEquals(true, success)
-                }
-            }
+            mv_rewrite_any_success_without_check_chosen(query_sql, mv_names)
             return
         }
         explain {
@@ -2254,7 +2260,7 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = false;
                 for (String mv_name : mv_names) {
-                    success = success || result.contains("${mv_name} chose")
+                    success = success || result.contains(".${mv_name} chose")
                 }
                 if (!success) {
                     logger.info("mv_rewrite_any_success fail =" + result)
@@ -2265,34 +2271,14 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, all rewrte success without check if chosen by cbo
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_all_success_without_check_chosen(query_sql, mv_names,
-                                                        sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()){
+    void mv_rewrite_all_success_without_check_chosen(query_sql, mv_names) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean success = true;
-                    for (String mv_name : mv_names) {
-                        def splitResult = result.split("MaterializedViewRewriteFail")
-                        def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-                        success = success && (result.contains("(${mv_name})") || each_result)
-                    }
-                    if (!success) {
-                        logger.info("mv_rewrite_all_success_without_check_chosen fail =" + result)
-                    }
-                    Assert.assertEquals(true, success)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check {result ->
                 boolean success = true
                 for (String mv_name : mv_names) {
-                    boolean stepSuccess = result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                    boolean stepSuccess = result.contains(".${mv_name} chose") || result.contains(".${mv_name} not chose")
                     success = success && stepSuccess
                 }
                 if (!success) {
@@ -2304,34 +2290,14 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, any of them rewrte success without check if chosen by cbo or not
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_any_success_without_check_chosen(query_sql, mv_names,
-                                                     sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_any_success_without_check_chosen(query_sql, mv_names) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean success = false;
-                    for (String mv_name : mv_names) {
-                        def splitResult = result.split("MaterializedViewRewriteFail")
-                        def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-                        success = success || (result.contains("(${mv_name})") || each_result)
-                    }
-                    if (!success) {
-                        logger.info("mv_rewrite_any_success_without_check_chosen fail =" + result)
-                    }
-                    Assert.assertEquals(true, success)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
                 boolean success = false
                 for (String mv_name : mv_names) {
-                    success = success || result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                    success = success || result.contains(".${mv_name} chose") || result.contains(".${mv_name} not chose")
                 }
                 if (!success) {
                     logger.info("mv_rewrite_any_success_without_check_chosen fail =" + result)
@@ -2342,72 +2308,34 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, rewrte success without check if chosen by cbo or not
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_success_without_check_chosen(query_sql, mv_name,
-                                                 sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_success_without_check_chosen(query_sql, mv_name) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    def splitResult = result.split("MaterializedViewRewriteFail")
-                    result.contains("(${mv_name})") || (splitResult.length == 2 ? splitResult[0].contains(mv_name) : false)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
-                result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                result.contains(".${mv_name} chose") || result.contains(".${mv_name} not chose")
             }
         }
     }
 
     // single mv part in rewrite process, rewrte fail
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_fail(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_fail(query_sql, mv_name) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                notContains("(${mv_name})")
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
-            contains("${mv_name} fail")
+            contains(".${mv_name} fail")
         }
     }
 
     // multi mv part in rewrite process, all rewrte fail
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_all_fail(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_all_fail(query_sql, mv_names) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean fail = true
-                    for (String mv_name : mv_names) {
-                        boolean stepFail = !result.contains("(${mv_name})")
-                        fail = fail && stepFail
-                    }
-                    if (!fail) {
-                        logger.info("mv_rewrite_all_fail =" + result)
-                    }
-                    Assert.assertEquals(true, fail)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check {result ->
                 boolean fail = true
                 for (String mv_name : mv_names) {
-                    boolean stepFail = result.contains("${mv_name} fail")
+                    boolean stepFail = result.contains(".${mv_name} fail")
                     fail = fail && stepFail
                 }
                 if (!fail) {
@@ -2419,31 +2347,14 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, any rewrte fail
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_any_fail (query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_any_fail (query_sql, mv_names) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean fail = false
-                    for (String mv_name : mv_names) {
-                        fail = fail || !result.contains("(${mv_name})")
-                    }
-                    if (!fail) {
-                        logger.info("mv_rewrite_any_fail =" + result)
-                    }
-                    Assert.assertEquals(true, fail)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
                 boolean fail = false
                 for (String mv_name : mv_names) {
-                    fail = fail || result.contains("${mv_name} fail")
+                    fail = fail || result.contains(".${mv_name} fail")
                 }
                 if (!fail) {
                     logger.info("mv_rewrite_any_fail =" + result)
@@ -2465,7 +2376,7 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success(query_sql, mv_name, true)
+        mv_rewrite_success(query_sql, mv_name)
     }
 
     def async_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
@@ -2481,7 +2392,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success_without_check_chosen(query_sql, mv_name, true)
+        mv_rewrite_success_without_check_chosen(query_sql, mv_name)
     }
 
 
@@ -2498,7 +2409,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_fail(query_sql, mv_name, true)
+        mv_rewrite_fail(query_sql, mv_name)
     }
 
     def async_create_mv = { db, mv_sql, mv_name ->
@@ -3033,7 +2944,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getRowsetFileCacheDirFromBe = { beHttpPort, msHttpPort, tabletId, version -> 
+    def getRowsetFileCacheDirFromBe = { beHttpPort, msHttpPort, tabletId, version, fileSuffix = "dat" -> 
         def hashValues = []
         def segmentFiles = []
         getSegmentFilesFromMs(msHttpPort, tabletId, version) {
@@ -3043,7 +2954,7 @@ class Suite implements GroovyInterceptable {
                 // {"rowset_id":"0","partition_id":"27695","tablet_id":"27700","txn_id":"7057526525952","tablet_schema_hash":0,"rowset_type":"BETA_ROWSET","rowset_state":"COMMITTED","start_version":"3","end_version":"3","version_hash":"0","num_rows":"1","total_disk_size":"895","data_disk_size":"895","index_disk_size":"0","empty":false,"load_id":{"hi":"-1646598626735601581","lo":"-6677682539881484579"},"delete_flag":false,"creation_time":"1736153402","num_segments":"1","rowset_id_v2":"0200000000000004694889e84c76391cfd52ec7db0a483ba","resource_id":"1","newest_write_timestamp":"1736153402","segments_key_bounds":[{"min_key":"AoAAAAAAAAAC","max_key":"AoAAAAAAAAAC"}],"txn_expiration":"1736167802","segments_overlap_pb":"NONOVERLAPPING","compaction_level":"0","segments_file_size":["895"],"index_id":"27697","schema_version":0,"enable_segments_file_size":true,"has_variant_type_in_schema":false,"enable_inverted_index_file_info":false}
                 def segmentNum = json.num_segments as int
                 def rowsetId = json.rowset_id_v2 as String
-                segmentFiles = (0..<segmentNum).collect { i -> "${rowsetId}_${i}.dat" }
+                segmentFiles = (0..<segmentNum).collect { i -> "${rowsetId}_${i}.${fileSuffix}" }
         }
 
         segmentFiles.each {
@@ -3057,7 +2968,7 @@ class Suite implements GroovyInterceptable {
     }
 
     // get table's tablet file cache
-    def getTabletFileCacheDirFromBe = { msHttpPort, table, version ->
+    def getTabletFileCacheDirFromBe = { msHttpPort, table, version, fileSuffix = "dat" ->
         // beHost HashFile
         def beHostToHashFile = [:]
 
@@ -3065,7 +2976,7 @@ class Suite implements GroovyInterceptable {
         getTabletsAndHostFromFe.each {
             def beHost = it.Value[1]
             def tabletId = it.Key
-            def hashRet = getRowsetFileCacheDirFromBe(beHost + ":8040", msHttpPort, tabletId, version)
+            def hashRet = getRowsetFileCacheDirFromBe(beHost + ":8040", msHttpPort, tabletId, version, fileSuffix)
             hashRet.each {
                 def hashFile = it
                 if (beHostToHashFile.containsKey(beHost)) {
@@ -3078,4 +2989,51 @@ class Suite implements GroovyInterceptable {
         beHostToHashFile
     }
 
+    /**
+     * Wait until the specified time constraint is satisfied before executing the test.
+     * 
+     * This function solves the problem where tests cannot span hour or day boundaries.
+     * For example: Some tests may fail when crossing hour or day boundaries. Using this function
+     * ensures that tests are executed within a safe time window to avoid crossing specified time boundaries.
+     * 
+     * @param caseSpanConstraint:
+     *           - "NOT_CROSS_HOUR_BOUNDARY": Test cannot cross hour boundary
+     *           - "NOT_CROSS_DAY_BOUNDARY": Test cannot cross day boundary
+     * @param caseElapseSeconds Expected total execution time of the test in seconds
+     */
+    void waitUntilSafeExecutionTime(String caseSpanConstraint, int caseElapseSeconds) {
+        if (caseElapseSeconds <= 0) {
+            throw new IllegalArgumentException("invalid caseElapseSeconds, ${caseElapseSeconds}")
+        }
+
+        long sleepSeconds = 0
+        LocalDateTime now = LocalDateTime.now();
+        
+        switch (caseSpanConstraint) {
+            case "NOT_CROSS_HOUR_BOUNDARY":
+                LocalDateTime nextHour = now.withMinute(0).withSecond(0).withNano(0).plusHours(1);
+                long secondsToNextHour = ChronoUnit.SECONDS.between(now, nextHour)
+                
+                if (secondsToNextHour < caseElapseSeconds) {
+                    sleepSeconds = secondsToNextHour
+                }
+                break
+                
+            case "NOT_CROSS_DAY_BOUNDARY":
+                LocalDateTime startOfNextDay = now.toLocalDate().plusDays(1).atStartOfDay();
+                long secondsToNextDay = ChronoUnit.SECONDS.between(now, startOfNextDay)
+                
+                if (secondsToNextDay < caseElapseSeconds) {
+                    sleepSeconds = secondsToNextDay
+                }
+                break
+            default:
+                throw new IllegalArgumentException("invalid caseSpanConstraint:${caseSpanConstraint}")
+        }
+        
+        if (sleepSeconds > 0) {
+            logger.info("test sleeps ${sleepSeconds} to satisfy ${caseSpanConstraint}")
+            Thread.sleep(sleepSeconds * 1000)
+        }
+    }
 }

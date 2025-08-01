@@ -150,9 +150,9 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
 
     segment_v2::SegmentSharedPtr segment;
-    EXPECT_TRUE(((BetaRowset*)rowset.get())->load_segment(0, &segment).ok());
+    EXPECT_TRUE(((BetaRowset*)rowset.get())->load_segment(0, nullptr, &segment).ok());
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-    auto st = segment->_get_segment_footer(footer_pb_shared);
+    auto st = segment->_get_segment_footer(footer_pb_shared, nullptr);
     EXPECT_TRUE(st.ok());
     st = segment->_create_column_readers(*footer_pb_shared);
     EXPECT_TRUE(st.ok());
@@ -230,9 +230,9 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
 
     segment_v2::SegmentSharedPtr segment;
-    EXPECT_TRUE(((BetaRowset*)rowset.get())->load_segment(0, &segment).ok());
+    EXPECT_TRUE(((BetaRowset*)rowset.get())->load_segment(0, nullptr, &segment).ok());
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-    auto st = segment->_get_segment_footer(footer_pb_shared);
+    auto st = segment->_get_segment_footer(footer_pb_shared, nullptr);
     EXPECT_TRUE(st.ok());
     st = segment->_create_column_readers(*(footer_pb_shared));
     EXPECT_TRUE(st.ok());
@@ -248,7 +248,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
 
         // Test positive cases
         auto test_positive = [&](const std::vector<std::string>& values, bool result) {
-            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>();
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>(false);
             for (const auto& value : values) {
                 auto v = timestamp_from_date(value);
                 hybrid_set->insert(&v);
@@ -266,7 +266,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
         test_positive({"2024-11-09"}, true);
 
         auto test_negative = [&](const std::vector<std::string>& values, bool result) {
-            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>();
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>(false);
 
             for (const auto& value : values) {
                 auto v = timestamp_from_date(value);
@@ -298,7 +298,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
 
         // Test positive cases
         auto test_positive = [&](const std::vector<std::string>& values, bool result) {
-            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>();
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>(false);
             for (const auto& value : values) {
                 auto v = timestamp_from_datetime(value);
                 hybrid_set->insert(&v);
@@ -317,7 +317,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
 
         // Test negative cases
         auto test_negative = [&](const std::vector<std::string>& values, bool result) {
-            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>();
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>(false);
             for (const auto& value : values) {
                 auto v = timestamp_from_datetime(value);
                 hybrid_set->insert(&v);

@@ -20,33 +20,44 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.BuildIndexClause;
+import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * BuildIndexOp
  */
 public class BuildIndexOp extends AlterTableOp {
-    // in which table the index on, only used when alter = false
-    private final TableNameInfo tableName;
     // index definition class
-    private final IndexDefinition indexDef;
+    private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
     // when alter = false, clause like: create index xx on table xxxx
     private final boolean alter;
     // index internal class
     private Index index;
+    // index name
+    private final String indexName;
+    // partition names info
+    private final PartitionNamesInfo partitionNamesInfo;
 
-    public BuildIndexOp(TableNameInfo tableName, IndexDefinition indexDef, boolean alter) {
+    public BuildIndexOp(TableNameInfo tableName, String indexName, PartitionNamesInfo partitionNamesInfo,
+                            boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
-        this.indexDef = indexDef;
+        this.indexName = indexName;
+        this.partitionNamesInfo = partitionNamesInfo;
         this.alter = alter;
     }
 
@@ -69,16 +80,58 @@ public class BuildIndexOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        if (indexDef == null) {
-            throw new AnalysisException("index definition expected.");
+        tableName.analyze(ctx);
+        DatabaseIf<Table> db = Env.getCurrentEnv().getCatalogMgr().getInternalCatalog()
+                .getDb(tableName.getDb()).orElse(null);
+        if (db == null) {
+            throw new AnalysisException("Database[" + tableName.getDb() + "] is not exist");
+        }
+
+        TableIf table = db.getTable(tableName.getTbl()).orElse(null);
+        if (table == null) {
+            throw new AnalysisException("Table[" + tableName.getTbl() + "] is not exist");
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("Only olap table support build index");
+        }
+
+        Index existedIdx = null;
+        for (Index index : table.getTableIndexes().getIndexes()) {
+            if (index.getIndexName().equalsIgnoreCase(indexName)) {
+                existedIdx = index;
+                if (!existedIdx.isLightIndexChangeSupported()) {
+                    throw new AnalysisException("BUILD INDEX operation failed: The index "
+                        + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
+                        + " does not support lightweight index changes.");
+                }
+                break;
+            }
+        }
+        if (existedIdx == null) {
+            throw new AnalysisException("Index[" + indexName + "] is not exist in table[" + tableName.getTbl() + "]");
+        }
+
+        IndexDef.IndexType indexType = existedIdx.getIndexType();
+        if (indexType == IndexDef.IndexType.NGRAM_BF
+                || indexType == IndexDef.IndexType.BLOOMFILTER) {
+            throw new AnalysisException(indexType + " index is not needed to build.");
+        }
+
+        indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);
+        if (!table.isPartitionedTable()) {
+            List<String> specifiedPartitions = indexDef.getPartitionNames();
+            if (!specifiedPartitions.isEmpty()) {
+                throw new AnalysisException("table " + table.getName()
+                    + " is not partitioned, cannot build index with partitions.");
+            }
         }
         indexDef.validate();
-        tableName.analyze(ctx);
-        index = indexDef.translateToCatalogStyle();
+        this.index = existedIdx.clone();
     }
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
+        indexDef.getIndexType();
         return new BuildIndexClause(tableName.transferToTableName(), indexDef.translateToLegacyIndexDef(), index,
                 alter);
     }

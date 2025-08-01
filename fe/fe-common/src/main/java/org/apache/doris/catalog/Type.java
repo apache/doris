@@ -309,6 +309,8 @@ public abstract class Type {
         structSubTypes.add(STRUCT);
     }
 
+    public static final Set<Class> ARRAY_SUPPORTED_JAVA_TYPE = Sets.newHashSet(ArrayList.class, List.class);
+    public static final Set<Class> MAP_SUPPORTED_JAVA_TYPE = Sets.newHashSet(HashMap.class, Map.class);
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
             org.joda.time.LocalDate.class);
     public static final Set<Class> DATETIME_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class,
@@ -334,9 +336,9 @@ public abstract class Type {
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
-                    .put(PrimitiveType.MAP, Sets.newHashSet(HashMap.class))
-                    .put(PrimitiveType.STRUCT, Sets.newHashSet(ArrayList.class))
+                    .put(PrimitiveType.ARRAY, ARRAY_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.MAP, MAP_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.STRUCT, ARRAY_SUPPORTED_JAVA_TYPE)
                     .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -580,6 +582,10 @@ public abstract class Type {
         return isObjectStored() || isComplexType() || isJsonbType() || isVariantType();
     }
 
+    public boolean isObjectOrVariantType() {
+        return isObjectStored() || isVariantType();
+    }
+
     public static final String OnlyObjectTypeErrorMsg =
             "Doris hll, bitmap column must use with specific function, and don't"
                     + " support filter, group by or order by. please run 'help hll' or 'help bitmap'"
@@ -670,6 +676,10 @@ public abstract class Type {
 
     public boolean isTime() {
         return isScalarType(PrimitiveType.TIME);
+    }
+
+    public boolean isTimeType() {
+        return isTime() || isTimeV2();
     }
 
     public boolean isComplexType() {

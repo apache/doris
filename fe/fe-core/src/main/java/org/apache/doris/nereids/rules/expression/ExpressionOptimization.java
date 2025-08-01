@@ -41,15 +41,20 @@ import java.util.List;
  * optimize expression of plan rule set.
  */
 public class ExpressionOptimization extends ExpressionRewrite {
-    public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
             bottomUp(
-                    ExtractCommonFactorRule.INSTANCE,
-                    DistinctPredicatesRule.INSTANCE,
-                    SimplifyComparisonPredicate.INSTANCE,
                     SimplifyInPredicate.INSTANCE,
-                    SimplifyRange.INSTANCE,
+
+                    // comparison predicates
+                    SimplifyComparisonPredicate.INSTANCE,
                     SimplifySelfComparison.INSTANCE,
+
+                    // compound predicates
+                    SimplifyRange.INSTANCE,
                     SimplifyConflictCompound.INSTANCE,
+                    DistinctPredicatesRule.INSTANCE,
+                    ExtractCommonFactorRule.INSTANCE,
+
                     DateFunctionRewrite.INSTANCE,
                     ArrayContainToArrayOverlap.INSTANCE,
                     CaseWhenToIf.INSTANCE,
@@ -67,7 +72,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
      *      => LogicalFilter((origin expr)) // use PushDownFilterThroughJoin
      *      => ...
      */
-    public static final List<ExpressionRewriteRule> ADD_RANGE = ImmutableList.of(
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> ADD_RANGE = ImmutableList.of(
             bottomUp(
                     AddMinMax.INSTANCE
             )

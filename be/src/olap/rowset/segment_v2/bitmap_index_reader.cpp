@@ -31,7 +31,7 @@
 
 namespace doris {
 namespace segment_v2 {
-
+#include "common/compile_check_begin.h"
 Status BitmapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     // TODO yyq: implement a new once flag to avoid status construct.
     return _load_once.call([this, use_page_cache, kept_in_memory] {
@@ -59,7 +59,7 @@ Status BitmapIndexReader::new_iterator(BitmapIndexIterator** iterator) {
 
 Status BitmapIndexIterator::seek_dictionary(const void* value, bool* exact_match) {
     RETURN_IF_ERROR(_dict_column_iter.seek_at_or_after(value, exact_match));
-    _current_rowid = _dict_column_iter.get_current_ordinal();
+    _current_rowid = static_cast<rowid_t>(_dict_column_iter.get_current_ordinal());
     return Status::OK();
 }
 
@@ -93,3 +93,4 @@ Status BitmapIndexIterator::read_union_bitmap(rowid_t from, rowid_t to, roaring:
 
 } // namespace segment_v2
 } // namespace doris
+#include "common/compile_check_end.h"

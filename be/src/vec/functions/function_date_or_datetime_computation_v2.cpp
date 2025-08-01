@@ -15,103 +15,94 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-using FunctionAddSecondsV2 = FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDateV2>>;
-using FunctionAddMinutesV2 = FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDateV2>>;
-using FunctionAddHoursV2 = FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDateV2>>;
-using FunctionAddDaysV2 = FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDateV2>>;
-using FunctionAddWeeksV2 = FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDateV2>>;
-using FunctionAddMonthsV2 = FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDateV2>>;
-using FunctionAddQuartersV2 = FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDateV2>>;
-using FunctionAddYearsV2 = FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateV2>>;
+using FunctionAddSecondsV2 = FunctionDateOrDateTimeComputation<AddSecondsImpl<TYPE_DATEV2>>;
+using FunctionAddMinutesV2 = FunctionDateOrDateTimeComputation<AddMinutesImpl<TYPE_DATEV2>>;
+using FunctionAddHoursV2 = FunctionDateOrDateTimeComputation<AddHoursImpl<TYPE_DATEV2>>;
+using FunctionAddDaysV2 = FunctionDateOrDateTimeComputation<AddDaysImpl<TYPE_DATEV2>>;
+using FunctionAddWeeksV2 = FunctionDateOrDateTimeComputation<AddWeeksImpl<TYPE_DATEV2>>;
+using FunctionAddMonthsV2 = FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_DATEV2>>;
+using FunctionAddQuartersV2 = FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_DATEV2>>;
+using FunctionAddYearsV2 = FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_DATEV2>>;
 
-using FunctionSubSecondsV2 = FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDateV2>>;
-using FunctionSubMinutesV2 = FunctionDateOrDateTimeComputation<SubtractMinutesImpl<DataTypeDateV2>>;
-using FunctionSubHoursV2 = FunctionDateOrDateTimeComputation<SubtractHoursImpl<DataTypeDateV2>>;
-using FunctionSubDaysV2 = FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDateV2>>;
-using FunctionSubWeeksV2 = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDateV2>>;
-using FunctionSubMonthsV2 = FunctionDateOrDateTimeComputation<SubtractMonthsImpl<DataTypeDateV2>>;
-using FunctionSubQuartersV2 =
-        FunctionDateOrDateTimeComputation<SubtractQuartersImpl<DataTypeDateV2>>;
-using FunctionSubYearsV2 = FunctionDateOrDateTimeComputation<SubtractYearsImpl<DataTypeDateV2>>;
+using FunctionSubSecondsV2 = FunctionDateOrDateTimeComputation<SubtractSecondsImpl<TYPE_DATEV2>>;
+using FunctionSubMinutesV2 = FunctionDateOrDateTimeComputation<SubtractMinutesImpl<TYPE_DATEV2>>;
+using FunctionSubHoursV2 = FunctionDateOrDateTimeComputation<SubtractHoursImpl<TYPE_DATEV2>>;
+using FunctionSubDaysV2 = FunctionDateOrDateTimeComputation<SubtractDaysImpl<TYPE_DATEV2>>;
+using FunctionSubWeeksV2 = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<TYPE_DATEV2>>;
+using FunctionSubMonthsV2 = FunctionDateOrDateTimeComputation<SubtractMonthsImpl<TYPE_DATEV2>>;
+using FunctionSubQuartersV2 = FunctionDateOrDateTimeComputation<SubtractQuartersImpl<TYPE_DATEV2>>;
+using FunctionSubYearsV2 = FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_DATEV2>>;
 
 using FunctionToYearWeekTwoArgsV2 =
-        FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<DataTypeDateV2>>;
-using FunctionToWeekTwoArgsV2 =
-        FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<DataTypeDateV2>>;
+        FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<TYPE_DATEV2>>;
+using FunctionToWeekTwoArgsV2 = FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<TYPE_DATEV2>>;
 
 using FunctionDatetimeV2AddMicroseconds =
-        FunctionDateOrDateTimeComputation<AddMicrosecondsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<AddMicrosecondsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2AddMilliseconds =
-        FunctionDateOrDateTimeComputation<AddMillisecondsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<AddMillisecondsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2AddSeconds =
-        FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<AddSecondsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2AddMinutes =
-        FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDateTimeV2>>;
-using FunctionDatetimeV2AddHours =
-        FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDateTimeV2>>;
-using FunctionDatetimeV2AddDays =
-        FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDateTimeV2>>;
-using FunctionDatetimeV2AddWeeks =
-        FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<AddMinutesImpl<TYPE_DATETIMEV2>>;
+using FunctionDatetimeV2AddHours = FunctionDateOrDateTimeComputation<AddHoursImpl<TYPE_DATETIMEV2>>;
+using FunctionDatetimeV2AddDays = FunctionDateOrDateTimeComputation<AddDaysImpl<TYPE_DATETIMEV2>>;
+using FunctionDatetimeV2AddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2AddMonths =
-        FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2AddQuarters =
-        FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDateTimeV2>>;
-using FunctionDatetimeV2AddYears =
-        FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_DATETIMEV2>>;
+using FunctionDatetimeV2AddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_DATETIMEV2>>;
 
 using FunctionDatetimeV2SubMicroseconds =
-        FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2SubMilliseconds =
-        FunctionDateOrDateTimeComputation<SubtractMillisecondsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractMillisecondsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2SubSeconds =
-        FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractSecondsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2SubMinutes =
-        FunctionDateOrDateTimeComputation<SubtractMinutesImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractMinutesImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2SubHours =
-        FunctionDateOrDateTimeComputation<SubtractHoursImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractHoursImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2SubDays =
-        FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractDaysImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2SubWeeks =
-        FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractWeeksImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2SubMonths =
-        FunctionDateOrDateTimeComputation<SubtractMonthsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractMonthsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2SubQuarters =
-        FunctionDateOrDateTimeComputation<SubtractQuartersImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractQuartersImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2SubYears =
-        FunctionDateOrDateTimeComputation<SubtractYearsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_DATETIMEV2>>;
 
-#define FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, TYPE1, TYPE2) \
-    using NAME##_##TYPE1##_##TYPE2 = FunctionDateOrDateTimeComputation<IMPL<TYPE1, TYPE2>>;
+#define FUNCTION_TIME_DIFF_V2(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 
-#define ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL)                                 \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateTimeV2) \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateV2)     \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateTimeV2)     \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateV2)
+#define ALL_FUNCTION_TIME_DIFF_V2(NAME, IMPL)          \
+    FUNCTION_TIME_DIFF_V2(NAME, IMPL, TYPE_DATETIMEV2) \
+    FUNCTION_TIME_DIFF_V2(NAME, IMPL, TYPE_DATEV2)
 // these diff functions accept all v2 types. but for v1 only datetime.
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff, DateDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2TimeDiff, TimeDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2YearsDiff, YearsDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MonthsDiff, MonthsDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2WeeksDiff, WeeksDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2HoursDiff, HoursDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MinutesDiff, MintuesDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2SecondsDiff, SecondsDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2DaysDiff, DaysDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MilliSecondsDiff, MilliSecondsDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MicroSecondsDiff, MicroSecondsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2DateDiff, DateDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2TimeDiff, TimeDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2YearsDiff, YearsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2MonthsDiff, MonthsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2WeeksDiff, WeeksDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2HoursDiff, HoursDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2MinutesDiff, MintuesDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2SecondsDiff, SecondsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2DaysDiff, DaysDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2MilliSecondsDiff, MilliSecondsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2MicroSecondsDiff, MicroSecondsDiffImpl)
 
 using FunctionDatetimeV2ToYearWeekTwoArgs =
-        FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2ToWeekTwoArgs =
-        FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<DataTypeDateTimeV2>>;
+        FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<TYPE_DATETIMEV2>>;
 
 void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSecondsV2>();
@@ -154,26 +145,23 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionDatetimeV2SubQuarters>();
     factory.register_function<FunctionDatetimeV2SubWeeks>();
 
-#define REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, TYPE1, TYPE2) \
-    factory.register_function<NAME##_##TYPE1##_##TYPE2>();
+#define REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE) factory.register_function<NAME##_##TYPE>();
 
-#define REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME)                                 \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateTimeV2) \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateV2)     \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateTimeV2)     \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateV2)
+#define REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(NAME)          \
+    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATETIMEV2) \
+    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATEV2)
 
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2TimeDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2YearsDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MonthsDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2WeeksDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2HoursDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MinutesDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2SecondsDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2DaysDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MilliSecondsDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MicroSecondsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2DateDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2TimeDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2YearsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2MonthsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2WeeksDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2HoursDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2MinutesDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2SecondsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2DaysDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2MilliSecondsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2MicroSecondsDiff)
 
     factory.register_function<FunctionToYearWeekTwoArgsV2>();
     factory.register_function<FunctionToWeekTwoArgsV2>();

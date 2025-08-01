@@ -26,33 +26,25 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <sstream>
 #include <vector>
 
 #include "common/config.h"
-#include "common/exception.h"
 #include "partitioned_hash_join_test_helper.h"
 #include "pipeline/common/data_gen_functions/vnumbers_tvf.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 #include "pipeline/pipeline_task.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
-#include "testutil/mock/mock_data_stream_sender.h"
-#include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_operators.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vexpr_fwd.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -126,12 +118,12 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, InitLocalState) {
     ASSERT_TRUE(st.ok()) << "Prepare failed: " << st.to_string();
 
     RuntimeProfile runtime_profile("test");
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
     TDataSink t_sink;
-    LocalSinkStateInfo info {.parent_profile = &runtime_profile,
+    LocalSinkStateInfo info {.task_idx = 0,
+                             .parent_profile = &runtime_profile,
+                             .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = le_state_map,
+                             .shared_state_map = {},
                              .tsink = t_sink};
     st = local_state->init(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st) << "init failed: " << st.to_string();
@@ -230,12 +222,11 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
 
     auto shared_state = std::make_shared<MockPartitionedHashJoinSharedState>();
 
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
+                                  .sender_id = 0,
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = le_state_map,
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     auto st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "Setup local state failed: " << st.to_string();
@@ -340,7 +331,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
                 _helper.runtime_state.get(), spilling_stream,
                 print_id(_helper.runtime_state->query_id()), fmt::format("hash_build_sink_{}", i),
                 sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<size_t>::max(), sink_state->profile()));
+                std::numeric_limits<size_t>::max(), sink_state->operator_profile()));
         ASSERT_TRUE(st.ok()) << "Register spill stream failed: " << st.to_string();
     }
 
@@ -349,9 +340,9 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     auto inner_sink_local_state = std::make_unique<MockHashJoinBuildSinkLocalState>(
             inner_sink.get(), sink_state->_shared_state->inner_runtime_state.get());
     inner_sink_local_state->_hash_table_memory_usage =
-            sink_state->profile()->add_counter("HashTableMemoryUsage", TUnit::BYTES);
+            sink_state->custom_profile()->add_counter("HashTableMemoryUsage", TUnit::BYTES);
     inner_sink_local_state->_build_arena_memory_usage =
-            sink_state->profile()->add_counter("BuildArenaMemoryUsage", TUnit::BYTES);
+            sink_state->operator_profile()->add_counter("BuildArenaMemoryUsage", TUnit::BYTES);
 
     auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
     ASSERT_EQ(block.rows(), 3);
@@ -359,6 +350,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
 
     sink_state->_shared_state->inner_runtime_state->emplace_sink_local_state(
             0, std::move(inner_sink_local_state));
+
+    sink_state->_finish_dependency =
+            Dependency::create_shared(sink_operator->operator_id(), sink_operator->node_id(),
+                                      "HashJoinBuildFinishDependency", true);
 
     // Expect revoke memory to trigger spilling
     status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);
@@ -371,9 +366,9 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     }
     std::cout << "spill dependency ready" << std::endl;
 
-    std::cout << "profile: " << sink_state->profile()->pretty_print() << std::endl;
+    std::cout << "profile: " << sink_state->operator_profile()->pretty_print() << std::endl;
 
-    auto written_rows_counter = sink_state->profile()->get_counter("SpillWriteRows");
+    auto written_rows_counter = sink_state->custom_profile()->get_counter("SpillWriteRows");
     auto written_rows = written_rows_counter->value();
     ASSERT_EQ(written_rows, 2) << "SpillWriteRows: " << written_rows_counter->value();
 

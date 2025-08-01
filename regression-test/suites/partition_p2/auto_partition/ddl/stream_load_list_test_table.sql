@@ -39,7 +39,7 @@ CREATE TABLE `stream_load_list_test_table`(
   `col38` varchar(128),
   `col39` decimal(9, 3),
   `col40` char(128)
-) UNIQUE KEY(`col1`)
+) DUPLICATE KEY(`col1`)
 AUTO PARTITION BY list(`col1`)
 (
 )

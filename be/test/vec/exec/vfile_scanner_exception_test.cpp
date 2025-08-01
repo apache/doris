@@ -252,10 +252,11 @@ void VfileScannerExceptionTest::init() {
     auto local_state =
             pipeline::FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
     std::vector<TScanRangeParams> scan_ranges;
-    std::map<int, std::pair<std::shared_ptr<pipeline::LocalExchangeSharedState>,
-                            std::shared_ptr<pipeline::Dependency>>>
-            le_state_map;
-    pipeline::LocalStateInfo info {&_global_profile, scan_ranges, nullptr, le_state_map, 0};
+    pipeline::LocalStateInfo info {.parent_profile = &_global_profile,
+                                   .scan_ranges = scan_ranges,
+                                   .shared_state = nullptr,
+                                   .shared_state_map = {},
+                                   .task_idx = 0};
     WARN_IF_ERROR(local_state->init(&_runtime_state, info), "fail to init local_state");
     _runtime_state.emplace_local_state(_scan_node->operator_id(), std::move(local_state));
 
@@ -298,7 +299,7 @@ TEST_F(VfileScannerExceptionTest, failure_case) {
     auto st = scanner->get_block(&_runtime_state, block.get(), &eof);
     ASSERT_FALSE(st.ok());
     auto msg = st.to_string();
-    auto pos = msg.find("Failed to create reader for");
+    auto pos = msg.find("Not supported create reader");
     std::cout << "msg = " << msg << std::endl;
     ASSERT_TRUE(pos != msg.npos);
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");

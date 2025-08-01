@@ -49,6 +49,7 @@ suite("test_fold_constant_by_fe") {
     for (date in test_date) {
         qt_sql "select year('${date}'), month('${date}'), dayofyear('${date}'), dayofmonth('${date}'), dayofweek('${date}'), day('${date}')"
         qt_sql "select hour('${date}'), minute('${date}'), second('${date}')"
+        qt_sql "select extract(dow from '${date}'), extract(dayofweek from '${date}'), extract(doy from '${date}'), extract(dayofyear from '${date}')"
     }
 
     for (date in test_date) {
@@ -206,10 +207,10 @@ suite("test_fold_constant_by_fe") {
 
     // test null like string cause of fe need to fold constant like that to enable not null derive
     res = sql """explain select null like '%123%'"""
-    assertFalse(res.contains("like"))
+    assertTrue(res.contains("NULL"))
     // now fe fold constant still can not deal with this case
     res = sql """explain select "12" like '%123%'"""
-    assertTrue(res.contains("like"))
+    assertFalse(res.contains("NULL"))
 
     testFoldConst("select DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY) + INTERVAL 3600 SECOND")
 

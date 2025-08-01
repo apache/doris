@@ -97,8 +97,6 @@ private:
                  std::unique_ptr<OrdinalIndexPB> index_meta,
                  OlapReaderStatistics* index_load_stats);
 
-    int64_t get_metadata_size() const override;
-
 private:
     friend OrdinalPageIndexIterator;
 

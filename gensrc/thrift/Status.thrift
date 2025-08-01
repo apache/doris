@@ -69,6 +69,7 @@ enum TStatusCode {
     ILLEGAL_STATE       = 37,
     NOT_AUTHORIZED      = 38,
     ABORTED             = 39,
+    DIRECTORY_NOT_EMPTY = 40,
     //REMOTE_ERROR        = 40,
     //SERVICE_UNAVAILABLE = 41, // Not used any more
     UNINITIALIZED       = 42,

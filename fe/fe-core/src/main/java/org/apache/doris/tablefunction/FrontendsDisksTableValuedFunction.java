@@ -19,8 +19,10 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -30,6 +32,7 @@ import org.apache.doris.thrift.TMetadataType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -71,10 +74,10 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
         if (params.size() != 0) {
             throw new AnalysisException("frontends_disks table-valued-function does not support any params");
         }
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN_OR_NODE)) {
-            String message = ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg(
-                    PrivPredicate.ADMIN_OR_NODE.getPrivs().toString());
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT)) {
+            String message = ErrorCode.ERR_DB_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.SELECT.getPrivs().toString(), InfoSchemaDb.DATABASE_NAME);
             throw new AnalysisException(message);
         }
     }
@@ -85,13 +88,13 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.FRONTENDS_DISKS);
         TFrontendsMetadataParams frontendsMetadataParams = new TFrontendsMetadataParams();
         frontendsMetadataParams.setClusterName("");
         metaScanRange.setFrontendsParams(frontendsMetadataParams);
-        return metaScanRange;
+        return Lists.newArrayList(metaScanRange);
     }
 
     @Override

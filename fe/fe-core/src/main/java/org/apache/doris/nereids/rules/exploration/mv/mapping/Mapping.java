@@ -102,7 +102,9 @@ public abstract class Mapping {
 
         @Override
         public String toString() {
-            return "MappedRelation{" + "relationId=" + relationId + ", slotNameToSlotMap=" + slotNameToSlotMap + '}';
+            String relationTableName = belongedRelation.getTable().getNameWithFullQualifiers();
+            return "MappedRelation{" + "relationId=" + relationId + ", relationTableName="
+                    + relationTableName + ", slotNameToSlotMap=" + slotNameToSlotMap + '}';
         }
     }
 

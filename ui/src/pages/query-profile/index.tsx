@@ -41,7 +41,7 @@ export default function QueryProfile(params: any) {
     const history = useHistory();
     const doQueryProfile = function (ac?: AbortController) {
         const param = {
-            path: getLastPath(),
+            profile_id: getLastPath(),
             signal: ac?.signal,
         };
         queryProfile(param)
@@ -157,7 +157,7 @@ export default function QueryProfile(params: any) {
             <Row style={{ paddingBottom: '15px' }}>
                 <Col span={12}>
                     <Text strong={true}>
-                        This table lists the latest 100 queries
+                        This table lists the latest max_query_profile_num queries
                     </Text>
                 </Col>
                 <Col span={12} style={{ textAlign: 'right' }}>
@@ -190,7 +190,9 @@ export default function QueryProfile(params: any) {
             {profile ? (
                 <div
                     ref={container}
-                    style={{ background: '#f9f9f9', padding: '20px' }}
+                    style={{ background: '#f9f9f9', padding: '20px', whiteSpace: 'pre-wrap',
+                        fontFamily: 'Menlo, Monaco, \'Courier New\', monospace'
+                        }}
                 >
                     {/* {profile} */}
                 </div>

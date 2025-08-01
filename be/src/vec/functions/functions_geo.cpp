@@ -27,12 +27,10 @@
 #include "geo/geo_types.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -41,7 +39,6 @@
 namespace doris::vectorized {
 
 struct StPoint {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_point";
     static const size_t NUM_ARGS = 2;
     using Type = DataTypeString;
@@ -129,7 +126,6 @@ struct StAsWktName {
 
 template <typename FunctionName>
 struct StAsText {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = FunctionName::NAME;
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
@@ -165,7 +161,6 @@ struct StAsText {
 };
 
 struct StX {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_x";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeFloat64;
@@ -203,7 +198,6 @@ struct StX {
 };
 
 struct StY {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_y";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeFloat64;
@@ -241,7 +235,6 @@ struct StY {
 };
 
 struct StDistanceSphere {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_distance_sphere";
     static const size_t NUM_ARGS = 4;
     using Type = DataTypeFloat64;
@@ -288,7 +281,6 @@ struct StDistanceSphere {
 };
 
 struct StAngleSphere {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_angle_sphere";
     static const size_t NUM_ARGS = 4;
     using Type = DataTypeFloat64;
@@ -337,7 +329,6 @@ struct StAngleSphere {
 };
 
 struct StAngle {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_angle";
     static const size_t NUM_ARGS = 3;
     using Type = DataTypeFloat64;
@@ -397,7 +388,6 @@ struct StAngle {
 };
 
 struct StAzimuth {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_azimuth";
     static const size_t NUM_ARGS = 2;
     using Type = DataTypeFloat64;
@@ -487,7 +477,6 @@ struct StAzimuth {
 };
 
 struct StAreaSquareMeters {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_area_square_meters";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeFloat64;
@@ -528,7 +517,6 @@ struct StAreaSquareMeters {
 };
 
 struct StAreaSquareKm {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_area_square_km";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeFloat64;
@@ -571,12 +559,10 @@ struct StAreaSquareKm {
 };
 
 struct StCircle {
-    static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_circle";
     static const size_t NUM_ARGS = 3;
     using Type = DataTypeString;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 3);
         auto return_type = block.get_data_type(result);
         auto center_lng =
@@ -616,23 +602,15 @@ struct StCircle {
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
     }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
-struct StContains {
-    static constexpr auto NEED_CONTEXT = true;
-    static constexpr auto NAME = "st_contains";
+template <typename Func>
+struct StRelationFunction {
+    static constexpr auto NAME = Func::NAME;
     static const size_t NUM_ARGS = 2;
     using Type = DataTypeUInt8;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 2);
         auto return_type = block.get_data_type(result);
         const auto& [left_column, left_const] =
@@ -642,8 +620,7 @@ struct StContains {
 
         const auto size = std::max(left_column->size(), right_column->size());
 
-        auto res = ColumnUInt8::create();
-        res->reserve(size);
+        auto res = ColumnUInt8::create(size, 0);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
@@ -660,66 +637,73 @@ struct StContains {
     }
 
     static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
-                        std::vector<std::shared_ptr<GeoShape>>& shapes, int& i,
+                        std::vector<std::unique_ptr<GeoShape>>& shapes,
                         ColumnUInt8::MutablePtr& res, NullMap& null_map, int row) {
         StringRef* strs[2] = {&lhs_value, &rhs_value};
-        for (i = 0; i < 2; ++i) {
-            shapes[i] =
-                    std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
-            if (shapes[i] == nullptr) {
+        for (int i = 0; i < 2; ++i) {
+            std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+            shapes[i] = std::move(shape);
+            if (!shapes[i]) {
                 null_map[row] = 1;
-                res->insert_default();
                 break;
             }
         }
-
-        if (i == 2) {
-            auto contains_value = shapes[0]->contains(shapes[1].get());
-            res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
+        if (shapes[0] && shapes[1]) {
+            auto relation_value = Func::evaluate(shapes[0].get(), shapes[1].get());
+            res->get_data()[row] = relation_value;
         }
     }
 
     static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
         auto lhs_value = left_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
         }
     }
 
     static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
         auto rhs_value = right_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto lhs_value = left_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
         }
     }
 
     static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
                               ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto lhs_value = left_column->get_data_at(row);
             auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
         }
     }
+};
 
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
+struct StContainsFunc {
+    static constexpr auto NAME = "st_contains";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->contains(shape2); }
+};
 
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-}; // namespace doris::vectorized
+struct StIntersectsFunc {
+    static constexpr auto NAME = "st_intersects";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->intersects(shape2); }
+};
+
+struct StDisjointFunc {
+    static constexpr auto NAME = "st_disjoint";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->disjoint(shape2); }
+};
+
+struct StTouchesFunc {
+    static constexpr auto NAME = "st_touches";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->touches(shape2); }
+};
 
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
@@ -758,12 +742,10 @@ struct StPolygonFromText {
 
 template <typename Impl>
 struct StGeoFromText {
-    static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = Impl::NAME;
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
         auto& geo = block.get_by_position(arguments[0]).column;
@@ -791,14 +773,6 @@ struct StGeoFromText {
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
     }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 struct StGeometryFromWKB {
@@ -813,12 +787,10 @@ struct StGeomFromWKB {
 
 template <typename Impl>
 struct StGeoFromWkb {
-    static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = Impl::NAME;
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
         auto& geo = block.get_by_position(arguments[0]).column;
@@ -845,23 +817,13 @@ struct StGeoFromWkb {
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
     }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 struct StAsBinary {
-    static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_asbinary";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
         auto res = ColumnString::create();
@@ -894,14 +856,6 @@ struct StAsBinary {
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
     }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 void register_function_geo(SimpleFunctionFactory& factory) {
@@ -914,7 +868,10 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAngleSphere>>();
     factory.register_function<GeoFunction<StAngle>>();
     factory.register_function<GeoFunction<StAzimuth>>();
-    factory.register_function<GeoFunction<StContains>>();
+    factory.register_function<GeoFunction<StRelationFunction<StContainsFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StIntersectsFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StDisjointFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StTouchesFunc>>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeomFromText>>>();

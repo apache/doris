@@ -50,6 +50,7 @@ class ClusterOptions {
     // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> feConfigs = [
         'heartbeat_interval_second=5',
+        'workload_group_check_interval_ms=1000',
     ]
 
     // don't add whitespace in beConfigs items,
@@ -58,11 +59,16 @@ class ClusterOptions {
         'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
+        'enable_java_support=false',
     ]
 
     List<String> msConfigs = []
 
     List<String> recycleConfigs = []
+
+    // host mapping(host:IP), for example: myhost:192.168.10.10
+    // just as `docker run --add-host myhost:192.168.10.10` do.
+    List<String> extraHosts = []
 
     boolean connectToFollower = false
 
@@ -122,7 +128,7 @@ class ServerNode {
     static void fromCompose(ServerNode node, ListHeader header, int index, List<Object> fields) {
         node.index = index
         node.host = (String) fields.get(header.indexOf('IP'))
-        node.httpPort = (Integer) fields.get(header.indexOf('http_port'))
+        node.httpPort = (int) toLongOrDefault(fields.get(header.indexOf('http_port')), -1)
         node.alive = fields.get(header.indexOf('alive')) == 'true'
         node.path = (String) fields.get(header.indexOf('path'))
     }
@@ -162,6 +168,9 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getBasePath() {
+        return path
+    }
 }
 
 class Frontend extends ServerNode {
@@ -173,8 +182,8 @@ class Frontend extends ServerNode {
     static Frontend fromCompose(ListHeader header, int index, List<Object> fields) {
         Frontend fe = new Frontend()
         ServerNode.fromCompose(fe, header, index, fields)
-        fe.queryPort = (Integer) fields.get(header.indexOf('query_port'))
-        fe.editLogPort = (Integer) fields.get(header.indexOf('edit_log_port'))
+        fe.queryPort = (int) toLongOrDefault(fields.get(header.indexOf('query_port')), -1)
+        fe.editLogPort = (int) toLongOrDefault(fields.get(header.indexOf('edit_log_port')), -1)
         fe.isMaster = fields.get(header.indexOf('is_master')) == 'true'
         return fe
     }
@@ -202,7 +211,7 @@ class Backend extends ServerNode {
     static Backend fromCompose(ListHeader header, int index, List<Object> fields) {
         Backend be = new Backend()
         ServerNode.fromCompose(be, header, index, fields)
-        be.heartbeatPort = (Integer) fields.get(header.indexOf('heartbeat_port'))
+        be.heartbeatPort = (int) toLongOrDefault(fields.get(header.indexOf('heartbeat_port')), -1)
         be.backendId = toLongOrDefault(fields.get(header.indexOf('backend_id')), -1L)
         be.tabletNum = (int) toLongOrDefault(fields.get(header.indexOf('tablet_num')), 0L)
 
@@ -219,6 +228,10 @@ class Backend extends ServerNode {
 
     String getConfFilePath() {
         return path + '/conf/be.conf'
+    }
+
+    String getHeartbeatPort() {
+        return heartbeatPort;
     }
 
 }
@@ -273,6 +286,8 @@ class SuiteCluster {
 
     static final Logger logger = LoggerFactory.getLogger(this.class)
 
+    // dockerImpl() will set jdbcUrl
+    String jdbcUrl = ""
     final String name
     final Config config
     private boolean running
@@ -306,25 +321,29 @@ class SuiteCluster {
             cmd += ['--add-ms-num', String.valueOf(options.msNum)]
         }
         // TODO: need escape white space in config
-        if (options.feConfigs != null && options.feConfigs.size() > 0) {
+        if (!options.feConfigs.isEmpty()) {
             cmd += ['--fe-config']
             cmd += options.feConfigs
         }
-        if (options.beConfigs != null && options.beConfigs.size() > 0) {
+        if (!options.beConfigs.isEmpty()) {
             cmd += ['--be-config']
             cmd += options.beConfigs
         }
-        if (options.msConfigs != null && options.msConfigs.size() > 0) {
+        if (!options.msConfigs.isEmpty()) {
             cmd += ['--ms-config']
             cmd += options.msConfigs
         }
-        if (options.recycleConfigs != null && options.recycleConfigs.size() > 0) {
+        if (!options.recycleConfigs.isEmpty()) {
             cmd += ['--recycle-config']
             cmd += options.recycleConfigs
         }
         if (options.beDisks != null) {
             cmd += ['--be-disks']
             cmd += options.beDisks
+        }
+        if (!options.extraHosts.isEmpty()) {
+            cmd += ['--extra-hosts']
+            cmd += options.extraHosts
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
@@ -343,8 +362,8 @@ class SuiteCluster {
         if (!options.beMetaServiceEndpoint) {
             cmd += ['--no-be-metaservice-endpoint']
         }
-        if (!options.beClusterId) {
-            cmd += ['--no-be-cluster-id']
+        if (options.beClusterId) {
+            cmd += ['--be-cluster-id']
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
@@ -544,6 +563,7 @@ class SuiteCluster {
     }
 
     int START_WAIT_TIMEOUT = 120
+    int STOP_WAIT_TIMEOUT = 60
 
     // if not specific fe indices, then start all frontends
     void startFrontends(int... indices) {
@@ -557,13 +577,13 @@ class SuiteCluster {
 
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
-        runFrontendsCmd(60, 'stop', indices)
+        runFrontendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
-        runBackendsCmd(60, 'stop', indices)
+        runBackendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
@@ -580,7 +600,7 @@ class SuiteCluster {
     // if not specific ms indices, then restart all ms
     void restartMs(int... indices) {
         runMsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
-    } 
+    }
 
     // if not specific recycler indices, then restart all recyclers
     void restartRecyclers(int... indices) {
@@ -588,7 +608,7 @@ class SuiteCluster {
     }
 
     // if not specific fe indices, then drop all frontends
-    void dropFrontends(boolean clean=false, int... indices) {
+    void dropFrontends(boolean clean, int... indices) {
         def cmd = 'down'
         if (clean) {
             cmd += ' --clean'
@@ -597,7 +617,7 @@ class SuiteCluster {
     }
 
     // if not specific be indices, then decommission all backends
-    void decommissionBackends(boolean clean=false, int... indices) {
+    void decommissionBackends(boolean clean, int... indices) {
         def cmd = 'down'
         if (clean) {
             cmd += ' --clean'
@@ -606,7 +626,7 @@ class SuiteCluster {
     }
 
     // if not specific be indices, then drop force all backends
-    void dropForceBackends(boolean clean=false, int... indices) {
+    void dropForceBackends(boolean clean, int... indices) {
         def cmd = 'down --drop-force'
         if (clean) {
             cmd += ' --clean'

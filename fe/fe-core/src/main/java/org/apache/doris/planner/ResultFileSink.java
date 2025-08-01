@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -69,11 +70,13 @@ public class ResultFileSink extends DataSink {
 
     public ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause, ArrayList<String> labels) {
         this(exchNodeId, outFileClause);
-        if (outFileClause.getHeaderType().equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
-                || outFileClause.getHeaderType().equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
-            header = genNames(labels, outFileClause.getColumnSeparator(), outFileClause.getLineDelimiter());
+        if (Util.isCsvFormat(outFileClause.getFileFormatType())) {
+            if (outFileClause.getHeaderType().equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                    || outFileClause.getHeaderType().equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
+                header = genNames(labels, outFileClause.getColumnSeparator(), outFileClause.getLineDelimiter());
+            }
+            headerType = outFileClause.getHeaderType();
         }
-        headerType = outFileClause.getHeaderType();
     }
 
     public String getBrokerName() {

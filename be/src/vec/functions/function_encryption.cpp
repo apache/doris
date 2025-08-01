@@ -38,8 +38,8 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -145,10 +145,6 @@ void execute_result(const char* src_raw, size_t src_size, const char* key_raw, s
                     size_t i, EncryptionMode& encryption_mode, const char* iv_raw, size_t iv_length,
                     ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
                     NullMap& null_map, const char* aad, size_t aad_length) {
-    if (src_size == 0) {
-        StringOP::push_null_string(i, result_data, result_offset, null_map);
-        return;
-    }
     auto cipher_len = src_size;
     if constexpr (is_encrypt) {
         cipher_len += 16;

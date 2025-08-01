@@ -33,8 +33,7 @@ import java.time.LocalDateTime;
  */
 @Developing
 public class TimeRoundSeries {
-    private static final LocalDateTime START_ORIGINAL_DAY = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
-    private static final LocalDateTime START_ORIGINAL_WEEK = LocalDateTime.of(1970, 1, 4, 0, 0, 0);
+    private static final LocalDateTime START_ORIGINAL_DAY = LocalDateTime.of(1, 1, 1, 0, 0, 0);
 
     enum DATE {
         YEAR,
@@ -48,6 +47,10 @@ public class TimeRoundSeries {
     // get it's from be/src/vec/functions/function_datetime_floor_ceil.cpp##time_round
     private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
             boolean getCeil) {
+        if (period < 1) {
+            return null;
+        }
+
         DateTimeV2Literal dt = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(date);
         DateTimeV2Literal start = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(origin);
         long diff = 0;

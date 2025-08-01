@@ -24,6 +24,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 // Encode page use frame-of-reference coding
 template <FieldType Type>
@@ -129,11 +130,16 @@ public:
                 << "Tried to seek to " << pos << " which is > number of elements (" << _num_elements
                 << ") in the block!";
         // If the block is empty (e.g. the column is filled with nulls), there is no data to seek.
-        if (PREDICT_FALSE(_num_elements == 0)) {
-            return Status::OK();
+        if (_num_elements == 0) [[unlikely]] {
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elements);
+            } else {
+                return Status::OK();
+            }
         }
 
-        int32_t skip_num = pos - _cur_index;
+        auto skip_num = cast_set<int32_t>(pos - _cur_index);
         _decoder->skip(skip_num);
         _cur_index = pos;
         return Status::OK();
@@ -171,5 +177,6 @@ private:
     std::unique_ptr<ForDecoder<CppType>> _decoder;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

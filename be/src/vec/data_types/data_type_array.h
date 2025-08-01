@@ -54,16 +54,12 @@ private:
     DataTypePtr nested;
 
 public:
+    static constexpr PrimitiveType PType = TYPE_ARRAY;
     static constexpr bool is_parametric = true;
 
     DataTypeArray(const DataTypePtr& nested_);
 
-    TypeIndex get_type_id() const override { return TypeIndex::Array; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        TypeDescriptor desc(TYPE_ARRAY);
-        desc.add_sub_type(nested->get_type_as_type_descriptor());
-        return desc;
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_ARRAY; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_ARRAY;
@@ -71,17 +67,19 @@ public:
 
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
-    const char* get_family_name() const override { return "Array"; }
+    const std::string get_family_name() const override { return "Array"; }
 
     MutableColumnPtr create_column() const override;
-
+    Status check_column(const IColumn& column) const override;
     Field get_default() const override;
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for array");
-        __builtin_unreachable();
     }
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 
     bool equals(const IDataType& rhs) const override;
 
@@ -111,10 +109,25 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
+    using SerDeType = DataTypeArraySerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeArraySerDe>(nested->get_serde(nesting_level + 1),
-                                                    nesting_level);
+        return std::make_shared<SerDeType>(nested->get_serde(nesting_level + 1), nesting_level);
     };
+
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        node->set_type(TTypeNodeType::ARRAY);
+        node->set_contains_null(nested->is_nullable());
+        nested->to_protobuf(ptype);
+    }
+
+#ifdef BE_TEST
+    void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
+        node.type = TTypeNodeType::ARRAY;
+        node.__isset.contains_nulls = true;
+        node.contains_nulls.push_back(nested->is_nullable());
+        nested->to_thrift(thrift_type);
+    }
+#endif
 };
 
 } // namespace doris::vectorized

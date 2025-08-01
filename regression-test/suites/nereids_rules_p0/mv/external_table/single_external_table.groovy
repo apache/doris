@@ -38,8 +38,7 @@ suite("single_external_table", "p0,external,hive") {
     );"""
 
     sql """switch ${hive_catalog_name};"""
-    sql """drop table if exists ${hive_catalog_name}.${hive_database}.${hive_table}"""
-    sql """ drop database if exists ${hive_database}"""
+    sql """ drop database if exists ${hive_database} force"""
     sql """ create database ${hive_database}"""
     sql """use ${hive_database}"""
     sql """
@@ -111,8 +110,87 @@ suite("single_external_table", "p0,external,hive") {
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
+    // single table and only query with filter
+    def mv1_2 = """
+            select o_custkey, o_orderdate 
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+    """
+    def query1_2 = """
+            select o_custkey 
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+            where o_custkey > 2;
+            """
+    order_qt_query1_2_before "${query1_2}"
+    async_mv_rewrite_success(olap_db, mv1_2, query1_2, "mv1_2")
+    order_qt_query1_2_after "${query1_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
 
-    sql """drop table if exists ${hive_catalog_name}.${hive_database}.${hive_table}"""
-    sql """drop database if exists ${hive_catalog_name}.${hive_database}"""
+
+
+    // single table with aggregate and filter
+    def mv1_3 = """
+            select o_custkey, o_orderdate,
+            count(*)
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+            group by
+            o_custkey, o_orderdate;
+    """
+    def query1_3 = """
+            select o_custkey, o_orderdate,
+            count(*)
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+            where o_custkey > 2
+            group by
+            o_custkey, o_orderdate;
+            """
+    order_qt_query1_3_before "${query1_3}"
+    async_mv_rewrite_success(olap_db, mv1_3, query1_3, "mv1_3")
+    order_qt_query1_3_after "${query1_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
+
+
+    // single table with aggregate roll up and filter
+    def mv1_4 = """
+            select o_custkey, o_orderdate,
+            count(*)
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+            group by
+            o_custkey, o_orderdate;
+    """
+    def query1_4 = """
+            select o_custkey, o_orderdate,
+            count(*)
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+            where o_custkey > 2
+            group by
+            o_custkey, o_orderdate;
+            """
+    order_qt_query1_4_before "${query1_4}"
+    async_mv_rewrite_success(olap_db, mv1_4, query1_4, "mv1_4")
+    order_qt_query1_4_after "${query1_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
+
+
+
+    // single table with aggregate roll up and filter
+    def mv1_5 = """
+            select o_custkey, o_orderdate, o_totalprice 
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+    """
+    def query1_5 = """
+            select o_custkey, o_orderdate,
+            count(*)
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+            where o_custkey > 2
+            group by
+            o_custkey, o_orderdate;
+            """
+    order_qt_query1_5_before "${query1_5}"
+    async_mv_rewrite_success(olap_db, mv1_5, query1_5, "mv1_5")
+    order_qt_query1_5_after "${query1_5}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5"""
+
+
+    sql """drop database if exists ${hive_catalog_name}.${hive_database} force"""
     sql """drop catalog if exists ${hive_catalog_name}"""
 }

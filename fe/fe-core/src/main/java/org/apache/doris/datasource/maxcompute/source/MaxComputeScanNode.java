@@ -62,7 +62,6 @@ import com.aliyun.odps.table.read.TableBatchReadSession;
 import com.aliyun.odps.table.read.TableReadSessionBuilder;
 import com.aliyun.odps.table.read.split.InputSplitAssigner;
 import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
-import com.google.common.collect.Maps;
 import jline.internal.Log;
 import lombok.Setter;
 
@@ -103,8 +102,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     @Setter
     private SelectedPartitions selectedPartitions = null;
 
-    private static final LocationPath ROW_OFFSET_PATH = new LocationPath("/row_offset", Maps.newHashMap());
-    private static final LocationPath BYTE_SIZE_PATH = new LocationPath("/byte_size", Maps.newHashMap());
+    private static final LocationPath ROW_OFFSET_PATH = LocationPath.of("/row_offset");
+    private static final LocationPath BYTE_SIZE_PATH = LocationPath.of("/byte_size");
 
 
     // For new planner
@@ -113,13 +112,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             SessionVariable sv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
                 selectedPartitions, needCheckColumnPriv, sv);
-    }
-
-    // For old planner
-    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
-                SelectedPartitions.NOT_PRUNED, needCheckColumnPriv, sv);
     }
 
     private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
@@ -202,7 +194,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                         .withArrowOptions(
                                 ArrowOptions.newBuilder()
                                         .withDatetimeUnit(TimestampUnit.MILLI)
-                                        .withTimestampUnit(TimestampUnit.NANO)
+                                        .withTimestampUnit(TimestampUnit.MICRO)
                                         .build()
                         ).buildBatchReadSession();
     }
@@ -267,8 +259,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                                     createTableBatchReadSession(requiredBatchPartitionSpecs);
                             List<Split> batchSplit = getSplitByTableSession(tableBatchReadSession);
 
-                            splitAssignment.addToQueue(batchSplit);
-                        } catch (IOException e) {
+                            if (splitAssignment.needMoreSplit()) {
+                                splitAssignment.addToQueue(batchSplit);
+                            }
+                        } catch (Exception e) {
                             batchException.set(new UserException(e.getMessage(), e));
                         } finally {
                             if (batchException.get() != null) {
@@ -288,7 +282,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                     splitAssignment.setException(batchException.get());
                 }
             }
-        });
+        }, scheduleExecutor);
     }
 
     @Override

@@ -17,14 +17,11 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.CreateFileStmt;
-import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -60,7 +57,7 @@ import java.util.Map;
 /*
  * Manage some small files, such as certification file, public/private key used for some operations
  */
-public class SmallFileMgr implements Writable {
+public class SmallFileMgr {
     public static final Logger LOG = LogManager.getLogger(SmallFileMgr.class);
 
     public static class SmallFile implements Writable {
@@ -98,13 +95,7 @@ public class SmallFileMgr implements Writable {
         }
 
         public static SmallFile read(DataInput in) throws IOException {
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-                SmallFile smallFile = new SmallFile();
-                smallFile.readFields(in);
-                return smallFile;
-            } else {
-                return GsonUtils.GSON.fromJson(Text.readString(in), SmallFile.class);
-            }
+            return GsonUtils.GSON.fromJson(Text.readString(in), SmallFile.class);
         }
 
         public byte[] getContentBytes() {
@@ -117,17 +108,6 @@ public class SmallFileMgr implements Writable {
         @Override
         public void write(DataOutput out) throws IOException {
             Text.writeString(out, GsonUtils.GSON.toJson(this));
-        }
-
-        public void readFields(DataInput in) throws IOException {
-            dbId = in.readLong();
-            catalog = Text.readString(in);
-            name = Text.readString(in);
-            id = in.readLong();
-            content = Text.readString(in);
-            size = in.readLong();
-            md5 = Text.readString(in);
-            isContent = in.readBoolean();
         }
     }
 
@@ -170,23 +150,10 @@ public class SmallFileMgr implements Writable {
     public SmallFileMgr() {
     }
 
-    public void createFile(CreateFileStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        downloadAndAddFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(),
-                stmt.getDownloadUrl(), stmt.getChecksum(), stmt.isSaveContent());
-    }
-
     public void createFile(String dbName, String catalog, String fileName, String downloadUrl, String md5sum,
                             boolean saveContent) throws DdlException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         downloadAndAddFile(db.getId(), catalog, fileName, downloadUrl, md5sum, saveContent);
-    }
-
-    public void dropFile(DropFileStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        removeFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(), false);
     }
 
     private void downloadAndAddFile(long dbId, String catalog, String fileName, String downloadUrl, String md5sum,
@@ -496,13 +463,6 @@ public class SmallFileMgr implements Writable {
         return infos;
     }
 
-    public static SmallFileMgr read(DataInput in) throws IOException {
-        SmallFileMgr mgr = new SmallFileMgr();
-        mgr.readFields(in);
-        return mgr;
-    }
-
-    @Override
     public void write(DataOutput out) throws IOException {
         out.writeInt(idToFiles.size());
         for (SmallFile smallFile : idToFiles.values()) {

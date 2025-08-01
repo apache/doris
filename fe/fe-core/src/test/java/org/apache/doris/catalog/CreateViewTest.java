@@ -17,13 +17,16 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
@@ -48,20 +51,30 @@ public class CreateViewTest {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
+
         // create table
         String createTableStmtStr = "create table test.tbl1(k1 int, k2 int, v1 int, v2 int) duplicate key(k1)"
                 + " distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableStmtStr,
-                connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        LogicalPlan parsed = nereidsParser.parseSingle(createTableStmtStr);
+        stmtExecutor = new StmtExecutor(connectContext, createTableStmtStr);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
         // create table with array type
         String createTableWithArrayStmtStr = "create table test.tbl2(id int, c_array array<int(11)>) duplicate key(id)"
                 + " distributed by hash(id) buckets 1 properties('replication_num' = '1');";
-        CreateTableStmt createTableWithArrayStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                createTableWithArrayStmtStr, connectContext);
-        Env.getCurrentEnv().createTable(createTableWithArrayStmt);
+        nereidsParser = new NereidsParser();
+        parsed = nereidsParser.parseSingle(createTableWithArrayStmtStr);
+        stmtExecutor = new StmtExecutor(connectContext, createTableWithArrayStmtStr);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     @AfterClass
@@ -71,8 +84,15 @@ public class CreateViewTest {
     }
 
     private static void createView(String sql) throws Exception {
-        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createView(createViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateViewCommand command = (CreateViewCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
+    }
+
+    private static void alterView(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        AlterViewCommand command = (AlterViewCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     @Test
@@ -97,14 +117,14 @@ public class CreateViewTest {
         // test union all
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.view6 as "
-                        + "select * from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10 "
+                        + "(select * from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10) "
                         + "union all "
-                        + "select * from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50;"));
+                        + "(select * from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50);"));
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.view7 (k1, k2) as "
-                        + "select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10 "
+                        + "(select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10) "
                         + "union all "
-                        + "select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50;"));
+                        + "(select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50);"));
 
         // test array type
         ExceptionChecker.expectThrowsNoException(
@@ -174,20 +194,30 @@ public class CreateViewTest {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         View alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals(
-                "SELECT `k1` AS `kc1`, sum(`k2`) AS `kc2` FROM `test`.`tbl1` GROUP BY `kc1`",
+                "select `internal`.`test`.`tbl1`.`k1` as `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) as `kc2` from `internal`.`test`.`tbl1` group by kc1",
                 alter1.getInlineViewDef());
 
         String alterStmt
                 = "alter view test.alter1 as with test1_cte (w1, w2) as (select k1, k2 from test.tbl1) "
                 + "select w1 as c1, sum(w2) as c2 from test1_cte where w1 > 10 group by w1 order by w1";
-        AlterViewStmt alterViewStmt = (AlterViewStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmt, connectContext);
-        Env.getCurrentEnv().alterView(alterViewStmt);
+        alterView(alterStmt);
 
         alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals(
-                "WITH test1_cte(w1, w2) AS (SELECT `k1`, `k2` FROM `test`.`tbl1`) "
-                        + "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE (`w1` > 10) GROUP BY `w1` "
-                        + "ORDER BY `w1` ASC NULLS FIRST",
+                "with `test1_cte` (`w1`, `w2`) as "
+                        + "(select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
+                        + "from `internal`.`test`.`tbl1`) select w1 as `c1`, sum(`test1_cte`.`w2`) as `c2` "
+                        + "from test1_cte where `test1_cte`.`w1` > 10 group by `test1_cte`.`w1` order by w1",
                 alter1.getInlineViewDef());
+    }
+
+    @Test
+    public void testResetViewDefForRestore() {
+        View view = new View();
+        view.setInlineViewDefWithSqlMode("SELECT `internal`.`test`.`test`.`k2` AS `k1`, "
+                + "FROM `internal`.`test`.`test`;", 1);
+        view.resetViewDefForRestore("test", "test1");
+        Assert.assertEquals("SELECT `internal`.`test1`.`test`.`k2` AS `k1`, "
+                + "FROM `internal`.`test1`.`test`;", view.getInlineViewDef());
     }
 }

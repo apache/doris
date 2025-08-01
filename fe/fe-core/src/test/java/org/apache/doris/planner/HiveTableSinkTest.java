@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -70,17 +71,16 @@ public class HiveTableSinkTest {
         new MockUp<HMSExternalCatalog>() {
             @Mock
             public HMSCachedClient getClient() {
-                return new ThriftHMSCachedClient(null, 2);
+                return new ThriftHMSCachedClient(null, 2, new ExecutionAuthenticator() {
+                });
             }
         };
 
         ArrayList<String> locations = new ArrayList<String>() {{
-                add("gs://abc/def");
+                add("oss://abc/def");
                 add("s3://abc/def");
                 add("s3a://abc/def");
                 add("s3n://abc/def");
-                add("bos://abc/def");
-                add("oss://abc/def");
                 add("cos://abc/def");
             }
         };
@@ -88,7 +88,7 @@ public class HiveTableSinkTest {
             mockDifferLocationTable(location);
 
             HMSExternalCatalog hmsExternalCatalog = new HMSExternalCatalog();
-            hmsExternalCatalog.setInitialized(true);
+            hmsExternalCatalog.setInitializedForTest(true);
             HMSExternalDatabase db = new HMSExternalDatabase(hmsExternalCatalog, 10000, "hive_db1", "hive_db1");
             HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsExternalCatalog, db);
             HiveTableSink hiveTableSink = new HiveTableSink(tbl);

@@ -43,6 +43,12 @@ public:
         _data_type = data.type;
         _column_ptr = data.column;
         _expr_name = data.name;
+        if (!check_and_get_column<ColumnConst>(data.column.get())) {
+            _mock_const_expr_col =
+                    std::make_shared<ColumnPtrWrapper>(ColumnConst::create(data.column, 1));
+        } else {
+            _mock_const_expr_col = std::make_shared<ColumnPtrWrapper>(data.column);
+        }
     }
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
@@ -75,8 +81,41 @@ public:
         return ctxs;
     }
 
+    template <typename DataType>
+    static VExprContextSPtr create_const(typename DataType::FieldType value, size_t size) {
+        ColumnPtr column_const =
+                ColumnConst::create(ColumnHelper::create_column<DataType>({value}), size);
+
+        ColumnWithTypeAndName data;
+        data.type = std::make_shared<DataType>();
+        data.column = column_const;
+        data.name = "MockLiteral Const";
+
+        auto ctx = VExprContext::create_shared(std::make_shared<MockLiteral>(data));
+        ctx->_prepared = true;
+        ctx->_opened = true;
+        return ctx;
+    }
+
+    template <typename DataType>
+    static VExprContextSPtrs create_const(const std::vector<typename DataType::FieldType>& values,
+                                          size_t size) {
+        VExprContextSPtrs ctxs;
+        for (const auto& value : values) {
+            ctxs.push_back(create_const<DataType>(value, size));
+        }
+        return ctxs;
+    }
+
+    Status get_const_col(VExprContext* context,
+                         std::shared_ptr<ColumnPtrWrapper>* column_wrapper) override {
+        *column_wrapper = _mock_const_expr_col;
+        return Status::OK();
+    }
+
 private:
     const std::string _name = "MockLiteral";
+    std::shared_ptr<ColumnPtrWrapper> _mock_const_expr_col;
 };
 
 } // namespace vectorized

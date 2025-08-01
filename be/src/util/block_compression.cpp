@@ -48,14 +48,14 @@
 #include <orc/Exceptions.hh>
 #include <ostream>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "exec/decompressor.h"
-#include "gutil/endian.h"
-#include "gutil/strings/substitute.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
+#include "vec/common/endian.h"
 
 namespace orc {
 /**
@@ -463,9 +463,9 @@ private:
         } else if (input_size != input.size) {
             decompress_failed = true;
             return Status::InvalidArgument(
-                    strings::Substitute("Fail to do LZ4F decompress: trailing data left in "
-                                        "compressed data, read=$0 vs given=$1",
-                                        input_size, input.size));
+                    absl::Substitute("Fail to do LZ4F decompress: trailing data left in "
+                                     "compressed data, read=$0 vs given=$1",
+                                     input_size, input.size));
         } else if (lres != 0) {
             decompress_failed = true;
             return Status::InvalidArgument(
@@ -486,7 +486,7 @@ private:
             }
             auto res = LZ4F_createCompressionContext(&localCtx->ctx, LZ4F_VERSION);
             if (LZ4F_isError(res) != 0) {
-                return Status::InvalidArgument(strings::Substitute(
+                return Status::InvalidArgument(absl::Substitute(
                         "LZ4F_createCompressionContext error, res=$0", LZ4F_getErrorName(res)));
             }
             out = std::move(localCtx);
@@ -511,7 +511,7 @@ private:
             }
             auto res = LZ4F_createDecompressionContext(&localCtx->ctx, LZ4F_VERSION);
             if (LZ4F_isError(res) != 0) {
-                return Status::InvalidArgument(strings::Substitute(
+                return Status::InvalidArgument(absl::Substitute(
                         "LZ4F_createDeompressionContext error, res=$0", LZ4F_getErrorName(res)));
             }
             out = std::move(localCtx);

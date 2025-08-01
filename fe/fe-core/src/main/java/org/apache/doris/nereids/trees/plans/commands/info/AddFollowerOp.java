@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AddFollowerClause;
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.qe.ConnectContext;
@@ -46,10 +44,5 @@ public class AddFollowerOp extends FrontendOp {
         sb.append("ALTER CLUSTER ADD FOLLOWER \"");
         sb.append(hostPort).append("\"");
         return sb.toString();
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new AddFollowerClause(hostPort, host, port, role);
     }
 }

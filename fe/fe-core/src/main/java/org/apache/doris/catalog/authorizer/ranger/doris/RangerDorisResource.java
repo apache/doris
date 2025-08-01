@@ -27,6 +27,8 @@ public class RangerDorisResource extends RangerAccessResourceImpl {
     public static final String KEY_COLUMN = "column";
     public static final String KEY_RESOURCE = "resource";
     public static final String KEY_WORKLOAD_GROUP = "workload_group";
+    public static final String KEY_COMPUTE_GROUP = "compute_group";
+    public static final String KEY_STORAGE_VAULT = "storage_vault";
 
     // FirstLevelResource => Catalog / Resource / WorkloadGroup / GLOBAL
     // SecondLevelResource => Database
@@ -75,6 +77,12 @@ public class RangerDorisResource extends RangerAccessResourceImpl {
                 break;
             case WORKLOAD_GROUP:
                 setValue(KEY_WORKLOAD_GROUP, firstLevelResource);
+                break;
+            case STORAGE_VAULT:
+                setValue(KEY_STORAGE_VAULT, firstLevelResource);
+                break;
+            case COMPUTE_GROUP:
+                setValue(KEY_COMPUTE_GROUP, firstLevelResource);
                 break;
             case NONE:
             default:

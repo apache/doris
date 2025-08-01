@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -132,26 +131,15 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
     }
 
     @Override
-    public Expression visitListQuery(ListQuery listQuery, DeepCopierContext context) {
-        LogicalPlan logicalPlan = LogicalPlanDeepCopier.INSTANCE.deepCopy(listQuery.getQueryPlan(), context);
-        List<Slot> correlateSlots = listQuery.getCorrelateSlots().stream()
-                .map(s -> (Slot) s.accept(this, context))
-                .collect(Collectors.toList());
-        Optional<Expression> typeCoercionExpr = listQuery.getTypeCoercionExpr()
-                .map(c -> c.accept(this, context));
-        return new ListQuery(logicalPlan, correlateSlots, typeCoercionExpr);
-    }
-
-    @Override
     public Expression visitInSubquery(InSubquery in, DeepCopierContext context) {
+        LogicalPlan logicalPlan = LogicalPlanDeepCopier.INSTANCE.deepCopy(in.getQueryPlan(), context);
         Expression compareExpr = in.getCompareExpr().accept(this, context);
         List<Slot> correlateSlots = in.getCorrelateSlots().stream()
                 .map(s -> (Slot) s.accept(this, context))
                 .collect(Collectors.toList());
         Optional<Expression> typeCoercionExpr = in.getTypeCoercionExpr()
                 .map(c -> c.accept(this, context));
-        ListQuery listQuery = (ListQuery) in.getListQuery().accept(this, context);
-        return new InSubquery(compareExpr, listQuery, correlateSlots, typeCoercionExpr, in.isNot());
+        return new InSubquery(compareExpr, logicalPlan, correlateSlots, typeCoercionExpr, in.isNot());
     }
 
     @Override
@@ -162,6 +150,6 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
                 .collect(Collectors.toList());
         Optional<Expression> typeCoercionExpr = scalar.getTypeCoercionExpr()
                 .map(c -> c.accept(this, context));
-        return new ScalarSubquery(logicalPlan, correlateSlots, typeCoercionExpr);
+        return new ScalarSubquery(logicalPlan, correlateSlots, typeCoercionExpr, scalar.limitOneIsEliminated());
     }
 }

@@ -328,8 +328,8 @@ public class CoordinatorContext {
     private static TQueryOptions initQueryOptions(ConnectContext context) {
         TQueryOptions queryOptions = context.getSessionVariable().toThrift();
         queryOptions.setBeExecVersion(Config.be_exec_version);
-        queryOptions.setQueryTimeout(context.getExecTimeout());
-        queryOptions.setExecutionTimeout(context.getExecTimeout());
+        queryOptions.setQueryTimeout(context.getExecTimeoutS());
+        queryOptions.setExecutionTimeout(context.getExecTimeoutS());
         if (queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
@@ -369,9 +369,6 @@ public class CoordinatorContext {
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             queryOptions.setMemLimit(memLimit);
-            queryOptions.setMaxReservation(memLimit);
-            queryOptions.setInitialReservationTotalClaims(memLimit);
-            queryOptions.setBufferPoolLimit(memLimit);
         }
     }
 
@@ -406,7 +403,7 @@ public class CoordinatorContext {
             List<AssignedJob> instanceJobs = pipelinePlan.getInstanceJobs();
             for (AssignedJob instanceJob : instanceJobs) {
                 DistributedPlanWorker worker = instanceJob.getAssignedWorker();
-                backends.put(new TNetworkAddress(worker.address(), worker.port()), worker.id());
+                backends.put(new TNetworkAddress(worker.host(), worker.port()), worker.id());
             }
         }
         return backends;

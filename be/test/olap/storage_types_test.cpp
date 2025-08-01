@@ -22,7 +22,6 @@
 #include <memory>
 
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/integral_types.h"
 #include "olap/decimal12.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
@@ -50,7 +49,7 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
     {
         typename TypeTraits<field_type>::CppType dst_val;
         vectorized::Arena pool;
-        type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
+        type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
@@ -86,7 +85,7 @@ void test_char(Slice src_val) {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
         vectorized::Arena pool;
-        type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
+        type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
@@ -152,7 +151,7 @@ template <FieldType item_type>
 void common_test_array(CollectionValue src_val) {
     TabletColumn list_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
                              FieldType::OLAP_FIELD_TYPE_ARRAY);
-    int32 item_length = 0;
+    int32_t item_length = 0;
     if (item_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
         item_type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         item_length = 10;
@@ -168,7 +167,7 @@ void common_test_array(CollectionValue src_val) {
     { // test deep copy
         CollectionValue dst_val;
         vectorized::Arena pool;
-        array_type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
+        array_type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
         EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
     }
     { // test direct copy
@@ -237,6 +236,44 @@ TEST(ArrayTypeTest, copy_and_equal) {
     common_test_array<FieldType::OLAP_FIELD_TYPE_CHAR>(CollectionValue(char_array, 3, null_signs));
     common_test_array<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
             CollectionValue(char_array, 3, null_signs));
+}
+
+TEST(TypesTest, has_char_type) {
+    // Test basic types
+    TabletColumn char_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_CHAR);
+    EXPECT_TRUE(char_column.has_char_type());
+
+    TabletColumn int_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT);
+    EXPECT_FALSE(int_column.has_char_type());
+
+    // Test array type with char element
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn array_element(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                               FieldType::OLAP_FIELD_TYPE_CHAR);
+    array_column.add_sub_column(array_element);
+    EXPECT_TRUE(array_column.has_char_type());
+
+    // Test array type with non-char element
+    TabletColumn array_column2(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                               FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn array_element2(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                FieldType::OLAP_FIELD_TYPE_INT);
+    array_column2.add_sub_column(array_element2);
+    EXPECT_FALSE(array_column2.has_char_type());
+
+    // Test nested array with char element
+    TabletColumn nested_array(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn inner_array(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn char_element(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_CHAR);
+    inner_array.add_sub_column(char_element);
+    nested_array.add_sub_column(inner_array);
+    EXPECT_TRUE(nested_array.has_char_type());
 }
 
 } // namespace doris

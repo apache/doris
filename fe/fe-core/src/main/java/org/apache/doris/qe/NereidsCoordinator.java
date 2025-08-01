@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
@@ -52,6 +51,7 @@ import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
 import org.apache.doris.qe.runtime.ThriftPlansBuilder;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TErrorTabletInfo;
@@ -73,6 +73,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /** NereidsCoordinator */
 public class NereidsCoordinator extends Coordinator {
@@ -85,9 +86,9 @@ public class NereidsCoordinator extends Coordinator {
     private final boolean needEnqueue;
 
     // sql execution
-    public NereidsCoordinator(ConnectContext context, Analyzer analyzer,
+    public NereidsCoordinator(ConnectContext context,
             NereidsPlanner planner, StatsErrorEstimator statsErrorEstimator) {
-        super(context, analyzer, planner, statsErrorEstimator);
+        super(context, planner, statsErrorEstimator);
 
         this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
         this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext));
@@ -471,19 +472,24 @@ public class NereidsCoordinator extends Coordinator {
         // LoadTask does not have context, not controlled by queue now
         if (context != null && needEnqueue) {
             if (Config.enable_workload_group) {
-                coordinatorContext.setWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+                List<WorkloadGroup> wgs = context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context);
+                List<TPipelineWorkloadGroup> wgList = wgs.stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
+                this.setTWorkloadGroups(wgList);
                 if (shouldQueue(context)) {
-                    QueryQueue queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
-                    if (queryQueue == null) {
+                    if (wgs.size() < 1) {
                         // This logic is actually useless, because when could not find query queue, it will
                         // throw exception during workload group manager.
                         throw new UserException("could not find query queue");
                     }
+                    QueryQueue queryQueue = wgs.get(0).getQueryQueue();
                     QueueToken queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     int queryTimeout = coordinatorContext.queryOptions.getExecutionTimeout() * 1000;
                     coordinatorContext.setQueueInfo(queryQueue, queueToken);
                     queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);
                 }
+                context.setWorkloadGroupName(wgs.get(0).getName());
             } else {
                 context.setWorkloadGroupName("");
             }

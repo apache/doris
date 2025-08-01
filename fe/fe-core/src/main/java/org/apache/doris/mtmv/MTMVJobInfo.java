@@ -47,7 +47,7 @@ public class MTMVJobInfo {
             return;
         }
         historyTasks.add(task);
-        if (historyTasks.size() > Config.max_persistence_task_count) {
+        while (historyTasks.size() > Config.max_persistence_task_count) {
             historyTasks.poll();
         }
     }

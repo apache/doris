@@ -17,11 +17,19 @@
 
 #pragma once
 
-#include "exprs/runtime_filter.h"
-#include "exprs/runtime_filter_convertor.h"
+#include <gen_cpp/internal_service.pb.h>
+
+#include "common/object_pool.h"
+#include "exprs/filter_base.h"
+#include "runtime/primitive_type.h"
+#include "runtime_filter/utils.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 constexpr int FIXED_CONTAINER_MAX_SIZE = 8;
 
 /**
@@ -140,6 +148,11 @@ public:
     Iterator begin() { return Iterator(_data, 0); }
     Iterator end() { return Iterator(_data, _size); }
 
+    void clear() {
+        std::array<T, N> {}.swap(_data);
+        _size = 0;
+    }
+
 private:
     std::array<T, N> _data;
     size_t _size {};
@@ -171,6 +184,8 @@ public:
 
     bool find(const T& value) const { return _set.contains(value); }
 
+    void clear() { _set.clear(); }
+
     Iterator begin() { return _set.begin(); }
 
     Iterator end() { return _set.end(); }
@@ -182,9 +197,9 @@ private:
 };
 
 // TODO Maybe change void* parameter to template parameter better.
-class HybridSetBase : public RuntimeFilterFuncBase {
+class HybridSetBase : public FilterBase {
 public:
-    HybridSetBase() = default;
+    HybridSetBase(bool null_aware) : FilterBase(null_aware) {}
     virtual ~HybridSetBase() = default;
     virtual void insert(const void* data) = 0;
     // use in vectorize execute engine
@@ -199,10 +214,11 @@ public:
             insert(value);
             iter->next();
         }
-        _contains_null |= set->_contains_null;
+        _contain_null |= set->_contain_null;
     }
 
-    bool empty() { return !_contains_null && size() == 0; }
+    virtual void clear() = 0;
+    bool empty() { return !_contain_null && size() == 0; }
     virtual int size() = 0;
     virtual bool find(const void* data) const = 0;
     // use in vectorize execute engine
@@ -233,9 +249,6 @@ public:
     };
 
     virtual IteratorBase* begin() = 0;
-
-    bool contain_null() const { return _contains_null && _null_aware; }
-    bool _contains_null = false;
 };
 
 template <PrimitiveType T,
@@ -247,17 +260,17 @@ public:
     using ElementType = typename ContainerType::ElementType;
     using ColumnType = _ColumnType;
 
-    HybridSet() = default;
-
+    HybridSet(bool null_aware) : HybridSetBase(null_aware) {}
     ~HybridSet() override = default;
 
     void insert(const void* data) override {
         if (data == nullptr) {
-            _contains_null = true;
+            _contain_null = true;
             return;
         }
         _set.insert(*reinterpret_cast<const ElementType*>(data));
     }
+    void clear() override { _set.clear(); }
 
     void insert(void* data, size_t /*unused*/) override { insert(data); }
 
@@ -276,7 +289,7 @@ public:
                 if (!nullmap[i]) {
                     _set.insert(*(data + i));
                 } else {
-                    _contains_null = true;
+                    _contain_null = true;
                 }
             }
         } else {
@@ -287,7 +300,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         return _set.find(*reinterpret_cast<const ElementType*>(data));
@@ -364,8 +377,6 @@ public:
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
 
-    ContainerType* get_inner_set() { return &_set; }
-
     void set_pb(PInFilter* filter, auto f) {
         for (auto v : _set) {
             f(filter->add_values(), v);
@@ -384,13 +395,14 @@ class StringSet : public HybridSetBase {
 public:
     using ContainerType = _ContainerType;
 
-    StringSet() = default;
+    StringSet(bool null_aware) : HybridSetBase(null_aware) {}
 
     ~StringSet() override = default;
 
+    void clear() override { _set.clear(); }
     void insert(const void* data) override {
         if (data == nullptr) {
-            _contains_null = true;
+            _contain_null = true;
             return;
         }
 
@@ -414,7 +426,7 @@ public:
             if (nullmap == nullptr || !nullmap[i]) {
                 _set.insert(col.get_data_at(i).to_string());
             } else {
-                _contains_null = true;
+                _contain_null = true;
             }
         }
     }
@@ -445,7 +457,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
@@ -532,8 +544,6 @@ public:
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
 
-    ContainerType* get_inner_set() { return &_set; }
-
     void set_pb(PInFilter* filter, auto f) {
         for (const auto& v : _set) {
             f(filter->add_values(), v);
@@ -555,13 +565,14 @@ class StringValueSet : public HybridSetBase {
 public:
     using ContainerType = _ContainerType;
 
-    StringValueSet() = default;
+    StringValueSet(bool null_aware) : HybridSetBase(null_aware) {}
 
     ~StringValueSet() override = default;
+    void clear() override { _set.clear(); }
 
     void insert(const void* data) override {
         if (data == nullptr) {
-            _contains_null = true;
+            _contain_null = true;
             return;
         }
 
@@ -585,7 +596,7 @@ public:
             if (nullmap == nullptr || !nullmap[i]) {
                 _set.insert(col.get_data_at(i));
             } else {
-                _contains_null = true;
+                _contain_null = true;
             }
         }
     }
@@ -616,7 +627,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
@@ -706,8 +717,6 @@ public:
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
 
-    ContainerType* get_inner_set() { return &_set; }
-
     void to_pb(PInFilter* filter) override {
         throw Exception(ErrorCode::INTERNAL_ERROR, "StringValueSet do not support to_pb");
     }
@@ -716,5 +725,5 @@ private:
     ContainerType _set;
     ObjectPool _pool;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

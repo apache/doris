@@ -26,9 +26,9 @@
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/custom_allocator.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 template <typename Key, typename Hash = DefaultHash<Key>>
 class JoinHashTable {
 public:
@@ -39,8 +39,8 @@ public:
 
     static uint32_t calc_bucket_size(size_t num_elem) {
         size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
-        return std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
-                        static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
+        return (uint32_t)std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
+                                  static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
     }
 
     size_t get_byte_size() const {
@@ -75,10 +75,10 @@ public:
 
     bool empty_build_side() const { return _empty_build_side; }
 
-    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums, size_t num_elem,
-               bool keep_null_key) {
+    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
+               uint32_t num_elem, bool keep_null_key) {
         build_keys = keys;
-        for (size_t i = 1; i < num_elem; i++) {
+        for (uint32_t i = 1; i < num_elem; i++) {
             uint32_t bucket_num = bucket_nums[i];
             next[i] = first[bucket_num];
             first[bucket_num] = i;
@@ -107,7 +107,7 @@ public:
                     keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
 
-        if (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
+        if (is_mark_join) {
             bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
             bool is_left_half_join =
@@ -179,7 +179,7 @@ public:
     }
 
     template <int JoinOpType, bool is_mark_join>
-    bool iterate_map(std::vector<uint32_t>& build_idxs,
+    bool iterate_map(vectorized::ColumnOffset32& build_idxs,
                      vectorized::ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
@@ -188,7 +188,7 @@ public:
 
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
-            build_idxs[count] = iter_idx;
+            build_idxs.get_element(count) = iter_idx;
             if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                 if constexpr (is_mark_join) {
                     mark_column_helper->insert_value(matched);
@@ -210,7 +210,7 @@ public:
 
     bool keep_null_key() { return _keep_null_key; }
 
-    void pre_build_idxs(DorisVector<uint32>& buckets) const {
+    void pre_build_idxs(DorisVector<uint32_t>& buckets) const {
         for (unsigned int& bucket : buckets) {
             bucket = first[bucket];
         }
@@ -293,15 +293,6 @@ private:
 
         auto do_the_probe = [&]() {
             while (build_idx && matched_cnt < batch_size) {
-                if constexpr (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
-                              JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
-                    if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
-                        probe_idxs[matched_cnt] = probe_idx;
-                        build_idxs[matched_cnt] = build_idx;
-                        matched_cnt++;
-                    }
-                }
-
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     build_idxs[matched_cnt] = build_idx;
                     probe_idxs[matched_cnt] = probe_idx;
@@ -480,7 +471,6 @@ private:
 
     // use in iter hash map
     mutable uint32_t iter_idx = 1;
-    vectorized::Arena* pool;
     bool _has_null_key = false;
     bool _keep_null_key = false;
     bool _empty_build_side = true;
@@ -488,4 +478,5 @@ private:
 
 template <typename Key, typename Hash = DefaultHash<Key>>
 using JoinHashMap = JoinHashTable<Key, Hash>;
+#include "common/compile_check_end.h"
 } // namespace doris

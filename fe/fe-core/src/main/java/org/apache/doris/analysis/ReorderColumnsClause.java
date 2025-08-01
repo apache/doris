@@ -48,7 +48,7 @@ public class ReorderColumnsClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (columnsByPos == null || columnsByPos.isEmpty()) {
             throw new AnalysisException("No column in reorder columns clause.");
         }

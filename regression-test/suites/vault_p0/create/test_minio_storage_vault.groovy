@@ -67,8 +67,40 @@ suite ("test_minio_storage_vault") {
 
     order_qt_sql "select * from user"
 
+    // **********************************************************************************************
+    // *  case 2: test MinIO as Storage Vault not set `use_path_style` equal  `use_path_style=true` *
+    // **********************************************************************************************
+    String vaultNameNotSetPathStyle = "minio_not_set_path_style_vault_" + suffix
+    multi_sql """
+        CREATE STORAGE VAULT IF NOT EXISTS ${vaultNameNotSetPathStyle}
+         PROPERTIES (
+             "type"="S3",
+             "s3.endpoint"="${extMinioHost}:${extMinioPort}",
+             "s3.access_key" = "${extMinioAk}",
+             "s3.secret_key" = "${extMinioSk}",
+             "s3.region" = "${extMinioRegion}",
+             "s3.root.path" = "test3_${suffix}",
+             "s3.bucket" = "${extMinioBucket}",
+             "provider" = "S3"
+         );
+         drop table if exists user3;
+         CREATE TABLE `user3` (
+          `id` int NULL,
+          `name` varchar(32) NULL
+        ) 
+        PROPERTIES (
+            "storage_vault_name" = "${vaultNameNotSetPathStyle}"
+        );
+        insert into user3 values (1,'Tom'), (2, 'Jelly'), (3, 'Spike'), (4, 'Tuffy');
+    """
+
+    def result = sql "SELECT count(*) FROM user3"
+    logger.info("result:${result}")
+    assertEquals(result[0][0], 4)
+    assertEquals(result.size(), 1)
+
     // **********************************************************************
-    // *  case 2: test MinIO as Storage Vault using S3 Virtual Host Style   *
+    // *  case 3: test MinIO as Storage Vault using S3 Virtual Host Style   *
     // **********************************************************************
     String extMinioDomain = context.config.otherConfigs.get("extMinioDomain")
     cmd "echo -ne '\\n${extMinioHost} ${extMinioBucket}.${extMinioDomain}' >> /etc/hosts"

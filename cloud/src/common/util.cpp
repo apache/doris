@@ -21,13 +21,15 @@
 #include <bthread/butex.h>
 #include <butil/iobuf.h>
 #include <google/protobuf/util/json_util.h>
+#include <google/protobuf/util/field_mask_util.h>
 
 // FIXME: we should not rely other modules that may rely on this common module
 #include "common/logging.h"
-#include "meta-service/keys.h"
-#include "meta-service/codec.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "common/config.h"
+#include "meta-store/keys.h"
+#include "meta-store/codec.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 #include <iomanip>
 #include <sstream>
@@ -224,93 +226,6 @@ std::string proto_to_json(const ::google::protobuf::Message& msg, bool add_white
     return json;
 }
 
-std::vector<std::string_view> split_string(const std::string_view& str, int n) {
-    std::vector<std::string_view> substrings;
-
-    for (size_t i = 0; i < str.size(); i += n) {
-        substrings.push_back(str.substr(i, n));
-    }
-
-    return substrings;
-}
-
-bool ValueBuf::to_pb(google::protobuf::Message* pb) const {
-    butil::IOBuf merge;
-    for (auto&& it : iters) {
-        it->reset();
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-            merge.append_user_data((void*)v.data(), v.size(), +[](void*) {});
-        }
-    }
-    butil::IOBufAsZeroCopyInputStream merge_stream(merge);
-    return pb->ParseFromZeroCopyStream(&merge_stream);
-}
-
-void ValueBuf::remove(Transaction* txn) const {
-    for (auto&& it : iters) {
-        it->reset();
-        while (it->has_next()) {
-            txn->remove(it->next().first);
-        }
-    }
-}
-
-TxnErrorCode ValueBuf::get(Transaction* txn, std::string_view key, bool snapshot) {
-    iters.clear();
-    ver = -1;
-
-    std::string begin_key {key};
-    std::string end_key {key};
-    encode_int64(INT64_MAX, &end_key);
-    std::unique_ptr<RangeGetIterator> it;
-    TxnErrorCode err = txn->get(begin_key, end_key, &it, snapshot);
-    if (err != TxnErrorCode::TXN_OK) {
-        return err;
-    }
-    if (!it->has_next()) {
-        return TxnErrorCode::TXN_KEY_NOT_FOUND;
-    }
-    // Extract version
-    auto [k, _] = it->next();
-    if (k.size() == key.size()) { // Old version KV
-        DCHECK(k == key) << hex(k) << ' ' << hex(key);
-        DCHECK_EQ(it->size(), 1) << hex(k) << ' ' << hex(key);
-        ver = 0;
-    } else {
-        k.remove_prefix(key.size());
-        int64_t suffix;
-        if (decode_int64(&k, &suffix) != 0) [[unlikely]] {
-            LOG_WARNING("failed to decode key").tag("key", hex(k));
-            return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
-        }
-        ver = suffix >> 56 & 0xff;
-    }
-    bool more = it->more();
-    if (!more) {
-        iters.push_back(std::move(it));
-        return TxnErrorCode::TXN_OK;
-    }
-    begin_key = it->next_begin_key();
-    iters.push_back(std::move(it));
-    do {
-        err = txn->get(begin_key, end_key, &it, snapshot);
-        if (err != TxnErrorCode::TXN_OK) {
-            return err;
-        }
-        more = it->more();
-        if (more) {
-            begin_key = it->next_begin_key();
-        }
-        iters.push_back(std::move(it));
-    } while (more);
-    return TxnErrorCode::TXN_OK;
-}
-
-TxnErrorCode get(Transaction* txn, std::string_view key, ValueBuf* val, bool snapshot) {
-    return val->get(txn, key, snapshot);
-}
-
 TxnErrorCode key_exists(Transaction* txn, std::string_view key, bool snapshot) {
     std::string end_key {key};
     encode_int64(INT64_MAX, &end_key);
@@ -320,26 +235,6 @@ TxnErrorCode key_exists(Transaction* txn, std::string_view key, bool snapshot) {
         return err;
     }
     return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
-}
-
-void put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb, uint8_t ver,
-         size_t split_size) {
-    std::string value;
-    bool ret = pb.SerializeToString(&value); // Always success
-    DCHECK(ret) << hex(key) << ' ' << pb.ShortDebugString();
-    put(txn, key, value, ver, split_size);
-}
-
-void put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
-         size_t split_size) {
-    auto split_vec = split_string(value, split_size);
-    int64_t suffix_base = ver;
-    suffix_base <<= 56;
-    for (size_t i = 0; i < split_vec.size(); ++i) {
-        std::string k(key);
-        encode_int64(suffix_base + i, &k);
-        txn->put(k, split_vec[i]);
-    }
 }
 
 } // namespace doris::cloud

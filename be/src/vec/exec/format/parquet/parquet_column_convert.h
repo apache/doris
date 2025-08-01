@@ -20,9 +20,9 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "common/cast_set.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
@@ -40,7 +40,6 @@ struct ConvertParams {
     size_t offset_days = 0;
     int64_t second_mask = 1;
     int64_t scale_to_nano_factor = 1;
-    DecimalScaleParams decimal_scale;
     FieldSchema* field_schema = nullptr;
 
     //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
@@ -116,46 +115,6 @@ struct ConvertParams {
         }
         is_type_compatibility = field_schema_->is_type_compatibility;
     }
-
-    template <typename DecimalPrimitiveType>
-    void init_decimal_converter(int dst_scale) {
-        using DecimalNativeType = typename DecimalPrimitiveType::NativeType;
-        if (field_schema == nullptr || decimal_scale.scale_type != DecimalScaleParams::NOT_INIT) {
-            return;
-        }
-        auto scale = field_schema->parquet_schema.scale;
-        if (dst_scale > scale) {
-            decimal_scale.scale_type = DecimalScaleParams::SCALE_UP;
-            if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal256>) {
-                decimal_scale.scale_factor =
-                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dst_scale -
-                                                                                   scale);
-            } else {
-                //When an external data source performs a schema change that involves converting
-                // a high-precision value to a lower-precision one, we allow data loss during this
-                // process and therefore do not perform any checks. In the future, we may consider
-                // representing the lost data as `null`.
-                decimal_scale.scale_factor = cast_set<int64_t, DecimalNativeType, false>(
-                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dst_scale -
-                                                                                   scale));
-            }
-
-        } else if (dst_scale < scale) {
-            decimal_scale.scale_type = DecimalScaleParams::SCALE_DOWN;
-            if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal256>) {
-                decimal_scale.scale_factor =
-                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale -
-                                                                                   dst_scale);
-            } else {
-                decimal_scale.scale_factor = cast_set<int64_t, DecimalNativeType, false>(
-                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale -
-                                                                                   dst_scale));
-            }
-        } else {
-            decimal_scale.scale_type = DecimalScaleParams::NO_SCALE;
-            decimal_scale.scale_factor = 1;
-        }
-    }
 };
 
 /**
@@ -195,7 +154,7 @@ protected:
 
 public:
     static std::unique_ptr<PhysicalToLogicalConverter> get_converter(
-            FieldSchema* field_schema, TypeDescriptor src_logical_type,
+            FieldSchema* field_schema, DataTypePtr src_logical_type,
             const DataTypePtr& dst_logical_type, cctz::time_zone* ctz, bool is_dict_filter);
 
     static bool is_parquet_native_type(PrimitiveType type);
@@ -209,11 +168,12 @@ public:
         return Status::OK();
     }
 
-    Status convert(ColumnPtr& src_physical_col, TypeDescriptor src_logical_type,
+    Status convert(ColumnPtr& src_physical_col, DataTypePtr src_logical_type,
                    const DataTypePtr& dst_logical_type, ColumnPtr& dst_logical_col,
                    bool is_dict_filter) {
         if (is_dict_filter) {
-            src_logical_type = TypeDescriptor(PrimitiveType::TYPE_INT);
+            src_logical_type = DataTypeFactory::instance().create_data_type(
+                    PrimitiveType::TYPE_INT, dst_logical_type->is_nullable());
         }
         if (is_consistent() && _logical_converter->is_consistent()) {
             return Status::OK();
@@ -222,7 +182,7 @@ public:
         if (is_consistent()) {
             if (dst_logical_type->is_nullable()) {
                 auto doris_nullable_column = const_cast<ColumnNullable*>(
-                        static_cast<const ColumnNullable*>(dst_logical_col.get()));
+                        assert_cast<const ColumnNullable*>(dst_logical_col.get()));
                 src_logical_column =
                         ColumnNullable::create(_cached_src_physical_column,
                                                doris_nullable_column->get_null_map_column_ptr());
@@ -239,7 +199,7 @@ public:
     }
 
     virtual ColumnPtr get_physical_column(tparquet::Type::type src_physical_type,
-                                          TypeDescriptor src_logical_type,
+                                          DataTypePtr src_logical_type,
                                           ColumnPtr& dst_logical_column,
                                           const DataTypePtr& dst_logical_type, bool is_dict_filter);
 
@@ -261,12 +221,9 @@ public:
     UnsupportedConverter(std::string error_msg) { _error_msg = error_msg; }
 
     UnsupportedConverter(tparquet::Type::type src_physical_type,
-                         const TypeDescriptor& src_logical_type) {
+                         const DataTypePtr& src_logical_type) {
         std::string src_physical_str = tparquet::to_string(src_physical_type);
-        std::string src_logical_str =
-                std::string(getTypeName(DataTypeFactory::instance()
-                                                .create_data_type(src_logical_type, false)
-                                                ->get_type_id()));
+        std::string src_logical_str = src_logical_type->get_name();
         _error_msg = src_physical_str + " => " + src_logical_str;
     }
 
@@ -288,10 +245,10 @@ class LittleIntPhysicalConverter : public PhysicalToLogicalConverter {
 
         size_t rows = from_col->size();
         // always comes from tparquet::Type::INT32
-        auto& src_data = static_cast<const ColumnInt32*>(from_col.get())->get_data();
+        auto& src_data = assert_cast<const ColumnInt32*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = assert_cast<DstColumnType&>(*to_col.get()).get_data();
         for (int i = 0; i < rows; ++i) {
             data[start_idx + i] = static_cast<DstCppType>(src_data[i]);
         }
@@ -344,12 +301,12 @@ class UnsignedIntegerConverter : public PhysicalToLogicalConverter {
 
         ColumnPtr from_col = remove_nullable(src_physical_col);
         MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
-        auto& src_data = static_cast<const StorageColumnType*>(from_col.get())->get_data();
+        auto& src_data = assert_cast<const StorageColumnType*>(from_col.get())->get_data();
 
         size_t rows = src_data.size();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = assert_cast<DstColumnType&>(*to_col.get()).get_data();
 
         for (int i = 0; i < rows; i++) {
             StorageCppType src_value = src_data[i];
@@ -372,7 +329,7 @@ public:
         ColumnPtr from_col = remove_nullable(src_physical_col);
         MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
 
-        auto* src_data = static_cast<const ColumnUInt8*>(from_col.get());
+        auto* src_data = assert_cast<const ColumnUInt8*>(from_col.get());
         size_t length = src_data->size();
         size_t num_values = length / _type_length;
         auto& string_col = static_cast<ColumnString&>(*to_col.get());
@@ -395,9 +352,10 @@ public:
     }
 };
 
-template <typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
+template <PrimitiveType DecimalPType>
 class FixedSizeToDecimal : public PhysicalToLogicalConverter {
 public:
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
     FixedSizeToDecimal(int32_t type_length) : _type_length(type_length) {}
 
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
@@ -455,12 +413,11 @@ public:
     template <int fixed_type_length, typename ValueCopyType>
     Status _convert_internal(ColumnPtr& src_col, MutableColumnPtr& dst_col) {
         size_t rows = src_col->size() / fixed_type_length;
-        DecimalScaleParams& scale_params = _convert_params->decimal_scale;
         auto* buf = static_cast<const ColumnUInt8*>(src_col.get())->get_data().data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col.get())->get_data();
         size_t offset = 0;
         for (int i = 0; i < rows; i++) {
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
@@ -468,17 +425,8 @@ public:
             ValueCopyType value = 0;
             memcpy(reinterpret_cast<char*>(&value), buf + offset, sizeof(value));
             offset += fixed_type_length;
-            value = BitUtil::big_endian_to_host(value);
+            value = to_endian<std::endian::big>(value);
             value = value >> ((sizeof(value) - fixed_type_length) * 8);
-            if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
-                value *= scale_params.scale_factor;
-            } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
-                value /= scale_params.scale_factor;
-            } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
-                // do nothing
-            } else {
-                throw Exception(Status::FatalError("__builtin_unreachable"));
-            }
             auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
             v = (DecimalType)value;
         }
@@ -490,21 +438,21 @@ private:
     int32_t _type_length;
 };
 
-template <typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
+template <PrimitiveType DecimalPType>
 class StringToDecimal : public PhysicalToLogicalConverter {
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
         MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = src_col->size();
-        DecimalScaleParams& scale_params = _convert_params->decimal_scale;
         auto buf = static_cast<const ColumnString*>(src_col.get())->get_chars().data();
         auto& offset = static_cast<const ColumnString*>(src_col.get())->get_offsets();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col.get())->get_data();
         for (int i = 0; i < rows; i++) {
             size_t len = offset[i] - offset[i - 1];
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
@@ -512,17 +460,8 @@ class StringToDecimal : public PhysicalToLogicalConverter {
             ValueCopyType value = 0;
             if (len > 0) {
                 memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
-                value = BitUtil::big_endian_to_host(value);
+                value = to_endian<std::endian::big>(value);
                 value = value >> ((sizeof(value) - len) * 8);
-                if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
-                    value *= scale_params.scale_factor;
-                } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
-                    value /= scale_params.scale_factor;
-                } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
-                    // do nothing
-                } else {
-                    throw Exception(Status::FatalError("__builtin_unreachable"));
-                }
             }
             auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
             v = (DecimalType)value;
@@ -532,8 +471,9 @@ class StringToDecimal : public PhysicalToLogicalConverter {
     }
 };
 
-template <typename NumberType, typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
+template <PrimitiveType NumberType, PrimitiveType DecimalPType>
 class NumberToDecimal : public PhysicalToLogicalConverter {
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = typename DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
@@ -545,22 +485,17 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        DecimalScaleParams& scale_params = _convert_params->decimal_scale;
-        auto* data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data().data();
+        auto* data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col.get())->get_data().data();
 
         for (int i = 0; i < rows; i++) {
             ValueCopyType value;
             if constexpr (std::is_same_v<DecimalType, Decimal256>) {
                 value = src_data[i];
             } else {
-                value = cast_set<ValueCopyType, NumberType, false>(src_data[i]);
+                value = cast_set<ValueCopyType, typename PrimitiveTypeTraits<NumberType>::CppType,
+                                 false>(src_data[i]);
             }
 
-            if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
-                value *= scale_params.scale_factor;
-            } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
-                value /= scale_params.scale_factor;
-            }
             data[start_idx + i] = (DecimalType)value;
         }
         return Status::OK();
@@ -576,7 +511,7 @@ class Int32ToDate : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->reserve(start_idx + rows);
 
-        auto& src_data = static_cast<const ColumnVector<int32>*>(src_col.get())->get_data();
+        auto& src_data = static_cast<const ColumnInt32*>(src_col.get())->get_data();
         auto& data = static_cast<ColumnDateV2*>(dst_col.get())->get_data();
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
@@ -599,8 +534,8 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto src_data = static_cast<const ColumnVector<int64_t>*>(src_col.get())->get_data().data();
-        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
+        auto src_data = static_cast<const ColumnInt64*>(src_col.get())->get_data().data();
+        auto& data = static_cast<ColumnDateTimeV2*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
@@ -620,11 +555,11 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
         MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = src_col->size() / sizeof(ParquetInt96);
-        auto& src_data = static_cast<const ColumnVector<Int8>*>(src_col.get())->get_data();
+        auto& src_data = static_cast<const ColumnInt8*>(src_col.get())->get_data();
         auto ParquetInt96_data = (ParquetInt96*)src_data.data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
-        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDateTimeV2*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
             ParquetInt96 src_cell_data = ParquetInt96_data[i];

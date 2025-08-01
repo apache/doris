@@ -20,8 +20,11 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -34,6 +37,11 @@ namespace doris {
 struct ColumnPtrWrapper;
 struct StringRef;
 class RuntimeState;
+
+namespace vectorized {
+class IDataType;
+using DataTypePtr = std::shared_ptr<const IDataType>;
+} // namespace vectorized
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -63,8 +71,8 @@ public:
     };
 
     static std::unique_ptr<doris::FunctionContext> create_context(
-            RuntimeState* state, const doris::TypeDescriptor& return_type,
-            const std::vector<doris::TypeDescriptor>& arg_types);
+            RuntimeState* state, const vectorized::DataTypePtr& return_type,
+            const std::vector<vectorized::DataTypePtr>& arg_types);
 
     /// Returns a new FunctionContext with the same constant args, fragment-local state, and
     /// debug flag as this FunctionContext. The caller is responsible for calling delete on
@@ -75,10 +83,19 @@ public:
 
     RuntimeState* state() { return _state; }
 
+    void set_dict_function(const TDictFunction& dict_function) { _dict_function = dict_function; }
+
+    std::optional<TDictFunction>& dict_function() { return _dict_function; };
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
+
+    bool enable_strict_mode() const { return _enable_strict_mode; }
 
     bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
         return _check_overflow_for_decimal = check_overflow_for_decimal;
+    }
+
+    bool set_enable_strict_mode(bool enable_strict_mode) {
+        return _enable_strict_mode = enable_strict_mode;
     }
 
     void set_string_as_jsonb_string(bool string_as_jsonb_string) {
@@ -126,7 +143,7 @@ public:
 
     // Returns the return type information of this function. For UDAs, this is the final
     // return type of the UDA (e.g., the type returned by the finalize function).
-    const doris::TypeDescriptor& get_return_type() const;
+    const vectorized::DataTypePtr get_return_type() const;
 
     // Returns the number of arguments to this function (not including the FunctionContext*
     // argument).
@@ -134,7 +151,7 @@ public:
 
     // Returns the type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns nullptr if arg_idx is invalid.
-    const doris::TypeDescriptor* get_arg_type(int arg_idx) const;
+    const vectorized::DataTypePtr get_arg_type(int arg_idx) const;
 
     // Returns true if the arg_idx-th input argument (0 indexed, not including the
     // FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
@@ -176,16 +193,17 @@ private:
     std::shared_ptr<void> _fragment_local_fn_state;
 
     // Type descriptor for the return type of the function.
-    doris::TypeDescriptor _return_type;
+    vectorized::DataTypePtr _return_type;
 
     // Type descriptors for each argument of the function.
-    std::vector<doris::TypeDescriptor> _arg_types;
+    std::vector<vectorized::DataTypePtr> _arg_types;
 
     std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
 
     //udf execute timer
     RuntimeProfile::Counter* _udf_execute_timer = nullptr;
     bool _check_overflow_for_decimal = false;
+    bool _enable_strict_mode = false;
 
     bool _string_as_jsonb_string = false;
     bool _jsonb_string_as_string = false;
@@ -193,6 +211,8 @@ private:
     std::string _string_result;
 
     vectorized::Arena arena;
+
+    std::optional<TDictFunction> _dict_function;
 };
 
 using doris::FunctionContext;

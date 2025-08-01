@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_cancelled", "backup_cancelled") {
+suite("test_backup_cancelled", "backup_cancelled,nonConcurrent") {
     String suiteName = "test_backup_cancelled"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
     String snapshotName = "${suiteName}_snapshot"
@@ -58,36 +58,37 @@ suite("test_backup_cancelled", "backup_cancelled") {
 
     // test failed to get tablet when truncate or drop table
 
-    GetDebugPoint().enableDebugPointForAllBEs("SnapshotManager::make_snapshot.inject_failure", [tablet_id:"${tabletId}", execute:3]);
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("SnapshotManager::make_snapshot.inject_failure", [tablet_id:"${tabletId}", execute:3]);
 
+        sql """
+            BACKUP SNAPSHOT ${dbName}.${snapshotName}
+            TO `${repoName}`
+            ON (${tableName})
+        """
 
-    sql """
-        BACKUP SNAPSHOT ${dbName}.${snapshotName}
-        TO `${repoName}`
-        ON (${tableName})
-    """
-
-    syncer.waitSnapshotFinish(dbName)
-
-
-    GetDebugPoint().disableDebugPointForAllBEs("SnapshotManager::make_snapshot.inject_failure")
+        syncer.waitSnapshotFinish(dbName)
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("SnapshotManager::make_snapshot.inject_failure")
+    }
 
 
 
 
     // test missing versions when compaction or balance
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("Tablet::capture_consistent_versions.inject_failure", [tablet_id:"${tabletId}", execute:1]);
 
-    GetDebugPoint().enableDebugPointForAllBEs("Tablet::capture_consistent_versions.inject_failure", [tablet_id:"${tabletId}", execute:1]);
+        sql """
+            BACKUP SNAPSHOT ${dbName}.${snapshotName_1}
+            TO `${repoName}`
+            ON (${tableName})
+        """
 
-    sql """
-        BACKUP SNAPSHOT ${dbName}.${snapshotName_1}
-        TO `${repoName}`
-        ON (${tableName})
-    """
-
-    syncer.waitSnapshotFinish(dbName)
-
-    GetDebugPoint().disableDebugPointForAllBEs("Tablet::capture_consistent_versions.inject_failure");
+        syncer.waitSnapshotFinish(dbName)
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("Tablet::capture_consistent_versions.inject_failure");
+    }
 
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)

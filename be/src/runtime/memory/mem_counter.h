@@ -25,6 +25,7 @@
 #include "util/pretty_printer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /*
  * A counter that keeps track of the current and peak memory usage seen.
@@ -82,14 +83,10 @@ public:
     int64_t current_value() const { return _current_value.load(std::memory_order_relaxed); }
     int64_t peak_value() const { return _peak_value.load(std::memory_order_relaxed); }
 
-    static std::string print_bytes(int64_t bytes) {
-        return bytes >= 0 ? PrettyPrinter::print(bytes, TUnit::BYTES)
-                          : "-" + PrettyPrinter::print(std::abs(bytes), TUnit::BYTES);
-    }
-
 private:
     std::atomic<int64_t> _current_value {0};
     std::atomic<int64_t> _peak_value {0};
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

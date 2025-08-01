@@ -29,7 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -38,12 +38,20 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris::segment_v2 {
+
+struct PathWithColumnAndType {
+    vectorized::PathInData path;
+    vectorized::ColumnPtr column;
+    vectorized::DataTypePtr type;
+};
+
+using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
 
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataReader : public ColumnIterator {
@@ -58,8 +66,6 @@ public:
                          const SubcolumnColumnReaders::Node* root, ReadType read_type);
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    Status seek_to_first() override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
@@ -97,8 +103,8 @@ private:
             nullable_column = assert_cast<ColumnNullable*>(dst.get());
         }
         auto& variant = nullable_column == nullptr
-                                ? assert_cast<ColumnObject&>(*dst)
-                                : assert_cast<ColumnObject&>(nullable_column->get_nested_column());
+                                ? assert_cast<ColumnVariant&>(*dst)
+                                : assert_cast<ColumnVariant&>(nullable_column->get_nested_column());
 
         // read data
         // read root first if it is not read before
@@ -113,18 +119,18 @@ private:
         }));
 
         // build variant as container
-        auto container = ColumnObject::create(true, false);
-        auto& container_variant = assert_cast<ColumnObject&>(*container);
+        auto container = ColumnVariant::create(true, false);
+        auto& container_variant = assert_cast<ColumnVariant&>(*container);
 
         // add root first
         if (_path.get_parts().empty() && _root_reader) {
             auto& root_var =
                     _root_reader->column->is_nullable()
-                            ? assert_cast<vectorized::ColumnObject&>(
+                            ? assert_cast<vectorized::ColumnVariant&>(
                                       assert_cast<vectorized::ColumnNullable&>(
                                               *_root_reader->column)
                                               .get_nested_column())
-                            : assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
+                            : assert_cast<vectorized::ColumnVariant&>(*_root_reader->column);
             auto column = root_var.get_root();
             auto type = root_var.get_root_type();
             container_variant.add_sub_column({}, std::move(column), type);
@@ -137,8 +143,11 @@ private:
             PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
 
             if (node.path.has_nested_part()) {
-                CHECK_EQ(getTypeName(remove_nullable(node.data.type)->get_type_id()),
-                         getTypeName(TypeIndex::Array));
+                if (node.data.type->get_primitive_type() != PrimitiveType::TYPE_ARRAY) {
+                    return Status::InternalError(
+                            "Meet none array column when flatten nested array, path {}, type {}",
+                            node.path.get_path(), node.data.type->get_name());
+                }
                 PathInData parent_path = node.path.get_nested_prefix_path().copy_pop_nfront(
                         _path.get_parts().size());
                 nested_subcolumns[parent_path].emplace_back(relative_path, column->get_ptr(),
@@ -162,13 +171,13 @@ private:
         // Iterate nested subcolumns and flatten them, the entry contains the nested subcolumns of the same nested parent
         // first we pick the first subcolumn as base array and using it's offset info. Then we flatten all nested subcolumns
         // into a new object column and wrap it with array column using the first element offsets.The wrapped array column
-        // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
+        // will type the type of ColumnVariant::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnVariant)>>.
         for (auto& entry : nested_subcolumns) {
-            MutableColumnPtr nested_object = ColumnObject::create(true, false);
+            MutableColumnPtr nested_object = ColumnVariant::create(true, false);
             const auto* base_array = check_and_get_column<ColumnArray>(
                     remove_nullable(entry.second[0].column).get());
             MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
-            auto* nested_object_ptr = assert_cast<ColumnObject*>(nested_object.get());
+            auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
             // flatten nested arrays
             for (const auto& subcolumn : entry.second) {
                 const auto& column = subcolumn.column;
@@ -208,7 +217,7 @@ private:
             parent_path.unset_nested();
             DCHECK(!parent_path.has_nested_part());
             container_variant.add_sub_column(parent_path, array->assume_mutable(),
-                                             ColumnObject::NESTED_TYPE);
+                                             ColumnVariant::NESTED_TYPE);
         }
 
         // TODO select v:b -> v.b / v.b.c but v.d maybe in v
@@ -238,7 +247,7 @@ private:
                 dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
                 // clear nullmap and inner data
                 src_null_map.clear();
-                assert_cast<ColumnObject&>(
+                assert_cast<ColumnVariant&>(
                         assert_cast<ColumnNullable&>(*_root_reader->column).get_nested_column())
                         .clear_subcolumns_data();
             } else {
@@ -249,7 +258,7 @@ private:
                     auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
                     dst_null_map.insert_range_from(*fake_nullable_column, 0, nrows);
                 }
-                ColumnObject& root_column = assert_cast<ColumnObject&>(*_root_reader->column);
+                ColumnVariant& root_column = assert_cast<ColumnVariant&>(*_root_reader->column);
                 root_column.clear_subcolumns_data();
             }
         } else {
@@ -277,8 +286,6 @@ public:
               _target_type_hint(target_type_hint) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    Status seek_to_first() override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 

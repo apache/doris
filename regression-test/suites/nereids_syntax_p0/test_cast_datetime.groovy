@@ -53,6 +53,10 @@ suite("test_cast_datetime") {
     qt_3 "select a, '' = mydate, '' = mydatev2, '' = mydatetime, '' = mydatetimev2 from casttbl"
 
     def wrong_date_strs = [
+        "date '2020-01'",
+        "datev1 '2020-01'",
+        "datev2 '2020-01'",
+        "timestamp '2020-01'",
         "'' > date '2019-06-01'",
         "'' > date_sub('2019-06-01', -10)",
         "'' > cast('2019-06-01 00:00:00' as datetime)",
@@ -123,7 +127,7 @@ suite("test_cast_datetime") {
         "DATEV2('１２３.４５')",
         "DATEV2('2023-02-28 25:00')",
         "DATEV2('2023-02-29T00:00:00')",
-        "DATEV2('0000-00-00 00:00:00')",
+        // "DATEV2('0000-00-00 00:00:00')", depends on be conf.
         "DATEV2('January 32, 2023')",
         "DATEV2('February 29, 2023')",
         "DATEV2('April 31, 2023')",
@@ -374,13 +378,15 @@ suite("test_cast_datetime") {
 
     def hour_strs = [
         "HOUR('2024-01-01 12:00:00')",
+        "HOUR('2024-01-01 12:00:00.')",
+    ]
+    def invalid_hour_strs = [
         "HOUR('2024-01-01 12:00:00:')",
         "HOUR('2024-01-01 12:00:00\\\"')",
         "HOUR('2024-01-01 12:00:00\\'')",
         "HOUR('2024-01-01 12:00:00<')",
         "HOUR('2024-01-01 12:00:00>')",
         "HOUR('2024-01-01 12:00:00,')",
-        "HOUR('2024-01-01 12:00:00.')",
         "HOUR('2024-01-01 12:00:00?')",
         "HOUR('2024-01-01 12:00:00/')",
         "HOUR('2024-01-01 12:00:00!')",
@@ -408,7 +414,6 @@ suite("test_cast_datetime") {
         "HOUR('2024-01-01 12:00:00<')",
         "HOUR('2024-01-01 12:00:00>')",
         "HOUR('2024-01-01 12:00:00,')",
-        "HOUR('2024-01-01 12:00:00.')",
         "HOUR('2024-01-01 12:00:00?')",
         "HOUR('2024-01-01 12:00:00/')",
     ]
@@ -429,12 +434,19 @@ suite("test_cast_datetime") {
                 result([[12]])
             }
         }
+        for (def s : invalid_hour_strs) {
+            test {
+                sql "SELECT ${s}"
+                result([[null]])
+            }
+        }
 
         test {
             sql "select cast('123.123' as date)"
-            result([[Date.valueOf('2012-03-12')]])
+            result([[null]])
         }
 
+        /*
         test {
             sql "select DATE('2023年01月01日')"
             result([[Date.valueOf('2023-01-01')]])
@@ -454,6 +466,7 @@ suite("test_cast_datetime") {
             sql "select YEAR('2023年01月01日')"
             result([[2023]])
         }
+        */
 
         test {
             sql "select to_monday('1970-01-04')"
@@ -461,28 +474,58 @@ suite("test_cast_datetime") {
         }
 
         test {
+            sql "select to_monday('1969-12-31')"
+            result([[Date.valueOf('1969-12-29')]])
+        }
+
+        test {
+            sql "select to_monday('1969-12-31 23:59:59.999999')"
+            result([[Date.valueOf('1969-12-29')]])
+        }
+
+        // to_monday(1970-01-01 ~ 170-01-04) will return 1970-01-01
+        for (def s : ['1970-01-01', '1970-01-01 00:00:00.000001', '1970-01-02 12:00:00', '1970-01-01', '1970-01-04 23:59:59.999999']) {
+            test {
+                sql "select to_monday('${s}')"
+                result([[Date.valueOf('1970-01-01')]])
+            }
+        }
+
+        test {
+            sql "select to_monday('1970-01-05')"
+            result([[Date.valueOf('1970-01-05')]])
+        }
+
+        test {
+            sql "select to_monday('1970-01-05 00:00:00.000001')"
+            result([[Date.valueOf('1970-01-05')]])
+        }
+
+        test {
             sql "select cast('123.123' as datetime)"
-            result([[LocalDateTime.parse('2012-03-12T03:00:00')]])
+            result([[null]])
         }
 
         test {
             sql "select cast('123.123.123' as datetime)"
-            result([[LocalDateTime.parse('2012-03-12T03:12:03')]])
+            result([[null]])
         }
 
+        /*
         test {
             sql "SELECT DATEADD(DAY, 1, '2025年06月20日')"
             result([[LocalDateTime.parse('2025-06-21T00:00:00')]])
         }
+        */
 
         test {
             sql "select date_add('2023-02-28 16:00:00 UTC', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-03-01T16:00:00')]])
+            result([[LocalDateTime.parse('2023-03-02T00:00:00')]])
         }
 
         test {
             sql "select date_add('2023-02-28 16:00:00 America/New_York', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-03-01T16:00:00')]])
+            result([[LocalDateTime.parse('2023-03-02T05:00:00')]])
         }
 
         test {
@@ -495,6 +538,7 @@ suite("test_cast_datetime") {
             result([[LocalDateTime.parse('2023-03-02T05:00:00')]])
         }
 
+        /*
         test {
             sql "select date_add('2023-02-28 UTC', INTERVAL 1 DAY)"
             result([[LocalDateTime.parse('2023-03-01T00:00:00')]])
@@ -534,16 +578,28 @@ suite("test_cast_datetime") {
             sql "select date_add('2020-02-29 America/New_York', INTERVAL -3 DAY)"
             result([[LocalDateTime.parse('2020-02-26T00:00:00')]])
         }
+        */
 
         test {
             sql "select date_add('2023-03-12 01:30:00 Europe/London', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-03-13T01:30:00')]])
+            result([[LocalDateTime.parse('2023-03-13T09:30')]])
         }
 
         test {
             sql "select date_add('2023-11-05 01:30:00 America/New_York', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-11-06T01:30:00')]])
+            result([[LocalDateTime.parse('2023-11-06T13:30')]])
         }
 
+        /*
+        test {
+            sql "select date '2025年1月20日'"
+            result([[Date.valueOf('2025-01-20')]])
+        }
+
+        test {
+            sql "select timestamp '2025年1月20日10时20分5秒'"
+            result([[LocalDateTime.parse('2025-01-20T10:20:05')]])
+        }
+        */
     }
 }

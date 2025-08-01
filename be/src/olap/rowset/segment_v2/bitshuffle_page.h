@@ -27,7 +27,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/port.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitshuffle_wrapper.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -44,6 +43,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 enum { BITSHUFFLE_PAGE_HEADER_SIZE = 16 };
 
@@ -109,7 +109,7 @@ public:
             *count = 0;
             return Status::OK();
         }
-        int to_add = std::min<int>(_remain_element_capacity, *count);
+        int to_add = std::min<int>(_remain_element_capacity, cast_set<int>(*count));
         int to_add_size = to_add * SIZE_OF_TYPE;
         size_t orig_size = _data.size();
         // This may need a large memory, should return error if could not allocated
@@ -162,7 +162,7 @@ public:
             _buffer.clear();
             _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE);
             _finished = false;
-            _remain_element_capacity = block_size / SIZE_OF_TYPE;
+            _remain_element_capacity = cast_set<int>(block_size / SIZE_OF_TYPE);
         });
         return Status::OK();
     }
@@ -211,7 +211,7 @@ private:
         int64_t bytes =
                 bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
                                          num_elems_after_padding, final_size_of_type, 0);
-        if (PREDICT_FALSE(bytes < 0)) {
+        if (bytes < 0) [[unlikely]] {
             // This means the bitshuffle function fails.
             // Ideally, this should not happen.
             warn_with_bitshuffle_error(bytes);
@@ -221,7 +221,7 @@ private:
         }
         // update header
         encode_fixed32_le(&_buffer[0], _count);
-        encode_fixed32_le(&_buffer[4], BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
+        encode_fixed32_le(&_buffer[4], cast_set<uint32_t>(BITSHUFFLE_PAGE_HEADER_SIZE + bytes));
         encode_fixed32_le(&_buffer[8], num_elems_after_padding);
         encode_fixed32_le(&_buffer[12], final_size_of_type);
         _finished = true;
@@ -326,11 +326,19 @@ public:
         return Status::OK();
     }
 
+    // If the page only contains null, then _num_elements == 0, and the nullmap has
+    // some value. But in _seek_columns --> seek_to_ordinal --> _seek_to_pos_in_page
+    // in this call stack it will pass pos == 0 to this method. Although we can add some
+    // code such as check if the count == 0, then skip seek, but there are other method such
+    // as init will also call seek with pos == 0. And the seek is useless when _num_elements
+    // == 0, because next batch will return empty in this method.
     Status seek_to_position_in_page(size_t pos) override {
         DCHECK(_parsed) << "Must call init()";
-        if (PREDICT_FALSE(_num_elements == 0)) {
-            DCHECK_EQ(0, pos);
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("invalid pos");
+        if (_num_elements == 0) [[unlikely]] {
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elements);
+            }
         }
 
         DCHECK_LE(pos, _num_elements);
@@ -379,7 +387,7 @@ public:
     template <bool forward_index = true>
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+        if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -402,7 +410,7 @@ public:
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0)) {
+        if (*n == 0) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -462,5 +470,6 @@ private:
     friend class BinaryDictPageDecoder;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

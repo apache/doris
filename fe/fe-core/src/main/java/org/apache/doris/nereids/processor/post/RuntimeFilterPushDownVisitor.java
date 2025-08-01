@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -182,9 +183,16 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     public Boolean visit(Plan plan, PushDownContext ctx) {
         boolean pushed = false;
         for (Plan child : plan.children()) {
-            pushed |= child.accept(this, ctx);
+            if (child.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+                pushed |= child.accept(this, ctx);
+            }
         }
         return pushed;
+    }
+
+    @Override
+    public Boolean visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, PushDownContext ctx) {
+        return visitPhysicalRelation(scan, ctx);
     }
 
     @Override
@@ -233,6 +241,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
+        if (!ctx.builderNode.equals(join)
+                && !join.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
         boolean pushed = false;
 
         if (ctx.builderNode instanceof PhysicalHashJoin) {
@@ -307,6 +319,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     @Override
     public Boolean visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
+        if (!join.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
         if (ctx.builderNode instanceof PhysicalHashJoin) {
             /*
              hashJoin( t1.A <=> t2.A )
@@ -335,6 +350,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, PushDownContext ctx) {
+        if (!project.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
         // project ( A+1 as x)
         // probeExpr: abs(x) => abs(A+1)
         PushDownContext ctxProjectProbeExpr = ctx;
@@ -377,6 +395,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalSetOperation(PhysicalSetOperation setOperation, PushDownContext ctx) {
+        if (!setOperation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
         boolean pushedDown = false;
         int projIndex = -1;
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(ctx.probeExpr);
@@ -422,6 +443,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalWindow(PhysicalWindow<? extends Plan> window, PushDownContext ctx) {
+        if (!window.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+
         Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
         if (commonPartitionKeys.containsAll(ctx.probeExpr.getInputSlots())) {
             return window.child().accept(this, ctx);

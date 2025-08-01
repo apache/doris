@@ -21,8 +21,8 @@
 
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
 #include "vec/core/types.h"
+#include "vec/exec/format/jni_reader.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -38,10 +38,7 @@ namespace doris::vectorized {
 LakeSoulJniReader::LakeSoulJniReader(const TLakeSoulFileDesc& lakesoul_params,
                                      const std::vector<SlotDescriptor*>& file_slot_descs,
                                      RuntimeState* state, RuntimeProfile* profile)
-        : _lakesoul_params(lakesoul_params),
-          _file_slot_descs(file_slot_descs),
-          _state(state),
-          _profile(profile) {
+        : JniReader(file_slot_descs, state, profile), _lakesoul_params(lakesoul_params) {
     std::vector<std::string> required_fields;
     for (const auto& desc : _file_slot_descs) {
         required_fields.emplace_back(desc->col_name());
@@ -60,21 +57,8 @@ LakeSoulJniReader::LakeSoulJniReader(const TLakeSoulFileDesc& lakesoul_params,
                                                     params, required_fields);
 }
 
-Status LakeSoulJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    return _jni_connector->get_next_block(block, read_rows, eof);
-}
-
-Status LakeSoulJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                                      std::unordered_set<std::string>* missing_cols) {
-    for (const auto& desc : _file_slot_descs) {
-        name_to_type->emplace(desc->col_name(), desc->type());
-    }
-    return Status::OK();
-}
-
 Status LakeSoulJniReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _colname_to_value_range = colname_to_value_range;
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);
 }

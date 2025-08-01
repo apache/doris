@@ -19,21 +19,25 @@ package org.apache.doris.nereids.trees.plans.distribute.worker;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SimpleScheduler;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import com.google.common.base.Strings;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -65,11 +69,11 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
 
     private ImmutableMap<Long, Backend> checkAndInitClusterBackends(
             ConnectContext context, boolean noNeedBackend, boolean isLoadJob) throws UserException {
-        if (!Config.isCloudMode()) {
-            return Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
-        } else if (noNeedBackend) {
+        if (noNeedBackend) {
             // `select 1` will not need backend
             return ImmutableMap.of(-1L, DUMMY_BACKEND);
+        } else if (!Config.isCloudMode()) {
+            return Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
         }
 
         // if is load, the ConnectContext.get() would be null, then we can skip check cluster
@@ -77,48 +81,36 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
             context = ConnectContext.get();
         }
 
-        checkCluster(context);
-        ImmutableMap<Long, Backend> clusterBackend
-                = Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
-        if (clusterBackend == null || clusterBackend.isEmpty()) {
-            LOG.warn("no available backends, clusterBackend {}", clusterBackend);
-            String clusterName = context != null ? context.getCloudCluster() : "ctx empty cant get clusterName";
+        if (context == null) {
+            throw new AnalysisException("connect context is null");
+        }
+
+        // 1 get compute group
+        ComputeGroup cg = context.getComputeGroup();
+
+        // 2 check priv
+        try {
+            ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cg.getName());
+        } catch (Exception e) {
+            LOG.warn("cluster priv check failed", e);
+            throw new UserException(
+                    "cluster priv check failed, user is " + ConnectContext.get().getCurrentUserIdentity().toString()
+                            + ", cluster is " + cg.getName(), e);
+        }
+
+        // 3 return be list
+        List<Backend> beList = cg.getBackendList();
+        if (beList.isEmpty()) {
+            LOG.warn("no available backends, compute group is {}", cg.toString());
             throw new UserException("no available backends, the cluster maybe not be set or been dropped clusterName = "
-                    + clusterName);
-        }
-        return clusterBackend;
-    }
-
-    private void checkCluster(ConnectContext context) throws UserException {
-        String cluster;
-        if (context != null) {
-            if (!Strings.isNullOrEmpty(context.getSessionVariable().getCloudCluster())) {
-                cluster = context.getSessionVariable().getCloudCluster();
-                try {
-                    ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
-                } catch (Exception e) {
-                    LOG.warn("get cluster by session context exception", e);
-                    throw new UserException("get cluster by session context exception", e);
-                }
-                LOG.debug("get cluster by session context cluster: {}", cluster);
-            } else {
-                cluster = context.getCloudCluster();
-                LOG.debug("get cluster by context {}", cluster);
-            }
-        } else {
-            LOG.warn("connect context is null in coordinator prepare");
-            // may cant throw exception? maybe cant get context in some scenarios
-            return;
+                    + cg.getName());
         }
 
-        if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("invalid clusterName: {}", cluster);
-            throw new UserException("empty clusterName, please check cloud cluster privilege");
+        Map<Long, Backend> idToBeMap = Maps.newHashMap();
+        for (Backend be : beList) {
+            idToBeMap.put(be.getId(), be);
         }
-    }
-
-    public boolean isCurrentClusterBackend(long backendId) {
-        return currentClusterBackends.containsKey(backendId);
+        return ImmutableMap.copyOf(idToBeMap);
     }
 
     @Override
@@ -128,6 +120,11 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         if (backend == null) {
             throw new IllegalStateException("Backend " + backendId + " is not exist");
         }
+        return new BackendWorker(backend);
+    }
+
+    @Override
+    public DistributedPlanWorker getWorker(Backend backend) {
         return new BackendWorker(backend);
     }
 
@@ -148,5 +145,21 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     public long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID) {
         TNetworkAddress backend = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
         return addressToBackendID.get(backend);
+    }
+
+    @Override
+    public List<Backend> getAllBackends(boolean needAlive) {
+        List<Backend> backends = null;
+        if (needAlive) {
+            backends = Lists.newArrayList();
+            for (Map.Entry<Long, Backend> entry : this.allClusterBackends.get().entrySet()) {
+                if (entry.getValue().isQueryAvailable()) {
+                    backends.add(entry.getValue());
+                }
+            }
+        } else {
+            backends = Lists.newArrayList(this.allClusterBackends.get().values());
+        }
+        return backends;
     }
 }

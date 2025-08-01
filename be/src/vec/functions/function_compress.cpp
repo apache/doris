@@ -33,7 +33,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -51,8 +50,8 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
-static constexpr size_t COMPRESS_STR_LENGTH = 4;
+#include "common/compile_check_begin.h"
+static constexpr int COMPRESS_STR_LENGTH = 4;
 
 class FunctionCompress : public IFunction {
 public:
@@ -115,7 +114,8 @@ public:
             for (size_t i = 0; i < compressed_str.size(); idx++, i++, src++) {
                 col_data[idx] = *src;
             }
-            col_offset[row] = col_offset[row - 1] + COMPRESS_STR_LENGTH + compressed_str.size();
+            col_offset[row] =
+                    col_offset[row - 1] + COMPRESS_STR_LENGTH + (int)compressed_str.size();
         }
 
         block.replace_by_position(result, std::move(result_column));
@@ -207,5 +207,5 @@ void register_function_compress(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCompress>();
     factory.register_function<FunctionUncompress>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

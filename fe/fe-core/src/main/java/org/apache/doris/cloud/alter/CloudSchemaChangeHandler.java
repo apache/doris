@@ -20,6 +20,7 @@ package org.apache.doris.cloud.alter;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -178,6 +179,10 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 throw new UserException("Table compaction policy only support for "
                         + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
                         + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
+            }
+            if (compactionPolicy != null && compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                    && olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+                throw new UserException("Time series compaction policy is not supported for unique key table");
             }
             olapTable.readLock();
             try {

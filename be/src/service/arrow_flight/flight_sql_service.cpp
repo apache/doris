@@ -17,12 +17,12 @@
 
 #include "service/arrow_flight/flight_sql_service.h"
 
+#include <absl/strings/str_split.h>
 #include <arrow/status.h>
 
 #include <memory>
 
 #include "arrow/flight/sql/server.h"
-#include "gutil/strings/split.h"
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
 #include "service/arrow_flight/flight_sql_info.h"
 #include "service/backend_options.h"
@@ -44,7 +44,7 @@ private:
     }
 
     arrow::Result<std::shared_ptr<QueryStatement>> decode_ticket(const std::string& ticket) {
-        std::vector<string> fields = strings::Split(ticket, "&");
+        std::vector<std::string> fields = absl::StrSplit(ticket, "&");
         if (fields.size() != 4) {
             return arrow::Status::Invalid(fmt::format("Malformed ticket, size: {}", fields.size()));
         }

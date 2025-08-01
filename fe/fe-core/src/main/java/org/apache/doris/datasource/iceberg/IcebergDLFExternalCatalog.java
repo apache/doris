@@ -17,10 +17,14 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 
 import java.util.Map;
 
@@ -30,19 +34,38 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
             String comment) {
         super(catalogId, name, comment);
         props.put(HMSProperties.HIVE_METASTORE_TYPE, "dlf");
-        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
     @Override
-    protected void initCatalog() {
-        icebergCatalogType = ICEBERG_DLF;
-        DLFCatalog dlfCatalog = new DLFCatalog();
-        dlfCatalog.setConf(getConfiguration());
-        // initialize catalog
-        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        String catalogName = getName();
-        dlfCatalog.initialize(catalogName, catalogProperties);
-        catalog = dlfCatalog;
+    public void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
+        throw new NotSupportedException("iceberg catalog with dlf type not supports 'create database'");
+    }
+
+    @Override
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        throw new NotSupportedException("iceberg catalog with dlf type not supports 'drop database'");
+    }
+
+    @Override
+    public boolean createTable(CreateTableCommand command) throws UserException {
+        throw new NotSupportedException("iceberg catalog with dlf type not supports 'create table'");
+    }
+
+    @Override
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
+        throw new NotSupportedException("iceberg catalog with dlf type not supports 'create table'");
+    }
+
+    @Override
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
+                   boolean force) throws DdlException {
+        throw new NotSupportedException("iceberg catalog with dlf type not supports 'drop table'");
+    }
+
+    @Override
+    public void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
+            String rawTruncateSql) throws DdlException {
+        throw new NotSupportedException("iceberg catalog with dlf type not supports 'truncate table'");
     }
 }

@@ -21,11 +21,13 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/substitute.h"
+#include "common/cast_set.h"
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/common.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 // RowRange stands for range[From, To), From is inclusive,
@@ -89,7 +91,7 @@ public:
 
     int64_t to() const { return _to; }
 
-    std::string to_string() const { return strings::Substitute("[$0-$1)", _from, _to); }
+    std::string to_string() const { return absl::Substitute("[$0-$1)", _from, _to); }
 
 private:
     int64_t _from;
@@ -198,10 +200,10 @@ public:
     bool contain(rowid_t from, rowid_t to) {
         // binary search
         RowRange tmp_range = RowRange(from, to);
-        int32_t start = 0;
-        int32_t end = _ranges.size();
+        size_t start = 0;
+        size_t end = _ranges.size();
         while (start <= end) {
-            int32_t mid = (start + end) / 2;
+            size_t mid = (start + end) / 2;
             if (_ranges[mid].is_before(tmp_range)) {
                 start = mid;
             } else if (_ranges[mid].is_after(tmp_range)) {
@@ -247,7 +249,7 @@ public:
             return;
         }
         RowRange range_to_add = range;
-        for (int i = _ranges.size() - 1; i >= 0; --i) {
+        for (int i = cast_set<int>(_ranges.size()) - 1; i >= 0; --i) {
             const RowRange last = _ranges[i];
             DCHECK(!last.is_after(range));
             RowRange u;
@@ -270,4 +272,5 @@ private:
 };
 
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

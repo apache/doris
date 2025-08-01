@@ -29,7 +29,7 @@ namespace doris::vectorized {
 
 TEST(function_hll_test, function_hll_cardinality_test) {
     std::string func_name = "hll_cardinality";
-    InputTypeSet input_types = {TypeIndex::HLL};
+    InputTypeSet input_types = {PrimitiveType::TYPE_HLL};
 
     const std::string input1 = "test";
     const uint64_t hash_value1 =
@@ -60,7 +60,7 @@ TEST(function_hll_test, function_hll_cardinality_test) {
 
 TEST(function_hll_test, function_hll_to_base64_test) {
     std::string func_name = "hll_to_base64";
-    InputTypeSet input_types = {TypeIndex::HLL};
+    InputTypeSet input_types = {PrimitiveType::TYPE_HLL};
 
     const std::string input1 = "test";
     const uint64_t hash_value1 =
@@ -96,7 +96,7 @@ TEST(function_hll_test, function_hll_to_base64_test) {
 
 TEST(function_hll_test, function_hll_from_base64_test) {
     std::string func_name = "hll_from_base64";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     const std::string input1 = "AQHm5IIJCx0h/w==";
     const std::string output1 = "test";
@@ -125,11 +125,11 @@ TEST(function_hll_test, function_hll_from_base64_test) {
     const std::string input5 = "AA==";
     HyperLogLog empty_hll;
 
-    DataSet data_set = {{{input1}, hll1},
-                        {{input2}, hll2},
-                        {{input3}, hll3},
-                        {{input4}, hll4},
-                        {{input5}, empty_hll}};
+    DataSet data_set = {{{input1}, &hll1},
+                        {{input2}, &hll2},
+                        {{input3}, &hll3},
+                        {{input4}, &hll4},
+                        {{input5}, &empty_hll}};
 
     static_cast<void>(check_function<DataTypeHLL, true>(func_name, input_types, data_set));
 }

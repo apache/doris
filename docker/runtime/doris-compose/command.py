@@ -30,7 +30,7 @@ import time
 LOG = utils.get_logger()
 
 
-def wait_ready_service(wait_timeout, cluster, fe_ids, be_ids):
+def wait_service(need_alive, wait_timeout, cluster, fe_ids, be_ids):
     if wait_timeout == 0:
         return
     if wait_timeout == -1:
@@ -39,28 +39,37 @@ def wait_ready_service(wait_timeout, cluster, fe_ids, be_ids):
     while True:
         db_mgr = database.get_db_mgr(cluster.name,
                                      cluster.get_all_node_net_infos(), False)
-        dead_frontends = []
+        failed_frontends = []
         for id in fe_ids:
             fe = cluster.get_node(CLUSTER.Node.TYPE_FE, id)
             fe_state = db_mgr.get_fe(id)
-            if not fe_state or not fe_state.alive or not utils.is_socket_avail(
-                    fe.get_ip(), fe.meta["ports"]["query_port"]):
-                dead_frontends.append(id)
-        dead_backends = []
+            fe_alive = fe_state and fe_state.alive
+            if fe_alive and need_alive:
+                # if need alive, check port available,
+                # if need dead, don't check port available because it take some time for the disconnect socket
+                fe_alive = utils.is_socket_avail(
+                    fe.get_ip(), fe.meta["ports"]["query_port"])
+            if fe_alive != need_alive:
+                failed_frontends.append(id)
+        failed_backends = []
         for id in be_ids:
             be = cluster.get_node(CLUSTER.Node.TYPE_BE, id)
             be_state = db_mgr.get_be(id)
-            if not be_state or not be_state.alive or not utils.is_socket_avail(
-                    be.get_ip(), be.meta["ports"]["webserver_port"]):
-                dead_backends.append(id)
-        if not dead_frontends and not dead_backends:
+            be_alive = be_state and be_state.alive
+            if be_alive and need_alive:
+                be_alive = utils.is_socket_avail(
+                    be.get_ip(), be.meta["ports"]["webserver_port"])
+            if be_alive != need_alive:
+                failed_backends.append(id)
+        if not failed_frontends and not failed_backends:
             break
         if time.time() >= expire_ts:
             err = ""
-            if dead_frontends:
-                err += "dead fe: " + str(dead_frontends) + ". "
-            if dead_backends:
-                err += "dead be: " + str(dead_backends) + ". "
+            failed_status = "dead" if need_alive else "alive"
+            if failed_frontends:
+                err += failed_status + " fe: " + str(failed_frontends) + ". "
+            if failed_backends:
+                err += failed_status + " be: " + str(failed_backends) + ". "
             raise Exception(err)
         time.sleep(1)
 
@@ -189,10 +198,11 @@ class Command(object):
 
 class SimpleCommand(Command):
 
-    def __init__(self, command, help):
+    def __init__(self, command, help, options=[]):
         super().__init__(command)
         self.command = command
         self.help = help
+        self.options = options
 
     def add_parser(self, args_parsers):
         help = self.help + " If none of --fe-id, --be-id, --ms-id, --recycle-id, --fdb-id is specific, "\
@@ -210,18 +220,21 @@ class SimpleCommand(Command):
             args.fdb_id)
         utils.exec_docker_compose_command(cluster.get_compose_file(),
                                           self.command,
+                                          options=self.options,
                                           nodes=related_nodes)
         show_cmd = self.command[0].upper() + self.command[1:]
+
+        if for_all:
+            related_nodes = cluster.get_all_nodes()
+
         LOG.info(
             utils.render_green("{} succ, total related node num {}".format(
                 show_cmd, related_node_num)))
 
-        if for_all:
-            related_nodes = cluster.get_all_nodes()
         return cluster, related_nodes
 
 
-class NeedStartCommand(SimpleCommand):
+class StartBaseCommand(SimpleCommand):
 
     def add_parser(self, args_parsers):
         parser = super().add_parser(args_parsers)
@@ -240,7 +253,47 @@ class NeedStartCommand(SimpleCommand):
         fe_ids = [node.id for node in related_nodes if node.is_fe()]
         be_ids = [node.id for node in related_nodes if node.is_be()]
         if not cluster.is_host_network():
-            wait_ready_service(args.wait_timeout, cluster, fe_ids, be_ids)
+            wait_service(True, args.wait_timeout, cluster, fe_ids, be_ids)
+        return cluster, related_nodes
+
+
+class StartCommand(StartBaseCommand):
+
+    def __init__(self, command):
+        super().__init__(command, "Start the doris containers. "),
+
+
+class RestartCommand(StartBaseCommand):
+
+    def __init__(self, command):
+        super().__init__(command, "Restart the doris containers. ",
+                         ["-t", "1"]),
+
+
+class StopCommand(SimpleCommand):
+
+    def __init__(self, command):
+        super().__init__(command, "Stop the doris containers. ", ["-t", "1"]),
+
+    def add_parser(self, args_parsers):
+        parser = super().add_parser(args_parsers)
+        parser.add_argument(
+            "--wait-timeout",
+            type=int,
+            default=0,
+            help=
+            "Specify wait seconds for fe/be close for service: 0 not wait (default), "\
+            "> 0 max wait seconds, -1 wait unlimited."
+        )
+        return parser
+
+    def run(self, args):
+        cluster, related_nodes = super().run(args)
+        fe_ids = [node.id for node in related_nodes if node.is_fe()]
+        be_ids = [node.id for node in related_nodes if node.is_be()]
+        if not cluster.is_host_network():
+            wait_service(False, args.wait_timeout, cluster, fe_ids, be_ids)
+        return cluster, related_nodes
 
 
 class UpCommand(Command):
@@ -377,6 +430,14 @@ class UpCommand(Command):
                            help="Recreate containers even if their configuration " \
                                 "and image haven't changed. ")
 
+        parser.add_argument(
+            "--extra-hosts",
+            nargs="*",
+            type=str,
+            help=
+            "Add custom host-to-IP mappings (host:ip). For example: --extra-hosts myhost1:192.168.10.1 myhost2:192.168.10.2 . Only use when creating new cluster."
+        )
+
         parser.add_argument("--coverage-dir",
                             default="",
                             help="Set code coverage output directory")
@@ -419,19 +480,12 @@ class UpCommand(Command):
                 "Do not set BE meta service endpoint in conf. Default is False."
             )
 
-        if self._support_boolean_action():
-            parser.add_argument(
-                "--be-cluster-id",
-                default=True,
-                action=self._get_parser_bool_action(False),
-                help="Do not set BE cluster ID in conf. Default is False.")
-        else:
-            parser.add_argument(
-                "--no-be-cluster-id",
-                dest='be_cluster_id',
-                default=True,
-                action=self._get_parser_bool_action(False),
-                help="Do not set BE cluster ID in conf. Default is False.")
+        # if default==False, use this style to parser, like --be-cluster-id
+        parser.add_argument(
+            "--be-cluster-id",
+            default=False,
+            action=self._get_parser_bool_action(True),
+            help="Do not set BE cluster ID in conf. Default is False.")
 
         parser.add_argument(
             "--fdb-version",
@@ -439,6 +493,7 @@ class UpCommand(Command):
             default="7.1.26",
             help="fdb image version. Only use in cloud cluster.")
 
+        # if default==True, use this style to parser, like --detach
         if self._support_boolean_action():
             parser.add_argument(
                 "--detach",
@@ -546,8 +601,8 @@ class UpCommand(Command):
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
-                args.be_disks, args.be_cluster, args.reg_be, args.coverage_dir,
-                cloud_store_config, args.sql_mode_node_mgr,
+                args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
+                args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
                 args.be_metaservice_endpoint, args.be_cluster_id)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
@@ -727,8 +782,8 @@ class UpCommand(Command):
                     db_mgr.create_default_storage_vault(cloud_store_config)
 
             if not cluster.is_host_network():
-                wait_ready_service(args.wait_timeout, cluster, add_fe_ids,
-                                   add_be_ids)
+                wait_service(True, args.wait_timeout, cluster, add_fe_ids,
+                             add_be_ids)
             LOG.info(
                 utils.render_green(
                     "Up cluster {} succ, related node num {}".format(
@@ -829,6 +884,7 @@ class DownCommand(Command):
     def run(self, args):
         cluster_name = args.NAME
         cluster = None
+        stop_grace = False
 
         try:
             cluster = CLUSTER.Cluster.load(cluster_name)
@@ -840,6 +896,7 @@ class DownCommand(Command):
                 args.recycle_id,
                 args.fdb_id,
                 ignore_not_exists=True)
+            stop_grace = cluster.coverage_dir
         except Exception as e:
             for_all = not args.fe_id and not args.be_id and not args.ms_id and not args.recycle_id
             related_nodes = []
@@ -854,14 +911,18 @@ class DownCommand(Command):
             compose_file = CLUSTER.get_compose_file(cluster_name)
             if os.path.exists(compose_file):
                 try:
-                    utils.exec_docker_compose_command(
-                        compose_file, "down", ["-v", "--remove-orphans"])
+                    options = ["-v", "--remove-orphans"]
+                    if not stop_grace:
+                        options.extend(["-t", "1"])
+                    utils.exec_docker_compose_command(compose_file,
+                                                      "down",
+                                                      options=options)
                 except Exception as e:
-                    LOG.warn("down cluster has exception: " + str(e))
+                    LOG.warning("down cluster has exception: " + str(e))
             try:
                 utils.remove_docker_network(cluster_name)
             except Exception as e:
-                LOG.warn("remove network has exception: " + str(e))
+                LOG.warning("remove network has exception: " + str(e))
             if args.clean:
                 cluster_path = CLUSTER.get_cluster_path(cluster_name)
                 if os.path.exists(cluster_path):
@@ -902,7 +963,7 @@ class DownCommand(Command):
                     shutil.rmtree(node.get_path())
                     register_file = "{}/{}-{}-register".format(
                         CLUSTER.get_status_path(cluster.name),
-                        node.node_type(), node.get_ip())
+                        node.node_type(), node.id)
                     if os.path.exists(register_file):
                         os.remove(register_file)
                     LOG.info(
@@ -1395,12 +1456,13 @@ class InfoCommand(Command):
             ("RECYCLER_PORT", CLUSTER.MS_PORT, "constant"),
         ]
 
-        with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    key, value = line.split('=', 1)
-                    rows.append((key.strip(), value.strip(), "cloud.ini"))
+        if os.path.exists(CLUSTER.CLOUD_CFG_FILE):
+            with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        key, value = line.split("=", 1)
+                        rows.append((key.strip(), value.strip(), "cloud.ini"))
 
         return self._print_table(header, rows)
 
@@ -1422,9 +1484,9 @@ class AddRWPermCommand(Command):
 ALL_COMMANDS = [
     UpCommand("up"),
     DownCommand("down"),
-    NeedStartCommand("start", "Start the doris containers. "),
-    SimpleCommand("stop", "Stop the doris containers. "),
-    NeedStartCommand("restart", "Restart the doris containers. "),
+    StartCommand("start"),
+    StopCommand("stop"),
+    RestartCommand("restart"),
     SimpleCommand("pause", "Pause the doris containers. "),
     SimpleCommand("unpause", "Unpause the doris containers. "),
     GenConfCommand("config"),

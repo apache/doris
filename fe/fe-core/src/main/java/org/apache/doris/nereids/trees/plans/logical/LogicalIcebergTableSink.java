@@ -39,7 +39,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * logical hive table sink for insert command
+ * logical iceberg table sink for insert command
  */
 public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
@@ -60,8 +60,8 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
         super(PlanType.LOGICAL_ICEBERG_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
-        this.database = Objects.requireNonNull(database, "database != null in LogicalHiveTableSink");
-        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalHiveTableSink");
+        this.database = Objects.requireNonNull(database, "database != null in LogicalIcebergTableSink");
+        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalIcebergTableSink");
         this.dmlCommandType = dmlCommandType;
     }
 
@@ -75,7 +75,7 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1, "LogicalHiveTableSink only accepts one child");
+        Preconditions.checkArgument(children.size() == 1, "LogicalIcebergTableSink only accepts one child");
         return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
                 dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
     }
@@ -121,7 +121,7 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalHiveTableSink[" + id.asInt() + "]",
+        return Utils.toSqlString("LogicalIcebergTableSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs,
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),

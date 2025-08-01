@@ -1146,7 +1146,7 @@ class FilterEstimationTest {
         Statistics result = filterEstimation.estimate(and, stats);
         // result 1.0->2.0 bc happens because the calculation from normalization of
         // "Math.min(columnStatistic.numNulls * factor, rowCount - ndv);"
-        Assertions.assertEquals(result.getRowCount(), 3.5, 0.01);
+        Assertions.assertEquals(result.getRowCount(), 2.0, 0.01);
     }
 
     /**
@@ -1214,7 +1214,7 @@ class FilterEstimationTest {
 
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(allAnd, stats);
-        Assertions.assertEquals(result.getRowCount(), 2109.0, 10);
+        Assertions.assertEquals(result.getRowCount(), 1809, 10);
     }
 
     /**
@@ -1253,13 +1253,15 @@ class FilterEstimationTest {
                 .setNumNulls(8)
                 .setMaxValue(2)
                 .setMinValue(1);
+        ColumnStatistic origin = builder.build();
+        builder.setOriginal(origin);
         IntegerLiteral int1 = new IntegerLiteral(1);
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(a, int1);
         IsNull isNull = new IsNull(a);
         Or or = new Or(greaterThanEqual, isNull);
         Statistics stats = new Statistics(10, new HashMap<>());
         stats.addColumnStats(a, builder.build());
-        FilterEstimation filterEstimation = new FilterEstimation(true);
+        FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(or, stats);
         Assertions.assertEquals(result.getRowCount(), 10.0, 0.01);
     }
@@ -1519,5 +1521,74 @@ class FilterEstimationTest {
 
         Statistics stats = new FilterEstimation().estimate(predicate, statsBuilder.build());
         Assertions.assertEquals(250, stats.getRowCount());
+    }
+
+    @Test
+    void testEqualAndIsNull() {
+        // avoid to normalize num-nulls twice
+        Double row = 1000.0;
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder(row)
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0);
+
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder(row)
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(90);
+
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(row);
+        statsBuilder.putColumnStatistics(a, columnStatisticBuilderA.build());
+        statsBuilder.putColumnStatistics(b, columnStatisticBuilderB.build());
+
+        Expression expr = new And(
+                new EqualTo(a, new IntegerLiteral(1)),
+                new IsNull(b)
+        );
+
+        Statistics result = new FilterEstimation().estimate(expr, statsBuilder.build());
+        Assertions.assertEquals(9, result.getRowCount());
+    }
+
+    /**
+     * estimate base on deltaRows, keep column statistics
+     * if the column is not used in expression which leads to zero row count
+     * for example:
+     * B = 10 and A > '2020-01-03'
+     * because analyze job runs on 2020-01-01, so the column stats of A.max is 2020-01-01, and hence
+     * estimated output rows is zero.
+     * But after 2020-01-01, some rows are inserted, called delta rows.
+     * we will estimate output based on deltaRows, and assume all column stats are unknown.
+     * after estimation, we will put col stats back except A, and run Statistics.normalizeColumnStatistics().
+     */
+    @Test
+    void testDeltaRow() {
+        double row = 1000.0;
+        SlotReference a = new SlotReference("a", DateType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder(row)
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMaxExpr(new org.apache.doris.analysis.DateLiteral(2020, 1, 1))
+                .setMaxValue(new DateLiteral(2020, 1, 1).getDouble());
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder(row)
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0);
+        Expression expr = new And(
+                new EqualTo(b, new IntegerLiteral(1)),
+                new GreaterThan(a, new DateLiteral(2020, 1, 2)));
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(row)
+                .setDeltaRowCount(100)
+                .putColumnStatistics(a, columnStatisticBuilderA.build())
+                .putColumnStatistics(b, columnStatisticBuilderB.build());
+        Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+        Assertions.assertTrue(stats.findColumnStatistics(a).isUnKnown());
+        Assertions.assertFalse(stats.findColumnStatistics(b).isUnKnown());
     }
 }

@@ -1167,41 +1167,41 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_last_DecimalV3_notnull "select array_last(x -> x > 1, kadcml) from fn_test_not_nullable"
 
     // test array_first_index
-    sql "create view v as select array_first_index(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_first_index_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_first_index(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_first_index_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_count
-    sql "create view v as select array_count(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_count_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_count(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_count_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_first
-    sql "create view v as select array_first(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_first_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_first(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_first_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_sortby
-    sql "create view v as select array_sortby(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_sortby_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_sortby(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_sortby_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_filter
-    sql "create view v as select array_filter(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_filter_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_filter(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_filter_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_exists
-    sql "create view v as select array_exists(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_exists_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_exists(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_exists_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_last_index
-    sql "create view v as select array_last_index(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_last_index_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_last_index(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_last_index_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_last
-    sql "create view v as select array_last(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_last_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_last(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_last_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_map
-    sql "create view v as select array_map(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_map_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_map(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_map_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     test {
         sql "select tokenize('arg1','xxx = yyy,zzz');"
         check{result, exception, startTime, endTime ->
@@ -1281,30 +1281,25 @@ suite("nereids_scalar_fn_Array") {
     qt_sequence_datetime_hour """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 hour), interval kint hour) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_minute """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 minute), interval kint minute) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_second """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint second), interval kint-1 second) from fn_test order by kdtmv2s1;"""
-    // make large error size
-    test {
-        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), interval kint hour)) from fn_test order by kdtmv2s1;"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
+
+    // max_array_size_as_field = 1000000;
+    sql "select count(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year))) from fn_test"
+    sql "select count(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), INTERVAL 5 YEAR)) from fn_test"
+    order_qt_sql_sequence_dt_3args "select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), INTERVAL 125 YEAR) from fn_test"
+    sql "select count(sequence(kint, kint+100000)) from fn_test"
+    sql "select count(sequence(kint, kint+100000, 10000)) from fn_test"
+    order_qt_sql_sequence_int_3args "select sequence(kint, kint+100000, 10000) from fn_test"
 
     test {
-        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+10000 month), interval kint hour)) from fn_test order by kdtmv2s1;"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
+        sql "select sequence(kdtmv2s1, date_add(kdtmv2s1, interval 5000 year), interval 1 second) from fn_test"
+        exception "Array size exceeds the limit 1000000"
     }
-
+    sql "select sequence(kdtmv2s1, date_add(kdtmv2s1, interval 5000 year), interval 500 year) from fn_test"
     test {
-        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000001 day), interval kint day)) from fn_test order by kdtmv2s1;"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
+        sql "select count(sequence(kint, kint+10000000)) from fn_test"
+        exception "Array size exceeds the limit 1000000"
     }
+    sql "select count(sequence(kint, kint+10000000, 50)) from fn_test"
 
     // with array empty
     qt_array_empty_fe """select array()"""

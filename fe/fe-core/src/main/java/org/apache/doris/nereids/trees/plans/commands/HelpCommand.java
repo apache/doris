@@ -126,6 +126,11 @@ public class HelpCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return ShowResultSetMetaData.builder().build();
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitHelpCommand(this, context);
     }

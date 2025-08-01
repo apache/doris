@@ -37,8 +37,6 @@
 #include <glog/logging.h>
 
 #include "gutil/atomicops.h"
-#include "gutil/integral_types.h"
-#include "gutil/logging-inl.h"
 
 namespace base {
 
@@ -96,7 +94,7 @@ inline bool RefCountIsZero(const volatile Atomic32* ptr) {
     return subtle::Acquire_Load(ptr) == 0;
 }
 
-#if BASE_HAS_ATOMIC64
+#ifdef BASE_HAS_ATOMIC64
 // Implementations for Atomic64, if available.
 inline void RefCountIncN(volatile base::subtle::Atomic64* ptr, base::subtle::Atomic64 increment) {
     DCHECK_GT(increment, 0);

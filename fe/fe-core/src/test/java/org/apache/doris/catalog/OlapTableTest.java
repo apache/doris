@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
@@ -65,7 +66,7 @@ public class OlapTableTest {
             }
             OlapTable tbl = (OlapTable) table;
             tbl.setIndexes(Lists.newArrayList(new Index(0, "index", Lists.newArrayList("col"),
-                    IndexDef.IndexType.BITMAP, null, "xxxxxx", Lists.newArrayList(1))));
+                    IndexDef.IndexType.BITMAP, null, "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
@@ -270,8 +271,7 @@ public class OlapTableTest {
         Env.getCurrentSystemInfo().addBackend(be2);
 
         ConnectContext connectContext = UtFrameUtils.createDefaultCtx();
-        connectContext.setQualifiedUser("root");
-
+        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         OlapTable tab = new OlapTable();
         TFetchOption tfetchOption = tab.generateTwoPhaseReadOption(-1);
         Assert.assertTrue(tfetchOption.nodes_info.nodes.size() == 2);

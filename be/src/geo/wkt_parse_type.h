@@ -38,6 +38,8 @@ struct GeoCoordinateListList {
             delete item;
         }
     }
+    GeoCoordinateListList() = default;
+    GeoCoordinateListList(GeoCoordinateListList&& other) : list(std::move(other.list)) {}
     void add(GeoCoordinateList* coordinates) { list.push_back(coordinates); }
     std::vector<GeoCoordinateList*> list;
 };

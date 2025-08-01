@@ -29,7 +29,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 
 -- !cte_filter_pushdown_3 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((k3 = dd.k3)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((tmp2.k3 = dd.k3)) otherCondition=()
 ----filter((tmp2.k3 = 0))
 ------PhysicalWindow
 --------PhysicalQuickSort[LOCAL_SORT]

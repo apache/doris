@@ -24,6 +24,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static constexpr int32_t CACHE_MIN_PRUNE_SIZE = 67108864; // 64M
 static constexpr int32_t CACHE_MIN_PRUNE_NUMBER = 1024;
@@ -156,6 +157,7 @@ public:
 
     CacheType type() { return _type; }
     size_t initial_capacity() const { return _initial_capacity; }
+    virtual int64_t reset_initial_capacity(double adjust_weighted) = 0;
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
@@ -188,4 +190,5 @@ protected:
     bool _enable_prune = true;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

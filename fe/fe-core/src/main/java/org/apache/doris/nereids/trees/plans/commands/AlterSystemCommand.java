@@ -66,7 +66,7 @@ public class AlterSystemCommand extends AlterCommand {
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws UserException {
+    public void validate(ConnectContext ctx) throws UserException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                     "NODE");

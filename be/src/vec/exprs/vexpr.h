@@ -36,12 +36,13 @@
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
+#include "util/date_func.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -84,7 +85,7 @@ public:
 
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);
-    VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable);
+    VExpr(DataTypePtr type, bool is_slotref);
     // only used for test
     VExpr() = default;
     virtual ~VExpr() = default;
@@ -133,7 +134,7 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
+    virtual Status execute_runtime_filter(VExprContext* context, Block* block,
                                           int* result_column_id, ColumnNumbers& args) {
         return execute(context, block, result_column_id);
     };
@@ -146,8 +147,6 @@ public:
     virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope);
 
     DataTypePtr& data_type() { return _data_type; }
-
-    TypeDescriptor type() { return _type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
@@ -190,7 +189,7 @@ public:
 
     bool is_nullable() const { return _data_type->is_nullable(); }
 
-    PrimitiveType result_type() const { return _type.type; }
+    PrimitiveType result_type() const { return _data_type->get_primitive_type(); }
 
     static Status create_expr(const TExprNode& expr_node, VExprSPtr& expr);
 
@@ -223,7 +222,8 @@ public:
     /// the output. Returns nullptr if the argument is not constant. The returned ColumnPtr is
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
-    Status get_const_col(VExprContext* context, std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
+    MOCK_FUNCTION Status get_const_col(VExprContext* context,
+                                       std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
 
     int fn_context_index() const { return _fn_context_index; }
 
@@ -261,6 +261,12 @@ public:
     virtual bool equals(const VExpr& other);
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }
+
+    virtual void collect_slot_column_ids(std::set<int>& column_ids) const {
+        for (auto child : _children) {
+            child->collect_slot_column_ids(column_ids);
+        }
+    }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information
@@ -308,7 +314,6 @@ protected:
     TExprNodeType::type _node_type;
     // Used to check what opcode
     TExprOpcode::type _opcode;
-    TypeDescriptor _type;
     DataTypePtr _data_type;
     VExprSPtrs _children; // in few hundreds
     TFunction _fn;
@@ -381,7 +386,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIMEV2)) {
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME)) {
         const auto* origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
@@ -393,8 +398,6 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATE));
         } else if (origin_value->type() == TimeType::TIME_DATETIME) {
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
-        } else if (origin_value->type() == TimeType::TIME_TIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2));
         }
     } else if constexpr (T == TYPE_DATEV2) {
         const auto* origin_value = reinterpret_cast<const DateV2Value<DateV2ValueType>*>(data);
@@ -491,6 +494,15 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         literal.__set_value(vectorized::DataTypeIPv6::to_string(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
+    } else if constexpr (T == TYPE_TIMEV2) {
+        // the code use for runtime filter but we dont support timev2 as predicate now
+        // so this part not used
+        const auto* origin_value = reinterpret_cast<const double*>(data);
+        TTimeV2Literal timev2_literal;
+        timev2_literal.__set_value(*origin_value);
+        (*node).__set_timev2_literal(timev2_literal);
+        (*node).__set_node_type(TExprNodeType::TIMEV2_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2, precision, scale));
     } else {
         return Status::InvalidArgument("Invalid argument type!");
     }

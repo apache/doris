@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
@@ -102,6 +104,22 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                         return new LogicalEmptyRelation(
                                 ConnectContext.get().getStatementContext().getNextRelationId(),
                                 union.getOutput());
+                    } else if (union.getConstantExprsList().size() == 1) {
+                        List<NamedExpression> constantExprs = union.getConstantExprsList().get(0);
+                        ImmutableList.Builder<NamedExpression> newOneRowRelationOutput
+                                = ImmutableList.builderWithExpectedSize(constantExprs.size());
+                        for (int i = 0; i < constantExprs.size(); i++) {
+                            NamedExpression setOutput = union.getOutput().get(i);
+                            NamedExpression constantExpr = constantExprs.get(i);
+                            Expression realConstantExpr = constantExpr instanceof Alias
+                                    ? ((Alias) constantExpr).child() : constantExpr;
+                            Alias oneRowRelationOutput = new Alias(
+                                    setOutput.getExprId(), realConstantExpr, setOutput.getName());
+                            newOneRowRelationOutput.add(oneRowRelationOutput);
+                        }
+                        return new LogicalOneRowRelation(
+                                ConnectContext.get().getStatementContext().getNextRelationId(),
+                                newOneRowRelationOutput.build());
                     } else {
                         return union.withChildrenAndTheirOutputs(ImmutableList.of(), ImmutableList.of());
                     }
@@ -109,15 +127,21 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     if (union.getConstantExprsList().isEmpty()) {
                         Plan child = nonEmptyChildren.get(0);
                         List<Slot> unionOutput = union.getOutput();
-                        List<Slot> childOutput = child.getOutput();
-                        List<NamedExpression> projects = Lists.newArrayList();
-                        for (int i = 0; i < unionOutput.size(); i++) {
-                            ExprId id = unionOutput.get(i).getExprId();
-                            Alias alias = new Alias(id, childOutput.get(i), unionOutput.get(i).getName());
-                            projects.add(alias);
-                        }
+                        int childIdx = union.children().indexOf(nonEmptyChildren.get(0));
+                        if (childIdx >= 0) {
+                            List<SlotReference> childOutput = union.getRegularChildOutput(childIdx);
+                            List<NamedExpression> projects = Lists.newArrayList();
+                            for (int i = 0; i < unionOutput.size(); i++) {
+                                ExprId id = unionOutput.get(i).getExprId();
+                                Alias alias = new Alias(id, childOutput.get(i), unionOutput.get(i).getName());
+                                projects.add(alias);
+                            }
 
-                        return new LogicalProject<>(projects, child);
+                            return new LogicalProject<>(projects, child);
+                        } else {
+                            // should not hit here.
+                            return null;
+                        }
                     }
                 }
 

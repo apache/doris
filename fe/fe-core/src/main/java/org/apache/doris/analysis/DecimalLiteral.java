@@ -19,12 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDecimalLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -33,8 +34,6 @@ import org.apache.doris.thrift.TExprNodeType;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
@@ -266,7 +265,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         return value.toPlainString();
     }
 
@@ -276,13 +275,14 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValue() {
-        return value.toPlainString();
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getStringValue();
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
+    public String getStringValue() {
+        return value.toPlainString();
     }
 
     @Override
@@ -321,29 +321,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
         }
     }
 
-    public void tryToReduceType() {
-        if (this.type.isDecimalV3()) {
-            try {
-                value = new BigDecimal(value.longValueExact());
-            } catch (ArithmeticException e) {
-                // ignore
-            }
-            this.type = ScalarType.createDecimalV3Type(
-                    Math.max(this.value.scale(), this.value.precision()), this.value.scale());
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = new BigDecimal(Text.readString(in));
-    }
-
-    public static DecimalLiteral read(DataInput in) throws IOException {
-        DecimalLiteral dec = new DecimalLiteral();
-        dec.readFields(in);
-        return dec;
-    }
-
     // To be compatible with OLAP, only need 9 digits.
     // Note: the return value is negative if value is negative.
     public int getFracValue() {
@@ -353,18 +330,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
         fracPart = fracPart.movePointRight(9);
 
         return fracPart.intValue();
-    }
-
-    public void roundCeiling(int newScale) {
-        value = value.setScale(newScale, RoundingMode.CEILING);
-        type = ScalarType.createDecimalType(((ScalarType) type)
-                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
-    }
-
-    public void roundFloor(int newScale) {
-        value = value.setScale(newScale, RoundingMode.FLOOR);
-        type = ScalarType.createDecimalType(((ScalarType) type)
-                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
     }
 
     @Override
@@ -410,18 +375,4 @@ public class DecimalLiteral extends NumericLiteralExpr {
         return 31 * super.hashCode() + Objects.hashCode(value);
     }
 
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        int len = getParmLen(data);
-        BigDecimal v = null;
-        try {
-            byte[] bytes = new byte[len];
-            data.get(bytes);
-            String value = new String(bytes);
-            v = new BigDecimal(value);
-        } catch (NumberFormatException e) {
-            // throw new AnalysisException("Invalid floating-point literal: " + value, e);
-        }
-        init(v);
-    }
 }

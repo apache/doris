@@ -332,8 +332,7 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
     Status st;
     auto columns = block.mutate_columns();
@@ -376,9 +375,10 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         TabletPublishStatistics stats;
-        st = engine_ref->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                    (*tablet)->tablet_id(), (*tablet)->tablet_uid(),
-                                                    version, &stats);
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+        st = engine_ref->txn_manager()->publish_txn(
+                meta, write_req.partition_id, write_req.txn_id, (*tablet)->tablet_id(),
+                (*tablet)->tablet_uid(), version, &stats, extend_tablet_txn_info_lifetime);
         ASSERT_EQ(Status::OK(), st);
         st = (*tablet)->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);

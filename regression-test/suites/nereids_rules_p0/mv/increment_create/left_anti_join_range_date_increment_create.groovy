@@ -29,7 +29,7 @@ suite("left_anti_join_range_date_increment_create") {
     sql """CREATE TABLE `orders_left_anti_2` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
-      `o_orderstatus` VARCHAR(1) NULL,
+      `o_orderstatus` VARCHAR(9) NULL,
       `o_totalprice` DECIMAL(15, 2)  NULL,
       `o_orderpriority` VARCHAR(15) NULL,
       `o_clerk` VARCHAR(15) NULL,

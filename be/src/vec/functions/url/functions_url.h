@@ -24,7 +24,7 @@
 #include "vec/common/memcpy_small.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /** URL processing functions. See implementation in separate .cpp files.
   * All functions are not strictly follow RFC, instead they are maximally simplified for performance reasons.
   *
@@ -73,8 +73,8 @@ using Pos = const char*;
   */
 template <typename Extractor>
 struct ExtractSubstringImpl {
-    static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t size = offsets.size();
         res_offsets.resize(size);
         res_data.reserve(size * Extractor::get_reserve_length_for_element());
@@ -93,9 +93,10 @@ struct ExtractSubstringImpl {
             memcpy_small_allow_read_write_overflow15(&res_data[res_offset], start, length);
             res_offset += length;
 
-            res_offsets[i] = res_offset;
+            res_offsets[i] = (ColumnString::Offset)res_offset;
             prev_offset = offsets[i];
         }
+        return Status::OK();
     }
 
     static void constant(const std::string& data, std::string& res_data) {
@@ -150,5 +151,5 @@ struct CutSubstringImpl {
         res_data.append(start + length, data.data() + data.size());
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

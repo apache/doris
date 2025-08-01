@@ -17,12 +17,8 @@
 
 #pragma once
 
-#include <memory>
-
-// clang-format off
-#include "olap/rowset/segment_v2/inverted_index/query/query.h"
-#include "CLucene/search/MultiPhraseQuery.h"
-// clang-format on
+#include "olap/rowset//segment_v2/inverted_index/query/prefix_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
 
 CL_NS_USE(search)
 
@@ -34,14 +30,16 @@ public:
                       const TQueryOptions& query_options, const io::IOContext* io_ctx);
     ~PhrasePrefixQuery() override = default;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
 
-    std::unique_ptr<CL_NS(search)::MultiPhraseQuery> _query;
+    size_t _term_size = 0;
     int32_t _max_expansions = 50;
+    PhraseQuery _phrase_query;
+    PrefixQuery _prefix_query;
 };
 
 } // namespace doris::segment_v2

@@ -16,8 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -eo pipefail
-
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 DORIS_HOME="$(
@@ -127,6 +125,16 @@ fi
 export CLASSPATH="${DORIS_CLASSPATH}"
 
 export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${LD_LIBRARY_PATH}"
+
+# filter known leak
+export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
+export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+export UBSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/ubsan_suppr.conf
+
+## set asan and ubsan env to generate core file
+## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
+export UBSAN_OPTIONS=print_stacktrace=1:${UBSAN_OPTIONS}
 
 ## set libhdfs3 conf
 if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then

@@ -73,7 +73,8 @@ private:
             : pos(0),
               limit(capacity_),
               capacity(capacity_),
-              mem_tracker_(doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {
+              mem_tracker_(
+                      doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr()) {
         ptr = reinterpret_cast<char*>(Allocator<false>::alloc(capacity_));
     }
 

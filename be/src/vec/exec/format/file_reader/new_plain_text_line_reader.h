@@ -194,25 +194,24 @@ struct ReaderStateWrapper {
     ReaderState prev_state = ReaderState::START;
 };
 
-class EncloseCsvLineReaderContext final
-        : public BaseTextLineReaderContext<EncloseCsvLineReaderContext> {
+class EncloseCsvLineReaderCtx final : public BaseTextLineReaderContext<EncloseCsvLineReaderCtx> {
     // using a function ptr to decrease the overhead (found very effective during test).
     using FindDelimiterFunc = const uint8_t* (*)(const uint8_t*, size_t, const char*, size_t);
 
 public:
-    explicit EncloseCsvLineReaderContext(const std::string& line_delimiter_,
-                                         const size_t line_delimiter_len_, std::string column_sep_,
-                                         const size_t column_sep_len_, size_t col_sep_num,
-                                         const char enclose, const char escape, const bool keep_cr_)
+    explicit EncloseCsvLineReaderCtx(const std::string& line_delimiter_,
+                                     const size_t line_delimiter_len_, std::string column_sep_,
+                                     const size_t column_sep_len_, size_t col_sep_num,
+                                     const char enclose, const char escape, const bool keep_cr_)
             : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_, keep_cr_),
               _enclose(enclose),
               _escape(escape),
               _column_sep_len(column_sep_len_),
               _column_sep(std::move(column_sep_)) {
         if (column_sep_len_ == 1) {
-            find_col_sep_func = &EncloseCsvLineReaderContext::look_for_column_sep_pos<true>;
+            find_col_sep_func = &EncloseCsvLineReaderCtx::look_for_column_sep_pos<true>;
         } else {
-            find_col_sep_func = &EncloseCsvLineReaderContext::look_for_column_sep_pos<false>;
+            find_col_sep_func = &EncloseCsvLineReaderCtx::look_for_column_sep_pos<false>;
         }
         _column_sep_positions.reserve(col_sep_num);
     }
@@ -220,6 +219,7 @@ public:
     inline void refresh_impl() {
         _idx = 0;
         _should_escape = false;
+        _quote_escape = false;
         _result = nullptr;
         _column_sep_positions.clear();
         _state.reset();
@@ -254,6 +254,8 @@ private:
 
     size_t _idx = 0;
     bool _should_escape = false;
+    // quote is specially escaped by quote in csv format
+    bool _quote_escape = false;
 
     const std::string _column_sep;
     std::vector<size_t> _column_sep_positions;
@@ -330,8 +332,6 @@ private:
     size_t _current_offset;
 
     // Profile counters
-    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
-    RuntimeProfile::Counter* _read_timer = nullptr;
     RuntimeProfile::Counter* _bytes_decompress_counter = nullptr;
     RuntimeProfile::Counter* _decompress_timer = nullptr;
 };

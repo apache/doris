@@ -56,11 +56,12 @@ InvertedIndexQueryType get_query_type(const std::string& query_type) {
 Status FunctionMultiMatch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-        std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+        std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
     DCHECK(arguments.size() == 2);
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+
     // type
     auto query_type_value = arguments[0].column->get_data_at(0);
     auto query_type = get_query_type(query_type_value.to_string());
@@ -69,25 +70,37 @@ Status FunctionMultiMatch::evaluate_inverted_index(
                 "parameter query type incorrect for function multi_match: query_type = {}",
                 query_type);
     }
+
     // query
     auto query_str = arguments[1].column->get_data_at(0);
-    auto param_type = arguments[1].type->get_type_as_type_descriptor().type;
+    auto param_type = arguments[1].type->get_primitive_type();
     if (!is_string_type(param_type)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "arguments for multi_match must be string");
     }
+
     // search
-    for (int i = 0; i < data_type_with_names.size(); i++) {
+    InvertedIndexParam param;
+    param.query_value = &query_str;
+    param.query_type = query_type;
+    param.num_rows = num_rows;
+    for (size_t i = 0; i < data_type_with_names.size(); i++) {
         auto column_name = data_type_with_names[i].first;
         auto* iter = iterators[i];
-        auto single_result = std::make_shared<roaring::Roaring>();
-        std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, &query_str, query_type,
-                                                       num_rows, index));
-        *roaring |= *index;
+        if (iter == nullptr) {
+            std::string error_msg = "Inverted index iterator is null for column '" + column_name +
+                                    "' during multi_match execution";
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(error_msg);
+        }
+
+        param.column_name = column_name;
+        param.roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iter->read_from_index(&param));
+        *roaring |= *param.roaring;
     }
     segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
     bitmap_result = result;
+
     return Status::OK();
 }
 

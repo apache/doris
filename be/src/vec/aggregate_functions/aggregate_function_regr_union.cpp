@@ -17,46 +17,44 @@
 
 #include "vec/aggregate_functions/aggregate_function_regr_union.h"
 
-#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T, template <typename> class StatFunctionTemplate>
+template <PrimitiveType T, template <PrimitiveType> class StatFunctionTemplate>
 AggregateFunctionPtr type_dispatch_for_aggregate_function_regr(const DataTypes& argument_types,
                                                                const bool& result_is_nullable,
+                                                               const AggregateFunctionAttr& attr,
                                                                bool y_nullable_input,
                                                                bool x_nullable_input) {
     if (y_nullable_input) {
         if (x_nullable_input) {
             return creator_without_type::create_ignore_nullable<
                     AggregateFunctionRegrSimple<StatFunctionTemplate<T>, true, true>>(
-                    argument_types, result_is_nullable);
+                    argument_types, result_is_nullable, attr);
         } else {
             return creator_without_type::create_ignore_nullable<
                     AggregateFunctionRegrSimple<StatFunctionTemplate<T>, true, false>>(
-                    argument_types, result_is_nullable);
+                    argument_types, result_is_nullable, attr);
         }
     } else {
         if (x_nullable_input) {
             return creator_without_type::create_ignore_nullable<
                     AggregateFunctionRegrSimple<StatFunctionTemplate<T>, false, true>>(
-                    argument_types, result_is_nullable);
+                    argument_types, result_is_nullable, attr);
         } else {
             return creator_without_type::create_ignore_nullable<
                     AggregateFunctionRegrSimple<StatFunctionTemplate<T>, false, false>>(
-                    argument_types, result_is_nullable);
+                    argument_types, result_is_nullable, attr);
         }
     }
 }
 
-template <template <typename> class StatFunctionTemplate>
+template <template <PrimitiveType> class StatFunctionTemplate>
 AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable,
@@ -72,19 +70,44 @@ AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,
 
     bool y_nullable_input = argument_types[0]->is_nullable();
     bool x_nullable_input = argument_types[1]->is_nullable();
-    WhichDataType y_type(remove_nullable(argument_types[0]));
-    WhichDataType x_type(remove_nullable(argument_types[1]));
 
-#define DISPATCH(TYPE)                                                                \
-    if (x_type.idx == TypeIndex::TYPE && y_type.idx == TypeIndex::TYPE)               \
-        return type_dispatch_for_aggregate_function_regr<TYPE, StatFunctionTemplate>( \
-                argument_types, result_is_nullable, y_nullable_input, x_nullable_input);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-
-    LOG(WARNING) << "unsupported input types " << argument_types[0]->get_name() << " and "
-                 << argument_types[1]->get_name() << " for aggregate function " << name;
-    return nullptr;
+    if (argument_types[0]->get_primitive_type() == PrimitiveType::TYPE_BOOLEAN &&
+        argument_types[1]->get_primitive_type() == PrimitiveType::TYPE_BOOLEAN) {
+        return type_dispatch_for_aggregate_function_regr<TYPE_BOOLEAN, StatFunctionTemplate>(
+                argument_types, result_is_nullable, attr, y_nullable_input, x_nullable_input);
+    } else if (argument_types[0]->get_primitive_type() == PrimitiveType::TYPE_TINYINT &&
+               argument_types[1]->get_primitive_type() == PrimitiveType::TYPE_TINYINT) {
+        return type_dispatch_for_aggregate_function_regr<TYPE_TINYINT, StatFunctionTemplate>(
+                argument_types, result_is_nullable, attr, y_nullable_input, x_nullable_input);
+    } else if (argument_types[0]->get_primitive_type() == PrimitiveType::TYPE_SMALLINT &&
+               argument_types[1]->get_primitive_type() == PrimitiveType::TYPE_SMALLINT) {
+        return type_dispatch_for_aggregate_function_regr<TYPE_SMALLINT, StatFunctionTemplate>(
+                argument_types, result_is_nullable, attr, y_nullable_input, x_nullable_input);
+    } else if (argument_types[0]->get_primitive_type() == PrimitiveType::TYPE_INT &&
+               argument_types[1]->get_primitive_type() == PrimitiveType::TYPE_INT) {
+        return type_dispatch_for_aggregate_function_regr<TYPE_INT, StatFunctionTemplate>(
+                argument_types, result_is_nullable, attr, y_nullable_input, x_nullable_input);
+    } else if (argument_types[0]->get_primitive_type() == PrimitiveType::TYPE_BIGINT &&
+               argument_types[1]->get_primitive_type() == PrimitiveType::TYPE_BIGINT) {
+        return type_dispatch_for_aggregate_function_regr<TYPE_BIGINT, StatFunctionTemplate>(
+                argument_types, result_is_nullable, attr, y_nullable_input, x_nullable_input);
+    } else if (argument_types[0]->get_primitive_type() == PrimitiveType::TYPE_LARGEINT &&
+               argument_types[1]->get_primitive_type() == PrimitiveType::TYPE_LARGEINT) {
+        return type_dispatch_for_aggregate_function_regr<TYPE_LARGEINT, StatFunctionTemplate>(
+                argument_types, result_is_nullable, attr, y_nullable_input, x_nullable_input);
+    } else if (argument_types[0]->get_primitive_type() == PrimitiveType::TYPE_FLOAT &&
+               argument_types[1]->get_primitive_type() == PrimitiveType::TYPE_FLOAT) {
+        return type_dispatch_for_aggregate_function_regr<TYPE_FLOAT, StatFunctionTemplate>(
+                argument_types, result_is_nullable, attr, y_nullable_input, x_nullable_input);
+    } else if (argument_types[0]->get_primitive_type() == PrimitiveType::TYPE_DOUBLE &&
+               argument_types[1]->get_primitive_type() == PrimitiveType::TYPE_DOUBLE) {
+        return type_dispatch_for_aggregate_function_regr<TYPE_DOUBLE, StatFunctionTemplate>(
+                argument_types, result_is_nullable, attr, y_nullable_input, x_nullable_input);
+    } else {
+        LOG(WARNING) << "unsupported input types " << argument_types[0]->get_name() << " and "
+                     << argument_types[1]->get_name() << " for aggregate function " << name;
+        return nullptr;
+    }
 }
 
 void register_aggregate_function_regr_union(AggregateFunctionSimpleFactory& factory) {

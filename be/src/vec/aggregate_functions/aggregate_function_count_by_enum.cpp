@@ -43,9 +43,7 @@ AggregateFunctionPtr create_aggregate_function_count_by_enum(const std::string& 
         type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
     }
 
-    WhichDataType which(*type);
-
-    if (which.is_string()) {
+    if (is_string_type(type->get_primitive_type())) {
         return std::make_shared<AggregateFunctionCountByEnum<AggregateFunctionCountByEnumData>>(
                 argument_types);
     }

@@ -33,7 +33,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -105,8 +104,7 @@ public:
         std::shared_ptr<CollectionInState> state = std::make_shared<CollectionInState>();
         context->set_function_state(scope, state);
 
-        auto* col_desc = context->get_arg_type(0);
-        DataTypePtr args_type = DataTypeFactory::instance().create_data_type(*col_desc, false);
+        DataTypePtr args_type = remove_nullable(context->get_arg_type(0));
         MutableColumnPtr args_column_ptr = args_type->create_column();
 
         for (int i = 1; i < num_args; i++) {

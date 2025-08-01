@@ -17,8 +17,7 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -27,7 +26,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -57,6 +55,10 @@ public class SnapshotInfo implements Writable {
     @SerializedName("f")
     private List<String> files = Lists.newArrayList();
 
+    // for cloud
+    @SerializedName("storageVaultId")
+    private String storageVaultId;
+
     public SnapshotInfo() {
         // for persist
     }
@@ -72,6 +74,13 @@ public class SnapshotInfo implements Writable {
         this.schemaHash = schemaHash;
         this.path = path;
         this.files = files;
+    }
+
+    // for cloud
+    public SnapshotInfo(long dbId, long tblId, long partitionId, long indexId, long tabletId,
+                             long beId, int schemaHash, String storageVaultId) {
+        this(dbId, tblId, partitionId, indexId, tabletId, beId, schemaHash, "", Lists.newArrayList());
+        this.storageVaultId = storageVaultId;
     }
 
     public long getDbId() {
@@ -110,45 +119,25 @@ public class SnapshotInfo implements Writable {
         return files;
     }
 
+    public String getStorageVaultId() {
+        return storageVaultId;
+    }
+
     public void setFiles(List<String> files) {
         this.files = files;
     }
 
     public String getTabletPath() {
+        if (Config.isCloudMode()) {
+            return Long.toString(getTabletId());
+        }
         String basePath = Joiner.on("/").join(path, tabletId, schemaHash);
         return basePath;
-    }
-
-    public static SnapshotInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            SnapshotInfo info = new SnapshotInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, SnapshotInfo.class);
-        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tblId = in.readLong();
-        partitionId = in.readLong();
-        indexId = in.readLong();
-        tabletId = in.readLong();
-        beId = in.readLong();
-        schemaHash = in.readInt();
-        path = Text.readString(in);
-
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            files.add(Text.readString(in));
-        }
     }
 
     @Override

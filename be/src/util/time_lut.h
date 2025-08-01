@@ -32,8 +32,6 @@ constexpr uint32_t NUM_DAYS = 31;
 
 uint32_t year_week(uint16_t yy, uint8_t month, uint8_t day);
 
-uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day);
-
 uint8_t calc_weekday(uint64_t day_nr, bool is_sunday_first_day);
 
 inline bool is_leap(uint32_t year) {

@@ -36,9 +36,8 @@
 #include "util/slice.h"
 #include "util/types.h"
 
-namespace doris {
-namespace segment_v2 {
-
+namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 namespace {
 
 template <typename CppType>
@@ -180,7 +179,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size
     const auto* v = (const Slice*)values;
     for (int i = 0; i < count; ++i) {
         Slice new_value;
-        RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
+        RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, _arena));
         _values.push_back(new_value);
         ++v;
     }
@@ -381,5 +380,5 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf
     return Status::OK();
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
+#include "common/compile_check_end.h"

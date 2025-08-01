@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -43,6 +44,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -72,12 +74,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -100,13 +104,7 @@ import java.util.stream.Collectors;
  * create synchronized materialized view
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
-    private static final String SYNC_MV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE, PRUNE_EMPTY_PARTITION, "
-            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, ELIMINATE_GROUP_BY, SIMPLIFY_AGG_GROUP_BY, "
-            + "MERGE_PERCENTILE_TO_ARRAY, VARIANT_SUB_PATH_PRUNING, INFER_PREDICATES, INFER_AGG_NOT_NULL, "
-            + "INFER_SET_OPERATOR_DISTINCT, INFER_FILTER_NOT_NULL, INFER_JOIN_NOT_NULL, PUSH_DOWN_MAX_MIN_FILTER, "
-            + "ELIMINATE_SORT, ELIMINATE_AGGREGATE, ELIMINATE_LIMIT, ELIMINATE_SEMI_JOIN, ELIMINATE_NOT_NULL, "
-            + "ELIMINATE_JOIN_BY_UK, ELIMINATE_JOIN_BY_FK, ELIMINATE_GROUP_BY_KEY, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, "
-            + "ELIMINATE_FILTER_GROUP_BY_KEY";
+    private static final String SYNC_MV_PLANER_DISABLE_RULES = "HAVING_TO_FILTER";
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
@@ -178,9 +176,21 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         return whereClauseItem.toMVColumn(olapTable);
     }
 
-    private void validate(ConnectContext ctx) throws Exception {
-        name.analyze(ctx);
-        Pair<LogicalPlan, CascadesContext> result = analyzeAndRewriteLogicalPlan(logicalPlan, ctx);
+    public MVColumnItem getWhereClauseItem() {
+        return whereClauseItem;
+    }
+
+    /**
+     * validate
+     *
+     * @param ctx ConnectContext
+     * @throws Exception auth denied
+     */
+    public void validate(ConnectContext ctx) throws Exception {
+        // name.analyze(ctx);
+        Pair<LogicalPlan, CascadesContext> result = analyzeLogicalPlan(logicalPlan, ctx);
+        CheckPrivileges checkPrivileges = new CheckPrivileges();
+        checkPrivileges.rewriteRoot(result.first, result.second.getCurrentJobContext());
         PlanValidator planValidator = new PlanValidator();
         planValidator.validate(result.first, result.second);
         mvColumnItemList = planValidator.context.selectItems;
@@ -195,7 +205,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         }
     }
 
-    private Pair<LogicalPlan, CascadesContext> analyzeAndRewriteLogicalPlan(LogicalPlan unboundPlan,
+    private Pair<LogicalPlan, CascadesContext> analyzeLogicalPlan(LogicalPlan unboundPlan,
             ConnectContext ctx) {
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
@@ -204,12 +214,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         LogicalPlan plan;
         try {
-            // disable rbo sync mv rewrite
-            ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
             // disable constant fold
             ctx.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
             plan = (LogicalPlan) planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
-                    ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
+                    ExplainCommand.ExplainLevel.ANALYZED_PLAN);
         } finally {
             // after operate, roll back the disable rules
             ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
@@ -244,7 +252,19 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         @Override
         public Plan visit(Plan plan, ValidateContext context) {
-            throw new AnalysisException(String.format("%s is not supported", plan.getClass().getSimpleName()));
+            throw new AnalysisException(String.format("%s is not supported in sync materialized view",
+                    plan.getClass().getSimpleName()));
+        }
+
+        @Override
+        public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias plan, ValidateContext context) {
+            // do nothing
+            return super.visit(plan, context);
+        }
+
+        @Override
+        public Plan visitLogicalApply(LogicalApply plan, ValidateContext context) {
+            throw new AnalysisException("subquery or join is not supported");
         }
 
         @Override
@@ -263,7 +283,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot, olapTable);
                 SlotRef slotRef = translatorContext.findSlotRef(slot.getExprId());
                 slotRef.setLabel("`" + slot.getName() + "`");
-                slotRef.setDisableTableName(true);
+                slotRef.disableTableName();
             }
             return olapScan;
         }
@@ -280,7 +300,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 Set<Slot> slots = expr.getInputSlots();
                 for (Slot slot : slots) {
                     if (slot instanceof SlotReference) {
-                        Column column = ((SlotReference) slot).getColumn().orElse(null);
+                        Column column = ((SlotReference) slot).getOriginalColumn().orElse(null);
                         if (column != null) {
                             if (column.isVisible()) {
                                 AggregateType aggregateType = column.getAggregationType();
@@ -331,6 +351,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             int groupByExprCount = aggregate.getGroupByExpressions().size();
             context.groupByExprs = Maps.newHashMap();
             for (int i = 0; i < groupByExprCount; ++i) {
+                if (outputs.get(i).getDataType().isObjectOrVariantType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
                 context.groupByExprs.put(outputs.get(i).getExprId(), outputs.get(i));
             }
             context.exprReplaceMap.putAll(ExpressionUtils.generateReplaceMap(outputs));
@@ -344,6 +367,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 throw new AnalysisException(String.format("Only support one sort node, the second is %s", sort));
             }
             checkNoNondeterministicFunction(sort);
+            if (sort.getOrderKeys().stream().anyMatch((
+                    orderKey -> orderKey.getExpr().getDataType().isObjectOrVariantType()))) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
             context.orderByExprs = (List<NamedExpression>) sort.getExpressions();
             if (!context.exprReplaceMap.isEmpty()) {
                 context.orderByExprs = ExpressionUtils.replaceNamedExpressions(context.orderByExprs,
@@ -587,12 +614,12 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             }
             Expr expr = translateToLegacyExpr(defineExpr, ctx.planTranslatorContext);
             return new MVColumnItem(mvDataType.toCatalogDataType(), mvAggType, expr,
-                    CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql()));
+                    CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutTbl()));
         }
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {
             Expr expr = ExpressionTranslator.translate(expression, context);
-            expr.setDisableTableName(true);
+            expr.disableTableName();
             return expr;
         }
 
@@ -640,7 +667,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 // if aggregate function use a value column param, the value column must be the one and only param
                 if (aggregateFunction.children().size() != 1 || aggregateFunction.child(0) != aggParamSlot) {
                     throw new AnalysisException(
-                            String.format("only allow %s as %s's param", aggParamSlot, aggregateFunction.getName()));
+                            String.format("only allow single column as %s's param, but meet %s",
+                                    aggregateFunction.getName(), aggregateFunction.child(0)));
                 }
                 // check the value columns' agg type is consistent with aggregate function
                 if (aggregateFunction instanceof Sum) {
@@ -711,7 +739,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         private AggregateType getAggTypeFromSlot(Slot slot) {
             if (slot instanceof SlotReference) {
-                Column column = ((SlotReference) slot).getColumn().orElse(null);
+                Column column = ((SlotReference) slot).getOriginalColumn().orElse(null);
                 if (column != null && column.isVisible()) {
                     return column.getAggregationType();
                 }

@@ -18,13 +18,6 @@
 
 #include <butil/macros.h>
 
-#include "gutil/ref_counted.h"
-#include "gutil/strings/substitute.h"
-#include "gutil/threading/thread_collision_warner.h"
-#include "util/scoped_cleanup.h"
-#include "util/spinlock.h"
-#include "util/time.h"
-
 // If this scope times out, make a simple trace.
 // It will log the cost time only.
 // Timeout is chrono duration struct, eg: 5ms, 100 * 1s.
@@ -41,7 +34,7 @@
 #define SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(timeout, stream)                       \
     using namespace std::chrono_literals;                                               \
     auto VARNAME_LINENUM(scoped_simple_trace) = doris::MonotonicMicros();               \
-    SCOPED_CLEANUP({                                                                    \
+    Defer trace_defer = [&] {                                                           \
         auto VARNAME_LINENUM(timeout_us) =                                              \
                 std::chrono::duration_cast<std::chrono::microseconds>(timeout).count(); \
         auto VARNAME_LINENUM(cost_us) =                                                 \
@@ -49,4 +42,4 @@
         if (VARNAME_LINENUM(cost_us) >= VARNAME_LINENUM(timeout_us)) {                  \
             stream << "Simple trace cost(us): " << VARNAME_LINENUM(cost_us);            \
         }                                                                               \
-    })
+    };

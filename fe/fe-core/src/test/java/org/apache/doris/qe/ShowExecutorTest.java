@@ -18,23 +18,9 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.DbName;
-import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
-import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.ShowAuthorStmt;
-import org.apache.doris.analysis.ShowColumnStmt;
-import org.apache.doris.analysis.ShowCreateDbStmt;
-import org.apache.doris.analysis.ShowCreateTableStmt;
-import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowProcedureStmt;
-import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
-import org.apache.doris.analysis.ShowTableStmt;
-import org.apache.doris.analysis.ShowVariablesStmt;
-import org.apache.doris.analysis.ShowViewStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -49,14 +35,18 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
@@ -253,7 +243,6 @@ public class ShowExecutorTest {
         ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         ctx.setConnectScheduler(scheduler);
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
-        ctx.setQualifiedUser("testUser");
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
 
         new Expectations(ctx) {
@@ -267,16 +256,13 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDb() throws AnalysisException {
-        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        ShowDbStmt stmt = new ShowDbStmt(null);
+        ShowDatabasesCommand command = new ShowDatabasesCommand(null, null, null);
+        ShowResultSet resultSet = null;
         try {
-            stmt.analyze(analyzer);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
+            resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("testDb", resultSet.getString(0));
@@ -284,43 +270,43 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDbPattern() throws AnalysisException {
-        ShowDbStmt stmt = new ShowDbStmt("empty%");
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+        ShowDatabasesCommand command = new ShowDatabasesCommand(null, "empty%", null);
+        ShowResultSet resultSet = null;
+        try {
+            resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
 
         Assert.assertFalse(resultSet.next());
     }
 
     @Test
     public void testShowDbFromCatalog() throws AnalysisException {
-        ShowDbStmt stmt = new ShowDbStmt(null, null, InternalCatalog.INTERNAL_CATALOG_NAME);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+        ShowDatabasesCommand command = new ShowDatabasesCommand(InternalCatalog.INTERNAL_CATALOG_NAME, null, null);
+        ShowResultSet resultSet = null;
+        try {
+            resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("testDb", resultSet.getString(0));
     }
 
     @Test
-    public void testShowDbPriv() throws AnalysisException {
-        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        ShowDbStmt stmt = new ShowDbStmt(null);
-        try {
-            stmt.analyze(analyzer);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+    public void testShowDbPriv() throws Exception {
         ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
-        executor.execute();
+        ShowDatabasesCommand command = new ShowDatabasesCommand(null, null, null);
+        command.doRun(ctx, new StmtExecutor(ctx, ""));
     }
 
     @Test
-    public void testShowTable() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testDb", null, false, null);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+    public void testShowTable() throws Exception {
+        ShowTableCommand command = new ShowTableCommand("testDb",
+                null, false, PlanType.SHOW_TABLES);
+        ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("testTbl", resultSet.getString(0));
@@ -328,20 +314,19 @@ public class ShowExecutorTest {
     }
 
     @Test
-    public void testShowViews() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testDb", null, false, TableType.VIEW,
-                null, null);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+    public void testShowViews() throws Exception {
+        ShowTableCommand command = new ShowTableCommand("testDb",
+                null, false, PlanType.SHOW_VIEWS);
+        ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
         Assert.assertFalse(resultSet.next());
     }
 
     @Test
-    public void testShowTableFromCatalog() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testDb", "internal", false, null);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+    public void testShowTableFromCatalog() throws Exception {
+        ShowTableCommand command = new ShowTableCommand("testDb",
+                "internal", false, PlanType.SHOW_TABLES);
+        ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("testTbl", resultSet.getString(0));
@@ -349,19 +334,20 @@ public class ShowExecutorTest {
     }
 
     @Test
-    public void testShowTableFromUnknownDatabase() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("emptyDb", null, false, null);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        expectedEx.expect(AnalysisException.class);
+    public void testShowTableFromUnknownDatabase() throws Exception {
+        ShowTableCommand command = new ShowTableCommand("emptyDb",
+                null, false, PlanType.SHOW_TABLES);
+
+        expectedEx.expect(Exception.class);
         expectedEx.expectMessage("Unknown database 'emptyDb'");
-        executor.execute();
+        command.doRun(ctx, new StmtExecutor(ctx, ""));
     }
 
     @Test
-    public void testShowTablePattern() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testDb", null, false, "empty%");
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+    public void testShowTablePattern() throws Exception {
+        ShowTableCommand command = new ShowTableCommand("testDb",
+                null, false, "empty%", null, PlanType.SHOW_TABLES);
+        ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
         Assert.assertFalse(resultSet.next());
     }
@@ -370,7 +356,6 @@ public class ShowExecutorTest {
     @Test
     public void testDescribe() {
         SystemInfoService clusterInfo = AccessTestUtil.fetchSystemInfoService();
-        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         Env env = AccessTestUtil.fetchAdminCatalog();
 
         new MockUp<Env>() {
@@ -385,70 +370,23 @@ public class ShowExecutorTest {
             }
         };
 
-        DescribeStmt stmt = new DescribeStmt(new TableName(internalCtl, "testDb", "testTbl"), false);
+        TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "testDb", "testTbl");
+        DescribeCommand command = new DescribeCommand(tableNameInfo, false, null);
+        ShowResultSet resultSet = null;
         try {
-            stmt.analyze(analyzer);
+            resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+            Assert.assertFalse(resultSet.next());
         } catch (Exception e) {
             e.printStackTrace();
             Assert.fail();
         }
-
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet;
-        try {
-            resultSet = executor.execute();
-            Assert.assertFalse(resultSet.next());
-        } catch (AnalysisException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
     }
 
     @Test
-    public void testShowVariable() throws AnalysisException {
-        // Mock variable
-        VariableMgr variableMgr = new VariableMgr();
-        List<List<String>> rows = Lists.newArrayList();
-        rows.add(Lists.newArrayList("var1", "abc"));
-        rows.add(Lists.newArrayList("var2", "abc"));
-        new Expectations(variableMgr) {
-            {
-                VariableMgr.dump((SetType) any, (SessionVariable) any, (PatternMatcher) any);
-                minTimes = 0;
-                result = rows;
-
-                VariableMgr.dump((SetType) any, (SessionVariable) any, null);
-                minTimes = 0;
-                result = rows;
-            }
-        };
-
-        ShowVariablesStmt stmt = new ShowVariablesStmt(SetType.SESSION, "var%");
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("var1", resultSet.getString(0));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("var2", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
-
-        stmt = new ShowVariablesStmt(SetType.SESSION, null);
-        executor = new ShowExecutor(ctx, stmt);
-        resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("var1", resultSet.getString(0));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("var2", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
-    public void testShowTableVerbose() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testDb", null, true, null);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+    public void testShowTableVerbose() throws Exception {
+        ShowTableCommand command = new ShowTableCommand("testDb",
+                null, true, PlanType.SHOW_TABLES);
+        ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("testTbl", resultSet.getString(0));
@@ -457,134 +395,19 @@ public class ShowExecutorTest {
     }
 
     @Test
-    public void testShowCreateDb() throws AnalysisException {
-        ctx.setEnv(env);
-        ctx.setQualifiedUser("testUser");
-
-        ShowCreateDbStmt stmt = new ShowCreateDbStmt(new DbName(InternalCatalog.INTERNAL_CATALOG_NAME, "testDb"));
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testDb", resultSet.getString(0));
-        Assert.assertEquals("CREATE DATABASE `testDb`", resultSet.getString(1));
-        Assert.assertFalse(resultSet.next());
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testShowCreateNoDb() throws AnalysisException {
-        ctx.setEnv(env);
-        ctx.setQualifiedUser("testUser");
-
-        ShowCreateDbStmt stmt = new ShowCreateDbStmt(new DbName(InternalCatalog.INTERNAL_CATALOG_NAME, "emptyDb"));
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        executor.execute();
-
-        Assert.fail("No exception throws.");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testShowCreateTableEmptyDb() throws AnalysisException {
-        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName(internalCtl, "emptyDb", "testTable"));
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        executor.execute();
-
-        Assert.fail("No Exception throws.");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testShowCreateTableEmptyTbl() throws AnalysisException {
-        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName(internalCtl, "testDb", "emptyTable"));
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
-    public void testShowColumn() throws AnalysisException {
-        ctx.setEnv(env);
-        ctx.setQualifiedUser("testUser");
-        ShowColumnStmt stmt = new ShowColumnStmt(new TableName(internalCtl, "testDb", "testTbl"), null, null, false);
-        stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("col1", resultSet.getString(0));
-        Assert.assertEquals("NO", resultSet.getString(2));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("col2", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
-
-        // verbose
-        stmt = new ShowColumnStmt(new TableName(internalCtl, "testDb", "testTbl"), null, null, true);
-        stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
-        executor = new ShowExecutor(ctx, stmt);
-        resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("col1", resultSet.getString(0));
-        Assert.assertEquals("NO", resultSet.getString(3));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("col2", resultSet.getString(0));
-        Assert.assertEquals("NO", resultSet.getString(3));
-        Assert.assertFalse(resultSet.next());
-
-        // pattern
-        stmt = new ShowColumnStmt(new TableName(internalCtl, "testDb", "testTable"), null, "%1", true);
-        stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
-        executor = new ShowExecutor(ctx, stmt);
-        resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("col1", resultSet.getString(0));
-        Assert.assertEquals("NO", resultSet.getString(3));
-        Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
     public void testShowView() throws UserException {
         ctx.setEnv(env);
-        ctx.setQualifiedUser("testUser");
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "testTbl"));
-        stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(true));
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+        TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "testDb", "testTbl");
+        ShowViewCommand command = new ShowViewCommand("testDb", tableNameInfo);
+        ShowResultSet resultSet = null;
+        try {
+            resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
 
         Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
-    public void testShowColumnFromUnknownTable() throws AnalysisException {
-        ShowColumnStmt stmt = new ShowColumnStmt(new TableName(internalCtl, "emptyDb", "testTable"), null, null, false);
-        stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-
-        expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Unknown database 'emptyDb'");
-        executor.execute();
-
-        // empty table
-        stmt = new ShowColumnStmt(new TableName(internalCtl, "testDb", "emptyTable"), null, null, true);
-        stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
-        executor = new ShowExecutor(ctx, stmt);
-
-        expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Unknown database 'emptyDb'");
-        executor.execute();
-    }
-
-    @Test
-    public void testShowAuthors() throws AnalysisException {
-        ShowAuthorStmt stmt = new ShowAuthorStmt();
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertEquals(3, resultSet.getMetaData().getColumnCount());
-        Assert.assertEquals("Name", resultSet.getMetaData().getColumn(0).getName());
-        Assert.assertEquals("Location", resultSet.getMetaData().getColumn(1).getName());
-        Assert.assertEquals("Comment", resultSet.getMetaData().getColumn(2).getName());
     }
 
     @Test
@@ -668,33 +491,5 @@ public class ShowExecutorTest {
         resultSet = executor.execute();
 
         Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
-    public void testShowSqlBlockRule() throws AnalysisException {
-        ShowSqlBlockRuleStmt stmt = new ShowSqlBlockRuleStmt("test_rule");
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-        Assert.assertEquals(8, resultSet.getMetaData().getColumnCount());
-        Assert.assertEquals("Name", resultSet.getMetaData().getColumn(0).getName());
-        Assert.assertEquals("Sql", resultSet.getMetaData().getColumn(1).getName());
-        Assert.assertEquals("SqlHash", resultSet.getMetaData().getColumn(2).getName());
-        Assert.assertEquals("PartitionNum", resultSet.getMetaData().getColumn(3).getName());
-        Assert.assertEquals("TabletNum", resultSet.getMetaData().getColumn(4).getName());
-        Assert.assertEquals("Cardinality", resultSet.getMetaData().getColumn(5).getName());
-        Assert.assertEquals("Global", resultSet.getMetaData().getColumn(6).getName());
-        Assert.assertEquals("Enable", resultSet.getMetaData().getColumn(7).getName());
-    }
-
-    @Test
-    public void testIsShowTablesCaseSensitive() {
-        ShowSqlBlockRuleStmt stmt = new ShowSqlBlockRuleStmt("test_case_sensitive");
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        GlobalVariable.lowerCaseTableNames = 0;
-        Assert.assertEquals(CaseSensibility.TABLE.getCaseSensibility(), executor.isShowTablesCaseSensitive());
-        GlobalVariable.lowerCaseTableNames = 1;
-        Assert.assertEquals(false, executor.isShowTablesCaseSensitive());
-        GlobalVariable.lowerCaseTableNames = 2;
-        Assert.assertEquals(false, executor.isShowTablesCaseSensitive());
     }
 }

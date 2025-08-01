@@ -19,11 +19,11 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -39,6 +39,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -52,6 +53,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -409,13 +411,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 result = setIfNotExist;
                 isTableExist = true;
             } else {
-                idToTable.put(table.getId(), table);
-                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
-                nameToTable.put(table.getName(), table);
+                registerTable(table);
                 if (table.isTemporary()) {
                     Env.getCurrentEnv().registerTempTableAndSession(table);
                 }
-
+                if (table instanceof MTMV) {
+                    Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
+                }
                 if (!isReplay) {
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
@@ -423,8 +425,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
-                } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
-                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
                 }
             }
             return Pair.of(result, isTableExist);
@@ -448,11 +448,15 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             idToTable.put(olapTable.getId(), olapTable);
             nameToTable.put(olapTable.getName(), olapTable);
             lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            if (olapTable instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) olapTable, id);
+            }
         }
         olapTable.unmarkDropped();
         return result;
     }
 
+    @Override
     public void unregisterTable(String tableName) {
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
@@ -466,6 +470,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 Env.getCurrentEnv().unregisterTempTable(table);
             }
             table.markDropped();
+            // will check mtmv if exist by markDrop, so unregisterMTMV() need after markDropped()
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().unregisterMTMV((MTMV) table);
+            }
         }
     }
 
@@ -642,17 +650,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public static Database read(DataInput in) throws IOException {
         LOG.info("read db from journal {}", in);
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            Database db = new Database();
-            db.readFields(in);
-            return db;
-        } else if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_138) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
-        } else {
-            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
-            db.readTables(in);
-            return db;
-        }
+        Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+        db.readTables(in);
+        return db;
     }
 
     private void writeTables(DataOutput out) throws IOException {
@@ -667,14 +667,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
-            table.setQualifiedDbName(fullQualifiedName);
-            if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
-            }
-            String tableName = table.getName();
-            nameToTable.put(tableName, table);
-            idToTable.put(table.getId(), table);
-            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            registerTable(table);
         }
     }
 
@@ -683,24 +676,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Preconditions.checkState(nameToTable.getClass() == ConcurrentHashMap.class,
                                  "nameToTable should be ConcurrentMap");
         nameToTable.forEach((tn, tb) -> {
-            tb.setQualifiedDbName(fullQualifiedName);
-            if (tb instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) tb, id);
-            }
-            idToTable.put(tb.getId(), tb);
-            lowerCaseToTableName.put(tn.toLowerCase(), tn);
+            registerTable(tb);
         });
 
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
-            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
-                    String.valueOf(Config.max_running_txn_num_per_db));
-            transactionQuotaSize = Long.parseLong(txnQuotaStr);
-            binlogConfig = dbProperties.getBinlogConfig();
-        } else {
-            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
-                    ? Config.max_running_txn_num_per_db
-                    : Config.default_db_max_running_txn_num;
-        }
+        String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
+                String.valueOf(Config.max_running_txn_num_per_db));
+        transactionQuotaSize = Long.parseLong(txnQuotaStr);
+        binlogConfig = dbProperties.getBinlogConfig();
 
         for (ImmutableList<Function> functions : name2Function.values()) {
             for (Function function : functions) {
@@ -747,57 +729,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public void analyze() {
         for (Table table : nameToTable.values()) {
             table.analyze(getFullName());
-        }
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-        fullQualifiedName = Text.readString(in);
-        fullQualifiedName = ClusterNamespace.getNameFromFullName(fullQualifiedName);
-        // read groups
-        int numTables = in.readInt();
-        for (int i = 0; i < numTables; ++i) {
-            Table table = Table.read(in);
-            table.setQualifiedDbName(fullQualifiedName);
-            if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
-            }
-            String tableName = table.getName();
-            nameToTable.put(tableName, table);
-            idToTable.put(table.getId(), table);
-            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
-        }
-
-        // read quota
-        dataQuotaBytes = in.readLong();
-        // cluster
-        Text.readString(in);
-        dbState = DbState.valueOf(Text.readString(in));
-        attachDbName = Text.readString(in);
-
-        FunctionUtil.readFields(in, this.getFullName(), name2Function);
-
-        // read encryptKeys
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
-            dbEncryptKey = DatabaseEncryptKey.read(in);
-        }
-
-        replicaQuotaSize = in.readLong();
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
-            dbProperties = DatabaseProperty.read(in);
-            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
-                    String.valueOf(Config.max_running_txn_num_per_db));
-            transactionQuotaSize = Long.parseLong(txnQuotaStr);
-            binlogConfig = dbProperties.getBinlogConfig();
-        } else {
-            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
-                    ? Config.max_running_txn_num_per_db
-                    : Config.default_db_max_running_txn_num;
         }
     }
 
@@ -1032,12 +963,33 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             }
         }
 
+        checkStorageVault(properties);
         replayUpdateDbProperties(properties);
         return true;
     }
 
     public BinlogConfig getBinlogConfig() {
         return binlogConfig;
+    }
+
+    public void checkStorageVault(Map<String, String> properties) throws DdlException {
+        Env env = Env.getCurrentEnv();
+        if (!Config.isCloudMode() || !((CloudEnv) env).getEnableStorageVault()) {
+            return;
+        }
+
+        Map<String, String> propertiesCheck = new HashMap<>(properties);
+        String storageVaultName = PropertyAnalyzer.analyzeStorageVaultName(propertiesCheck);
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            return;
+        }
+
+        String storageVaultId = env.getStorageVaultMgr().getVaultIdByName(storageVaultName);
+        if (Strings.isNullOrEmpty(storageVaultId)) {
+            throw new DdlException("Storage vault '" + storageVaultName + "' does not exist. "
+                    + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
+                    + "or create a new one with `CREATE STORAGE VAULT`.");
+        }
     }
 
     public String toJson() {

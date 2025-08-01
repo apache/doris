@@ -33,4 +33,8 @@ suite("test_struct_functions_by_literal") {
 
     qt_sql "select struct_element(named_struct('f1', 1, 'f2', 2, 'f3', 3), 'f1')"
     qt_sql "select struct_element(named_struct('f1', 1, 'f2', 1000, 'f3', 10000000000), 3)"
+
+    //The precision of the decimal type in the test select is inconsistent with the precision of the function named_struct containing the decimal type.
+    qt_sql "select cast(123.321 as decimal(6,3)), named_struct('col', 1, 'col1', 12345.24)"
+    qt_sql "select cast(123.321 as decimal(6,3)), named_struct('col', 1, 'col1', cast(12345.24 as decimal(7,2)))"
 }

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "meta-service/meta_service_http.h"
+
 #include <brpc/channel.h>
 #include <brpc/controller.h>
 #include <brpc/server.h>
@@ -39,14 +41,15 @@
 
 #include "common/config.h"
 #include "common/configbase.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "resource-manager/resource_manager.h"
 
@@ -697,14 +700,58 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
     }
 
+    // no cluster name
     {
         AlterClusterRequest req;
         req.set_instance_id(mock_instance);
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
         req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "not have cluster name");
+    }
+
+    // cluster name ""
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_name("");
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(),
+                  "cluster name not regex with ^[a-zA-Z][a-zA-Z0-9_]*$, please check it");
+    }
+
+    config::enable_cluster_name_check = false;
+    // cluster name ""
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_name("");
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "not have cluster name");
+    }
+
+    config::enable_cluster_name_check = true;
+    // ok
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_name("aaaa");
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.msg(), "");
     }
 
     // case: request has invalid argument
@@ -958,8 +1005,9 @@ TEST(MetaServiceHttpTest, AlterIamTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "alter_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -1462,7 +1510,8 @@ TEST(MetaServiceHttpTest, TxnLazyCommit) {
                 "txn_lazy_commit", "instance_id=test_instance&txn_id=1000", "");
 
         std::string msg = "failed to get db id, txn_id=1000 err=KeyNotFound";
-        ASSERT_TRUE(content.find(msg) != std::string::npos);
+        ASSERT_TRUE(content.find(msg) != std::string::npos)
+                << "msg: " << msg << ", content: " << content << ", status_code: " << status_code;
     }
 
     {
@@ -1477,8 +1526,9 @@ TEST(MetaServiceHttpTest, TxnLazyCommit) {
 TEST(MetaServiceHttpTest, get_stage_response_sk) {
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
-                                                          [&](...) { sp->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
 
     GetStageResponse res;
     auto* stage = res.add_stage();
@@ -1511,8 +1561,9 @@ TEST(MetaServiceHttpTest, get_stage_response_sk) {
 TEST(MetaServiceHttpTest, get_obj_store_info_response_sk) {
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
-                                                          [&](...) { sp->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
 
     GetObjStoreInfoResponse res;
     auto* obj_info = res.add_obj_info();
@@ -1724,6 +1775,101 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
             }
         }
         {
+            auto [status_code, content] =
+                    ctx.query<std::string>("update_config",
+                                           "configs=delete_bitmap_lock_v2_white_list="
+                                           "warehouse2;warehouse3&persist=true");
+
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::delete_bitmap_lock_v2_white_list, "warehouse2;warehouse3");
+            auto& meta_service = ctx.meta_service_;
+            std::string use_version = "";
+            std::string instance_id = "warehouse1";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse2";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            instance_id = "warehouse3";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                std::string white_list = "";
+                ASSERT_TRUE(props.get_or_default("delete_bitmap_lock_v2_white_list", nullptr,
+                                                 white_list, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(white_list, "warehouse2;warehouse3");
+                instance_id = "warehouse1";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v1");
+                instance_id = "warehouse2";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+                instance_id = "warehouse3";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+            }
+        }
+        //resend config will rewrite it
+        {
+            auto [status_code, content] = ctx.query<std::string>(
+                    "update_config", "configs=delete_bitmap_lock_v2_white_list=''&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::delete_bitmap_lock_v2_white_list, "''");
+            auto& meta_service = ctx.meta_service_;
+            std::string use_version = "";
+            std::string instance_id = "warehouse1";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse2";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse3";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+        }
+        {
+            auto [status_code, content] =
+                    ctx.query<std::string>("update_config",
+                                           "configs=delete_bitmap_lock_v2_white_list="
+                                           "warehouse4;warehouse5&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::delete_bitmap_lock_v2_white_list, "warehouse4;warehouse5");
+            auto& meta_service = ctx.meta_service_;
+            std::string use_version = "";
+            std::string instance_id = "warehouse3";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse4";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            instance_id = "warehouse5";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                std::string white_list = "";
+                ASSERT_TRUE(props.get_or_default("delete_bitmap_lock_v2_white_list", nullptr,
+                                                 white_list, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(white_list, "warehouse4;warehouse5");
+                instance_id = "warehouse3";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v1");
+                instance_id = "warehouse4";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+                instance_id = "warehouse5";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+            }
+        }
+        {
             auto [status_code, content] = ctx.query<std::string>(
                     "update_config", "configs=enable_s3_rate_limiter=false&persist=true");
             ASSERT_EQ(status_code, 200);
@@ -1755,9 +1901,189 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
                 ASSERT_TRUE(new_val_set);
                 ASSERT_FALSE(enable_s3_rate_limiter);
             }
+            {
+                bool new_val_set = false;
+                std::string white_list = "";
+                ASSERT_TRUE(props.get_or_default("delete_bitmap_lock_v2_white_list", nullptr,
+                                                 white_list, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(white_list, "warehouse4;warehouse5");
+                auto& meta_service = ctx.meta_service_;
+                std::string use_version = "";
+                std::string instance_id = "warehouse3";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v1");
+                instance_id = "warehouse4";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+                instance_id = "warehouse5";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+            }
         }
         std::filesystem::remove(config::custom_conf_path);
         config::custom_conf_path = original_conf_path;
+    }
+}
+
+TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    // Create and serialize initial RowsetMeta
+    RowsetMetaCloudPB initial_rowset_meta;
+    initial_rowset_meta.set_rowset_id_v2("12345");
+    initial_rowset_meta.set_rowset_id(0);
+    initial_rowset_meta.set_tablet_id(67890);
+    initial_rowset_meta.set_num_rows(100);
+    initial_rowset_meta.set_data_disk_size(1024);
+    std::string serialized_initial = initial_rowset_meta.SerializeAsString();
+
+    // Generate proper rowset meta key
+    std::string instance_id = "test_instance";
+    int64_t tablet_id = 67890;
+    int64_t version = 10086;
+
+    // Generate proper rowset meta key
+    MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
+    std::string initial_key = meta_rowset_key(key_info);
+
+    // Store initial RowsetMeta in TxnKv
+    txn->put(initial_key, serialized_initial);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // Create new RowsetMeta to update
+    RowsetMetaCloudPB new_rowset_meta;
+    new_rowset_meta.set_rowset_id_v2("12345");
+    new_rowset_meta.set_rowset_id(0);
+    new_rowset_meta.set_tablet_id(67890);
+    new_rowset_meta.set_num_rows(200);        // Updated row count
+    new_rowset_meta.set_data_disk_size(2048); // Updated size
+    std::string json_value = proto_to_json(new_rowset_meta);
+
+    // Initialize cntl URI with required parameters
+    brpc::URI cntl_uri;
+    cntl_uri._path = "/meta-service/http/set_value";
+    cntl_uri.SetQuery("key_type", "MetaRowsetKey");
+    cntl_uri.SetQuery("instance_id", instance_id);
+    cntl_uri.SetQuery("tablet_id", std::to_string(tablet_id));
+    cntl_uri.SetQuery("version", std::to_string(version));
+
+    brpc::Controller cntl;
+    cntl.request_attachment().append(json_value);
+    cntl.http_request().uri() = cntl_uri;
+
+    // Test update
+    auto response = process_http_set_value(txn_kv.get(), &cntl);
+    EXPECT_EQ(response.status_code, 200) << response.msg;
+    std::stringstream final_json;
+    final_json << "original_value_hex=" << hex(initial_rowset_meta.SerializeAsString()) << "\n"
+               << "key_hex=" << hex(initial_key) << "\n"
+               << "original_value_json=" << proto_to_json(initial_rowset_meta) << "\n"
+               << "changed_value_hex=" << hex(new_rowset_meta.SerializeAsString()) << "\n";
+    // std::cout << "xxx " << final_json.str() << std::endl;
+    EXPECT_EQ(response.body, final_json.str());
+
+    // Verify update
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string updated_value;
+    ASSERT_EQ(txn->get(initial_key, &updated_value), TxnErrorCode::TXN_OK);
+
+    RowsetMetaCloudPB updated_rowset_meta;
+    ASSERT_TRUE(updated_rowset_meta.ParseFromString(updated_value));
+    EXPECT_EQ(updated_rowset_meta.rowset_id_v2(), "12345");
+    EXPECT_EQ(updated_rowset_meta.tablet_id(), 67890);
+    EXPECT_EQ(updated_rowset_meta.num_rows(), 200);
+    EXPECT_EQ(updated_rowset_meta.data_disk_size(), 2048);
+}
+
+TEST(MetaServiceHttpTest, CreateInstanceWithIamRoleTest) {
+    HttpContext ctx;
+
+    brpc::Controller cntl;
+    std::string instance_id = "iam_role_test_instance_id";
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_prefix("/test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+
+        // create instance without ram user
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_prefix("/test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+
+        // create instance without ram user
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_bucket("test-bucket");
+        obj.set_prefix("test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+        obj.set_role_arn("arn:aws:iam::123456789012:role/test-role");
+        obj.set_external_id("test-external-id");
+        obj.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::OK);
+
+        InstanceInfoPB instance = ctx.get_instance_info(instance_id);
+        LOG(INFO) << instance.DebugString();
+
+        ASSERT_EQ(instance.obj_info().Get(0).endpoint(), "s3.us-east-1.amazonaws.com");
+        ASSERT_EQ(instance.obj_info().Get(0).region(), "us-east-1");
+        ASSERT_EQ(instance.obj_info().Get(0).bucket(), "test-bucket");
+        ASSERT_EQ(instance.obj_info().Get(0).prefix(), "test-prefix");
+        ASSERT_EQ(instance.obj_info().Get(0).provider(), ObjectStoreInfoPB::S3);
+        ASSERT_EQ(instance.obj_info().Get(0).role_arn(),
+                  "arn:aws:iam::123456789012:role/test-role");
+        ASSERT_EQ(instance.obj_info().Get(0).external_id(), "test-external-id");
+        ASSERT_EQ(instance.obj_info().Get(0).cred_provider_type(),
+                  CredProviderTypePB::INSTANCE_PROFILE);
+        ASSERT_EQ(instance.obj_info().Get(0).has_ak(), false);
+        ASSERT_EQ(instance.obj_info().Get(0).has_sk(), false);
     }
 }
 

@@ -43,7 +43,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (!is_string_or_fixed_string(arguments[0])) {
+        if (!is_string_type(arguments[0]->get_primitive_type())) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "Illegal type {} of argument of function {}",
                                    arguments[0]->get_name(), get_name());
@@ -64,8 +64,8 @@ public:
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
         if (const auto* col = check_and_get_column<ColumnString>(column.get())) {
             auto col_res = ColumnString::create();
-            static_cast<void>(Impl::vector(col->get_chars(), col->get_offsets(),
-                                           col_res->get_chars(), col_res->get_offsets()));
+            RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(), col_res->get_chars(),
+                                         col_res->get_offsets()));
             block.replace_by_position(result, std::move(col_res));
         } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",

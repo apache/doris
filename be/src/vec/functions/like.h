@@ -35,7 +35,6 @@
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/column_numbers.h"
@@ -51,10 +50,35 @@ class Block;
 
 namespace doris::vectorized {
 
+inline std::string replace_pattern_by_escape(const StringRef& pattern, char escape_char) {
+    std::string result;
+    result.reserve(pattern.size);
+    for (size_t i = 0; i < pattern.size; ++i) {
+        if (i + 1 < pattern.size && pattern.data[i] == escape_char &&
+            (pattern.data[i + 1] == escape_char || pattern.data[i + 1] == '%' ||
+             pattern.data[i + 1] == '_')) {
+            // "^^" -> "^"
+            // "^%" -> "\%"
+            // "^_" -> "\_"
+            if ((pattern.data[i + 1] == '%' || pattern.data[i + 1] == '_')) {
+                result.push_back('\\');
+            }
+            result.push_back(pattern.data[i + 1]);
+            ++i; // skip next char
+        } else if (pattern.data[i] == '\\') {
+            // "\" -> "\\"
+            result.append("\\\\");
+        } else {
+            result.push_back(pattern.data[i]);
+        }
+    }
+    return result;
+}
+
 // TODO: replace with std::string_view when `LikeSearchState.substring_pattern` can
 // construct from std::string_view.
 struct LikeSearchState {
-    char escape_char;
+    static constexpr char escape_char = '\\';
 
     /// Holds the string the StringRef points to and is set any time StringRef is
     /// used.
@@ -101,7 +125,7 @@ struct LikeSearchState {
         return 1;
     }
 
-    LikeSearchState() : escape_char('\\') {}
+    LikeSearchState() = default;
 
     Status clone(LikeSearchState& cloned);
 
@@ -123,6 +147,8 @@ using VectorLikeFn = std::function<doris::Status(const ColumnString&, const Colu
 
 struct LikeState {
     bool is_like_pattern;
+    bool has_custom_escape = false;
+    char escape_char = {};
     LikeSearchState search_state;
     LikeFn function;
     ScalarLikeFn scalar_function;
@@ -150,7 +176,8 @@ using VPatternSearchStateSPtr = std::shared_ptr<VectorPatternSearchState>;
 
 class FunctionLikeBase : public IFunction {
 public:
-    size_t get_number_of_arguments() const override { return 2; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
         return std::make_shared<DataTypeUInt8>();
@@ -158,8 +185,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t /*input_rows_count*/) const override;
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     friend struct VectorAllpassSearchState;
     friend struct VectorEqualSearchState;

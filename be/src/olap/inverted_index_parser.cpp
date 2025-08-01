@@ -38,6 +38,8 @@ std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_
         return INVERTED_INDEX_PARSER_ICU;
     case InvertedIndexParserType::PARSER_BASIC:
         return INVERTED_INDEX_PARSER_BASIC;
+    case InvertedIndexParserType::PARSER_IK:
+        return INVERTED_INDEX_PARSER_IK;
     default:
         return INVERTED_INDEX_PARSER_UNKNOWN;
     }
@@ -59,6 +61,8 @@ InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::st
         return InvertedIndexParserType::PARSER_ICU;
     } else if (parser_str_lower == INVERTED_INDEX_PARSER_BASIC) {
         return InvertedIndexParserType::PARSER_BASIC;
+    } else if (parser_str_lower == INVERTED_INDEX_PARSER_IK) {
+        return InvertedIndexParserType::PARSER_IK;
     }
 
     return InvertedIndexParserType::PARSER_UNKNOWN;
@@ -78,6 +82,10 @@ std::string get_parser_mode_string_from_properties(
     if (properties.find(INVERTED_INDEX_PARSER_MODE_KEY) != properties.end()) {
         return properties.at(INVERTED_INDEX_PARSER_MODE_KEY);
     } else {
+        auto parser_it = properties.find(INVERTED_INDEX_PARSER_KEY);
+        if (parser_it != properties.end() && parser_it->second == INVERTED_INDEX_PARSER_IK) {
+            return INVERTED_INDEX_PARSER_SMART;
+        }
         return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
     }
 }
@@ -148,6 +156,15 @@ std::string get_parser_dict_compression_from_properties(
         const std::map<std::string, std::string>& properties) {
     if (properties.find(INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY) != properties.end()) {
         return properties.at(INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY);
+    } else {
+        return "";
+    }
+}
+
+std::string get_custom_analyzer_string_from_properties(
+        const std::map<std::string, std::string>& properties) {
+    if (properties.find(INVERTED_INDEX_CUSTOM_ANALYZER_KEY) != properties.end()) {
+        return properties.at(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
     } else {
         return "";
     }

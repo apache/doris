@@ -20,9 +20,11 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <bit>
 #include <boost/utility/binary.hpp>
 
 #include "gtest/gtest_pred_impl.h"
+#include "vec/common/endian.h"
 
 namespace doris {
 
@@ -36,17 +38,6 @@ TEST(BitUtil, Ceil) {
     EXPECT_EQ(BitUtil::ceil(9, 8), 2);
 }
 
-TEST(BitUtil, Popcount) {
-    EXPECT_EQ(BitUtil::popcount(BOOST_BINARY(0 1 0 1 0 1 0 1)), 4);
-    EXPECT_EQ(BitUtil::popcount_no_hw(BOOST_BINARY(0 1 0 1 0 1 0 1)), 4);
-    EXPECT_EQ(BitUtil::popcount(BOOST_BINARY(1 1 1 1 0 1 0 1)), 6);
-    EXPECT_EQ(BitUtil::popcount_no_hw(BOOST_BINARY(1 1 1 1 0 1 0 1)), 6);
-    EXPECT_EQ(BitUtil::popcount(BOOST_BINARY(1 1 1 1 1 1 1 1)), 8);
-    EXPECT_EQ(BitUtil::popcount_no_hw(BOOST_BINARY(1 1 1 1 1 1 1 1)), 8);
-    EXPECT_EQ(BitUtil::popcount(0), 0);
-    EXPECT_EQ(BitUtil::popcount_no_hw(0), 0);
-}
-
 TEST(BitUtil, BigEndianToHost) {
     uint16_t v16 = 0x1234;
     uint32_t v32 = 0x12345678;
@@ -55,12 +46,12 @@ TEST(BitUtil, BigEndianToHost) {
     wide::UInt256 v256 =
             wide::UInt256(0x123456789abcdef0) << 192 | wide::UInt256(0x123456789abcdef0) << 128 |
             wide::UInt256(0x123456789abcdef0) << 64 | wide::UInt256(0x123456789abcdef0);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v16), 0x3412);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v32), 0x78563412);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v64), 0xf0debc9a78563412);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v128),
+    EXPECT_EQ(to_endian<std::endian::big>(v16), 0x3412);
+    EXPECT_EQ(to_endian<std::endian::big>(v32), 0x78563412);
+    EXPECT_EQ(to_endian<std::endian::big>(v64), 0xf0debc9a78563412);
+    EXPECT_EQ(to_endian<std::endian::big>(v128),
               ((__int128)0xf0debc9a78563412LL << 64) | 0xf0debc9a78563412LL);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v256),
+    EXPECT_EQ(to_endian<std::endian::big>(v256),
               wide::UInt256(0xf0debc9a78563412) << 192 | wide::UInt256(0xf0debc9a78563412) << 128 |
                       wide::UInt256(0xf0debc9a78563412) << 64 | wide::UInt256(0xf0debc9a78563412));
 }

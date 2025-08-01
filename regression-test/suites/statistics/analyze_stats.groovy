@@ -265,8 +265,7 @@ suite("test_analyze") {
     sql """analyze table agg_table_test with sample rows 100 with sync"""
     def agg_result = sql """show column stats agg_table_test (name)"""
     logger.info("show column agg_table_test(name) stats: " + agg_result)
-    assertEquals(agg_result[0][7], "N/A")
-    assertEquals(agg_result[0][8], "N/A")
+    assertEquals(0, agg_result.size())
 
     // Continue test partition load data for the first time.
     def reported = false;

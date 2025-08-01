@@ -75,7 +75,7 @@ jobs:
         run: |
           pushd thirdparty
           branch="${{ github.base_ref }}"
-          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
+          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' || "${branch}" == 'branch-3.0' || "${branch}" == 'branch-2.1' ]]; then
             curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
               -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
           else

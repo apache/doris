@@ -306,7 +306,7 @@ suite("cte") {
         notContains "MultiCastDataSinks"
     }
 
-    sql "WITH cte_0 AS ( SELECT 1 AS a ) SELECT * from cte_0 t1 LIMIT 10 UNION SELECT * from cte_0 t1 LIMIT 10"
+    sql "WITH cte_0 AS ( SELECT 1 AS a ) (SELECT * from cte_0 t1 LIMIT 10) UNION (SELECT * from cte_0 t1 LIMIT 10)"
 
     qt_cte_with_repeat """
         with cte_0 as (select lo_orderkey, lo_linenumber, grouping_id(lo_orderkey) as id from lineorder group by cube(lo_orderkey, lo_linenumber))

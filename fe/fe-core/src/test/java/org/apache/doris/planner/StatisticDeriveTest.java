@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -28,7 +27,6 @@ import org.junit.jupiter.api.Test;
 public class StatisticDeriveTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
-        Config.enable_odbc_mysql_broker_table = true;
         // create database
         createDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
@@ -60,36 +58,6 @@ public class StatisticDeriveTest extends TestWithFeService {
                         + "PROPERTIES (\n"
                         + "  \"replication_num\" = \"1\"\n"
                         + ");");
-
-        createTable("create external table test.odbc_oracle\n"
-                + "(k1 float, k2 int)\n"
-                + "ENGINE=ODBC\n"
-                + "PROPERTIES (\n"
-                + "\"host\" = \"127.0.0.1\",\n"
-                + "\"port\" = \"3306\",\n"
-                + "\"user\" = \"root\",\n"
-                + "\"password\" = \"123\",\n"
-                + "\"database\" = \"db1\",\n"
-                + "\"table\" = \"tbl1\",\n"
-                + "\"driver\" = \"Oracle Driver\",\n"
-                + "\"odbc_type\" = \"oracle\"\n"
-                + ");");
-
-        createTable(
-                "create external table test.odbc_mysql\n"
-                        + "(k1 int, k2 int)\n"
-                        + "ENGINE=ODBC\n"
-                        + "PROPERTIES (\n"
-                        + "\"host\" = \"127.0.0.1\",\n"
-                        + "\"port\" = \"3306\",\n"
-                        + "\"user\" = \"root\",\n"
-                        + "\"password\" = \"123\",\n"
-                        + "\"database\" = \"db1\",\n"
-                        + "\"table\" = \"tbl1\",\n"
-                        + "\"driver\" = \"Oracle Driver\",\n"
-                        + "\"odbc_type\" = \"mysql\"\n"
-                        + ");");
-
     }
 
     @Test
@@ -202,21 +170,6 @@ public class StatisticDeriveTest extends TestWithFeService {
         Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "HASH JOIN");
-    }
-
-    @Test
-    public void testOdbcScanStatsDerive() throws Exception {
-        String sql = "select * from test.odbc_mysql";
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.setEnableJoinReorderBasedCost(true);
-        sessionVariable.setDisableJoinReorder(false);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
-        System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
-        assertSQLPlanOrErrorMsgContains(sql, "SCAN ODBC");
     }
 
     @Test

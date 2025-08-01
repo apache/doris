@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,12 +29,14 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer.ExpressionReplaceContext;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -47,6 +47,7 @@ import java.util.stream.Collectors;
  */
 public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, ExpressionReplaceContext> {
 
+    public static final Logger LOG = LogManager.getLogger(ExpressionLineageReplacer.class);
     public static final ExpressionLineageReplacer INSTANCE = new ExpressionLineageReplacer();
 
     @Override
@@ -63,25 +64,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
 
     @Override
     public Expression visitGroupPlan(GroupPlan groupPlan, ExpressionReplaceContext context) {
-        Group group = groupPlan.getGroup();
-        if (group == null) {
-            return visit(groupPlan, context);
-        }
-        Collection<StructInfo> structInfos = group.getstructInfoMap().getStructInfos();
-        if (structInfos.isEmpty()) {
-            return visit(groupPlan, context);
-        }
-        // Find first info which the context's bitmap contains all to make sure that
-        // the expression lineage is correct
-        Optional<StructInfo> structInfoOptional = structInfos.stream()
-                .filter(info -> (context.getTableBitSet().isEmpty()
-                        || StructInfo.containsAll(context.getTableBitSet(), info.getTableBitSet()))
-                        && !info.getNamedExprIdAndExprMapping().isEmpty())
-                .findFirst();
-        if (!structInfoOptional.isPresent()) {
-            return visit(groupPlan, context);
-        }
-        context.getExprIdExpressionMap().putAll(structInfoOptional.get().getNamedExprIdAndExprMapping());
+        LOG.error("ExpressionLineageReplacer should not meet groupPlan, plan is {}", groupPlan.toString());
         return null;
     }
 

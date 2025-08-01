@@ -23,11 +23,9 @@
 #include "vec/common/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
-
-#include "gutil/macros.h"
 #endif
+
 #include "common/status.h"
-#include "fmt/format.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 
@@ -36,6 +34,7 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter.h
 // BlockBloomFilter is modified based on Impala's BlockBloomFilter.
@@ -75,13 +74,13 @@ public:
     // Same as above with convenience of hashing the key.
     void insert(const StringRef& key) noexcept {
         if (key.data) {
-            insert(HashUtil::crc_hash(key.data, key.size, _hash_seed));
+            insert(HashUtil::crc_hash(key.data, uint32_t(key.size), _hash_seed));
         }
     }
 
 #ifdef __AVX2__
 
-    static inline ATTRIBUTE_ALWAYS_INLINE __attribute__((__target__("avx2"))) __m256i make_mark(
+    static __attribute__((always_inline, __target__("avx2"))) __m256i make_mark(
             const uint32_t hash) {
         const __m256i ones = _mm256_set1_epi32(1);
         const __m256i rehash = _mm256_setr_epi32(BLOOM_HASH_CONSTANTS);
@@ -119,7 +118,7 @@ public:
     // Same as above with convenience of hashing the key.
     bool find(const StringRef& key) const noexcept {
         if (key.data) {
-            return find(HashUtil::crc_hash(key.data, key.size, _hash_seed));
+            return find(HashUtil::crc_hash(key.data, uint32_t(key.size), _hash_seed));
         }
         return false;
     }
@@ -279,3 +278,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

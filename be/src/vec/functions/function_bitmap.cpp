@@ -18,6 +18,8 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionBitmap.h
 // and modified by Doris
 
+#include <absl/strings/numbers.h>
+#include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <stdint.h>
 #include <string.h>
@@ -33,8 +35,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
-#include "gutil/strings/split.h"
 #include "util/bitmap_value.h"
 #include "util/hash_util.hpp"
 #include "util/murmur_hash3.h"
@@ -48,7 +48,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -66,9 +65,9 @@
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_helpers.h"
-#include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -231,12 +230,26 @@ struct BitmapFromString {
             null_map[0] = 1;
             return Status::OK();
         }
+
+        auto split_and_parse = [&bits](const char* raw_str, size_t str_size) {
+            auto res = absl::StrSplit(std::string_view {raw_str, str_size}, ",", absl::SkipEmpty());
+            uint64_t value = 0;
+            for (auto s : res) {
+                if (!absl::SimpleAtoi(s, &value)) {
+                    return false;
+                }
+                bits.push_back(value);
+            }
+            return true;
+        };
+
+        // split by comma
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t str_size = offsets[i] - offsets[i - 1];
 
-            if ((str_size > INT32_MAX) ||
-                !(SplitStringAndParse({raw_str, (int)str_size}, ",", &safe_strtou64, &bits))) {
+            if ((str_size > INT32_MAX) || !split_and_parse(raw_str, str_size)) {
                 res.emplace_back();
                 null_map[i] = 1;
                 continue;
@@ -291,8 +304,8 @@ struct BitmapFromBase64 {
             } else {
                 BitmapValue bitmap_val;
                 if (!bitmap_val.deserialize(decode_buff.data())) {
-                    return Status::RuntimeError(
-                            fmt::format("bitmap_from_base64 decode failed: base64: {}", src_str));
+                    return Status::RuntimeError("bitmap_from_base64 decode failed: base64: {}",
+                                                std::string(src_str, src_size));
                 }
                 res.emplace_back(std::move(bitmap_val));
             }
@@ -375,23 +388,28 @@ public:
             const auto& nested_column = nested_nullable_column.get_nested_column();
             const auto& nested_null_map = nested_nullable_column.get_null_map_column().get_data();
 
-            WhichDataType which_type(argument_type);
-            if (which_type.is_int8()) {
+            switch (argument_type->get_primitive_type()) {
+            case PrimitiveType::TYPE_TINYINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
                                                                   nested_null_map, res, null_map));
-            } else if (which_type.is_uint8()) {
+                break;
+            case PrimitiveType::TYPE_BOOLEAN:
                 RETURN_IF_ERROR(Impl::template vector<ColumnUInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int16()) {
+                break;
+            case PrimitiveType::TYPE_SMALLINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt16>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int32()) {
+                break;
+            case PrimitiveType::TYPE_INT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt32>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int64()) {
+                break;
+            case PrimitiveType::TYPE_BIGINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt64>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else {
+                break;
+            default:
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
                                             block.get_by_position(arguments[0]).column->get_name(),
                                             get_name());
@@ -616,7 +634,7 @@ struct BitmapAndNotCount {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<Int64>::Container::value_type;
+    using ResTData = typename ColumnInt64::Container::value_type;
 
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData* res) {
         size_t size = lvec.size();
@@ -679,7 +697,8 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
         bool is_const = is_column_const(*elem.column);
         /// Const Nullable that are NULL.
         if (is_const && assert_cast<const ColumnConst*>(elem.column.get())->only_null()) {
-            return block.get_by_position(result).type->create_column_const(input_rows_count, 0);
+            return block.get_by_position(result).type->create_column_const(
+                    input_rows_count, Field::create_field<TYPE_BIGINT>(0));
         }
         if (is_const) {
             continue;
@@ -760,8 +779,7 @@ public:
     Status execute_impl_internal(FunctionContext* context, Block& block,
                                  const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
-        using ResultType = typename ResultDataType::FieldType;
-        using ColVecResult = ColumnVector<ResultType>;
+        using ColVecResult = ColumnVector<ResultDataType::PType>;
 
         typename ColVecResult::MutablePtr col_res = ColVecResult::create();
         auto& vec_res = col_res->get_data();
@@ -813,8 +831,8 @@ struct BitmapContains {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using LTData = std::vector<BitmapValue>;
-    using RTData = typename ColumnVector<T1>::Container;
-    using ResTData = typename ColumnVector<UInt8>::Container;
+    using RTData = typename ColumnVector<RightDataType::PType>::Container;
+    using ResTData = typename ColumnUInt8::Container;
 
     static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
         size_t size = lvec.size();
@@ -846,7 +864,7 @@ struct BitmapRemove {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using LTData = std::vector<BitmapValue>;
-    using RTData = typename ColumnVector<T1>::Container;
+    using RTData = typename ColumnVector<RightDataType::PType>::Container;
     using ResTData = std::vector<BitmapValue>;
 
     static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
@@ -882,7 +900,7 @@ struct BitmapHasAny {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<UInt8>::Container;
+    using ResTData = typename ColumnUInt8::Container;
 
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
@@ -920,7 +938,7 @@ struct BitmapHasAll {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<UInt8>::Container;
+    using ResTData = typename ColumnUInt8::Container;
 
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
@@ -957,7 +975,7 @@ struct NameBitmapToString {
 
 struct BitmapToString {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_BITMAP;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
@@ -980,7 +998,7 @@ struct NameBitmapToBase64 {
 
 struct BitmapToBase64 {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_BITMAP;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
@@ -1027,7 +1045,7 @@ struct BitmapToBase64 {
 struct SubBitmap {
     static constexpr auto name = "sub_bitmap";
     using TData1 = std::vector<BitmapValue>;
-    using TData2 = typename ColumnVector<Int64>::Container;
+    using TData2 = typename ColumnInt64::Container;
 
     static void vector3(const TData1& bitmap_data, const TData2& offset_data,
                         const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
@@ -1068,7 +1086,7 @@ struct SubBitmap {
 struct BitmapSubsetLimit {
     static constexpr auto name = "bitmap_subset_limit";
     using TData1 = std::vector<BitmapValue>;
-    using TData2 = typename ColumnVector<Int64>::Container;
+    using TData2 = typename ColumnInt64::Container;
 
     static void vector3(const TData1& bitmap_data, const TData2& offset_data,
                         const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
@@ -1103,7 +1121,7 @@ struct BitmapSubsetLimit {
 struct BitmapSubsetInRange {
     static constexpr auto name = "bitmap_subset_in_range";
     using TData1 = std::vector<BitmapValue>;
-    using TData2 = typename ColumnVector<Int64>::Container;
+    using TData2 = typename ColumnInt64::Container;
 
     static void vector3(const TData1& bitmap_data, const TData2& range_start,
                         const TData2& range_end, NullMap& null_map, size_t input_rows_count,
@@ -1168,8 +1186,8 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         auto bitmap_column = assert_cast<const ColumnBitmap*>(argument_columns[0].get());
-        auto offset_column = assert_cast<const ColumnVector<Int64>*>(argument_columns[1].get());
-        auto limit_column = assert_cast<const ColumnVector<Int64>*>(argument_columns[2].get());
+        auto offset_column = assert_cast<const ColumnInt64*>(argument_columns[1].get());
+        auto limit_column = assert_cast<const ColumnInt64*>(argument_columns[2].get());
 
         if (col_const[1] && col_const[2]) {
             Impl::vector_scalars(bitmap_column->get_data(), offset_column->get_element(0),
@@ -1217,8 +1235,7 @@ public:
         auto& arg_col = block.get_by_position(arguments[0]).column;
         auto bitmap_col = assert_cast<const ColumnBitmap*>(arg_col.get());
         const auto& bitmap_col_data = bitmap_col->get_data();
-        auto& nested_column_data =
-                assert_cast<ColumnVector<Int64>*>(dest_nested_column)->get_data();
+        auto& nested_column_data = assert_cast<ColumnInt64*>(dest_nested_column)->get_data();
         auto& dest_offsets = dest_array_column_ptr->get_offsets();
         dest_offsets.reserve(input_rows_count);
 

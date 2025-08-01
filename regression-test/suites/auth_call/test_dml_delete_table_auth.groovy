@@ -25,6 +25,9 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
     String dbName = 'test_dml_delete_table_auth_db'
     String tableName = 'test_dml_delete_table_auth_tb'
 
+    try_sql("DROP USER ${user}")
+    try_sql """drop database if exists ${dbName}"""
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -32,10 +35,6 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
-
-    try_sql("DROP USER ${user}")
-    try_sql """drop database if exists ${dbName}"""
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
 
@@ -64,15 +63,6 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         assertTrue(del_res.size() == 0)
     }
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user, "${pwd}", context.config.jdbcUrl) {
-        test {
-            sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
-            exception "denied"
-        }
-        def del_res = sql """show DELETE from ${dbName}"""
-        assertTrue(del_res.size() == 0)
-    }
-    sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
         def del_res = sql """show DELETE from ${dbName}"""

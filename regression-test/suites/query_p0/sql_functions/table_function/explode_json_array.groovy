@@ -71,11 +71,21 @@ suite("explode_json_array") {
     qt_explode_json_array12 """ SELECT c_age, COUNT(1) FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[9223372036854775807,9223372036854775808]') t1 as c_age 
                         GROUP BY c_age ORDER BY c_age """
-
+    qt_explode_json_array122 """ SELECT c_age, COUNT(1) FROM person
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[9223372036854775808,9223372036854775809]') t1 as c_age 
+                        GROUP BY c_age ORDER BY c_age """
     qt_explode_json_array13 """ SELECT c_age, COUNT(1) FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[-92233720368547758071,-92233720368547758081]') t1 as c_age 
                         GROUP BY c_age ORDER BY c_age """
-
+    qt_explode_json_array132 """ SELECT c_age, COUNT(1) FROM person
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[-92233720368547758070,-92233720368547758082]') t1 as c_age 
+                        GROUP BY c_age ORDER BY c_age """
+    qt_explode_json_array133 """ SELECT c_age, COUNT(1) FROM person
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[123434243.7678,1232423437.876676274]') t1 as c_age 
+                        GROUP BY c_age ORDER BY c_age """
+    qt_explode_json_array134 """ SELECT c_age, COUNT(1) FROM person
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[9223372036854775808.7678,1232423437.876676274]') t1 as c_age 
+                        GROUP BY c_age ORDER BY c_age """
     qt_explode_json_array14 """ SELECT id, name, age, class, address, d, c FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1182381637816312, "b", -1273982982312333]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
@@ -89,5 +99,48 @@ suite("explode_json_array") {
     qt_explode_json_array16 """ SELECT id, name, age, class, address, d, c FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[null, "b", null]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
-                        ORDER BY id, c, d """        
+                        ORDER BY id, c, d """   
+    qt_explode_json_array17 """ SELECT id, name, age, class, address, d, c FROM person
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[null, "b", null]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1123, 123, 432]') t2 as d 
+                        ORDER BY id, c, d """  
+    qt_explode_json_array18 """ SELECT id, name, age, class, address, d, c FROM person
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[null, "b", null]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('["1123", "123", "432"]') t2 as d 
+                        ORDER BY id, c, d """ 
+    qt_explode_json_array19 """ SELECT id, name, age, class, address, d, c FROM person
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[null, "b", null]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('["1123.123", "123.434", "432.756"]') t2 as d 
+                        ORDER BY id, c, d """  
+    qt_explode_json_array20 """ SELECT id, name, age, class, address, d, c FROM person
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[null, "b", null]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('["false", "true"]') t2 as d 
+                        ORDER BY id, c, d """
+    sql """ DROP TABLE IF EXISTS json_array_example """
+    sql """
+        CREATE TABLE json_array_example (
+            id INT,
+            json_array STRING
+        )DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS AUTO
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1");
+    """   
+    sql """ 
+                INSERT INTO json_array_example (id, json_array) VALUES
+            (1, '[1, 2, 3, 4, 5]'),
+            (2, '[1.1, 2.2, 3.3, 4.4]'),
+            (3, '["apple", "banana", "cherry"]'),
+            (4, '[{"a": 1}, {"b": 2}, {"c": 3}]'),
+            (5, '[]'),
+            (6, 'NULL');
+    """ 
+
+    qt_explode_json_array17 """ 
+        SELECT id, e1
+        FROM json_array_example
+        LATERAL VIEW EXPLODE_JSON_ARRAY_JSON_OUTER(json_array) tmp1 AS e1
+        WHERE id = 4 order by id, e1;
+    """ 
+
 }

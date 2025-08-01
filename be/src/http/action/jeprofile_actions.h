@@ -32,6 +32,13 @@ public:
     void handle(HttpRequest* req) override;
 };
 
+class SetJeHeapProfileResetActions final : public HttpHandlerWithAuth {
+public:
+    SetJeHeapProfileResetActions(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
+    ~SetJeHeapProfileResetActions() override = default;
+    void handle(HttpRequest* req) override;
+};
+
 class DumpJeHeapProfileToDotActions final : public HttpHandlerWithAuth {
 public:
     DumpJeHeapProfileToDotActions(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}

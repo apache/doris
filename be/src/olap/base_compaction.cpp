@@ -47,21 +47,33 @@ BaseCompaction::BaseCompaction(StorageEngine& engine, const TabletSharedPtr& tab
 BaseCompaction::~BaseCompaction() = default;
 
 Status BaseCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        if (!st.ok()) {
+            tablet()->set_last_base_compaction_status(st.to_string());
+            tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        }
+    });
+
     if (!tablet()->init_succeeded()) {
-        return Status::Error<INVALID_ARGUMENT, false>("_tablet init failed");
+        st = Status::Error<INVALID_ARGUMENT, false>("_tablet init failed");
+        return st;
     }
 
     std::unique_lock<std::mutex> lock(tablet()->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
-                "another base compaction is running. tablet={}", _tablet->tablet_id());
+        st = Status::Error<TRY_LOCK_FAILED, false>("another base compaction is running. tablet={}",
+                                                   _tablet->tablet_id());
+        return st;
     }
 
     // 1. pick rowsets to compact
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
+    st = pick_rowsets_to_compact();
+    RETURN_IF_ERROR(st);
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
 
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status BaseCompaction::execute_compact() {
@@ -70,22 +82,35 @@ Status BaseCompaction::execute_compact() {
         Thread::set_idle_sched();
     }
 #endif
+    Status st;
+    Defer defer_set_st([&] {
+        tablet()->set_last_base_compaction_status(st.to_string());
+        if (!st.ok()) {
+            tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        } else {
+            tablet()->set_last_base_compaction_success_time(UnixMillis());
+        }
+    });
+
     std::unique_lock<std::mutex> lock(tablet()->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
-                "another base compaction is running. tablet={}", _tablet->tablet_id());
+        st = Status::Error<TRY_LOCK_FAILED, false>("another base compaction is running. tablet={}",
+                                                   _tablet->tablet_id());
+        return st;
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    RETURN_IF_ERROR(CompactionMixin::execute_compact());
+    st = CompactionMixin::execute_compact();
+    RETURN_IF_ERROR(st);
+
     DCHECK_EQ(_state, CompactionState::SUCCESS);
 
-    tablet()->set_last_base_compaction_success_time(UnixMillis());
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_total_size);
 
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 void BaseCompaction::_filter_input_rowset() {
@@ -156,9 +181,13 @@ Status BaseCompaction::pick_rowsets_to_compact() {
 
     int score = 0;
     int rowset_cnt = 0;
+    int64_t max_compaction_score = _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                                   _tablet->enable_unique_key_merge_on_write()
+                                           ? config::mow_base_compaction_max_compaction_score
+                                           : config::base_compaction_max_compaction_score;
     while (rowset_cnt < _input_rowsets.size()) {
         score += _input_rowsets[rowset_cnt++]->rowset_meta()->get_compaction_score();
-        if (score > config::base_compaction_max_compaction_score) {
+        if (score > max_compaction_score) {
             break;
         }
     }
@@ -201,7 +230,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
 
     // 3. the interval since last base compaction reaches the threshold
     int64_t base_creation_time = _input_rowsets[0]->creation_time();
-    int64_t interval_threshold = 86400;
+    int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation;
     int64_t interval_since_last_base_compaction = time(nullptr) - base_creation_time;
     if (interval_since_last_base_compaction > interval_threshold) {
         VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()

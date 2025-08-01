@@ -26,6 +26,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 void IndexPageBuilder::add(const Slice& key, const PagePointer& ptr) {
     DCHECK(!_finished) << "must reset() after finish() to add new entry";
@@ -44,7 +45,7 @@ void IndexPageBuilder::finish(OwnedSlice* body, PageFooterPB* footer) {
     *body = _buffer.build();
 
     footer->set_type(INDEX_PAGE);
-    footer->set_uncompressed_size(body->slice().get_size());
+    footer->set_uncompressed_size(cast_set<uint32_t>(body->slice().get_size()));
     footer->mutable_index_page_footer()->set_num_entries(_count);
     footer->mutable_index_page_footer()->set_type(_is_leaf ? IndexPageFooterPB::LEAF
                                                            : IndexPageFooterPB::INTERNAL);
@@ -65,7 +66,7 @@ Status IndexPageBuilder::get_first_key(Slice* key) const {
 ///////////////////////////////////////////////////////////////////////////////
 
 int64_t IndexPageReader::get_metadata_size() const {
-    return sizeof(IndexPageReader) + _vl_field_mem_size;
+    return sizeof(IndexPageReader) + _footer.ByteSizeLong();
 }
 
 Status IndexPageReader::parse(const Slice& body, const IndexPageFooterPB& footer) {
@@ -84,11 +85,7 @@ Status IndexPageReader::parse(const Slice& body, const IndexPageFooterPB& footer
         }
         _keys.push_back(key);
         _values.push_back(value);
-        _vl_field_mem_size += sizeof(char) * key.size;
     }
-    _vl_field_mem_size +=
-            _keys.capacity() * sizeof(Slice) + _values.capacity() * sizeof(PagePointer);
-    _vl_field_mem_size += _footer.ByteSizeLong();
 
     update_metadata_size();
     _parsed = true;
@@ -98,7 +95,7 @@ Status IndexPageReader::parse(const Slice& body, const IndexPageFooterPB& footer
 
 Status IndexPageIterator::seek_at_or_before(const Slice& search_key) {
     int32_t left = 0;
-    int32_t right = _reader->count() - 1;
+    auto right = cast_set<int32_t>(_reader->count() - 1);
     while (left <= right) {
         int32_t mid = left + (right - left) / 2;
         int cmp = search_key.compare(_reader->get_key(mid));
@@ -123,5 +120,6 @@ Status IndexPageIterator::seek_at_or_before(const Slice& search_key) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

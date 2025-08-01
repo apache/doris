@@ -134,8 +134,8 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
             Constraint c = o.getTable().getConstraint("fk");
             if (c instanceof ForeignKeyConstraint) {
                 ForeignKeyConstraint f = (ForeignKeyConstraint) c;
-                Column ref1 = f.getReferencedColumn(((SlotReference) o.getOutput().get(0)).getColumn().get().getName());
-                Column ref2 = f.getReferencedColumn(((SlotReference) o.getOutput().get(1)).getColumn().get().getName());
+                Column ref1 = f.getReferencedColumn(((SlotReference) o.getOutput().get(0)).getOriginalColumn().get().getName());
+                Column ref2 = f.getReferencedColumn(((SlotReference) o.getOutput().get(1)).getOriginalColumn().get().getName());
                 return ref1.getName().equals("k1") && ref2.getName().equals("k2");
             }
             return false;
