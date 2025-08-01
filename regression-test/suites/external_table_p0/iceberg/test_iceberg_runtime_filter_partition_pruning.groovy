@@ -62,6 +62,11 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
                 group by partition_key having count(*) > 0
                 order by partition_key desc limit 1);
         """
+        qt_runtime_filter_partition_pruning_decimal_in_null """
+            select count(*) from decimal_partitioned where partition_key in
+                (select partition_key from decimal_partitioned
+                order by id desc limit 2);
+        """
         qt_runtime_filter_partition_pruning_int1 """
             select count(*) from int_partitioned where partition_key =
                 (select partition_key from int_partitioned
@@ -80,6 +85,11 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
                 group by partition_key having count(*) > 0
                 order by partition_key desc limit 1);
         """
+        qt_runtime_filter_partition_pruning_int_in_null """
+            select count(*) from int_partitioned where partition_key in
+                (select partition_key from int_partitioned
+                order by id desc limit 2);
+        """
         qt_runtime_filter_partition_pruning_string1 """
             select count(*) from string_partitioned where partition_key =
                 (select partition_key from string_partitioned
@@ -91,6 +101,11 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
                 (select partition_key from string_partitioned
                 group by partition_key having count(*) > 0
                 order by partition_key desc limit 2);
+        """
+        qt_runtime_filter_partition_pruning_string_in_null """
+            select count(*) from string_partitioned where partition_key in
+                (select partition_key from string_partitioned
+                order by id desc limit 2);
         """
         qt_runtime_filter_partition_pruning_date1 """
             select count(*) from date_partitioned where partition_key =
@@ -104,6 +119,11 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
                 group by partition_key having count(*) > 0
                 order by partition_key desc limit 2);
         """
+        qt_runtime_filter_partition_pruning_date_in_null """
+            select count(*) from date_partitioned where partition_key in
+                (select partition_key from date_partitioned
+                order by id desc limit 2);
+        """
         qt_runtime_filter_partition_pruning_timestamp1 """
             select count(*) from timestamp_partitioned where partition_key =
                 (select partition_key from timestamp_partitioned
@@ -116,6 +136,11 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
                 group by partition_key having count(*) > 0
                 order by partition_key desc limit 2);
         """
+        qt_runtime_filter_partition_pruning_timestamp_in_null """
+            select count(*) from timestamp_partitioned where partition_key in
+                (select partition_key from timestamp_partitioned
+                order by id desc limit 2);
+        """
         qt_runtime_filter_partition_pruning_boolean1 """
             select count(*) from boolean_partitioned where partition_key =
                 (select partition_key from boolean_partitioned
@@ -126,6 +151,11 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
             select count(*) from boolean_partitioned where partition_key in
                 (select partition_key from boolean_partitioned
                 group by partition_key having count(*) > 0);
+        """
+        qt_runtime_filter_partition_pruning_boolean_in_null """
+            select count(*) from boolean_partitioned where partition_key in
+                (select partition_key from boolean_partitioned
+                order by id desc limit 2);
         """
         qt_runtime_filter_partition_pruning_float1 """
             select count(*) from float_partitioned where partition_key =
@@ -145,6 +175,11 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
                 group by partition_key having count(*) > 0
                 order by partition_key desc limit 1);
         """
+        qt_runtime_filter_partition_pruning_float_in_null """
+            select count(*) from float_partitioned where partition_key in
+                (select partition_key from float_partitioned
+                order by id desc limit 2);
+        """
         qt_runtime_filter_partition_pruning_timestamp_ntz1 """
             select count(*) from timestamp_ntz_partitioned where partition_key =
                 (select partition_key from timestamp_ntz_partitioned
@@ -157,6 +192,11 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
                 group by partition_key having count(*) > 0
                 order by partition_key desc limit 2);
         """
+        qt_runtime_filter_partition_pruning_timestamp_ntz_in_null """
+            select count(*) from timestamp_ntz_partitioned where partition_key in
+                (select partition_key from timestamp_ntz_partitioned
+                order by id desc limit 2);
+        """
         qt_runtime_filter_partition_pruning_binary1 """
             select count(*) from binary_partitioned where partition_key =
                 (select partition_key from binary_partitioned
@@ -168,6 +208,11 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
                 (select partition_key from binary_partitioned
                 group by partition_key having count(*) > 0
                 order by partition_key desc limit 2);
+        """
+        qt_runtime_filter_partition_pruning_binary_in_null """
+            select count(*) from binary_partitioned where partition_key in
+                (select partition_key from binary_partitioned
+                order by id desc limit 2);
         """
     }
     try {

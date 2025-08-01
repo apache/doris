@@ -629,9 +629,6 @@ public class IcebergUtils {
     }
 
     private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
-        if (value == null) {
-            return FeConstants.null_string;
-        }
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:
@@ -639,24 +636,39 @@ public class IcebergUtils {
             case STRING:
             case UUID:
             case DECIMAL:
+                if (value == null) {
+                    return FeConstants.null_string;
+                }
                 return value.toString();
             case FIXED:
             case BINARY:
+                if (value == null) {
+                    return FeConstants.null_string;
+                }
                 // Fixed and binary types are stored as ByteBuffer
                 ByteBuffer buffer = (ByteBuffer) value;
                 byte[] res = new byte[buffer.limit()];
                 buffer.get(res);
                 return new String(res, StandardCharsets.UTF_8);
             case DATE:
+                if (value == null) {
+                    return FeConstants.null_string;
+                }
                 // Iceberg date is stored as days since epoch (1970-01-01)
                 LocalDate date = LocalDate.ofEpochDay((Integer) value);
                 return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
             case TIME:
+                if (value == null) {
+                    return FeConstants.null_string;
+                }
                 // Iceberg time is stored as microseconds since midnight
                 long micros = (Long) value;
                 LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP:
+                if (value == null) {
+                    return FeConstants.null_string;
+                }
                 // Iceberg timestamp is stored as microseconds since epoch
                 // (1970-01-01T00:00:00)
                 long timestampMicros = (Long) value;
