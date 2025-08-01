@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.stats.ExpressionEstimation;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -26,8 +28,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDist
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -75,5 +80,29 @@ public class AggregateUtils {
         return !connectContext.getSessionVariable().disableStreamPreaggregations
                 && !logicalAggregate.getGroupByExpressions().isEmpty()
                 && logicalAggregate.getAggregateParam().aggPhase.isLocal();
+    }
+
+    /**hasUnknownStatistics*/
+    public static boolean hasUnknownStatistics(Aggregate<? extends Plan> aggregate,
+            Statistics inputStatistics) {
+        for (Expression gbyExpr : aggregate.getGroupByExpressions()) {
+            ColumnStatistic colStats = inputStatistics.findColumnStatistics(gbyExpr);
+            if (colStats == null) {
+                colStats = ExpressionEstimation.estimate(gbyExpr, inputStatistics);
+            }
+            if (colStats.isUnKnown()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean shouldUseLocalAgg(Statistics aggStats, Statistics aggChildStats,
+            Set<? extends Expression> childGroupByExprs) {
+        double gbyNdv = aggStats.getRowCount();
+        // 根据childGroupByExprs和aggChildStats估算rows
+        double rows = StatsCalculator.estimateGroupByRowCount(Utils.fastToImmutableList(childGroupByExprs),
+                aggChildStats);
+        return gbyNdv * 10 < rows;
     }
 }

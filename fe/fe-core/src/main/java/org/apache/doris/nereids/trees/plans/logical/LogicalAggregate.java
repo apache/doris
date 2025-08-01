@@ -202,7 +202,9 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
                 "hasRepeat", sourceRepeat.isPresent(),
-                "stats", statistics
+                "stats", statistics,
+                "aggParam", aggregateParam,
+                "partitionExpr", partitionExpressions
         );
     }
 

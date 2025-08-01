@@ -23,9 +23,7 @@ import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -45,10 +43,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -137,7 +135,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             Statistics aggStatistics = agg.getGroupExpression().get().getOwnerGroup().getStatistics();
             Statistics inputStatistics = agg.getGroupExpression().get().childStatistics(0);
             // 如果有未知的统计信息,那么直接禁用一阶段
-            if (hasUnknownStatistics(agg, inputStatistics)) {
+            if (AggregateUtils.hasUnknownStatistics(agg, inputStatistics)) {
                 if (shouldBanOnePhaseAgg(agg)) {
                     return ImmutableList.of();
                 }
@@ -173,19 +171,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 || aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
                         && children.get(0).getPlan() instanceof PhysicalUnion
                         && !((PhysicalUnion) children.get(0).getPlan()).isDistinct();
-    }
-
-    private boolean hasUnknownStatistics(PhysicalHashAggregate<? extends Plan> aggregate, Statistics inputStatistics) {
-        for (Expression gbyExpr : aggregate.getGroupByExpressions()) {
-            ColumnStatistic colStats = inputStatistics.findColumnStatistics(gbyExpr);
-            if (colStats == null) {
-                colStats = ExpressionEstimation.estimate(gbyExpr, inputStatistics);
-            }
-            if (colStats.isUnKnown()) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Override
