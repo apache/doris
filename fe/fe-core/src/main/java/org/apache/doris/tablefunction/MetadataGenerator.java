@@ -73,6 +73,7 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
@@ -622,7 +623,7 @@ public class MetadataGenerator {
 
     private static TFetchSchemaTableDataResult viewDependencyMetadataResult(TSchemaTableRequestParams params) {
         if (params.isSetFrontendConjuncts()) {
-            System.out.println(params.getFrontendConjuncts());
+            System.out.println(FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts()));
         }
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
