@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_scalar_fn_concat_ws") {
+suite("nereids_scalar_fn_concat_ws_and_log") {
 
-    sql 'use regression_test_nereids_function_p0_scalar_function'
+    sql 'set enable_fold_constant_by_be=true'
     qt_concat_ws_ArrayWithNullElement "select concat_ws('-',['a','b'],['css',null,'d'],['g','f'],['s'])"
 
 
@@ -39,4 +39,9 @@ suite("nereids_scalar_fn_concat_ws") {
     sql "INSERT INTO test_concat_ws_1 VALUES (1, ['a','b'], ['css',null,'d']), (2, ['x',null], ['y','z']),(3,['你好','世界'],['Doris',null,'Nereids'])"
     qt_concat_ws_insert_1 "SELECT concat_ws('-', a, b) FROM test_concat_ws_1 ORDER BY id"
 
+
+    qt_log_function "SELECT log(10, 100), log(2, 8), log(3, 27), log(5, 125), log(10, 1000)"
+    qt_log_function_with_null "SELECT log(10, NULL), log(NULL, 100), log(NULL, NULL), log(10, 0), log(0, 10)"
+    qt_log_function_wiht_one_argument "SELECT log(100), log(8), log(27), log(125), log(1000)"
+    qt_log_function_with_null_and_one_argument "SELECT log(NULL), log(0), log(1), log(10)"
 }

@@ -37,3 +37,14 @@ a-b-css-d
 x-y-z
 你好-世界-Doris-Nereids
 
+-- !log_function --
+2.0	3.0	3.0	3.0000000000000004	2.9999999999999996
+
+-- !log_function_with_null --
+\N	\N	\N	\N	\N
+
+-- !log_function_wiht_one_argument --
+4.605170185988092	2.0794415416798357	3.295836866004329	4.8283137373023015	6.907755278982137
+
+-- !log_function_with_null_and_one_argument --
+\N	\N	0.0	2.302585092994046
