@@ -76,7 +76,7 @@ enum TPrimitiveType {
   VARCHAR = 15,
   HLL = 16,
   DECIMALV2 = 17,
-  TIME = 18,
+  // TIME = 18, deprecated, use TIMEV2 instead
   BITMAP = 19,
   ARRAY = 20,
   MAP = 21,

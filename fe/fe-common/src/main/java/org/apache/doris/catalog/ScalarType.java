@@ -202,8 +202,6 @@ public class ScalarType extends Type {
                 return DEFAULT_DATETIMEV2;
             case TIMEV2:
                 return TIMEV2;
-            case TIME:
-                return TIME;
             case DECIMAL32:
                 return DEFAULT_DECIMAL32;
             case DECIMAL64:
@@ -277,7 +275,8 @@ public class ScalarType extends Type {
             case "DATETIMEV2":
                 return DATETIMEV2;
             case "TIME":
-                return TIME;
+            case "TIMEV2":
+                return TIMEV2;
             case "DECIMAL":
             case "DECIMALV2":
                 return createDecimalType();
@@ -487,9 +486,6 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeType() {
-        if (!Config.enable_date_conversion) {
-            return new ScalarType(PrimitiveType.TIME);
-        }
         ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
         type.precision = DATETIME_PRECISION;
         type.scale = 0;
@@ -659,9 +655,6 @@ public class ScalarType extends Type {
                 break;
             case DATETIMEV2:
                 stringBuilder.append("datetimev2").append("(").append(scale).append(")");
-                break;
-            case TIME:
-                stringBuilder.append("time");
                 break;
             case TIMEV2:
                 stringBuilder.append("time").append("(").append(scale).append(")");
