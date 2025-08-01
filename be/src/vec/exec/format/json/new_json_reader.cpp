@@ -46,6 +46,7 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/stream_load_pipe.h"
+#include "io/fs/tracing_file_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -95,9 +96,7 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _scanner_eof(scanner_eof),
           _current_offset(0),
           _io_ctx(io_ctx) {
-    _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
-    _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
     if (_range.__isset.compress_type) {
         // for compatibility
         _file_compress_type = _range.compress_type;
@@ -438,10 +437,13 @@ Status NewJsonReader::_open_file_reader(bool need_schema) {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+        auto file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options,
                 io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.size)));
+        _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
+                                                                         _io_ctx->file_reader_stats)
+                               : file_reader;
     }
     return Status::OK();
 }
@@ -662,7 +664,7 @@ Status NewJsonReader::_parse_json(bool* is_empty_row, bool* eof) {
 // return Status::OK() if parse succeed or reach EOF.
 Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     // read a whole message
-    SCOPED_TIMER(_file_read_timer);
+    SCOPED_TIMER(_read_timer);
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
     if (_line_reader != nullptr) {
@@ -675,7 +677,6 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         }
     }
 
-    _bytes_read_counter += *size;
     if (*eof) {
         return Status::OK();
     }
@@ -1931,7 +1932,7 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
 
 Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
                                            simdjson::error_code* error) {
-    SCOPED_TIMER(_file_read_timer);
+    SCOPED_TIMER(_read_timer);
     // step1: read buf from pipe.
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&_json_str, size, eof, _io_ctx));
@@ -1992,7 +1993,7 @@ Status NewJsonReader::_judge_empty_row(size_t size, bool eof, bool* is_empty_row
 
 Status NewJsonReader::_get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
                                       bool* is_empty_row) {
-    SCOPED_TIMER(_file_read_timer);
+    SCOPED_TIMER(_read_timer);
     auto return_quality_error = [&](fmt::memory_buffer& error_msg,
                                     const std::string& doc_info) -> Status {
         _counter->num_rows_filtered++;

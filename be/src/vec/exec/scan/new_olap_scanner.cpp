@@ -556,9 +556,18 @@ void NewOlapScanner::update_realtime_counters() {
     // In case of no cache, we still need to update the IO stats. uncompressed bytes read == local + remote
     if (stats.file_cache_stats.bytes_read_from_local == 0 &&
         stats.file_cache_stats.bytes_read_from_remote == 0) {
+        if (_query_statistics) {
+            _query_statistics->add_scan_bytes_from_local_storage(stats.compressed_bytes_read);
+        }
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.compressed_bytes_read);
     } else {
+        if (_query_statistics) {
+            _query_statistics->add_scan_bytes_from_local_storage(
+                    stats.file_cache_stats.bytes_read_from_local);
+            _query_statistics->add_scan_bytes_from_remote_storage(
+                    stats.file_cache_stats.bytes_read_from_remote);
+        }
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
