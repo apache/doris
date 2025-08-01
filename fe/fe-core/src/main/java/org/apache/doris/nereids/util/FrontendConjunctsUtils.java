@@ -18,13 +18,25 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Maps;
 import com.google.gson.reflect.TypeToken;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -42,5 +54,56 @@ public class FrontendConjunctsUtils {
     public static Expression exprToExpression(Expr expr) {
         NereidsParser nereidsParser = new NereidsParser();
         return nereidsParser.parseExpression(expr.toSql());
+    }
+
+    public static boolean isFiltered(List<Expression> expressions, String columnName, Object value) {
+        HashMap<String, Object> values = Maps.newHashMapWithExpectedSize(1);
+        values.put(columnName.toLowerCase(), value);
+        return isFiltered(expressions, values);
+    }
+
+    /**
+     * isFiltered
+     *
+     * @param expressions expressions
+     * @param values values
+     * @return isFiltered
+     */
+    public static boolean isFiltered(List<Expression> expressions, Map<String, Object> values) {
+        for (Expression expression : expressions) {
+            if (isFiltered(expression, values)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * isFiltered
+     *
+     * @param expression expression
+     * @param values values
+     * @return isFiltered
+     */
+    public static boolean isFiltered(Expression expression, Map<String, Object> values) {
+        Expression rewrittenExpr = expression.rewriteUp(expr -> {
+            if (expr instanceof SlotReference) {
+                Optional<Column> originalColumn = ((SlotReference) expr).getOriginalColumn();
+                if (originalColumn.isPresent()) {
+                    String name = originalColumn.get().getName().toLowerCase();
+                    if (values.containsKey(name)) {
+                        return Literal.of(values.get(name));
+                    }
+                }
+            }
+            return expr;
+        });
+
+        Expression evaluate = FoldConstantRuleOnFE.evaluate(rewrittenExpr,
+                new ExpressionRewriteContext(CascadesContext.initContext(new StatementContext(), null, null)));
+        if (evaluate instanceof BooleanLiteral && !((BooleanLiteral) evaluate).getValue()) {
+            return true;
+        }
+        return false;
     }
 }
