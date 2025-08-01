@@ -109,6 +109,7 @@ public class TableSchemaAction extends RestBaseController {
                         Optional aggregationType = Optional.ofNullable(column.getAggregationType());
                         baseInfo.put("aggregation_type", aggregationType.isPresent()
                                 ? column.getAggregationType().toSql() : "");
+                        baseInfo.put("is_nullable", column.isAllowNull() ? "Yes" : "No");
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);
