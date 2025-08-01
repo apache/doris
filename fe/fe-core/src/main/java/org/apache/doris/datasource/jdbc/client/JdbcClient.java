@@ -345,6 +345,13 @@ public abstract class JdbcClient {
         return remoteTablesNames;
     }
 
+    /**
+     * get table comment
+     */
+    public String getTableComment(String remoteDbName, String remoteTableName) {
+        return "";
+    }
+
     public boolean isTableExist(String remoteDbName, String remoteTableName) {
         final boolean[] isExist = {false};
         String[] tableTypes = getTableTypes();
