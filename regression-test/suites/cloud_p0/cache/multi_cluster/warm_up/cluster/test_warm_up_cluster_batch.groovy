@@ -20,7 +20,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_warm_up_cluster_batch") {
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][3]
+         return jobStateResult[0]
     }
     def table = "customer"
 
