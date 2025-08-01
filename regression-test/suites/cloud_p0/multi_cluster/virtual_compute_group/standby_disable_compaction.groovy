@@ -261,9 +261,8 @@ suite('standby_disable_compaction', 'multi_cluster,docker') {
 
             assertTrue(before_cluster2_be0_compaction < after_cluster2_be0_compaction || before_cluster2_be1_compaction < after_cluster2_be1_compaction )
 
-            def set = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
+            def addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            checkProfileNew.call(set, false)
             if (options.connectToFollower) {
                 checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
             } else {

@@ -152,7 +152,7 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             try {
                 if (Env.getCurrentEnv().isMaster()) {
                     // cancel old jobId, will write editlog, so just master can do
-                    cacheHotspotManager.cancel(Long.parseLong(jobId));
+                    cacheHotspotManager.cancel(Long.parseLong(jobId), "vcg cancel");
                     LOG.info("virtual compute group {}, cancel jobId {}", vcgInFe.getName(), jobId);
                 }
             } catch (DdlException e) {

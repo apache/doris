@@ -130,7 +130,13 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
             def reconnectFe = {
                 sleep(10000)
                 logger.info("Reconnecting to a new frontend...")
-                def newFe = cluster.getMasterFe()
+                def newFe
+                if (options.connectToFollower) {
+                    newFe = cluster.getOneFollowerFe()
+                } else {
+                    newFe = cluster.getMasterFe()
+                }
+
                 if (newFe) {
                     logger.info("New frontend found: ${newFe.host}:${newFe.httpPort}")
                     def url = String.format(
