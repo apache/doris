@@ -25,6 +25,10 @@
 #include <initializer_list>
 
 #include "common/config.h"
+#include "exec/schema_scanner/schema_scanner_helper.h"
+#include "runtime/exec_env.h"
+#include "service/backend_options.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -420,6 +424,74 @@ std::string MetricRegistry::to_core_string() const {
     }
 
     return ss.str();
+}
+
+void MetricRegistry::get_be_metrics_block(vectorized::Block* block) const {
+    int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
+    std::string be_ip = BackendOptions::get_localhost();
+
+    std::lock_guard<std::mutex> l(_lock);
+    for (const auto& entity : _entities) {
+        std::lock_guard<std::mutex> entity_lock(entity.first->_lock);
+        entity.first->trigger_hook_unlocked(false);
+
+        for (const auto& metric : entity.first->_metrics) {
+            rj::Document tag_doc(rj::kObjectType);
+            rj::Document::AllocatorType& allocator = tag_doc.GetAllocator();
+
+            for (auto& label : metric.first->labels) {
+                tag_doc.AddMember(
+                    rj::Value(label.first.c_str(), allocator),
+                    rj::Value(label.second.c_str(), allocator),
+                    allocator
+                );
+            }
+
+            for (auto& label : entity.first->_labels) {
+                tag_doc.AddMember(
+                    rj::Value(label.first.c_str(), allocator),
+                    rj::Value(label.second.c_str(), allocator),
+                    allocator
+                );
+            }
+
+            rj::StringBuffer tag_buf;
+            rj::Writer<rj::StringBuffer> tag_writer(tag_buf);
+            tag_doc.Accept(tag_writer);
+            std::string tag_str = tag_buf.GetString();
+
+            std::string metric_type;
+            switch (metric.first->type) {
+            case MetricType::COUNTER:
+                metric_type = "counter";
+                break;
+            case MetricType::GAUGE:
+                metric_type = "gauge";
+                break;
+            case MetricType::HISTOGRAM:
+                metric_type = "histogram";
+                break;
+            default:
+                metric_type = "unknown";
+            }
+
+            double metric_value = 0.0;
+            try {
+                std::string value_str = metric.second->to_string();
+                metric_value = std::stod(value_str);  // 字符串转double
+            } catch (...) {
+            }
+
+            // BE_ID(0), BE_IP(1), METRIC_NAME(2), METRIC_TYPE(3), METRIC_VALUE(4), TAG(5)
+            SchemaScannerHelper::insert_int64_value(0, be_id, block);
+            SchemaScannerHelper::insert_string_value(1, be_ip, block);
+            SchemaScannerHelper::insert_string_value(2, metric.first->simple_name(), block);
+            SchemaScannerHelper::insert_string_value(3, metric_type, block);
+            SchemaScannerHelper::insert_double_value(4, metric_value, block);
+            SchemaScannerHelper::insert_string_value(5, tag_str, block);
+        }
+    }
+
 }
 
 } // namespace doris

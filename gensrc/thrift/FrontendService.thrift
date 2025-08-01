@@ -1653,6 +1653,13 @@ struct TGetOlapTableMetaResult {
     4: optional list<i64> removed_partitions
 }
 
+struct TFetchFeMetricsRequest {
+}
+
+struct TFetchFeMetricsResult {
+    1: optional list<list<string>> metrics_list
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1756,4 +1763,6 @@ service FrontendService {
     TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 
     TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
+
+    TFetchFeMetricsResult fetchFrontendMetrics(1: TFetchFeMetricsRequest request)
 }
