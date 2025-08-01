@@ -100,8 +100,8 @@ public:
                                           TFetchSchemaTableDataResult* result);
 
     static Status fetch_frontend_metrics(const std::string& ip, const int32_t port,
-                                    const TFetchFeMetricsRequest& request,
-                                    TFetchFeMetricsResult* result);
+                                         const TFetchFeMetricsRequest& request,
+                                         TFetchFeMetricsResult* result);
 };
 
 } // namespace doris
