@@ -42,9 +42,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -106,6 +109,42 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
     // Logger for debugging
     private static final Logger logger = LogManager.getLogger(PushDownVirtualColumnsIntoOlapScan.class);
+
+    // Supported primitive types by TabletColumn::get_field_length_by_type
+    // Based on the C++ implementation, these are the types that have defined field lengths
+    private static final ImmutableSet<TPrimitiveType> SUPPORTED_VIRTUAL_COLUMN_TYPES = ImmutableSet.of(
+            TPrimitiveType.TINYINT,
+            TPrimitiveType.BOOLEAN,
+            TPrimitiveType.SMALLINT,
+            TPrimitiveType.INT,
+            TPrimitiveType.BIGINT,
+            TPrimitiveType.LARGEINT,
+            TPrimitiveType.IPV4,
+            TPrimitiveType.IPV6,
+            TPrimitiveType.DATE,
+            TPrimitiveType.DATEV2,
+            TPrimitiveType.DATETIME,
+            TPrimitiveType.DATETIMEV2,
+            TPrimitiveType.FLOAT,
+            TPrimitiveType.DOUBLE,
+            TPrimitiveType.QUANTILE_STATE,
+            TPrimitiveType.BITMAP,
+            TPrimitiveType.CHAR,
+            TPrimitiveType.VARCHAR,
+            TPrimitiveType.HLL,
+            TPrimitiveType.AGG_STATE,
+            TPrimitiveType.STRING,
+            TPrimitiveType.VARIANT,
+            TPrimitiveType.JSONB,
+            TPrimitiveType.STRUCT,
+            TPrimitiveType.ARRAY,
+            TPrimitiveType.MAP,
+            TPrimitiveType.DECIMAL32,
+            TPrimitiveType.DECIMAL64,
+            TPrimitiveType.DECIMAL128I,
+            TPrimitiveType.DECIMAL256,
+            TPrimitiveType.DECIMALV2
+    );
 
     @Override
     public List<Rule> buildRules() {
@@ -205,6 +244,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         expressionCounts.entrySet().stream()
                 .filter(entry -> entry.getValue() >= MIN_OCCURRENCE_COUNT)
                 .filter(entry -> !replaceMap.containsKey(entry.getKey()))
+                .filter(entry -> isSupportedVirtualColumnType(entry.getKey())) // Check virtual column type support
                 .sorted((e1, e2) -> {
                     // Sort by benefit: (occurrence_count - 1) * expression_complexity
                     int benefit1 = (e1.getValue() - 1) * getExpressionComplexity(e1.getKey());
@@ -217,6 +257,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
                     Alias alias = new Alias(expr);
                     replaceMap.put(expr, alias.toSlot());
                     virtualColumnsBuilder.add(alias);
+
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Created virtual column for expression: {} with type: {}",
+                                 expr.toSql(), expr.getDataType().simpleString());
+                    }
                 });
 
         // Logging for debugging
@@ -434,6 +479,34 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         if (expr instanceof MultiMatch || expr instanceof MultiMatchAny || expr instanceof Match) {
             return true;
         } else {
+            return false;
+        }
+    }
+
+    /**
+     * Check if an expression's return type is supported for virtual columns
+     * Based on TabletColumn::get_field_length_by_type implementation
+     */
+    private boolean isSupportedVirtualColumnType(Expression expr) {
+        try {
+            DataType dataType = expr.getDataType();
+            // Convert Nereids DataType to catalog Type, then get TPrimitiveType
+            org.apache.doris.catalog.Type catalogType = dataType.toCatalogDataType();
+            TPrimitiveType tPrimitiveType = catalogType.getPrimitiveType().toThrift();
+
+            boolean isSupported = SUPPORTED_VIRTUAL_COLUMN_TYPES.contains(tPrimitiveType);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Expression {} has type {} (TPrimitiveType: {}), supported: {}",
+                         expr.toSql(), dataType.simpleString(), tPrimitiveType, isSupported);
+            }
+
+            return isSupported;
+        } catch (Exception e) {
+            // If we can't determine the type, it's safer to not create virtual column
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Failed to determine type for expression {}: {}", expr.toSql(), e.getMessage());
+            }
             return false;
         }
     }
