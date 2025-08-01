@@ -104,11 +104,11 @@ suite("test_geomean") {
     // Test invalid parameter types
     test {
         sql """ SELECT GEOMEAN('invalid') """
-        exception "GEOMEAN requires dobule parameter"
+        exception "GEOMEAN only requires dobule parameter"
     }
     test {
         sql """ SELECT GEOMEAN(true) """
-        exception "GEOMEAN requires dobule parameter"
+        exception "GEOMEAN only requires dobule parameter"
     }
     test {
         sql """ SELECT GEOMEAN(value, 1) FROM test_geomean_double """
