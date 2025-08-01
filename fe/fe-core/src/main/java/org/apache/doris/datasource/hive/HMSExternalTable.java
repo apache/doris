@@ -603,7 +603,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public Map<String, String> getBackendStorageProperties() {
         return catalog.getCatalogProperty().getBackendStorageProperties();
-
     }
 
     public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {
