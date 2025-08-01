@@ -31,6 +31,7 @@ suite('test_schema_change_with_compaction11', 'docker') {
     docker(options) {
         def getJobState = { tableName ->
             def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            logger.info("Get job state: " + jobStateResult)
             return jobStateResult[0][9]
         }
 
