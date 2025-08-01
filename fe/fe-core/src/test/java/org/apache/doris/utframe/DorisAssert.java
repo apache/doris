@@ -19,7 +19,6 @@ package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EmptyStmt;
 import org.apache.doris.analysis.ExplainOptions;
@@ -33,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
@@ -127,8 +127,13 @@ public class DorisAssert {
     }
 
     public DorisAssert dropDB(String dbName) throws Exception {
-        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt("drop database " + dbName + ";", ctx);
-        Env.getCurrentEnv().dropDb(dropDbStmt);
+        String sql = "drop database " + dbName;
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        if (logicalPlan instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) logicalPlan).run(ctx, null);
+        }
         return this;
     }
 

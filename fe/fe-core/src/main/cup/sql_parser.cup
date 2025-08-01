@@ -2582,17 +2582,8 @@ ident_or_star ::=
 
 // Drop statement
 drop_stmt ::=
-    /* Database */
-    KW_DROP KW_DATABASE opt_if_exists:ifExists db_name:db opt_force:force
-    {:
-        RESULT = new DropDbStmt(ifExists, db, force);
-    :}
-    | KW_DROP KW_SCHEMA opt_if_exists:ifExists db_name:db opt_force:force
-    {:
-        RESULT = new DropDbStmt(ifExists, db, force);
-    :}
     /* Catalog */
-    | KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
+    KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
     {:
         RESULT = new DropCatalogStmt(ifExists, catalogName);
     :}

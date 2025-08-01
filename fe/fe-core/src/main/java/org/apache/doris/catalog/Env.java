@@ -36,7 +36,6 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
@@ -3369,10 +3368,6 @@ public class Env {
                 externalCatalog.replayCreateDb(dbInfo.getDbName());
             }
         }
-    }
-
-    public void dropDb(DropDbStmt stmt) throws DdlException {
-        dropDb(stmt.getCtlName(), stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void dropDb(String catalogName, String dbName, boolean ifExists, boolean force) throws DdlException {
