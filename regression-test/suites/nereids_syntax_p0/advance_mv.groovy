@@ -107,7 +107,7 @@ suite("advance_mv") {
     }
     order_qt_select_star "select k1 from ${tbName1} order by k1;"
 
-    createMV("CREATE materialized VIEW mv2 AS SELECT abs(k1)+k2+1 as a4, sum(abs(k2+2)+k3+3) as a3 FROM ${tbName2} GROUP BY tmp;")
+    createMV("CREATE materialized VIEW mv2 AS SELECT abs(k1)+k2+1 as a4, sum(abs(k2+2)+k3+3) as a3 FROM ${tbName2} GROUP BY a4;")
 
     explain {
         sql("SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")

@@ -274,22 +274,22 @@ suite("test_skip_agg_table_value_column") {
 
     // Test PREAGGOPEN hint.
     explain {
-        sql("SELECT CONCAT(1744255158798, '-', 1744255158812, '-', 'mv_key2') AS `id`, 0 AS `catalog_id`, 1744255158742 AS `db_id`, 1744255158798 AS `tbl_id`, 1744255158812 AS `idx_id`, 'mv_key2' AS `col_id`, NULL AS `part_id`, 5 AS `row_count`, ROUND(NDV(`mv_key2`) * 1) as `ndv`, ROUND(SUM(CASE WHEN `mv_key2` IS NULL THEN 1 ELSE 0 END) * 1) AS `null_count`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2001' AS STRING), 1, 1024) AS `max`, COUNT(1) * 8 * 1 AS `data_size`, NOW() FROM ( SELECT * FROM `internal`.`test_skip_agg_table_value_column`.`uni_mor` index `mv1`  ) as t /*+PREAGGOPEN*/")
+        sql("SELECT CONCAT(1744255158798, '-', 1744255158812, '-', 'd2') AS `id`, 0 AS `catalog_id`, 1744255158742 AS `db_id`, 1744255158798 AS `tbl_id`, 1744255158812 AS `idx_id`, 'd2' AS `col_id`, NULL AS `part_id`, 5 AS `row_count`, ROUND(NDV(`d2`) * 1) as `ndv`, ROUND(SUM(CASE WHEN `d2` IS NULL THEN 1 ELSE 0 END) * 1) AS `null_count`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2001' AS STRING), 1, 1024) AS `max`, COUNT(1) * 8 * 1 AS `data_size`, NOW() FROM ( SELECT * FROM `internal`.`test_skip_agg_table_value_column`.`uni_mor` index `mv1`  ) as t /*+PREAGGOPEN*/")
         contains "PREAGGREGATION: ON"
         notContains "PREAGGREGATION: OFF"
     }
     explain {
-        sql("SELECT CONCAT(1744255158798, '-', 1744255158812, '-', 'mv_key2') AS `id`, 0 AS `catalog_id`, 1744255158742 AS `db_id`, 1744255158798 AS `tbl_id`, 1744255158812 AS `idx_id`, 'mv_key2' AS `col_id`, NULL AS `part_id`, 5 AS `row_count`, ROUND(NDV(`mv_key2`) * 1) as `ndv`, ROUND(SUM(CASE WHEN `mv_key2` IS NULL THEN 1 ELSE 0 END) * 1) AS `null_count`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2001' AS STRING), 1, 1024) AS `max`, COUNT(1) * 8 * 1 AS `data_size`, NOW() FROM ( SELECT * FROM `internal`.`test_skip_agg_table_value_column`.`uni_mor` index `mv1`  ) as t")
+        sql("SELECT CONCAT(1744255158798, '-', 1744255158812, '-', 'd2') AS `id`, 0 AS `catalog_id`, 1744255158742 AS `db_id`, 1744255158798 AS `tbl_id`, 1744255158812 AS `idx_id`, 'd2' AS `col_id`, NULL AS `part_id`, 5 AS `row_count`, ROUND(NDV(`d2`) * 1) as `ndv`, ROUND(SUM(CASE WHEN `d2` IS NULL THEN 1 ELSE 0 END) * 1) AS `null_count`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2001' AS STRING), 1, 1024) AS `max`, COUNT(1) * 8 * 1 AS `data_size`, NOW() FROM ( SELECT * FROM `internal`.`test_skip_agg_table_value_column`.`uni_mor` index `mv1`  ) as t")
         contains "PREAGGREGATION: OFF"
         notContains "PREAGGREGATION: ON"
     }
     explain {
-        sql("SELECT CONCAT(1744255159211, '-', 1744255159224, '-', 'mv_key1') AS `id`, 0 AS `catalog_id`, 1744255159182 AS `db_id`, 1744255159211 AS `tbl_id`, 1744255159224 AS `idx_id`, 'mv_key1' AS `col_id`, NULL AS `part_id`, 5 AS `row_count`, ROUND(NDV(`mv_key1`) * 1) as `ndv`, ROUND(SUM(CASE WHEN `mv_key1` IS NULL THEN 1 ELSE 0 END) * 1) AS `null_count`, SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('1001' AS STRING), 1, 1024) AS `max`, COUNT(1) * 8 * 1 AS `data_size`, NOW() FROM ( SELECT * FROM `internal`.`test_skip_agg_table_value_column`.`agg` index `mv3`  ) as t /*+PREAGGOPEN*/")
+        sql("SELECT CONCAT(1744255159211, '-', 1744255159224, '-', 'b2') AS `id`, 0 AS `catalog_id`, 1744255159182 AS `db_id`, 1744255159211 AS `tbl_id`, 1744255159224 AS `idx_id`, 'b2' AS `col_id`, NULL AS `part_id`, 5 AS `row_count`, ROUND(NDV(`b2`) * 1) as `ndv`, ROUND(SUM(CASE WHEN `b2` IS NULL THEN 1 ELSE 0 END) * 1) AS `null_count`, SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('1001' AS STRING), 1, 1024) AS `max`, COUNT(1) * 8 * 1 AS `data_size`, NOW() FROM ( SELECT * FROM `internal`.`test_skip_agg_table_value_column`.`agg` index `mv3`  ) as t /*+PREAGGOPEN*/")
         contains "PREAGGREGATION: ON"
         notContains "PREAGGREGATION: OFF"
     }
     explain {
-        sql("SELECT CONCAT(1744255159211, '-', 1744255159224, '-', 'mv_key1') AS `id`, 0 AS `catalog_id`, 1744255159182 AS `db_id`, 1744255159211 AS `tbl_id`, 1744255159224 AS `idx_id`, 'mv_key1' AS `col_id`, NULL AS `part_id`, 5 AS `row_count`, ROUND(NDV(`mv_key1`) * 1) as `ndv`, ROUND(SUM(CASE WHEN `mv_key1` IS NULL THEN 1 ELSE 0 END) * 1) AS `null_count`, SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('1001' AS STRING), 1, 1024) AS `max`, COUNT(1) * 8 * 1 AS `data_size`, NOW() FROM ( SELECT * FROM `internal`.`test_skip_agg_table_value_column`.`agg` index `mv3`  ) as t")
+        sql("SELECT CONCAT(1744255159211, '-', 1744255159224, '-', 'b2') AS `id`, 0 AS `catalog_id`, 1744255159182 AS `db_id`, 1744255159211 AS `tbl_id`, 1744255159224 AS `idx_id`, 'b2' AS `col_id`, NULL AS `part_id`, 5 AS `row_count`, ROUND(NDV(`b2`) * 1) as `ndv`, ROUND(SUM(CASE WHEN `b2` IS NULL THEN 1 ELSE 0 END) * 1) AS `null_count`, SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('1001' AS STRING), 1, 1024) AS `max`, COUNT(1) * 8 * 1 AS `data_size`, NOW() FROM ( SELECT * FROM `internal`.`test_skip_agg_table_value_column`.`agg` index `mv3`  ) as t")
         contains "PREAGGREGATION: OFF"
         notContains "PREAGGREGATION: ON"
     }

@@ -49,7 +49,7 @@ suite("test_backup_restore_mv_write", "backup_restore") {
             CREATE materialized VIEW ${viewName} AS SELECT
             DATE_FORMAT( date_add( k2, INTERVAL 1 HOUR ), '%Y-%m-%d %H:00:00' ) AS a1,
             vin as a2,
-            count( 1 ) AS as a3 
+            count( 1 ) AS a3 
             FROM
             ${tableNamePrefix} 
             WHERE
