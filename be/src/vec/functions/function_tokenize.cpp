@@ -163,7 +163,8 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             }
 
             // Special handling for PARSER_NONE: return original string as single token
-            if (inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_NONE) {
+            if (inverted_index_ctx.custom_analyzer.empty() &&
+                inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_NONE) {
                 _do_tokenize_none(*col_left, dest_column_ptr);
                 block.replace_by_position(result, std::move(dest_column_ptr));
                 return Status::OK();
