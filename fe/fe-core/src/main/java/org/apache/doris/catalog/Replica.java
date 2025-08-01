@@ -858,7 +858,7 @@ public class Replica {
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE
                 && getState() != ReplicaState.DECOMMISSION
-                && !isBad();
+                && !isBad() && !isUserDrop();
     }
 
     public boolean isScheduleAvailable() {
