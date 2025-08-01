@@ -26,7 +26,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Optional;
 
 /**
- * Update mv by partition
+ * Update mv incrementally
  */
 public class UpdateMvByIncrementalCommand extends InsertIntoTableCommand {
     private static final Logger LOG = LogManager.getLogger(UpdateMvByIncrementalCommand.class);

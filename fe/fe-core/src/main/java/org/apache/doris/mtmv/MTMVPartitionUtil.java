@@ -536,7 +536,7 @@ public class MTMVPartitionUtil {
         for (String partitionName : partitionNames) {
             res.put(partitionName,
                     generatePartitionSnapshot(context, baseTables,
-                        context.getPartitionMappings().get(partitionName), incremental));
+                            context.getPartitionMappings().get(partitionName), incremental));
         }
         return res;
     }

@@ -83,8 +83,6 @@ public class MTMV extends OlapTable {
     private MTMVPartitionInfo mvPartitionInfo;
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot;
-    @SerializedName("ir")
-    private boolean incrementalRefresh;
     // Should update after every fresh, not persist
     private MTMVCache cache;
 
