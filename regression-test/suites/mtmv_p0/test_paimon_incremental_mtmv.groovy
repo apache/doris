@@ -58,6 +58,10 @@ suite("test_paimon_incremental_mtmv", "p0,external,mtmv,external_docker,external
 
     order_qt_base_agg_table """select * from ${catalogName}.${paimonDbName}.${paimonAggTableName} order by date asc"""
 
+    String mvSql = "SELECT date, k1, sum(a1) as a1\n" +
+            "FROM ${catalogName}.${paimonDbName}.${paimonAggTableName}\n" +
+            "GROUP BY 1, 2"
+
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mvName}"""
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
@@ -66,9 +70,7 @@ suite("test_paimon_incremental_mtmv", "p0,external,mtmv,external_docker,external
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT date, k1, sum(a1) as a1
-            FROM ${catalogName}.${paimonDbName}.${paimonAggTableName}
-            GROUP BY 1, 2
+            ${mvSql}
         """
     // mv is a agg table, column date,k1 is primary key, a1 is function sum
     order_qt_mv_struct "DESC ${mvName}"
@@ -88,6 +90,13 @@ suite("test_paimon_incremental_mtmv", "p0,external,mtmv,external_docker,external
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_complete "SELECT * FROM ${mvName}"
 
+    // test rewrite
+    sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+    def explainOnePartition = sql """ explain  ${mvSql} """
+    logger.info("explainOnePartition: " + explainOnePartition.toString())
+    assertTrue(explainOnePartition.toString().contains("${mvName} chose"))
+    order_qt_sql_rewrite "${mvSql}"
+
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mvName}"""
 
     // mv sql must be agg mode，such as Agg -> project -> FileScan
@@ -102,7 +111,7 @@ suite("test_paimon_incremental_mtmv", "p0,external,mtmv,external_docker,external
             select date, k1, a1
             FROM ${catalogName}.${paimonDbName}.${paimonAggTableName}
             """
-        exception "mv query must be agg mode and table must a paimon table"
+        exception "mv query must be agg mode on external table"
     }
 
     // mv sql base table must paimon table
@@ -118,7 +127,7 @@ suite("test_paimon_incremental_mtmv", "p0,external,mtmv,external_docker,external
             FROM ${otherDbName}.${tableName}
             GROUP BY 1
             """
-        exception "mv query must be agg mode and table must a paimon table"
+        exception "mv query must be agg mode on external table"
     }
 
     // mv sql complex expression column must has alias, such as sum(a) as x
