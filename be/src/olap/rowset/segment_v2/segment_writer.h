@@ -106,8 +106,6 @@ public:
     Status partial_update_preconditions_check(size_t row_pos);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
-    Status append_block_with_variant_subcolumns(vectorized::Block& data);
-
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();

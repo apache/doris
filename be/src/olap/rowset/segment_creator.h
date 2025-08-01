@@ -140,8 +140,6 @@ public:
 
     Status create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer, uint32_t segment_id);
 
-    bool need_buffering();
-
 private:
     // This method will catch exception when allocate memory failed
     Status _parse_variant_columns(vectorized::Block& block) {
@@ -219,8 +217,6 @@ private:
     std::atomic<int32_t> _next_segment_id = 0;
     SegmentFlusher _segment_flusher;
     std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
-    // Buffer block to num bytes before flushing
-    vectorized::MutableBlock _buffer_block;
 };
 
 } // namespace doris

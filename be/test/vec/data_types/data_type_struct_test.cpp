@@ -491,19 +491,6 @@ TEST_F(DataTypeStructTest, formString) {
     std::cout << "block: " << block.dump_data() << std::endl;
 }
 
-TEST_F(DataTypeStructTest, ConvertNull) {
-    rapidjson::Value jsonValue;
-    rapidjson::Document doc;
-    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
-    DataTypeSerDe::convert_field_to_rapidjson(vectorized::Field(), jsonValue, allocator);
-    EXPECT_TRUE(jsonValue.IsNull());
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    jsonValue.Accept(writer);
-    // Expect the string representation of the JSON value to be "null"
-    EXPECT_EQ(std::string(buffer.GetString()), "null");
-}
-
 TEST_F(DataTypeStructTest, insertColumnLastValueMultipleTimes) {
     DataTypePtr dt1 = std::make_shared<DataTypeInt32>();
     DataTypePtr dt2 = std::make_shared<DataTypeString>();

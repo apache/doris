@@ -113,7 +113,8 @@ public:
     // add them into tablet_schema for later column indexing.
     static TabletColumn create_materialized_variant_column(const std::string& root,
                                                            const std::vector<std::string>& paths,
-                                                           int32_t parent_unique_id);
+                                                           int32_t parent_unique_id,
+                                                           int32_t max_subcolumns_count);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     int32_t length() const { return _length; }
@@ -162,6 +163,7 @@ public:
     static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
     static FieldType get_field_type_by_string(const std::string& str);
     static FieldType get_field_type_by_type(PrimitiveType type);
+    static PrimitiveType get_primitive_type_by_field_type(FieldType type);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
     bool is_row_store_column() const;
@@ -186,11 +188,6 @@ public:
     void set_has_bitmap_index(bool has_bitmap_index) { _has_bitmap_index = has_bitmap_index; }
     std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
-    void append_sparse_column(TabletColumn column);
-    const TabletColumn& sparse_column_at(size_t oridinal) const;
-    const std::vector<TabletColumnPtr>& sparse_columns() const;
-    size_t num_sparse_columns() const { return _num_sparse_columns; }
-
     Status check_valid() const {
         if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
             type() != FieldType::OLAP_FIELD_TYPE_STRUCT &&
@@ -206,6 +203,19 @@ public:
                                         get_string_by_field_type(type()));
         }
         return Status::OK();
+    }
+
+    void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
+        _variant_max_subcolumns_count = variant_max_subcolumns_count;
+    }
+    int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
+
+    void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {
+        _variant_enable_typed_paths_to_sparse = variant_enable_typed_paths_to_sparse;
+    }
+
+    bool variant_enable_typed_paths_to_sparse() const {
+        return _variant_enable_typed_paths_to_sparse;
     }
 
 private:
@@ -249,14 +259,9 @@ private:
     int32_t _parent_col_unique_id = -1;     // "variant" -> col_unique_id
     vectorized::PathInDataPtr _column_path; // the path of the sub-columns themselves
 
-    // Record information about columns merged into a sparse column within a variant
-    // `{"id": 100, "name" : "jack", "point" : 3.9}`
-    // If the information mentioned above is inserted into the variant column,
-    // 'id' and 'name' are correctly extracted, while 'point' is merged into the sparse column due to its sparsity.
-    // The path_info and type of 'point' will be recorded using the TabletColumn.
-    // Use shared_ptr for reuse and reducing column memory usage
-    std::vector<TabletColumnPtr> _sparse_cols;
-    size_t _num_sparse_columns = 0;
+    int32_t _variant_max_subcolumns_count = 0;
+    // PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
+    bool _variant_enable_typed_paths_to_sparse = false;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -305,6 +310,7 @@ private:
 };
 
 using TabletIndexPtr = std::shared_ptr<TabletIndex>;
+using TabletIndexes = std::vector<std::shared_ptr<TabletIndex>>;
 
 class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
@@ -457,6 +463,16 @@ public:
     // TabletIndex information will be returned as long as it exists.
     const TabletIndex* inverted_index(int32_t col_unique_id,
                                       const std::string& suffix_path = "") const;
+
+    // TODO(lihangyu): multi indexes
+    void update_index(const TabletColumn& column, const IndexType& index_type,
+                      std::vector<TabletIndex>&& indexes);
+
+    std::vector<const TabletIndex*> inverted_indexs(const TabletColumn& col) const;
+
+    std::vector<const TabletIndex*> inverted_indexs(int32_t col_unique_id,
+                                                    const std::string& suffix_path = "") const;
+
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
@@ -563,6 +579,11 @@ public:
     const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
 
     int64_t get_metadata_size() const override;
+
+    struct SubColumnInfo {
+        TabletColumn column;
+        TabletIndexes indexes;
+    };
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

@@ -71,6 +71,11 @@ public:
     virtual ~IOlapColumnDataAccessor() = default;
 };
 
+struct VariantColumnData {
+    const void* column_data;
+    size_t row_pos;
+};
+
 class OlapBlockDataConvertor {
 public:
     OlapBlockDataConvertor() = default;
@@ -83,6 +88,7 @@ public:
                                                    size_t row_pos, size_t num_rows, uint32_t cid);
 
     void clear_source_content();
+    void clear_source_content(size_t cid);
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
 
@@ -512,6 +518,29 @@ private:
         DataTypeMap _data_type;
     }; //OlapColumnDataConvertorMap
 
+    // TODO(lihangyu) remove this class
+    class OlapColumnDataConvertorVariantRoot : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorVariantRoot() = default;
+
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
+        Status convert_to_olap() override;
+
+        const void* get_data() const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorVariantRoot not support get_data_at");
+        }
+
+    private:
+        // // encodes sparsed columns
+        // const ColumnString* _root_data_column;
+        // // _nullmap contains null info for this variant
+        std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
+        ColumnVariant* _source_column_ptr;
+    };
+
     class OlapColumnDataConvertorVariant : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorVariant() = default;
@@ -521,17 +550,12 @@ private:
         Status convert_to_olap() override;
 
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override {
-            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                                   "OlapColumnDataConvertorVariant not support get_data_at");
-        }
+        const void* get_data_at(size_t offset) const override;
 
     private:
-        // // encodes sparsed columns
-        // const ColumnString* _root_data_column;
-        // // _nullmap contains null info for this variant
+        const void* _value_ptr;
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
-        ColumnVariant* _source_column_ptr;
+        std::unique_ptr<VariantColumnData> _variant_column_data;
     };
 
 private:

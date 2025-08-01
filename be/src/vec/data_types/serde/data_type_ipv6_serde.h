@@ -75,6 +75,9 @@ public:
             const ColumnString& str, IColumn& column, const FormatOptions& options,
             const NullMap::value_type* null_map = nullptr) const override;
 
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
