@@ -34,7 +34,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * CatalogProperty to store the properties for catalog.
@@ -49,6 +51,8 @@ public class CatalogProperty {
     private Map<String, String> properties;
 
     private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+
+    private final AtomicReference<Map<String, String>> backendStoragePropertiesRef = new AtomicReference<>();
 
     private MetastoreProperties metastoreProperties;
 
@@ -165,5 +169,26 @@ public class CatalogProperty {
             }
         }
         return metastoreProperties;
+    }
+
+    public Map<String, String> getBackendStorageProperties() {
+        Map<String, String> existing = backendStoragePropertiesRef.get();
+        if (existing != null) {
+            return existing;
+        }
+
+        Map<String, String> computed = getStoragePropertiesMap().values().stream()
+                .flatMap(m -> m.getBackendConfigProperties().entrySet().stream())
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (v1, v2) -> v2));
+
+        // only one thread will succeed in setting this
+        if (backendStoragePropertiesRef.compareAndSet(null, computed)) {
+            return computed;
+        } else {
+            return backendStoragePropertiesRef.get();
+        }
     }
 }

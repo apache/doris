@@ -162,7 +162,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             tSink.setBrokerAddresses(getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
         }
 
-        tSink.setHadoopConfig(targetTable.getHadoopProperties());
+        tSink.setHadoopConfig(targetTable.getBackendStorageProperties());
 
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);

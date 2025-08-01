@@ -17,26 +17,12 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.Map;
 
-
 public class PaimonFileExternalCatalog extends PaimonExternalCatalog {
-    private static final Logger LOG = LogManager.getLogger(PaimonFileExternalCatalog.class);
 
     public PaimonFileExternalCatalog(long catalogId, String name, String resource,
             Map<String, String> props, String comment) {
         super(catalogId, name, resource, props, comment);
     }
-
-    @Override
-    protected void initLocalObjectsImpl() {
-        super.initLocalObjectsImpl();
-        catalogType = PAIMON_FILESYSTEM;
-        catalog = createCatalog();
-        initPreExecutionAuthenticator();
-    }
-
 }

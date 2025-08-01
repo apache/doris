@@ -28,8 +28,10 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class AbstractPaimonProperties extends MetastoreProperties {
     @ConnectorProperty(
@@ -38,13 +40,14 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     )
     protected String warehouse;
 
-
     @Getter
     protected ExecutionAuthenticator executionAuthenticator = new ExecutionAuthenticator() {
     };
 
     @Getter
     protected Options catalogOptions;
+
+    private final AtomicReference<Map<String, String>> catalogOptionsMapRef = new AtomicReference<>();
 
     public abstract String getPaimonCatalogType();
 
@@ -55,7 +58,6 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     }
 
     public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
-
 
     /**
      * Adapt S3 storage properties for Apache Paimon's S3 file system.
@@ -86,7 +88,6 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
 
     }
 
-
     protected void appendCatalogOptions(List<StorageProperties> storagePropertiesList) {
         if (StringUtils.isNotBlank(warehouse)) {
             catalogOptions.set(CatalogOptions.WAREHOUSE.key(), warehouse);
@@ -103,7 +104,6 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
         appendS3PropertiesIsNeeded(storagePropertiesList);
     }
 
-
     /**
      * Build catalog options including common and subclass-specific ones.
      */
@@ -111,6 +111,34 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
         catalogOptions = new Options();
         appendCatalogOptions(storagePropertiesList);
         appendCustomCatalogOptions();
+    }
+
+    public Map<String, String> getCatalogOptionsMap() {
+        // Return the cached map if already initialized
+        Map<String, String> existing = catalogOptionsMapRef.get();
+        if (existing != null) {
+            return existing;
+        }
+
+        // Check that the catalog options source is available
+        if (catalogOptions == null) {
+            throw new IllegalStateException("Catalog options have not been initialized. Call"
+                    + " buildCatalogOptions first.");
+        }
+
+        // Construct the map manually using the provided keys
+        Map<String, String> computed = new HashMap<>();
+        for (String key : catalogOptions.keySet()) {
+            computed.put(key, catalogOptions.get(key));
+        }
+
+        // Attempt to set the constructed map atomically; only one thread wins
+        if (catalogOptionsMapRef.compareAndSet(null, computed)) {
+            return computed;
+        } else {
+            // Another thread already initialized it; return the existing one
+            return catalogOptionsMapRef.get();
+        }
     }
 
 

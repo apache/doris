@@ -27,7 +27,6 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 
-import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,7 +35,6 @@ import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +54,6 @@ public class PaimonExternalCatalog extends ExternalCatalog {
                                  String comment) {
         super(catalogId, name, InitCatalogLog.Type.PAIMON, comment);
         catalogProperty = new CatalogProperty(resource, props);
-
     }
 
     @Override
@@ -105,10 +102,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
                 }
             });
 
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to check table existence, catalog name: " + getName(), e);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to check table existence, catalog name: " + getName()
+                    + "error message is:" + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -191,10 +187,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     public Map<String, String> getPaimonOptionsMap() {
         makeSureInitialized();
-        Map<String, String> optionsMap = Maps.newHashMap();
-        paimonProperties.getCatalogOptions().keySet().forEach(key -> optionsMap.put(key, paimonProperties
-                .getCatalogOptions().get(key)));
-        return optionsMap;
+        return paimonProperties.getCatalogOptionsMap();
     }
 
     @Override

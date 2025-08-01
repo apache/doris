@@ -37,7 +37,7 @@ public class PaimonExternalCatalogFactory {
             case PaimonExternalCatalog.PAIMON_HMS:
             case PaimonExternalCatalog.PAIMON_FILESYSTEM:
             case PaimonExternalCatalog.PAIMON_DLF:
-                return  new PaimonExternalCatalog(catalogId, name, resource, props, comment);
+                return new PaimonExternalCatalog(catalogId, name, resource, props, comment);
             default:
                 throw new DdlException("Unknown " + PaimonExternalCatalog.PAIMON_CATALOG_TYPE
                         + " value: " + metastoreType);
