@@ -405,9 +405,9 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
                "colocate_with" = "${groupName}"
         )
     """
-    createMV( """
+    sql"""
        create materialized view mv_t1 as select test as a1, id as a2 from ${dbName}.${tableName1};
-    """)
+    """
     sql """
            CREATE TABLE if NOT EXISTS ${dbName}.${tableName2}
            (
