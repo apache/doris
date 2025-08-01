@@ -294,7 +294,7 @@ bool DataTypeMap::equals(const IDataType& rhs) const {
 // val_col: val1 | val2 ...
 int64_t DataTypeMap::get_uncompressed_serialized_bytes(const IColumn& column,
                                                        int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
     bool is_const_column = is_column_const(column);
     auto real_need_copy_num = is_const_column ? 1 : column.size();
@@ -315,7 +315,7 @@ int64_t DataTypeMap::get_uncompressed_serialized_bytes(const IColumn& column,
 
 // serialize to binary
 char* DataTypeMap::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     const auto* data_column = &column;
     size_t real_need_copy_num = 0;
     buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
@@ -331,7 +331,7 @@ char* DataTypeMap::serialize(const IColumn& column, char* buf, int be_exec_versi
 }
 const char* DataTypeMap::deserialize(const char* buf, MutableColumnPtr* column,
                                      int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     auto* origin_column = column->get();
     size_t real_have_saved_num = 0;
     buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);

@@ -33,7 +33,7 @@ namespace doris::vectorized {
 
 char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
                                            int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     // const flag
     bool is_const_column = is_column_const(column);
     unaligned_store<bool>(buf, is_const_column);
@@ -67,7 +67,7 @@ char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
 
 const char* DataTypeFixedLengthObject::deserialize(const char* buf, MutableColumnPtr* column,
                                                    int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     //const flag
     bool is_const_column = unaligned_load<bool>(buf);
     buf += sizeof(bool);
@@ -99,7 +99,7 @@ const char* DataTypeFixedLengthObject::deserialize(const char* buf, MutableColum
 // data  : item data1 | item data2...
 int64_t DataTypeFixedLengthObject::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                      int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
     const IColumn* data_column = &column;
     if (is_column_const(column)) {

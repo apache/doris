@@ -191,7 +191,7 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
 template <PrimitiveType T>
 int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                  int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
     auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
     auto mem_size = sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) * real_need_copy_num;
@@ -208,7 +208,7 @@ int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& 
 template <PrimitiveType T>
 char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
                                        int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     const auto* data_column = &column;
     size_t real_need_copy_num = 0;
     buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
@@ -238,7 +238,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
 template <PrimitiveType T>
 const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr* column,
                                                int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     auto* origin_column = column->get();
     size_t real_have_saved_num = 0;
     buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);

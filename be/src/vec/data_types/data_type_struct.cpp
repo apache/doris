@@ -340,7 +340,7 @@ String DataTypeStruct::get_name_by_position(size_t i) const {
 // childs : child1 | child2 ...
 int64_t DataTypeStruct::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
     bool is_const_column = is_column_const(column);
     const IColumn* data_column = &column;
@@ -359,7 +359,7 @@ int64_t DataTypeStruct::get_uncompressed_serialized_bytes(const IColumn& column,
 }
 
 char* DataTypeStruct::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     const auto* data_column = &column;
     [[maybe_unused]] size_t real_need_copy_num = 0;
     buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
@@ -373,7 +373,7 @@ char* DataTypeStruct::serialize(const IColumn& column, char* buf, int be_exec_ve
 }
 const char* DataTypeStruct::deserialize(const char* buf, MutableColumnPtr* column,
                                         int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE) << be_exec_version;
+    DCHECK_GE(be_exec_version, USE_CONST_SERDE);
     auto* origin_column = column->get();
     [[maybe_unused]] size_t real_have_saved_num = 0;
     buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
