@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exec/schema_scanner/schema_backend_metrics_scanner.h"
+
 #include "runtime/exec_env.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
