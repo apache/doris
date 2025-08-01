@@ -145,7 +145,10 @@ enum TSchemaTableType {
     SCH_ROUTINE_LOAD_JOBS = 54,
     SCH_BACKEND_CONFIGURATION=55,
     SCH_BACKEND_TABLETS = 56,
-    SCH_VIEW_DEPENDENCY = 57;
+    SCH_VIEW_DEPENDENCY = 57,
+    SCH_BE_METRICS = 58,
+    SCH_FE_METRICS = 59
+    ;
 }
 
 enum THdfsCompression {
