@@ -91,8 +91,7 @@ suite("test_audit_log_behavior") {
         def res = sql "${query}"
         while (res.isEmpty()) {
             if (retry-- < 0) {
-                logger.warn("It has retried a few but still failed, you need to check it")
-                return
+                throw new RuntimeException("It has retried a few but still failed, you need to check it")
             }
             sleep(1000)
             res = sql "${query}"
