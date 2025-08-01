@@ -539,7 +539,7 @@ void MetricRegistry::get_be_metrics_block(vectorized::Block* block) const {
             double metric_value = 0.0;
             try {
                 std::string value_str = metric.second->to_string();
-                metric_value = std::stod(value_str);  // 字符串转double
+                metric_value = std::stod(value_str); // 字符串转double
             } catch (...) {
             }
 
@@ -552,7 +552,6 @@ void MetricRegistry::get_be_metrics_block(vectorized::Block* block) const {
             SchemaScannerHelper::insert_string_value(5, tag_str, block);
         }
     }
-
 }
 
 } // namespace doris
