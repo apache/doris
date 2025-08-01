@@ -57,7 +57,9 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
-                CheckCast.INSTANCE
+                CheckCast.INSTANCE,
+                LogToLn.INSTANCE,
+                ConcatWsMultiArrayToOne.INSTANCE
             )
     );
 

@@ -63,9 +63,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
                 TopnToMax.INSTANCE,
                 NullSafeEqualToEqual.INSTANCE,
                 LikeToEqualRewrite.INSTANCE,
-                BetweenToEqual.INSTANCE,
-                LogToLn.INSTANCE,
-                ConcatWsMultiArrayToOne.INSTANCE
+                BetweenToEqual.INSTANCE
             )
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
