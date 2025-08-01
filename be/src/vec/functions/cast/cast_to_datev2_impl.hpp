@@ -268,9 +268,9 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
     // special `date` and `time` part format: 14-length digits string. parse it as YYYYMMDDHHMMSS
     if (assert_within_bound(ptr, end, 13) && is_digit_range(ptr, ptr + 14)) {
         // if the string is all digits, treat it as a date in YYYYMMDD format.
-        RETURN_IF_ERROR((consume_digit<UInt32, 4>(ptr, end, part[0])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 4>(ptr, end, part[0])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[2])));
         if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
             SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(part[0]), "invalid year {}",
                                      part[0]);
@@ -280,9 +280,9 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
                                      part[2]);
         }
 
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[2])));
         SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
                                  part[0]);
         SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(part[1]), "invalid minute {}",
@@ -298,15 +298,15 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
     }
 
     // date part
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 5));
+    SET_PARAMS_RET_FALSE_IF_ERR(assert_within_bound(ptr, end, 5));
     if (is_digit_range(ptr, ptr + 5)) {
         // no delimiter here.
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[2])));
         if (assert_within_bound(ptr, end, 0) && is_numeric_ascii(*ptr)) {
             // 4 digits year
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[3])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[3])));
             if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
                 SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
                                          "invalid year {}", part[0] * 100 + part[1]);
@@ -328,14 +328,14 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
         }
     } else {
         // has delimiter here.
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-        RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        SET_PARAMS_RET_FALSE_IF_ERR(assert_within_bound(ptr, end, 0));
         if (*ptr == '-') {
             // 2 digits year
             ++ptr; // consume one bar
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
-            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_one_bar(ptr, end)));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
 
             if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
                 SET_PARAMS_RET_FALSE_IFN(
@@ -348,11 +348,11 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
             }
         } else {
             // 4 digits year
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
-            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[3])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_one_bar(ptr, end)));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_one_bar(ptr, end)));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[3])));
 
             if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
                 SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
@@ -370,23 +370,23 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
         return true;
     }
 
-    RETURN_IF_ERROR(consume_one_delimiter(ptr, end));
+    SET_PARAMS_RET_FALSE_IF_ERR(consume_one_delimiter(ptr, end));
 
     // time part.
     // hour
-    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
+    SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
     SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
                              part[0]);
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+    SET_PARAMS_RET_FALSE_IF_ERR(assert_within_bound(ptr, end, 0));
     if (*ptr == ':') {
         // with hour:minute:second
         if (consume_one_colon(ptr, end)) { // minute
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
+            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
             SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(part[1]),
                                      "invalid minute {}", part[1]);
             if (consume_one_colon(ptr, end)) { // second
                 has_second = true;
-                RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+                SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
                 SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::SECOND>(part[2]),
                                          "invalid second {}", part[2]);
             }
@@ -428,9 +428,9 @@ FRAC:
             uint32_t length = count_digits(ptr, end);
             // hour
             if (length == 1 || length == 3) {
-                RETURN_IF_ERROR((consume_digit<UInt32, 1>(ptr, end, part[0])));
+                SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1>(ptr, end, part[0])));
             } else {
-                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+                SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[0])));
             }
             SET_PARAMS_RET_FALSE_IFN(part[0] <= 14, "invalid hour offset {}", part[0]);
             if (assert_within_bound(ptr, end, 0).ok()) {
@@ -438,7 +438,7 @@ FRAC:
                     ++ptr;
                 }
                 // minute
-                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+                SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 2>(ptr, end, part[1])));
                 SET_PARAMS_RET_FALSE_IFN((part[1] == 0 || part[1] == 30 || part[1] == 45),
                                          "invalid minute offset {}", part[1]);
             }
@@ -453,7 +453,7 @@ FRAC:
             // timezone name
             const auto* start = ptr;
             // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
-            RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
+            SET_PARAMS_RET_FALSE_IF_ERR(skip_tz_name_part(ptr, end));
 
             SET_PARAMS_RET_FALSE_IFN(
                     TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
