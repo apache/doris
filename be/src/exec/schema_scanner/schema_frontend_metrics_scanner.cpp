@@ -50,9 +50,8 @@ Status SchemaFrontendMetricsScanner::start(RuntimeState* state) {
 
     for (const auto& fe_addr : _param->common_param->fe_addr_list) {
         TFetchFeMetricsResult tmp_ret;
-        RETURN_IF_ERROR(
-                SchemaHelper::fetch_frontend_metrics(fe_addr.hostname, fe_addr.port,
-                                                     request, &tmp_ret));
+        RETURN_IF_ERROR(SchemaHelper::fetch_frontend_metrics(fe_addr.hostname, fe_addr.port,
+                                                             request, &tmp_ret));
 
         _metrics_list_result.metrics_list.insert(_metrics_list_result.metrics_list.end(),
                                                  tmp_ret.metrics_list.begin(),
