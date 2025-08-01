@@ -28,10 +28,10 @@ import java.util.Optional;
 /**
  * Update mv by partition
  */
-public class UpdateMvByInrementalCommand extends InsertIntoTableCommand {
-    private static final Logger LOG = LogManager.getLogger(UpdateMvByInrementalCommand.class);
+public class UpdateMvByIncrementalCommand extends InsertIntoTableCommand {
+    private static final Logger LOG = LogManager.getLogger(UpdateMvByIncrementalCommand.class);
 
-    public UpdateMvByInrementalCommand(LogicalPlan logicalQuery) {
+    public UpdateMvByIncrementalCommand(LogicalPlan logicalQuery) {
         super(logicalQuery, Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

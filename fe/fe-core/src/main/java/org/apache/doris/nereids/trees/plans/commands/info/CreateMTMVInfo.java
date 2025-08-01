@@ -114,7 +114,7 @@ public class CreateMTMVInfo {
     private MTMVPartitionInfo mvPartitionInfo;
 
     private boolean inremental;
-    private MaterializedViewUtils.MVAggInfo paimonMVAggInfo;
+    private MaterializedViewUtils.MVAggInfo mvAggInfo;
     private KeysType keysType = KeysType.DUP_KEYS;
 
     /**
@@ -266,7 +266,7 @@ public class CreateMTMVInfo {
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
             if (this.inremental) {
-                paimonMVAggInfo = MaterializedViewUtils.checkPaimonIncrementalMV(planner.getRewrittenPlan());
+                mvAggInfo = MaterializedViewUtils.checkIncrementalMV(planner.getRewrittenPlan());
             }
             // can not contain VIEW or MTMV
             analyzeBaseTables(planner.getAnalyzedPlan());
@@ -294,13 +294,13 @@ public class CreateMTMVInfo {
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
             if (this.inremental) {
-                keys = paimonMVAggInfo.keys;
+                keys = mvAggInfo.keys;
                 if (!keys.isEmpty()) {
                     keysType = KeysType.AGG_KEYS;
                 }
                 columns = columns.stream()
                         .map(c -> {
-                            String funcName = paimonMVAggInfo.aggFunctions.get(c.getName());
+                            String funcName = mvAggInfo.aggFunctions.get(c.getName());
                             if (funcName != null) {
                                 switch (funcName) {
                                     case MaterializedViewUtils.MIN:
@@ -313,7 +313,7 @@ public class CreateMTMVInfo {
                                         c.setAggType(AggregateType.SUM);
                                         break;
                                     default:
-                                        throw new RuntimeException("unsupport agg function: " + funcName);
+                                        throw new RuntimeException("unsupported agg function: " + funcName);
                                 }
                             }
                             return c;

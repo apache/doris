@@ -18,7 +18,6 @@
 package org.apache.doris.job.extensions.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -288,9 +287,9 @@ public class MTMVTask extends AbstractTask {
 
     public MTMVDataRefreshExec getMTMVDataRefreshExec() {
         if (mtmv.getIncrementalRefresh()) {
-            return new MTMVIncrementalDataRefreshExec();
+            return new MTMVSnapshotRefreshExec();
         } else {
-            return new MTMVFullDataRefreshExec();
+            return new MTMVPartitionRefreshExec();
         }
     }
 
@@ -419,7 +418,7 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private class MTMVFullDataRefreshExec extends MTMVDataRefreshExec {
+    private class MTMVPartitionRefreshExec extends MTMVDataRefreshExec {
 
         @Override
         protected void prepare(MTMVRefreshContext context,
@@ -432,10 +431,9 @@ public class MTMVTask extends AbstractTask {
                     .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                             ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, false, new HashMap<>());
         }
-
     }
 
-    private class MTMVIncrementalDataRefreshExec extends MTMVDataRefreshExec {
+    private class MTMVSnapshotRefreshExec extends MTMVDataRefreshExec {
         private boolean incremental;
         private long tableSnapshotId;
         private long mvSnapshotId;
@@ -446,11 +444,11 @@ public class MTMVTask extends AbstractTask {
             params = new HashMap<>();
             MTMVSnapshotIf mvSnapshot = MaterializedViewUtils.getIncrementalMVSnapshotInfo(mtmv);
             mvSnapshotId = Optional.ofNullable(mvSnapshot).map(MTMVSnapshotIf::getSnapshotVersion).orElse(0L);
-            params.put(TableScanParams.READ_MODE, TableScanParams.INCREMENTAL_READ);
-
+            MTMVExternalTableParamsAssembler paramsAssembler =
+                    MTMVExternalTableParamsAssembler.getMTMVExternalTableParamsAssembler(mtmv);
             if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL
                     && (taskContext.isComplete() || !CollectionUtils.isEmpty(taskContext.getPartitions()))) {
-                params.put(TableScanParams.DORIS_START_SNAPSHOT_ID, String.valueOf(this.mvSnapshotId));
+                paramsAssembler.markReadBySnapshot(params, this.mvSnapshotId);
             } else {
                 // incremental refresh
                 execPartitionSnapshots.putAll(MTMVPartitionUtil.generatePartitionSnapshots(context,
@@ -459,13 +457,11 @@ public class MTMVTask extends AbstractTask {
                         .getSnapshotVersion();
                 // The first data synchronization, based on a full update from the latest snapshot
                 if (mvSnapshotId == 0L) {
-                    params.put(TableScanParams.DORIS_START_SNAPSHOT_ID, String.valueOf(tableSnapshotId));
+                    paramsAssembler.markReadBySnapshot(params, this.tableSnapshotId);
                 } else {
                     // Incremental data update based on snapshot
                     this.incremental = true;
-                    params.put(TableScanParams.DORIS_START_SNAPSHOT_ID, String.valueOf(mvSnapshotId));
-                    params.put(TableScanParams.DORIS_END_SNAPSHOT_ID, String.valueOf(tableSnapshotId));
-                    params.put(TableScanParams.DORIS_INCREMENTAL_BETWEEN_SCAN_MODE, "delta");
+                    paramsAssembler.markReadBySnapshotIncremental(params, mvSnapshotId, tableSnapshotId);
                 }
             }
         }

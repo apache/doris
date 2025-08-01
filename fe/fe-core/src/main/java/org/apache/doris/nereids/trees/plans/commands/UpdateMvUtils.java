@@ -111,7 +111,7 @@ public class UpdateMvUtils {
                     sink.treeString());
         }
         if (incremental) {
-            return new UpdateMvByInrementalCommand(sink);
+            return new UpdateMvByIncrementalCommand(sink);
         } else {
             return new UpdateMvByPartitionCommand(sink);
         }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.paimon.source;
 
-import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -80,6 +79,14 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
     private static final String PAIMON_INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
     private static final String PAIMON_INCREMENTAL_BETWEEN_TIMESTAMP = "incremental-between-timestamp";
+
+    // The keys of incremental read params for Doris Statement
+    public static final String DORIS_START_SNAPSHOT_ID = "startSnapshotId";
+    public static final String DORIS_END_SNAPSHOT_ID = "endSnapshotId";
+    public static final String DORIS_START_TIMESTAMP = "startTimestamp";
+    public static final String DORIS_END_TIMESTAMP = "endTimestamp";
+    public static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
+    public static final String DEFAULT_INCREMENTAL_BETWEEN_SCAN_MODE = "auto";
 
     private enum SplitReadType {
         JNI,
@@ -475,18 +482,18 @@ public class PaimonScanNode extends FileQueryScanNode {
     @VisibleForTesting
     public static Map<String, String> validateIncrementalReadParams(Map<String, String> params) throws UserException {
         // Check if snapshot-based parameters exist
-        boolean hasStartSnapshotId = params.containsKey(TableScanParams.DORIS_START_SNAPSHOT_ID)
-                && params.get(TableScanParams.DORIS_START_SNAPSHOT_ID) != null;
-        boolean hasEndSnapshotId = params.containsKey(TableScanParams.DORIS_END_SNAPSHOT_ID)
-                && params.get(TableScanParams.DORIS_END_SNAPSHOT_ID) != null;
-        boolean hasIncrementalBetweenScanMode = params.containsKey(TableScanParams.DORIS_INCREMENTAL_BETWEEN_SCAN_MODE)
-                && params.get(TableScanParams.DORIS_INCREMENTAL_BETWEEN_SCAN_MODE) != null;
+        boolean hasStartSnapshotId = params.containsKey(DORIS_START_SNAPSHOT_ID)
+                && params.get(DORIS_START_SNAPSHOT_ID) != null;
+        boolean hasEndSnapshotId = params.containsKey(DORIS_END_SNAPSHOT_ID)
+                && params.get(DORIS_END_SNAPSHOT_ID) != null;
+        boolean hasIncrementalBetweenScanMode = params.containsKey(DORIS_INCREMENTAL_BETWEEN_SCAN_MODE)
+                && params.get(DORIS_INCREMENTAL_BETWEEN_SCAN_MODE) != null;
 
         // Check if timestamp-based parameters exist
-        boolean hasStartTimestamp = params.containsKey(TableScanParams.DORIS_START_TIMESTAMP)
-                && params.get(TableScanParams.DORIS_START_TIMESTAMP) != null;
-        boolean hasEndTimestamp = params.containsKey(TableScanParams.DORIS_END_TIMESTAMP)
-                && params.get(TableScanParams.DORIS_END_TIMESTAMP) != null;
+        boolean hasStartTimestamp = params.containsKey(DORIS_START_TIMESTAMP)
+                && params.get(DORIS_START_TIMESTAMP) != null;
+        boolean hasEndTimestamp = params.containsKey(DORIS_END_TIMESTAMP)
+                && params.get(DORIS_END_TIMESTAMP) != null;
 
         // Check if any snapshot-based parameters are present
         boolean hasSnapshotParams = hasStartSnapshotId || hasEndSnapshotId || hasIncrementalBetweenScanMode;
@@ -520,7 +527,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             // Validate snapshot ID values
             if (hasStartSnapshotId) {
                 try {
-                    long startSId = Long.parseLong(params.get(TableScanParams.DORIS_START_SNAPSHOT_ID));
+                    long startSId = Long.parseLong(params.get(DORIS_START_SNAPSHOT_ID));
                     if (startSId <= 0) {
                         throw new UserException("startSnapshotId must be greater than 0");
                     }
@@ -531,7 +538,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
             if (hasEndSnapshotId) {
                 try {
-                    long endSId = Long.parseLong(params.get(TableScanParams.DORIS_END_SNAPSHOT_ID));
+                    long endSId = Long.parseLong(params.get(DORIS_END_SNAPSHOT_ID));
                     if (endSId <= 0) {
                         throw new UserException("endSnapshotId must be greater than 0");
                     }
@@ -543,8 +550,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             // Check if both snapshot IDs are present and validate their relationship
             if (hasStartSnapshotId && hasEndSnapshotId) {
                 try {
-                    long startSId = Long.parseLong(params.get(TableScanParams.DORIS_START_SNAPSHOT_ID));
-                    long endSId = Long.parseLong(params.get(TableScanParams.DORIS_END_SNAPSHOT_ID));
+                    long startSId = Long.parseLong(params.get(DORIS_START_SNAPSHOT_ID));
+                    long endSId = Long.parseLong(params.get(DORIS_END_SNAPSHOT_ID));
                     if (startSId >= endSId) {
                         throw new UserException("startSnapshotId must be less than endSnapshotId");
                     }
@@ -555,7 +562,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
             // Validate DORIS_INCREMENTAL_BETWEEN_SCAN_MODE
             if (hasIncrementalBetweenScanMode) {
-                String scanMode = params.get(TableScanParams.DORIS_INCREMENTAL_BETWEEN_SCAN_MODE).toLowerCase();
+                String scanMode = params.get(DORIS_INCREMENTAL_BETWEEN_SCAN_MODE).toLowerCase();
                 if (!scanMode.equals("auto") && !scanMode.equals("diff")
                         && !scanMode.equals("delta") && !scanMode.equals("changelog")) {
                     throw new UserException("incrementalBetweenScanMode must be one of: auto, diff, delta, changelog");
@@ -573,7 +580,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             // Validate timestamp values
             if (hasStartTimestamp) {
                 try {
-                    long startTS = Long.parseLong(params.get(TableScanParams.DORIS_START_TIMESTAMP));
+                    long startTS = Long.parseLong(params.get(DORIS_START_TIMESTAMP));
                     if (startTS < 0) {
                         throw new UserException("startTimestamp must be greater than or equal to 0");
                     }
@@ -584,7 +591,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
             if (hasEndTimestamp) {
                 try {
-                    long endTS = Long.parseLong(params.get(TableScanParams.DORIS_END_TIMESTAMP));
+                    long endTS = Long.parseLong(params.get(DORIS_END_TIMESTAMP));
                     if (endTS <= 0) {
                         throw new UserException("endTimestamp must be greater than 0");
                     }
@@ -596,8 +603,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             // Check if both timestamps are present and validate their relationship
             if (hasStartTimestamp && hasEndTimestamp) {
                 try {
-                    long startTS = Long.parseLong(params.get(TableScanParams.DORIS_START_TIMESTAMP));
-                    long endTS = Long.parseLong(params.get(TableScanParams.DORIS_END_TIMESTAMP));
+                    long startTS = Long.parseLong(params.get(DORIS_START_TIMESTAMP));
+                    long endTS = Long.parseLong(params.get(DORIS_END_TIMESTAMP));
                     if (startTS >= endTS) {
                         throw new UserException("startTimestamp must be less than endTimestamp");
                     }
@@ -622,25 +629,25 @@ public class PaimonScanNode extends FileQueryScanNode {
             paimonScanParams.put(PAIMON_SCAN_MODE, null);
             if (hasStartSnapshotId && !hasEndSnapshotId) {
                 // Only startSnapshotId is specified
-                paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, params.get(TableScanParams.DORIS_START_SNAPSHOT_ID));
+                paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, params.get(DORIS_START_SNAPSHOT_ID));
                 paimonScanParams.put(PAIMON_SCAN_MODE, PAIMON_FROM_SNAPSHOT);
             } else if (hasStartSnapshotId && hasEndSnapshotId) {
                 // Both start and end snapshot IDs are specified
-                String startSId = params.get(TableScanParams.DORIS_START_SNAPSHOT_ID);
-                String endSId = params.get(TableScanParams.DORIS_END_SNAPSHOT_ID);
+                String startSId = params.get(DORIS_START_SNAPSHOT_ID);
+                String endSId = params.get(DORIS_END_SNAPSHOT_ID);
                 paimonScanParams.put(PAIMON_INCREMENTAL_BETWEEN, startSId + "," + endSId);
             }
 
             // Add incremental between scan mode if present
             if (hasIncrementalBetweenScanMode) {
                 paimonScanParams.put(PAIMON_INCREMENTAL_BETWEEN_SCAN_MODE,
-                        params.get(TableScanParams.DORIS_INCREMENTAL_BETWEEN_SCAN_MODE));
+                        params.get(DORIS_INCREMENTAL_BETWEEN_SCAN_MODE));
             }
         }
 
         if (hasTimestampParams) {
-            String startTS = params.get(TableScanParams.DORIS_START_TIMESTAMP);
-            String endTS = params.get(TableScanParams.DORIS_END_TIMESTAMP);
+            String startTS = params.get(DORIS_START_TIMESTAMP);
+            String endTS = params.get(DORIS_END_TIMESTAMP);
 
             if (hasStartTimestamp && !hasEndTimestamp) {
                 // Only startTimestamp is specified

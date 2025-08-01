@@ -26,6 +26,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -164,15 +165,16 @@ public class MaterializedViewUtils {
             boolean isAggMode = logicalAggregate(logicalProject(logicalFileScan()))
                     .getPattern().matchPlanTree(plan);
             if (!isAggMode) {
-                throw new RuntimeException(
-                        "mv query must be agg mode and table must a paimon table: " + plan);
+                throw new NereidsException(new RuntimeException(
+                        "mv query must be agg mode on external table: " + plan));
             }
             LogicalAggregate<? extends Plan> aggregate = (LogicalAggregate) plan;
             LogicalProject<? extends Plan> project = (LogicalProject) plan.child(0);
             LogicalFileScan fileScan = (LogicalFileScan) project.child(0);
 
             if (!(fileScan.getTable() instanceof PaimonExternalTable)) {
-                throw new RuntimeException("table " + fileScan.getTable() + " not support incremental mv");
+                throw new NereidsException(new RuntimeException(
+                        "Only Paimon table support incremental mv: " + fileScan.getTable()));
             }
 
             // select a + 1 from t group a + 1  ->  a + 1 should has alias
@@ -180,7 +182,8 @@ public class MaterializedViewUtils {
                 if (e instanceof Alias) {
                     Alias alias = (Alias) e;
                     if (alias.isNameFromChild()) {
-                        throw new RuntimeException("complex expression must has alias: " + e);
+                        throw new NereidsException(
+                                new RuntimeException("complex expression must has alias: " + e));
                     }
                 }
             });
@@ -190,7 +193,8 @@ public class MaterializedViewUtils {
                 if (e instanceof Alias) {
                     Alias alias = (Alias) e;
                     if (alias.isNameFromChild()) {
-                        throw new RuntimeException("complex expression must has alias: " + e);
+                        throw new NereidsException(
+                                new RuntimeException("complex expression must has alias: " + e));
                     }
                 }
             });
@@ -221,9 +225,9 @@ public class MaterializedViewUtils {
                 String strAggFunc = coreOptions.fieldAggFunc(fieldName);
                 if (strAggFunc == null || strAggFunc.trim().isEmpty()) {
                     String errorMsg = String.format(
-                            "paimon merge on doris failed: column %s is not a aggregate column!",
+                            "column %s is not a aggregate column!",
                             fieldName);
-                    throw new RuntimeException(errorMsg);
+                    throw new NereidsException(new RuntimeException(errorMsg));
                 }
 
                 switch (strAggFunc) {
@@ -238,9 +242,9 @@ public class MaterializedViewUtils {
                         break;
                     default:
                         String errorMsg = String.format(
-                                "paimon merge on doris failed: Use unsupported aggregation: %s",
+                                "Use unsupported aggregation: %s",
                                 strAggFunc);
-                        throw new RuntimeException(errorMsg);
+                        throw new NereidsException(new RuntimeException(errorMsg));
                 }
             }
 
@@ -252,9 +256,9 @@ public class MaterializedViewUtils {
             if (!new HashSet<>(primaryKeySlots).containsAll(replacedGroupBySlots)) {
                 replacedGroupBySlots.removeAll(primaryKeySlots);
                 String errorMsg = String.format(
-                        "paimon merge on doris failed: exist non-primary key group columns: %s",
+                        "exist non-primary key group columns: %s",
                         replacedGroupBySlots);
-                throw new RuntimeException(errorMsg);
+                throw new NereidsException(new RuntimeException(errorMsg));
             }
 
             List<Expression> replacedAggFunctions = PlanUtils.replaceExpressionByProjections(
@@ -269,39 +273,39 @@ public class MaterializedViewUtils {
                 AggregateFunction aggFunc = (AggregateFunction) alias.child(0);
                 if (!(ALLOW_MERGE_AGGREGATE_FUNCTIONS.contains(aggFunc.getName()))) {
                     String errorMsg = String.format(
-                            "paimon merge on doris failed: Use unsupported aggregation: %s",
+                            "Use unsupported aggregation: %s",
                             aggFunc.getName());
-                    throw new RuntimeException(errorMsg);
+                    throw new NereidsException(new RuntimeException(errorMsg));
                 }
                 if (aggFunc.isDistinct()) {
                     String errorMsg = String.format(
-                            "paimon merge on doris failed: %s Use distinct",
+                            "can not use distinct: %s",
                             aggFunc);
-                    throw new RuntimeException(errorMsg);
+                    throw new NereidsException(new RuntimeException(errorMsg));
                 }
                 // not support outerAggFunc: sum(a+1),sum(a+b)
                 if (!(aggFunc.child(0) instanceof SlotReference)) {
                     String errorMsg = String.format(
-                            "paimon merge on doris failed: %s child is a complex expression",
+                            "%s child is a complex expression",
                             aggFunc);
-                    throw new RuntimeException(errorMsg);
+                    throw new NereidsException(new RuntimeException(errorMsg));
                 }
                 ExprId childExprId = ((SlotReference) aggFunc.child(0)).getExprId();
                 if (exprIdToAggFunctionName.containsKey(childExprId)) {
                     String aggFunctionName = exprIdToAggFunctionName.get(childExprId);
                     if (!aggFunctionName.equals(aggFunc.getName())) {
                         String errorMsg = String.format(
-                                "paimon merge on doris failed: sql agg function %s "
+                                "sql agg function %s "
                                 + "is different from paimon agg function %s",
                                 aggFunc, aggFunctionName);
-                        throw new RuntimeException(errorMsg);
+                        throw new NereidsException(new RuntimeException(errorMsg));
                     }
                 } else {
                     String errorMsg = String.format(
-                            "paimon merge on doris failed: Unable to find a reasonable "
+                            "Unable to find a reasonable "
                             + "aggregation function for %s from paimon agg function",
                             aggFunc);
-                    throw new RuntimeException(errorMsg);
+                    throw new NereidsException(new RuntimeException(errorMsg));
                 }
                 mvAggInfo.aggFunctions.put(alias.getName(), aggFunc.getName());
             }
@@ -317,7 +321,7 @@ public class MaterializedViewUtils {
         }
     }
 
-    public static MVAggInfo checkPaimonIncrementalMV(Plan plan) {
+    public static MVAggInfo checkIncrementalMV(Plan plan) {
         return MVAnalysis.instance.checkAndGetAggInfo(plan);
     }
 
