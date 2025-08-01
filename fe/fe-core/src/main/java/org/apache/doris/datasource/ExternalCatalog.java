@@ -38,7 +38,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -176,7 +176,7 @@ public abstract class ExternalCatalog
 
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
-    protected PreExecutionAuthenticator preExecutionAuthenticator;
+    protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
 
     private volatile Configuration cachedConf = null;
@@ -200,8 +200,8 @@ public abstract class ExternalCatalog
      * If additional authentication logic is required, it should be extended and implemented in subclasses.
      */
     protected synchronized void initPreExecutionAuthenticator() {
-        if (preExecutionAuthenticator == null) {
-            preExecutionAuthenticator = new PreExecutionAuthenticator();
+        if (executionAuthenticator == null) {
+            executionAuthenticator = new ExecutionAuthenticator(){};
         }
     }
 
@@ -796,8 +796,8 @@ public abstract class ExternalCatalog
     @Override
     public void onClose() {
         removeAccessController();
-        if (null != preExecutionAuthenticator) {
-            preExecutionAuthenticator = null;
+        if (null != executionAuthenticator) {
+            executionAuthenticator = null;
         }
         if (null != transactionManager) {
             transactionManager = null;
@@ -1345,11 +1345,11 @@ public abstract class ExternalCatalog
         }
     }
 
-    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
-        if (null == preExecutionAuthenticator) {
-            throw new RuntimeException("PreExecutionAuthenticator is null, please confirm it is initialized.");
+    public ExecutionAuthenticator getExecutionAuthenticator() {
+        if (null == executionAuthenticator) {
+            throw new RuntimeException("ExecutionAuthenticator is null, please confirm it is initialized.");
         }
-        return preExecutionAuthenticator;
+        return executionAuthenticator;
     }
 
     @Override

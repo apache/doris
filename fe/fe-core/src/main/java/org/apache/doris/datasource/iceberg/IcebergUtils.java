@@ -606,7 +606,7 @@ public class IcebergUtils {
         }
     }
 
-    public static org.apache.iceberg.Table getIcebergTable(ExternalTable dorisTable) {
+    public static Table getIcebergTable(ExternalTable dorisTable) {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
                 .getIcebergMetadataCache().getIcebergTable(dorisTable);
@@ -709,7 +709,7 @@ public class IcebergUtils {
      */
     private static List<Column> getSchema(ExternalTable dorisTable, long schemaId, boolean isView) {
         try {
-            return dorisTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
+            return dorisTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                 Schema schema;
                 if (isView) {
                     View icebergView = getIcebergView(dorisTable);
@@ -840,7 +840,7 @@ public class IcebergUtils {
     }
 
     public static HiveCatalog createIcebergHiveCatalog(ExternalCatalog externalCatalog, String name) {
-        HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
+        HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(externalCatalog.getConfiguration());
 
         Map<String, String> catalogProperties = externalCatalog.getProperties();
@@ -1274,7 +1274,7 @@ public class IcebergUtils {
         }
     }
 
-    public static org.apache.iceberg.view.View getIcebergView(ExternalTable dorisTable) {
+    public static View getIcebergView(ExternalTable dorisTable) {
         IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
         return metadataCache.getIcebergView(dorisTable);
     }

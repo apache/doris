@@ -15,17 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg;
+package org.apache.doris.common.security.authentication;
 
-import org.apache.doris.datasource.CatalogProperty;
+import java.util.concurrent.Callable;
 
-import java.util.Map;
+public class HadoopExecutionAuthenticator implements ExecutionAuthenticator {
+    private final HadoopAuthenticator hadoopAuthenticator;
 
-public class IcebergS3TablesExternalCatalog extends IcebergExternalCatalog {
+    public HadoopExecutionAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
+        this.hadoopAuthenticator = hadoopAuthenticator;
+    }
 
-    public IcebergS3TablesExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-                                          String comment) {
-        super(catalogId, name, comment);
-        catalogProperty = new CatalogProperty(resource, props);
+    @Override
+    public <T> T execute(Callable<T> task) throws Exception {
+        return hadoopAuthenticator.doAs(task::call);
+    }
+
+    @Override
+    public void execute(Runnable task) throws Exception {
+        hadoopAuthenticator.doAs(() -> {
+            task.run();
+            return null;
+        });
     }
 }
