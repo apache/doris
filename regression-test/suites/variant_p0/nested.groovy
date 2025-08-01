@@ -69,6 +69,7 @@ suite("regression_test_variant_nested", "p0"){
         """
         sql """select * from var_nested limit 1"""
         sql """set describe_extend_variant_column = true"""
+        // TODO(lihangyu) fix this
         qt_sql """DESC var_nested"""
         qt_sql """
             select * from var_nested order by k limit 101
