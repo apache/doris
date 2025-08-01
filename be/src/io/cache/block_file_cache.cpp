@@ -1681,7 +1681,7 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
 
     unsigned long long inode_free = stat.f_ffree;
     unsigned long long inode_total = stat.f_files;
-    int inode_percentage = cast_set<int>((inode_free / inode_total) * 100);
+    int inode_percentage = cast_set<int>(inode_free * 100 / inode_total);
     percent->first = capacity_percentage;
     percent->second = 100 - inode_percentage;
 
@@ -1775,7 +1775,7 @@ void BlockFileCache::check_disk_resource_limit() {
     DCHECK_LE(inode_percentage, 100);
     // ATTN: due to that can be changed dynamically, set it to default value if it's invalid
     // FIXME: reject with config validator
-    if (config::file_cache_enter_disk_resource_limit_mode_percent <=
+    if (config::file_cache_enter_disk_resource_limit_mode_percent <
         config::file_cache_exit_disk_resource_limit_mode_percent) {
         LOG_WARNING("config error, set to default value")
                 .tag("enter", config::file_cache_enter_disk_resource_limit_mode_percent)
@@ -1813,7 +1813,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         return;
     }
     auto [space_percentage, inode_percentage] = percent;
-    int size_percentage = static_cast<int>(_cur_cache_size / _capacity) * 100;
+    int size_percentage = static_cast<int>(_cur_cache_size * 100 / _capacity);
     auto is_insufficient = [](const int& percentage) {
         return percentage >= config::file_cache_enter_need_evict_cache_in_advance_percent;
     };
