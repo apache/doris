@@ -291,22 +291,21 @@ public:
         s = read(size);
     }
 
+    ///TODO: Currently this function is only called in one place, we might need to convert all read_binary(StringRef) to this style? Or directly use read_binary(String)
+    StringRef read_binary_into(Arena& arena) {
+        UInt64 size = 0;
+        read_var_uint(size);
+
+        char* data = arena.alloc(size);
+        read(data, size);
+
+        return {data, size};
+    }
+
 private:
     const char* _data;
 };
 
 using VectorBufferReader = BufferReadable;
 using BufferReader = BufferReadable;
-
-///TODO: Currently this function is only called in one place, we might need to convert all read_binary(StringRef) to this style? Or directly use read_binary(String)
-inline StringRef read_binary_into(Arena& arena, BufferReadable& buf) {
-    UInt64 size = 0;
-    buf.read_var_uint(size);
-
-    char* data = arena.alloc(size);
-    buf.read(data, size);
-
-    return {data, size};
-}
-
 } // namespace doris::vectorized
