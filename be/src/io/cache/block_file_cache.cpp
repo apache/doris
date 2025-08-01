@@ -27,6 +27,7 @@
 #include "cpp/sync_point.h"
 #include "gen_cpp/file_cache.pb.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 
 #if defined(__APPLE__)
 #include <sys/mount.h>
@@ -263,6 +264,19 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     }
 
     LOG(INFO) << "file cache path= " << _cache_base_path << " " << cache_settings.to_string();
+
+    // Check file_cache_query_limit_bytes configuration
+    if (config::file_cache_query_limit_bytes != 0) {
+        if (_max_query_cache_size == 0) {
+            _max_query_cache_size = config::file_cache_query_limit_bytes;
+            LOG(INFO) << "_max_query_cache_size set to " << _max_query_cache_size
+                      << " from file_cache_query_limit_bytes configuration";
+        } else {
+            LOG(WARNING) << "file_cache_query_limit_bytes (" << config::file_cache_query_limit_bytes
+                         << ") is ignored because _max_query_cache_size (" << _max_query_cache_size
+                         << ") is already set";
+        }
+    }
 }
 
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {
@@ -274,8 +288,23 @@ UInt128Wrapper BlockFileCache::hash(const std::string& path) {
 BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context_holder(
         const TUniqueId& query_id) {
     SCOPED_CACHE_LOCK(_mutex, this);
+    
+    // First check global config
     if (!config::enable_file_cache_query_limit) {
         return {};
+    }
+    
+    // Get query context and check query-level option
+    auto query_context = ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(query_id);
+    if (query_context != nullptr) {
+        const auto& query_options = query_context->get_query_options();
+        // Check if enable_file_cache_query_limit is set in query options
+        if (query_options.__isset.enable_file_cache_query_limit) {
+            // If set, use the query-level setting
+            if (!query_options.enable_file_cache_query_limit) {
+                return {};
+            }
+        }
     }
 
     /// if enable_file_cache_query_limit is true,
