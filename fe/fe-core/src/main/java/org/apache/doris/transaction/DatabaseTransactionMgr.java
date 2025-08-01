@@ -122,10 +122,10 @@ public class DatabaseTransactionMgr {
     private final MonitoredReentrantReadWriteLock transactionLock = new MonitoredReentrantReadWriteLock(true);
 
     // transactionId -> running TransactionState
-    private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
+    private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newConcurrentMap();
 
     // transactionId -> final status TransactionState
-    private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
+    private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newConcurrentMap();
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
 
     // The following 2 queues are to store transactionStates with final status
@@ -193,12 +193,8 @@ public class DatabaseTransactionMgr {
     }
 
     protected TransactionState getTransactionState(Long transactionId) {
-        readLock();
-        try {
-            return unprotectedGetTransactionState(transactionId);
-        } finally {
-            readUnlock();
-        }
+        return unprotectedGetTransactionState(transactionId);
+
     }
 
     private TransactionState unprotectedGetTransactionState(Long transactionId) {
