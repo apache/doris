@@ -211,7 +211,9 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             auto value = std::make_unique<Value>(tablet, *_tablet_map);
             // MUST sync stats to let compaction scheduler work correctly
             SyncOptions options;
-            options.warmup_delta_data = warmup_data;
+            // if config::enable_query_driven_warmup is true, should warmup data when
+            // the first time get_tablet.
+            options.warmup_delta_data = warmup_data || config::enable_query_driven_warmup;
             options.sync_delete_bitmap = sync_delete_bitmap;
             st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), options, sync_stats);
             if (!st.ok()) {
@@ -372,6 +374,7 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
             SyncOptions options;
             options.query_version = -1;
             options.merge_schema = true;
+            options.warmup_delta_data = config::enable_query_driven_warmup;
             st = tablet->sync_rowsets(options);
             if (!st) {
                 LOG_WARNING("failed to sync tablet rowsets {}", tablet->tablet_id()).error(st);

@@ -490,7 +490,8 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                             DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id, sync_stats));
                     _tablets[i] = {std::move(tablet), version};
                     SyncOptions options;
-                    options.query_version = cur_version;
+                    options.warmup_delta_data = config::enable_query_driven_warmup;
+                    options.query_version = version;
                     options.merge_schema = true;
                     RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablets[i].tablet)
                                             ->sync_rowsets(options, sync_stats));
