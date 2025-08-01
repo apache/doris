@@ -337,7 +337,40 @@ public:
                 _cache_capacity_metrics->get_value() - _cur_cache_size_metrics->get_value(), 0);
     }
 
+    Status report_file_cache_inconsistency(std::vector<std::string>& results);
+    Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
+
 private:
+    struct FileBlockCell {
+        FileBlockSPtr file_block;
+        /// Iterator is put here on first reservation attempt, if successful.
+        std::optional<LRUQueue::Iterator> queue_iterator;
+
+        mutable int64_t atime {0};
+        void update_atime() const {
+            atime = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::steady_clock::now().time_since_epoch())
+                            .count();
+        }
+
+        /// Pointer to file block is always hold by the cache itself.
+        /// Apart from pointer in cache, it can be hold by cache users, when they call
+        /// getorSet(), but cache users always hold it via FileBlocksHolder.
+        bool releasable() const { return file_block.use_count() == 1; }
+
+        size_t size() const { return file_block->_block_range.size(); }
+        size_t dowloading_size() const { return file_block->_downloaded_size; }
+
+        FileBlockCell(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock);
+        FileBlockCell(FileBlockCell&& other) noexcept
+                : file_block(std::move(other.file_block)),
+                  queue_iterator(other.queue_iterator),
+                  atime(other.atime) {}
+
+        FileBlockCell& operator=(const FileBlockCell&) = delete;
+        FileBlockCell(const FileBlockCell&) = delete;
+    };
+
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
 
