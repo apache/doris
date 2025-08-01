@@ -123,6 +123,9 @@ Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
 Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnDateTime&>(column);
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     Int64 val = 0;
     if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
         return Status::InvalidArgument("parse datetime fail, string: '{}'",
