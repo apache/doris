@@ -149,6 +149,7 @@ import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
+import org.apache.doris.nereids.rules.rewrite.SkewJoin;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.SplitMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
@@ -340,7 +341,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new ConvertInnerOrCrossJoin())
                 ),
                 topic("set initial join order",
-                        bottomUp(ImmutableList.of(new InitJoinOrder()))),
+                        bottomUp(ImmutableList.of(new InitJoinOrder())),
+                        topDown(new SkewJoin())),
                 topic("Set operation optimization",
                         topic("",
                                 cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),

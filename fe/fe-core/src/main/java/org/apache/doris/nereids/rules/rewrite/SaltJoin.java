@@ -60,6 +60,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -138,7 +139,13 @@ public class SaltJoin extends OneRewriteRuleFactory {
     }
 
     private static Plan transform(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {
-        LogicalJoin<Plan, Plan> join = ctx.root;
+        return transform(ctx.root);
+    }
+
+    /**
+     * add salt
+     */
+    public static Plan transform(LogicalJoin<Plan, Plan> join) {
         DistributeHint hint = join.getDistributeHint();
         if (hint.distributeType != DistributeType.SHUFFLE_RIGHT) {
             return null;
@@ -152,7 +159,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
                 || join.getJoinType().isRightOuterJoin() && !join.right().getOutput().contains((Slot) skewExpr)) {
             return null;
         }
-        int factor = getSaltFactor(ctx);
+        int factor = getSaltFactor();
         Optional<Expression> literalType = TypeCoercionUtils.characterLiteralTypeCoercion(String.valueOf(factor),
                 TinyIntType.INSTANCE);
         if (!literalType.isPresent()) {
@@ -190,19 +197,20 @@ public class SaltJoin extends OneRewriteRuleFactory {
         DataType type = literalType.get().getDataType();
         LogicalProject<Plan> rightProject;
         LogicalProject<Plan> leftProject;
+        StatementContext statementContext = ConnectContext.get().getStatementContext();
         switch (join.getJoinType()) {
             case INNER_JOIN:
             case LEFT_OUTER_JOIN:
                 leftProject = addRandomSlot(leftSkewExpr, skewSideValues, join.left(), factor, type,
-                        ctx.statementContext);
+                        statementContext);
                 rightProject = expandSkewValueRows(rightSkewExpr, expandSideValues, join.right(), factor, type,
-                        ctx.statementContext);
+                        statementContext);
                 break;
             case RIGHT_OUTER_JOIN:
                 leftProject = expandSkewValueRows(leftSkewExpr, expandSideValues, join.left(), factor, type,
-                        ctx.statementContext);
+                        statementContext);
                 rightProject = addRandomSlot(rightSkewExpr, skewSideValues, join.right(), factor, type,
-                        ctx.statementContext);
+                        statementContext);
                 break;
             default:
                 return null;
@@ -322,12 +330,13 @@ public class SaltJoin extends OneRewriteRuleFactory {
         return new LogicalProject<>(namedExpressionsBuilder.build(), rightJoin);
     }
 
-    private static int getSaltFactor(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {
-        int factor = ctx.connectContext.getStatementContext().getConnectContext()
+    private static int getSaltFactor() {
+        ConnectContext connectContext = ConnectContext.get();
+        int factor = connectContext.getStatementContext().getConnectContext()
                 .getSessionVariable().skewRewriteJoinSaltExplodeFactor;
         if (factor == 0) {
-            int beNumber = Math.max(1, ctx.connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
-            int parallelInstance = Math.max(1, ctx.connectContext.getSessionVariable().getParallelExecInstanceNum());
+            int beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
+            int parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
             factor = (int) Math.min((long) beNumber * parallelInstance * SALT_FACTOR, Integer.MAX_VALUE);
         }
         return Math.max(factor, 1);
