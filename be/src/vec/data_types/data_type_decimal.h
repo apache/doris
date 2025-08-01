@@ -597,7 +597,13 @@ void convert_from_decimal(typename ToDataType::FieldType* dst,
         } else {
             auto multiplier = FromDataType::get_scale_multiplier(scale);
             for (size_t i = 0; i < size; ++i) {
-                dst[i] = static_cast<ToFieldType>(src[i].value) / multiplier.value;
+                if constexpr (IsDecimal256<FromFieldType>) {
+                    dst[i] = static_cast<ToFieldType>(static_cast<long double>(src[i].value) /
+                                                      static_cast<long double>(multiplier.value));
+                } else {
+                    dst[i] = static_cast<ToFieldType>(static_cast<double>(src[i].value) /
+                                                      static_cast<double>(multiplier.value));
+                }
             }
         }
         if constexpr (narrow_integral) {
