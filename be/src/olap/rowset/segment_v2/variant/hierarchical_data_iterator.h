@@ -51,6 +51,8 @@
 
 namespace doris::segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 struct PathWithColumnAndType {
     vectorized::PathInData path;
     vectorized::ColumnPtr column;
@@ -170,5 +172,7 @@ private:
         return Status::OK();
     }
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

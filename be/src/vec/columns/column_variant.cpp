@@ -75,6 +75,8 @@
 namespace doris::vectorized {
 namespace {
 
+#include "common/compile_check_begin.h"
+
 DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable,
                                  int precision = -1, int scale = -1) {
     DataTypePtr result = type == PrimitiveType::INVALID_TYPE
@@ -1850,7 +1852,7 @@ Status ColumnVariant::serialize_sparse_columns(
     return Status::OK();
 }
 
-void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const {
+void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& res_subcolumns) const {
     entry->data.finalize();
     auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
     auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
@@ -1882,7 +1884,7 @@ void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) c
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
         Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
-        subcolumns.add(path_builder.build(), subcolumn);
+        res_subcolumns.add(path_builder.build(), subcolumn);
     }
 }
 
@@ -2556,5 +2558,7 @@ MutableColumnPtr ColumnVariant::clone() const {
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

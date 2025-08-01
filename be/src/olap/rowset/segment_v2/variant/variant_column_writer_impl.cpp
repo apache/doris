@@ -45,6 +45,8 @@
 
 namespace doris::segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                        CompressionTypePB compression_type) {
     meta->Clear();
@@ -673,5 +675,7 @@ Status VariantSubcolumnWriter::append_nullable(const uint8_t* null_map, const ui
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

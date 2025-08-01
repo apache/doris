@@ -518,29 +518,6 @@ private:
         DataTypeMap _data_type;
     }; //OlapColumnDataConvertorMap
 
-    // TODO(lihangyu) remove this class
-    class OlapColumnDataConvertorVariantRoot : public OlapColumnDataConvertorBase {
-    public:
-        OlapColumnDataConvertorVariantRoot() = default;
-
-        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
-                               size_t num_rows) override;
-        Status convert_to_olap() override;
-
-        const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override {
-            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                                   "OlapColumnDataConvertorVariantRoot not support get_data_at");
-        }
-
-    private:
-        // // encodes sparsed columns
-        // const ColumnString* _root_data_column;
-        // // _nullmap contains null info for this variant
-        std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
-        ColumnVariant* _source_column_ptr;
-    };
-
     class OlapColumnDataConvertorVariant : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorVariant() = default;

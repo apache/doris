@@ -34,6 +34,8 @@ class OlapBlockDataConvertor;
 } // namespace vectorized
 namespace segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 class ColumnWriter;
 class ScalarColumnWriter;
 
@@ -91,5 +93,8 @@ private:
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                        CompressionTypePB compression_type);
+
+#include "common/compile_check_end.h"
+
 } // namespace segment_v2
 } // namespace doris

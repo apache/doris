@@ -334,11 +334,6 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             return Status::OK();
         }
         case FieldType::OLAP_FIELD_TYPE_VARIANT: {
-            // // Use ScalarColumnWriter to write it's only root data
-            // std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
-            //         new ScalarColumnWriter(opts, std::move(field), file_writer));
-            // *writer = std::move(writer_local);
-            // return Status::OK();
             // Process columns with sparse column
             RETURN_IF_ERROR(create_variant_writer(opts, column, file_writer, writer));
             return Status::OK();

@@ -37,6 +37,8 @@
 
 namespace doris::segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 Status HierarchicalDataIterator::create(ColumnIterator** reader, vectorized::PathInData path,
                                         const SubcolumnColumnReaders::Node* node,
                                         const SubcolumnColumnReaders::Node* root,
@@ -448,5 +450,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(
     }
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

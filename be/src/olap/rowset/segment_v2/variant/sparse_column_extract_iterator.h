@@ -51,6 +51,8 @@
 
 namespace doris::segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 // Base class for sparse column processors with common functionality
 class BaseSparseColumnProcessor : public ColumnIterator {
 protected:
@@ -190,5 +192,7 @@ private:
         dst->insert_many_defaults(num_rows);
     }
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

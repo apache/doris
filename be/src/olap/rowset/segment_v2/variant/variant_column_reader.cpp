@@ -43,6 +43,8 @@
 
 namespace doris::segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 const SubcolumnColumnReaders::Node* VariantColumnReader::get_reader_by_path(
         const vectorized::PathInData& relative_path) const {
     const auto* node = _subcolumn_readers->find_leaf(relative_path);
@@ -328,7 +330,6 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
         if (node->is_leaf_node() && !relative_path.empty()) {
             // Node contains column without any child sub columns and no corresponding sparse columns
             // Direct read extracted columns
-            const auto* node = _subcolumn_readers->find_leaf(relative_path);
             RETURN_IF_ERROR(node->data.reader->new_iterator(iterator, nullptr));
         } else {
             RETURN_IF_ERROR(_create_hierarchical_reader(iterator, relative_path, node, root));
@@ -379,8 +380,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
         if (path.copy_pop_front().get_path() == SPARSE_COLUMN_PATH) {
             DCHECK(column_pb.has_variant_statistics()) << column_pb.DebugString();
             const auto& variant_stats = column_pb.variant_statistics();
-            for (const auto& [path, size] : variant_stats.sparse_column_non_null_size()) {
-                _statistics->sparse_column_non_null_size.emplace(path, size);
+            for (const auto& [subpath, size] : variant_stats.sparse_column_non_null_size()) {
+                _statistics->sparse_column_non_null_size.emplace(subpath, size);
             }
             RETURN_IF_ERROR(ColumnReader::create(opts, column_pb, footer.num_rows(), file_reader,
                                                  &_sparse_column_reader));
@@ -604,5 +605,7 @@ Status DefaultNestedColumnIterator::read_by_rowids(const rowid_t* rowids, const 
     }
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

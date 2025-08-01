@@ -23,6 +23,8 @@
 namespace doris {
 namespace segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 struct VariantStatistics {
     // If reached the size of this, we should stop writing statistics for sparse data
     std::map<std::string, int64_t> subcolumns_non_null_size;
@@ -42,5 +44,8 @@ struct VariantStatistics {
         }
     }
 };
+
+#include "common/compile_check_end.h"
+
 } // namespace segment_v2
 } // namespace doris
