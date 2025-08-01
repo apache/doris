@@ -180,15 +180,7 @@ Status RowsetBuilder::check_tablet_version_count() {
 }
 
 Status RowsetBuilder::prepare_txn() {
-    std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::defer_lock);
-    if (!base_migration_lock.try_lock_for(
-                std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
-        return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
-                                              config::migration_lock_timeout_ms);
-    }
-    std::lock_guard<std::mutex> push_lock(tablet()->get_push_lock());
-    return _engine.txn_manager()->prepare_txn(_req.partition_id, *tablet(), _req.txn_id,
-                                              _req.load_id);
+    return tablet()->prepare_txn(_req.partition_id, _req.txn_id, _req.load_id, false);
 }
 
 Status RowsetBuilder::init() {

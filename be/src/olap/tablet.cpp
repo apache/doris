@@ -2932,5 +2932,26 @@ int64_t Tablet::get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta)
     return total_inverted_index_size;
 }
 
+Status Tablet::prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                           const PUniqueId& load_id, bool ingest) {
+    std::shared_lock base_migration_lock(get_migration_lock(), std::defer_lock);
+
+    // TODO: rename debugpoint.
+    DBUG_EXECUTE_IF("PushHandler::_do_streaming_ingestion.try_lock_fail", {
+        return Status::Error<TRY_LOCK_FAILED>(
+                "PushHandler::_do_streaming_ingestion get lock failed");
+    })
+
+    if (!base_migration_lock.try_lock_for(
+                std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
+        return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
+                                              config::migration_lock_timeout_ms);
+    }
+
+    std::lock_guard<std::mutex> push_lock(get_push_lock());
+    return _engine.txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id(),
+                                              tablet_uid(), load_id, ingest);
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris
