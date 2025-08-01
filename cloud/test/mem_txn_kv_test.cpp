@@ -1338,3 +1338,79 @@ TEST(TxnMemKvTest, ReverseFullRangeGet) {
                 << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
     }
 }
+
+TEST(TxnMemKvTest, BatchScan) {
+    using namespace doris::cloud;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_NE(txn_kv.get(), nullptr);
+
+    std::vector<std::pair<std::string, std::string>> test_data = {
+            {"different_key", "different_value"},
+            {"prefix1", "value1"},
+            {"prefix1_sub1", "sub_value1"},
+            {"prefix1_sub2", "sub_value2"},
+            {"prefix2", "value2"},
+            {"prefix2_sub1", "sub_value3"},
+            {"prefix3", "value3"},
+    };
+
+    std::unique_ptr<Transaction> txn;
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (const auto& [key, val] : test_data) {
+            txn->put(key, val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    struct TestCase {
+        bool reverse;
+        std::vector<std::string> scan_keys;
+        std::vector<std::optional<std::string>> expected_keys;
+    };
+
+    std::vector<TestCase> test_cases = {
+            {false,
+             {"prefix1", "prefix2", "prefix3", "different_key"},
+             {"prefix1", "prefix2", "prefix3", "different_key"}},
+            {false, {"prefix1_", "prefix2_"}, {"prefix1_sub1", "prefix2_sub1"}},
+            {false, {"prefix5_"}, {std::nullopt}},
+            {true, {"a"}, {std::nullopt}},
+            {true, {"prefix1_", "prefix2_"}, {"prefix1", "prefix2"}},
+            {true,
+             {"prefix1", "prefix2", "prefix3", "different_key"},
+             {"prefix1", "prefix2", "prefix3", "different_key"}},
+    };
+
+    size_t count = 0;
+    for (auto& tc : test_cases) {
+        auto ret = txn_kv->create_txn(&txn);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        std::vector<std::optional<std::pair<std::string, std::string>>> results;
+        Transaction::BatchGetOptions opts;
+        opts.reverse = tc.reverse; // Reverse order
+        opts.snapshot = false;
+
+        ret = txn->batch_scan(&results, tc.scan_keys, opts);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(results.size(), tc.scan_keys.size());
+
+        for (size_t i = 0; i < results.size(); ++i) {
+            if (tc.expected_keys[i].has_value()) {
+                ASSERT_TRUE(results[i].has_value())
+                        << "count: " << count << ", expected key at index " << i
+                        << " for scan key: " << tc.scan_keys[i]
+                        << ", expected: " << tc.expected_keys[i].value() << ", got: empty";
+                std::string& key = results[i].value().first;
+                std::string& expected_key = tc.expected_keys[i].value();
+                ASSERT_EQ(key, expected_key) << "count: " << count << ", mismatch at index " << i
+                                             << " for scan key: " << tc.scan_keys[i]
+                                             << ", expected: " << expected_key << ", got: " << key;
+            } else {
+                ASSERT_FALSE(results[i].has_value());
+            }
+        }
+        count += 1;
+    }
+}
