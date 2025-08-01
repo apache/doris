@@ -97,7 +97,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -235,7 +234,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         private Map<ExprId, Expression> groupByExprs;
         private List<NamedExpression> orderByExprs;
         private Map<Slot, Expression> exprReplaceMap = Maps.newHashMap();
-        private Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 
         public ValidateContext(CascadesContext cascadesContext) {
             this.planTranslatorContext = new PlanTranslatorContext(cascadesContext);
@@ -272,10 +270,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             OlapTable olapTable = olapScan.getTable();
             if (olapTable.isTemporary()) {
                 throw new AnalysisException("do not support create materialized view on temporary table");
-            }
-            for (Column column : olapTable.getFullSchema()) {
-                // we don't check the duplicate name of historic mv for backwards compatibility
-                validateContext.allColumnNames.add(column.getName());
             }
             validateContext.baseIndexName = olapTable.getName();
             validateContext.dbName = olapTable.getDBName();
@@ -406,13 +400,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             List<NamedExpression> outputs = resultSink.getOutputExprs();
             List<String> outputNames = new ArrayList<>(outputs.size());
             for (NamedExpression expr : outputs) {
-                String colName = expr.getName();
-                if (context.allColumnNames.add(colName)) {
-                    outputNames.add(colName);
-                } else {
-                    throw new AnalysisException(String.format("duplicate column name %s in full schema, "
-                            + "please use a new unique name xxx, like %s as xxx in select list", colName, colName));
-                }
+                outputNames.add(expr.getName());
             }
             if (!context.exprReplaceMap.isEmpty()) {
                 outputs = ExpressionUtils.replaceNamedExpressions(outputs, context.exprReplaceMap);

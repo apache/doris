@@ -164,9 +164,9 @@ suite("test_analyze_mv") {
     assertEquals("0", result_row[0][3])
     assertEquals("-1", result_row[0][4])
 
-    createMV("create materialized view mv1 as select key1 from mvTestDup;")
-    createMV("create materialized view mv2 as select key2 from mvTestDup;")
-    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestDup group by key1, key2;")
+    createMV("create materialized view mv1 as select key1 as a1 from mvTestDup;")
+    createMV("create materialized view mv2 as select key2 as a2 from mvTestDup;")
+    createMV("create materialized view mv3 as select key1 as a3, key2 as a4, sum(value1) as a5, max(value2) as a6, min(value3) as a7 from mvTestDup group by key1, key2;")
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestDup with sync;"""
@@ -293,9 +293,9 @@ suite("test_analyze_mv") {
         );
     """
 
-    createMV("create materialized view mv1 as select key2 from mvTestAgg group by key2;")
-    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestAgg group by key1, key2;")
-    createMV("create materialized view mv6 as select key1, sum(value1) from mvTestAgg group by key1;")
+    createMV("create materialized view mv1 as select key2 as b1 from mvTestAgg group by key2;")
+    createMV("create materialized view mv3 as select key1 as b2, key2 as b3, sum(value1) as b4, max(value2) as b5, min(value3) as b6 from mvTestAgg group by key1, key2;")
+    createMV("create materialized view mv6 as select key1 as b7, sum(value1) as b8 from mvTestAgg group by key1;")
     sql """alter table mvTestAgg ADD ROLLUP rollup1(key1, value1)"""
     wait_mv_finish("test_analyze_mv", "mvTestAgg")
     sql """insert into mvTestAgg values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
@@ -456,8 +456,8 @@ suite("test_analyze_mv") {
         );
     """
 
-    createMV("create materialized view mv1 as select key1, key2 from mvTestUni;")
-    createMV("create materialized view mv6 as select key1, key2, value2, value3 from mvTestUni;")
+    createMV("create materialized view mv1 as select key1 as c1, key2 as c2 from mvTestUni;")
+    createMV("create materialized view mv6 as select key1 as c3, key2 as c4, value2 as c5, value3 as c6 from mvTestUni;")
     sql """insert into mvTestUni values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestUni with sync;"""
@@ -794,7 +794,7 @@ suite("test_analyze_mv") {
         );
     """
 
-    createMV("CREATE MATERIALIZED VIEW aggMv as select key1, SUM(value) from testMvDirectSelect group by key1;")
+    createMV("CREATE MATERIALIZED VIEW aggMv as select key1 as c7, SUM(value) as c8 from testMvDirectSelect group by key1;")
     sql """insert into testMvDirectSelect values (1, 1, 1), (1, 2, 2), (1, 3, 3), (2, 1, 4), (2, 2, 5), (3, 2, 6)"""
     qt_test_agg """select * from testMvDirectSelect index aggMv order by mv_key1"""
 

@@ -27,8 +27,8 @@ suite("test_prune_tablet_mv") {
     createMV( """
 	    CREATE
         MATERIALIZED VIEW mv_t2 AS
-        SELECT mv_c1,
-            mv_id
+        SELECT mv_c1 as a1,
+            mv_id as a2
         FROM test_prune_tablet_t2
         ORDER BY mv_c1,
         mv_id; 

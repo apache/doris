@@ -263,6 +263,20 @@ public class MaterializedViewHandler extends AlterHandler {
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
             }
+            // check no duplicate column name in full schema
+            Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            for (Column column : olapTable.getFullSchema()) {
+                // we don't check the duplicate name of historic mv for backwards compatibility
+                allColumnNames.add(column.getName());
+            }
+
+            for (MVColumnItem mvColumnItem : createMvCommand.getMVColumnItemList()) {
+                String colName = mvColumnItem.getName();
+                if (!allColumnNames.add(colName)) {
+                    throw new AnalysisException(String.format("duplicate column name %s in full schema, "
+                            + "please use a new unique name xxx, like %s as xxx in select list", colName, colName));
+                }
+            }
 
             // Step1.1: semantic analysis
             // TODO(ML): support the materialized view as base index
