@@ -42,8 +42,9 @@ struct FileWriterOptions {
     bool used_by_s3_committer = false;
     bool write_file_cache = false;
     bool is_cold_data = false;
-    bool sync_file_data = true;         // Whether flush data into storage system
-    uint64_t file_cache_expiration = 0; // Absolute time
+    bool sync_file_data = true;           // Whether flush data into storage system
+    uint64_t file_cache_expiration = 0;   // Absolute time
+    uint64_t approximate_write_bytes = 0; // Approximate bytes to write, used for file cache
 };
 
 struct AsyncCloseStatusPack {
