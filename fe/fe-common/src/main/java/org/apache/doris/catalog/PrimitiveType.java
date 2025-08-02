@@ -403,6 +403,7 @@ public enum PrimitiveType {
         builder.put(DATETIMEV2, DATETIME);
         builder.put(DATETIMEV2, DATEV2);
         builder.put(DATETIMEV2, DATETIMEV2);
+        builder.put(DATETIMEV2, TIMEV2);
         builder.put(DATETIMEV2, DECIMALV2);
         builder.put(DATETIMEV2, DECIMAL32);
         builder.put(DATETIMEV2, DECIMAL64);
@@ -620,13 +621,21 @@ public enum PrimitiveType {
         builder.put(TIME, DOUBLE);
         builder.put(TIME, VARCHAR);
         builder.put(TIME, STRING);
+        builder.put(TIME, DATE);
+        builder.put(TIME, DATETIME);
+        builder.put(TIME, DATEV2);
+        builder.put(TIME, DATETIMEV2);
 
-        //TIMEV2
+        // TIMEV2
         builder.put(TIMEV2, TIME);
         builder.put(TIMEV2, TIMEV2);
         builder.put(TIMEV2, DOUBLE);
         builder.put(TIMEV2, VARCHAR);
         builder.put(TIMEV2, STRING);
+        builder.put(TIMEV2, DATE);
+        builder.put(TIMEV2, DATETIME);
+        builder.put(TIMEV2, DATEV2);
+        builder.put(TIMEV2, DATETIMEV2);
 
         implicitCastMap = builder.build();
     }
