@@ -1591,4 +1591,22 @@ class FilterEstimationTest {
         Assertions.assertTrue(stats.findColumnStatistics(a).isUnKnown());
         Assertions.assertFalse(stats.findColumnStatistics(b).isUnKnown());
     }
+
+    @Test
+    public void testAvoidNegativeRowCount() {
+        Double row = 0.0;
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder(row)
+                .setNdv(1)
+                .setAvgSizeByte(4)
+                .setNumNulls(0);
+        Statistics inputStats = new StatisticsBuilder()
+                .setRowCount(row)
+                .putColumnStatistics(a, columnStatisticBuilderA.build())
+                .build();
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics outputStats = filterEstimation.estimate(new IsNull(a), inputStats);
+        // make sure when input is 0, output is also 0
+        Assertions.assertEquals(0.0, outputStats.getRowCount());
+    }
 }
