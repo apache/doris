@@ -626,6 +626,7 @@ public class FunctionSet<T> {
         vecFns.add(fn);
     }
 
+    public static final String BOOL_OR = "bool_or";
 
     public static final String COUNT = "count";
     public static final String WINDOW_FUNNEL = "window_funnel";
@@ -708,6 +709,16 @@ public class FunctionSet<T> {
                     "",
                     null, false, true, true, true));
         }
+
+        // bool_or
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.BOOL_OR,
+                Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN, Type.BOOLEAN,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, true, true, false, true));
 
         // Vectorization does not need symbol any more, we should clean it in the future.
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
