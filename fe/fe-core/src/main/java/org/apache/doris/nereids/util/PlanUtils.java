@@ -124,11 +124,12 @@ public class PlanUtils {
     public static List<NamedExpression> adjustNullableForRepeat(
             List<List<Expression>> groupingSets,
             List<NamedExpression> outputs) {
-        Set<Slot> groupingSetsUsedSlots = groupingSets.stream()
-                .flatMap(Collection::stream)
-                .map(Expression::getInputSlots)
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
+        Set<Slot> groupingSetsUsedSlots = Sets.newHashSetWithExpectedSize(64);
+        for (List<Expression> groupingSet : groupingSets) {
+            for (Expression expression : groupingSet) {
+                groupingSetsUsedSlots.addAll(expression.getInputSlots());
+            }
+        }
         Builder<NamedExpression> nullableOutputs = ImmutableList.builderWithExpectedSize(outputs.size());
         for (NamedExpression output : outputs) {
             Expression nullableOutput = output.rewriteUp(expr -> {
