@@ -31,11 +31,13 @@
 #include "common/stats.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "meta_service.h"
 
 // Empty string not is not processed
@@ -666,12 +668,69 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     }
 }
 
+int compaction_update_tablet_stats(const TabletCompactionJobPB& compaction, TabletStatsPB* stats,
+                                   MetaServiceCode& code, std::string& msg, int64_t now) {
+    if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) {
+        stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
+        stats->set_cumulative_point(compaction.output_cumulative_point());
+        stats->set_last_cumu_compaction_time_ms(now * 1000);
+    } else if (compaction.type() == TabletCompactionJobPB::CUMULATIVE) {
+        // clang-format off
+        stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
+        if (compaction.output_cumulative_point() > stats->cumulative_point()) {
+            // After supporting parallel cumu compaction, compaction with older cumu point may be committed after
+            // new cumu point has been set, MUST NOT set cumu point back to old value
+            stats->set_cumulative_point(compaction.output_cumulative_point());
+        }
+        stats->set_num_rows(stats->num_rows() + (compaction.num_output_rows() - compaction.num_input_rows()));
+        stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
+        stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
+        stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
+        stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
+        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
+        stats->set_last_cumu_compaction_time_ms(now * 1000);
+        // clang-format on
+    } else if (compaction.type() == TabletCompactionJobPB::BASE) {
+        // clang-format off
+        stats->set_base_compaction_cnt(stats->base_compaction_cnt() + 1);
+        stats->set_num_rows(stats->num_rows() + (compaction.num_output_rows() - compaction.num_input_rows()));
+        stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
+        stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
+        stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
+        stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
+        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
+        stats->set_last_base_compaction_time_ms(now * 1000);
+        // clang-format on
+    } else if (compaction.type() == TabletCompactionJobPB::FULL) {
+        // clang-format off
+        stats->set_base_compaction_cnt(stats->base_compaction_cnt() + 1);
+        if (compaction.output_cumulative_point() > stats->cumulative_point()) {
+            // After supporting parallel cumu compaction, compaction with older cumu point may be committed after
+            // new cumu point has been set, MUST NOT set cumu point back to old value
+            stats->set_cumulative_point(compaction.output_cumulative_point());
+        }
+        stats->set_num_rows(stats->num_rows() + (compaction.num_output_rows() - compaction.num_input_rows()));
+        stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
+        stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
+        stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
+        stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
+        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
+        stats->set_last_full_compaction_time_ms(now * 1000);
+        // clang-format on
+    } else {
+        msg = "invalid compaction type";
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        return -1;
+    }
+    return 0;
+}
+
 void process_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                             std::unique_ptr<Transaction>& txn,
                             const FinishTabletJobRequest* request,
                             FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                             std::string& instance_id, std::string& job_key, bool& need_commit,
-                            std::string& use_version) {
+                            std::string& use_version, bool is_version_write_enabled) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -679,6 +738,10 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     int64_t index_id = request->job().idx().index_id();
     int64_t partition_id = request->job().idx().partition_id();
     int64_t tablet_id = request->job().idx().tablet_id();
+
+    CompactionLogPB compaction_log;
+    compaction_log.set_tablet_id(tablet_id);
+
     if (recorded_job.compaction().empty()) {
         SS << "there is no running compaction, tablet_id=" << tablet_id;
         msg = ss.str();
@@ -789,56 +852,40 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     //  with `config::split_tablet_stats = true` can meet the condition.
     internal_get_tablet_stats(code, msg, txn.get(), instance_id, request->job().idx(), *stats,
                               detached_stats, config::snapshot_get_tablet_stats);
-    if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) {
-        stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
-        stats->set_cumulative_point(compaction.output_cumulative_point());
-        stats->set_last_cumu_compaction_time_ms(now * 1000);
-    } else if (compaction.type() == TabletCompactionJobPB::CUMULATIVE) {
-        // clang-format off
-        stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
-        if (compaction.output_cumulative_point() > stats->cumulative_point()) {
-            // After supporting parallel cumu compaction, compaction with older cumu point may be committed after
-            // new cumu point has been set, MUST NOT set cumu point back to old value
-            stats->set_cumulative_point(compaction.output_cumulative_point());
+
+    if (is_version_write_enabled) {
+        // read old TabletCompactStatsKey -> TabletStatsPB
+        std::string tablet_compact_stats_version_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        std::string tablet_compact_stats_version_value;
+        Versionstamp* versionstamp = nullptr;
+        TxnErrorCode err = versioned_get(txn.get(), tablet_compact_stats_version_key, versionstamp,
+                                         &tablet_compact_stats_version_value);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
+                                                          : cast_as<ErrCategory::READ>(err);
+            msg = fmt::format(
+                    "failed to get tablet compact stats version, tablet_id={}, key={} err={}",
+                    tablet_id, hex(tablet_compact_stats_version_key), err);
+            return;
         }
-        stats->set_num_rows(stats->num_rows() + (compaction.num_output_rows() - compaction.num_input_rows()));
-        stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
-        stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
-        stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
-        stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
-        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
-        stats->set_last_cumu_compaction_time_ms(now * 1000);
-        // clang-format on
-    } else if (compaction.type() == TabletCompactionJobPB::BASE) {
-        // clang-format off
-        stats->set_base_compaction_cnt(stats->base_compaction_cnt() + 1);
-        stats->set_num_rows(stats->num_rows() + (compaction.num_output_rows() - compaction.num_input_rows()));
-        stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
-        stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
-        stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
-        stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
-        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
-        stats->set_last_base_compaction_time_ms(now * 1000);
-        // clang-format on
-    } else if (compaction.type() == TabletCompactionJobPB::FULL) {
-        // clang-format off
-        stats->set_base_compaction_cnt(stats->base_compaction_cnt() + 1);
-        if (compaction.output_cumulative_point() > stats->cumulative_point()) {
-            // After supporting parallel cumu compaction, compaction with older cumu point may be committed after
-            // new cumu point has been set, MUST NOT set cumu point back to old value
-            stats->set_cumulative_point(compaction.output_cumulative_point());
+        TabletStatsPB tablet_compact_stats;
+        tablet_compact_stats.ParseFromString(tablet_compact_stats_version_value);
+
+        // update TabletStatsPB
+        if (compaction_update_tablet_stats(compaction, &tablet_compact_stats, code, msg, now) ==
+            -1) {
+            return;
         }
-        stats->set_num_rows(stats->num_rows() + (compaction.num_output_rows() - compaction.num_input_rows()));
-        stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
-        stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
-        stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
-        stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
-        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
-        stats->set_last_full_compaction_time_ms(now * 1000);
-        // clang-format on
-    } else {
-        msg = "invalid compaction type";
-        code = MetaServiceCode::INVALID_ARGUMENT;
+        tablet_compact_stats.set_num_compaction_rowsets(compaction.num_output_segments() -
+                                                        compaction.num_input_segments());
+
+        // write new TabletCompactStatsKey -> TabletStatsPB
+        auto tablet_compact_stats_val = tablet_compact_stats.SerializeAsString();
+        versioned_put(txn.get(), tablet_compact_stats_version_key, tablet_compact_stats_val);
+    }
+
+    if (compaction_update_tablet_stats(compaction, stats, code, msg, now) == -1) {
         return;
     }
     auto stats_key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
@@ -922,6 +969,9 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     auto rs_start = meta_rowset_key({instance_id, tablet_id, start});
     auto rs_end = meta_rowset_key({instance_id, tablet_id, end + 1});
 
+    compaction_log.set_start_version(start);
+    compaction_log.set_end_version(end);
+
     std::unique_ptr<RangeGetIterator> it;
     int num_rowsets = 0;
     DORIS_CLOUD_DEFER {
@@ -967,8 +1017,14 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             recycle_rowset.set_creation_time(now);
             recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
             recycle_rowset.set_type(RecycleRowsetPB::COMPACT);
-            auto recycle_val = recycle_rowset.SerializeAsString();
-            txn->put(recycle_key, recycle_val);
+
+            if (is_version_write_enabled) {
+                compaction_log.add_recycle_rowsets()->CopyFrom(recycle_rowset);
+            } else {
+                auto recycle_val = recycle_rowset.SerializeAsString();
+                txn->put(recycle_key, recycle_val);
+            }
+
             INSTANCE_LOG(INFO) << "put recycle rowset, tablet_id=" << tablet_id
                                << " key=" << hex(recycle_key);
 
@@ -1054,6 +1110,11 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     int64_t version = compaction.output_versions(0);
     auto rowset_key = meta_rowset_key({instance_id, tablet_id, version});
     txn->put(rowset_key, tmp_rowset_val);
+    if (is_version_write_enabled) {
+        std::string meta_rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_id, tablet_id, version});
+        versioned_put(txn.get(), meta_rowset_compact_key, tmp_rowset_val);
+    }
     INSTANCE_LOG(INFO) << "put rowset meta, tablet_id=" << tablet_id
                        << " rowset_key=" << hex(rowset_key);
 
@@ -1071,6 +1132,22 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                                         ? recorded_job.schema_change().alter_version()
                                         : -1);
     need_commit = true;
+
+    if (!compaction_log.recycle_rowsets().empty() && is_version_write_enabled) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_compaction()->Swap(&compaction_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg)
+                    .tag("instance_id", instance_id)
+                    .tag("table_id", request->job().idx().table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
+    }
 }
 
 void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
@@ -1078,7 +1155,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                const FinishTabletJobRequest* request,
                                FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                                std::string& instance_id, std::string& job_key, bool& need_commit,
-                               std::string& use_version) {
+                               std::string& use_version, bool is_version_write_enabled) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -1547,14 +1624,16 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                 delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
         LOG(INFO) << "finish_tablet_job instance_id=" << instance_id
                   << " use_version=" << use_version;
+        bool is_version_write = is_version_write_enabled(instance_id);
         if (!request->job().compaction().empty()) {
             // Process compaction commit
             process_compaction_job(code, msg, ss, txn, request, response, recorded_job, instance_id,
-                                   job_key, need_commit, use_version);
+                                   job_key, need_commit, use_version, is_version_write);
         } else if (request->job().has_schema_change()) {
             // Process schema change commit
             process_schema_change_job(code, msg, ss, txn, request, response, recorded_job,
-                                      instance_id, job_key, need_commit, use_version);
+                                      instance_id, job_key, need_commit, use_version,
+                                      is_version_write);
         }
 
         if (!need_commit) return;
