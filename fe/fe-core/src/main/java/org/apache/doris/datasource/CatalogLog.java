@@ -56,6 +56,7 @@ public class CatalogLog implements Writable {
     @SerializedName(value = "invalidCache")
     private boolean invalidCache;
 
+    @Deprecated
     @SerializedName(value = "resource")
     private String resource;
 

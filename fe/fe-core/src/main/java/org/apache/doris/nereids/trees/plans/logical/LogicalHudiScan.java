@@ -187,7 +187,7 @@ public class LogicalHudiScan extends LogicalFileScan {
         Optional<IncrementalRelation> newIncrementalRelation = Optional.empty();
         if (optScanParams.isPresent() && optScanParams.get().incrementalRead()) {
             TableScanParams scanParams = optScanParams.get();
-            Map<String, String> optParams = table.getHadoopProperties();
+            Map<String, String> optParams = table.getBackendStorageProperties();
             if (scanParams.getMapParams().containsKey("beginTime")) {
                 optParams.put("hoodie.datasource.read.begin.instanttime", scanParams.getMapParams().get("beginTime"));
             }

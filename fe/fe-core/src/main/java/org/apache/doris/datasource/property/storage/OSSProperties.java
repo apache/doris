@@ -25,7 +25,6 @@ import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
@@ -172,15 +171,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     @Override
     public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = new Configuration();
-        hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
-        hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
-        hadoopStorageConfig.set("fs.oss.region", region);
-        hadoopStorageConfig.set("fs.oss.accessKeyId", accessKey);
-        hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
-        hadoopStorageConfig.set("fs.oss.connection.timeout", connectionTimeoutS);
-        hadoopStorageConfig.set("fs.oss.connection.max", maxConnections);
-        hadoopStorageConfig.set("fs.oss.connection.request.timeout", requestTimeoutS);
-        hadoopStorageConfig.set("fs.oss.use.path.style.access", usePathStyle);
+        super.initializeHadoopStorageConfig();
+        hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
     }
 }

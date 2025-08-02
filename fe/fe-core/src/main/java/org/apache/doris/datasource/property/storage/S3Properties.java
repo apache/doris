@@ -23,11 +23,9 @@ import org.apache.doris.datasource.property.storage.exception.StoragePropertiesE
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
@@ -39,8 +37,6 @@ import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsPr
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
-import java.lang.reflect.Field;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -219,34 +215,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         return ENDPOINT_PATTERN;
     }
 
-    private static List<Field> getIdentifyFields() {
-        List<Field> fields = Lists.newArrayList();
-        try {
-            //todo AliyunDlfProperties should in OSS storage type.
-            fields.add(S3Properties.class.getDeclaredField("s3AccessKey"));
-            // fixme Add it when MS done
-            //fields.add(AliyunDLFProperties.class.getDeclaredField("dlfAccessKey"));
-            //fields.add(AWSGlueProperties.class.getDeclaredField("glueAccessKey"));
-            return fields;
-        } catch (NoSuchFieldException e) {
-            // should not happen
-            throw new RuntimeException("Failed to get field: " + e.getMessage(), e);
-        }
-    }
-
-    /*
-    public void toPaimonOSSFileIOProperties(Options options) {
-        options.set("fs.oss.endpoint", s3Endpoint);
-        options.set("fs.oss.accessKeyId", s3AccessKey);
-        options.set("fs.oss.accessKeySecret", s3SecretKey);
-    }
-
-    public void toPaimonS3FileIOProperties(Options options) {
-        options.set("s3.endpoint", s3Endpoint);
-        options.set("s3.access-key", s3AccessKey);
-        options.set("s3.secret-key", s3SecretKey);
-    }*/
-
     @Override
     public Map<String, String> getBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration(s3ConnectionMaximum,
@@ -297,18 +265,17 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 InstanceProfileCredentialsProvider.create());
     }
 
-
     @Override
     public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = new Configuration();
-        hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        hadoopStorageConfig.set("fs.s3a.endpoint", endpoint);
-        hadoopStorageConfig.set("fs.s3a.access.key", accessKey);
-        hadoopStorageConfig.set("fs.s3a.secret.key", secretKey);
-        hadoopStorageConfig.set("fs.s3a.connection.maximum", s3ConnectionMaximum);
-        hadoopStorageConfig.set("fs.s3a.connection.request.timeout", s3ConnectionRequestTimeoutS);
-        hadoopStorageConfig.set("fs.s3a.connection.timeout", s3ConnectionTimeoutS);
-        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
+        super.initializeHadoopStorageConfig();
+        //Set assumed_roles
+        //@See https://hadoop.apache.org/docs/r3.4.1/hadoop-aws/tools/hadoop-aws/assumed_roles.html
+        if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
+            //@See org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider
+            hadoopStorageConfig.set("fs.s3a.assumed.role.external.id", s3ExternalId);
+            hadoopStorageConfig.set("fs.s3a.assumed.role.arn", s3IAMRole);
+            hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
+                    "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider");
+        }
     }
 }
