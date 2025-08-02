@@ -377,7 +377,7 @@ under the License.
         <flatbuffers.version>1.12.0</flatbuffers.version>
         <jacoco.version>0.8.10</jacoco.version>
         <trino.version>435</trino.version>
-        <nimbusds.version>10.0.1</nimbusds.version>
+        <nimbusds.version>10.0.2</nimbusds.version>
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
