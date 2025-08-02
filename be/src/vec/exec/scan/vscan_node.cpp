@@ -38,6 +38,7 @@
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/runtime_filter.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -191,6 +192,9 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     RETURN_IF_ERROR(_process_conjuncts());
 
     if (_is_pipeline_scan) {
+        auto* fragment_ctx = state->pipeline_fragment_ctx();
+        CHECK(fragment_ctx != nullptr) << "Fragment context is null";
+        _task_handle = fragment_ctx->task_handle();
         if (_should_create_scanner) {
             auto status =
                     !_eos ? _prepare_scanners(state->query_parallel_instance_num()) : Status::OK();
@@ -214,6 +218,7 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
             return Status::WaitForScannerContext("Need wait for scanner context create");
         }
     } else {
+        _task_handle = state->fragment_task_handle();
         RETURN_IF_ERROR(!_eos ? _prepare_scanners(state->query_parallel_instance_num())
                               : Status::OK());
         if (_scanner_ctx) {
@@ -315,13 +320,13 @@ void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>
         // https://github.com/apache/doris/blob/967801ca666f84a60010bef1f6ca5ca777d5b901/be/src/vec/exec/scan/scanner_context.cpp#L91
         // The actual working value comes from state->query_parallel_instance_num()
         // so remove above code changes nothing for pipeline.
-        _scanner_ctx = pipeline::PipScannerContext::create_shared(_state, this, _output_tuple_desc,
-                                                                  _output_row_descriptor.get(),
-                                                                  scanners, limit(), false);
+        _scanner_ctx = pipeline::PipScannerContext::create_shared(
+                _state, this, _output_tuple_desc, _output_row_descriptor.get(), scanners, limit(),
+                false, _task_handle);
     } else {
         _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
                                                      _output_row_descriptor.get(), scanners,
-                                                     limit(), false, true);
+                                                     limit(), false, true, _task_handle);
     }
 }
 
