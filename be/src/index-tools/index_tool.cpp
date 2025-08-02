@@ -168,8 +168,11 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         roaring::Roaring result;
         std::vector<std::string> terms = split(token, '|');
 
-        doris::TQueryOptions queryOptions;
-        ConjunctionQuery conjunct_query(s, queryOptions, nullptr);
+        doris::TQueryOptions query_options;
+        query_options.inverted_index_max_expansions = 50;
+        doris::io::IOContext io_ctx;
+
+        ConjunctionQuery conjunct_query(s, query_options, &io_ctx);
         InvertedIndexQueryInfo query_info;
         query_info.field_name = field_ws;
         for (auto& term : terms) {
