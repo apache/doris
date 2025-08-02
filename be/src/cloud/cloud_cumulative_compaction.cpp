@@ -87,6 +87,11 @@ Status CloudCumulativeCompaction::prepare_compact() {
         RETURN_IF_ERROR(st);
     }
 
+    if (cloud_tablet()->is_warm_up_conflict_with_compaction()) {
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "some rowsets of tablet {} is in warmup state", _tablet->tablet_id());
+    }
+
     // pick rowsets to compact
     st = pick_rowsets_to_compact();
     if (!st.ok()) {
@@ -375,7 +380,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         if (_input_rowsets.size() == 1) {
             DCHECK_EQ(_output_rowset->version(), _input_rowsets[0]->version());
             // MUST NOT move input rowset to stale path
-            cloud_tablet()->add_rowsets({_output_rowset}, true, wrlock);
+            cloud_tablet()->add_rowsets({_output_rowset}, true, wrlock, true);
         } else {
             cloud_tablet()->delete_rowsets(_input_rowsets, wrlock);
             cloud_tablet()->add_rowsets({_output_rowset}, false, wrlock);
