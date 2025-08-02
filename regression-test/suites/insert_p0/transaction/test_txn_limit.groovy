@@ -59,6 +59,8 @@ suite("test_txn_limit", 'nonConcurrent') {
 
     def dbName = "test_txn_limit_db"
     def tableName = "${dbName}.test_txn_limit"
+    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
+
     create_db_and_table("${dbName}", "${tableName}")
 
     test {
