@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -24,6 +25,8 @@
 namespace doris {
 
 class WalReader {
+    ENABLE_FACTORY_CREATOR(WalReader);
+
 public:
     explicit WalReader(const std::string& file_name);
     ~WalReader();

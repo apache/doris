@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_fwd.h"
@@ -37,6 +38,8 @@ class StorageEngine;
 /// This task is used to migrate the specified tablet to the specified data directory.
 // Usually used for storage medium migration, or migration of tablets between disks.
 class EngineStorageMigrationTask final : public EngineTask {
+    ENABLE_FACTORY_CREATOR(EngineStorageMigrationTask);
+
 public:
     Status execute() override;
 

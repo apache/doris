@@ -210,7 +210,12 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
 
 Status BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     // NOTE: We use std::static_pointer_cast for performance
-    result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
+    std::unique_ptr<BetaRowsetReader> betaRowSetReader = BetaRowsetReader::create_unique(
+            std::static_pointer_cast<BetaRowset>(shared_from_this()));
+    if (betaRowSetReader == nullptr) {
+        return Status::Error<MEM_ALLOC_FAILED>("Memory allocation failed");
+    }
+    result->reset(betaRowSetReader.release());
     return Status::OK();
 }
 
