@@ -3727,6 +3727,12 @@ public class Env {
             sb.append("\"");
         }
 
+        // medium medium allocation policy
+        if (olapTable.getMediumAllocationMode() != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE).append("\" = \"");
+            sb.append(olapTable.getMediumAllocationMode().name().toLowerCase()).append("\"");
+        }
+
         // storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
         sb.append(olapTable.getStorageFormat()).append("\"");
@@ -6074,6 +6080,7 @@ public class Env {
                 .buildMinLoadReplicaNum()
                 .buildStoragePolicy()
                 .buildStorageMedium()
+                .buildMediumAllocationMode()
                 .buildIsBeingSynced()
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()
