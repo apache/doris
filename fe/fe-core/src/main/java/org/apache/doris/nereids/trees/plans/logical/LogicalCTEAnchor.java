@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -91,5 +92,22 @@ public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
     public String toString() {
         return Utils.toSqlString("LogicalCteAnchor[" + id.asInt() + "]",
                 "cteId", cteId);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalCTEAnchor that = (LogicalCTEAnchor) o;
+        return Objects.equals(cteId, that.cteId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(cteId);
     }
 }

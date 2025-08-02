@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testOrderByQueryOnProjectView") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -45,7 +47,7 @@ suite ("testOrderByQueryOnProjectView") {
 
     sql "analyze table emps with sync;"
     sql """alter table emps modify column time_col set stats ('row_count'='8');"""
-    sql """set enable_stats=false;"""
+    sql """set enable_stats=true;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"

@@ -20,6 +20,9 @@ suite("mv_with_force_drop") {
         drop table if exists test_table_t1;
     """
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """
         CREATE TABLE test_table_t1 (
         a1 varchar(65533) NULL default '123',

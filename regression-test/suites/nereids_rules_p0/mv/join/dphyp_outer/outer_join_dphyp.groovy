@@ -21,7 +21,6 @@ suite("outer_join_dphyp") {
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_dphyp_optimizer = true"
-    sql "set disable_nereids_rules='ELIMINATE_CONST_JOIN_CONDITION,CONSTANT_PROPAGATION'"
 
     sql """
     drop table if exists orders
@@ -305,7 +304,11 @@ suite("outer_join_dphyp") {
             where o_orderstatus = 'o' AND o_orderkey = 1;
     """
     order_qt_query4_0_before "${query4_0}"
-    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
+    // DP Hyper can not use pre materialized view rewrite
+    sql """SET enable_dphyp_optimizer = false"""
+    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    sql """SET enable_dphyp_optimizer = true"""
+    async_mv_rewrite_fail(db, mv4_0, query4_0, "mv4_0", [NOT_IN_RBO])
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
