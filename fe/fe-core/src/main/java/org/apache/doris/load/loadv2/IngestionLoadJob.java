@@ -160,6 +160,9 @@ public class IngestionLoadJob extends LoadJob {
 
     private List<Long> loadTableIds = new ArrayList<>();
 
+    @SerializedName(value = "ftype")
+    private TFileType fileType;
+
     public IngestionLoadJob() {
         super(EtlJobType.INGESTION);
     }
@@ -680,6 +683,16 @@ public class IngestionLoadJob extends LoadJob {
             hadoopProperties.putAll(
                     gson.fromJson(statusInfo.get("hadoopProperties"), new TypeToken<HashMap<String, String>>() {
                     }));
+            switch (statusInfo.get("storageType")) {
+                case "HDFS":
+                    fileType = TFileType.FILE_HDFS;
+                    break;
+                case "S3":
+                    fileType = TFileType.FILE_S3;
+                    break;
+                default:
+                    throw new IllegalArgumentException("unknown file type: " + statusInfo.get("fileType"));
+            }
         }
 
     }
@@ -822,7 +835,7 @@ public class IngestionLoadJob extends LoadJob {
 
         // broker range desc
         TBrokerRangeDesc tBrokerRangeDesc = new TBrokerRangeDesc();
-        tBrokerRangeDesc.setFileType(TFileType.FILE_HDFS);
+        tBrokerRangeDesc.setFileType(fileType);
         tBrokerRangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
         tBrokerRangeDesc.setSplittable(false);
         tBrokerRangeDesc.setStartOffset(0);
@@ -881,7 +894,7 @@ public class IngestionLoadJob extends LoadJob {
                 getTBrokerScanRange(descTable, destTupleDesc, columns, hadoopProperties);
         // update filePath fileSize
         TBrokerRangeDesc tBrokerRangeDesc = tBrokerScanRange.getRanges().get(0);
-        tBrokerRangeDesc.setFileType(TFileType.FILE_HDFS);
+        tBrokerRangeDesc.setFileType(fileType);
         tBrokerRangeDesc.setPath("");
         tBrokerRangeDesc.setFileSize(-1);
         String tabletMetaStr = String.format("%d.%d.%d.%d.%d", olapTable.getId(), partitionId,
