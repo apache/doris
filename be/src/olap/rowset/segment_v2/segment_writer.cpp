@@ -182,8 +182,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
 
     init_column_meta(opts.meta, cid, column, schema);
 
-    opts.is_limit_io = _opts.rowset_ctx->is_limit_io;
-
+    opts.is_limit_io = (_opts.rowset_ctx != nullptr) && (_opts.rowset_ctx->is_limit_io);
     // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
     // except for columns whose type don't support zone map.
     opts.need_zone_map = column.is_key() || schema->keys_type() != KeysType::AGG_KEYS;
@@ -322,8 +321,9 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                 _short_key_index_builder.reset(
                         new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
             }
+            bool is_limit_io = (_opts.rowset_ctx != nullptr) && (_opts.rowset_ctx->is_limit_io);
             _primary_key_index_builder.reset(new PrimaryKeyIndexBuilder(
-                    _file_writer, seq_col_length, rowid_length, _opts.rowset_ctx->is_limit_io));
+                    _file_writer, seq_col_length, rowid_length, is_limit_io));
             RETURN_IF_ERROR(_primary_key_index_builder->init());
         } else {
             _short_key_index_builder.reset(
@@ -1189,8 +1189,9 @@ Status SegmentWriter::_write_short_key_index() {
     RETURN_IF_ERROR(_short_key_index_builder->finalize(_row_count, &body, &footer));
     PagePointer pp;
     // short key index page is not compressed right now
+    bool is_limit_io = (_opts.rowset_ctx != nullptr) && (_opts.rowset_ctx->is_limit_io);
     RETURN_IF_ERROR(
-            PageIO::write_page(_file_writer, body, footer, &pp, _opts.rowset_ctx->is_limit_io));
+            PageIO::write_page(_file_writer, body, footer, &pp, is_limit_io));
     pp.to_proto(_footer.mutable_short_key_index_page());
     return Status::OK();
 }
@@ -1224,8 +1225,9 @@ Status SegmentWriter::_write_footer() {
 }
 
 Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
+    bool is_limit_io = (_opts.rowset_ctx != nullptr) && (_opts.rowset_ctx->is_limit_io);
     RETURN_IF_ERROR(
-            _file_writer->appendv(&slices[0], slices.size(), _opts.rowset_ctx->is_limit_io));
+            _file_writer->appendv(&slices[0], slices.size(), is_limit_io));
     return Status::OK();
 }
 
