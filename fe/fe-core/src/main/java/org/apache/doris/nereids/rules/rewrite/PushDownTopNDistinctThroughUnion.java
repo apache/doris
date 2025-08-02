@@ -79,7 +79,7 @@ public class PushDownTopNDistinctThroughUnion implements RewriteRuleFactory {
                                                 ExpressionUtils.replace(orderKey.getExpr(), replaceMap)))
                                         .collect(ImmutableList.toImmutableList());
                                 newChildren.add(new LogicalTopN<>(orderKeys, topN.getLimit() + topN.getOffset(), 0,
-                                        PlanUtils.distinct(child)));
+                                        PlanUtils.distinct(child), true));
                             }
                             if (union.children().equals(newChildren)) {
                                 return null;
