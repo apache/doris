@@ -243,6 +243,7 @@ void FileScanner::_init_runtime_filter_partition_prune_block() {
 }
 
 Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_all) {
+    LOG(INFO) << "_process_runtime_filters_partition_prune";
     SCOPED_TIMER(_runtime_filter_partition_prune_timer);
     if (_runtime_filter_partition_prune_ctxs.empty() || _partition_col_descs.empty()) {
         return Status::OK();
@@ -262,6 +263,8 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
                 *col_ptr, slice, partition_value_column_size, &num_deserialized, {}));
         parititon_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
+
+    LOG(INFO) << "After Get partition key values to string columns";
 
     // 2. Fill _runtime_filter_partition_prune_block from the partition column, then execute conjuncts and filter block.
     // 2.1 Fill _runtime_filter_partition_prune_block from the partition column to match the conjuncts executing.
@@ -295,6 +298,8 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
         index++;
     }
 
+    LOG(INFO) << "After Fill _runtime_filter_partition_prune_block from the partition column";
+
     // 2.2 Execute conjuncts.
     if (!first_column_filled) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
@@ -306,6 +311,9 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_prune_ctxs, nullptr,
                                                     &_runtime_filter_partition_prune_block,
                                                     &result_filter, &can_filter_all));
+
+    LOG(INFO) << "After Execute conjuncts for partition pruning, can_filter_all: "
+              << can_filter_all;
     return Status::OK();
 }
 
