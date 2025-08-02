@@ -15,22 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.UnboundLogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.Optional;
+import java.util.List;
 
-/**
- * plan can be explained.
- */
-public interface Explainable {
-    Plan getExplainPlan(ConnectContext ctx) throws Exception;
+/** UnboundPlan */
+public interface UnboundPlan extends Plan {
+    @Override
+    default LogicalProperties computeLogicalProperties() {
+        return UnboundLogicalProperties.INSTANCE;
+    }
 
-    default Optional<NereidsPlanner> getExplainPlanner(LogicalPlan logicalPlan, StatementContext ctx) throws Exception {
-        return Optional.empty();
+    @Override
+    default List<Slot> computeOutput() {
+        throw new UnboundException("output");
     }
 }
