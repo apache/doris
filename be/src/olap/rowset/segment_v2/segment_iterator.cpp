@@ -2124,27 +2124,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     _current_batch_rows_read = 0;
 
-    // !fix: nrows_read_limit is byte? need to get row_size
-    size_t left_byte = nrows_read_limit;
-    uint32_t current_batch_rows_read = 0;
-
-    // !fix: compaction only run into "if(!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval)"?
-    while (left_byte > 0) {
-        size_t allowed = left_byte;
-        if (_opts.is_limit_io) {
-            allowed = io::rate_limiter->RequestToken(
-                    left_byte /* bytes */, 0 /* alignment */,
-                    rocksdb::Env::IOPriority::IO_LOW /* io_priority */, nullptr /* stats */,
-                    rocksdb::RateLimiter::OpType::kRead /* op_type */);
-        }
-
-        RETURN_IF_ERROR(_read_columns_by_index(
-                allowed, current_batch_rows_read,
-                _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
-
-        _current_batch_rows_read += current_batch_rows_read;
-        left_byte -= allowed;
-    }
+    RETURN_IF_ERROR(_read_columns_by_index(
+            nrows_read_limit, _current_batch_rows_read,
+            _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
 
     if (std::find(_predicate_column_ids.begin(), _predicate_column_ids.end(),
                   _schema->version_col_idx()) != _predicate_column_ids.end()) {

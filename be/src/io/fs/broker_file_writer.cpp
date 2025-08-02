@@ -134,7 +134,7 @@ Status BrokerFileWriter::_close_impl() {
     return Status::OK();
 }
 
-Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt) {
+Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt, bool is_limit_io) {
     if (_state != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }

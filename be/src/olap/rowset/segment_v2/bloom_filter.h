@@ -57,6 +57,7 @@ inline bvar::Adder<int64_t> g_pk_write_bloom_filter_decrease_bytes(
 struct BloomFilterOptions {
     // false positive probability
     double fpp = 0.05;
+    bool is_limit_io = false;
     HashStrategyPB strategy = HASH_MURMUR3_X64_64;
 };
 

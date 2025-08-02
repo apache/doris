@@ -131,7 +131,7 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
     uint64_t start_size = _file_writer->bytes_appended();
     RETURN_IF_ERROR(PageIO::compress_and_write_page(
             _compress_codec, _options.compression_min_space_saving, _file_writer,
-            {page_body.slice()}, footer, &_last_data_page));
+            {page_body.slice()}, footer, &_last_data_page, _options.is_limit_io));
     _num_data_pages++;
     _disk_size += (_file_writer->bytes_appended() - start_size);
 
@@ -188,7 +188,7 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
         uint64_t start_size = _file_writer->bytes_appended();
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
                 _compress_codec, _options.compression_min_space_saving, _file_writer,
-                {page_body.slice()}, page_footer, &pp));
+                {page_body.slice()}, page_footer, &pp, _options.is_limit_io));
         _disk_size += (_file_writer->bytes_appended() - start_size);
 
         meta->set_is_root_data_page(false);

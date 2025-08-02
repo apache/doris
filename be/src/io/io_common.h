@@ -62,14 +62,6 @@ struct FileCacheStatistics {
     int64_t inverted_index_io_timer = 0;
 };
 
-using RateLimiterRef = std::shared_ptr<rocksdb::RateLimiter>;
-// !fix: need to check rate_bytes_per_sec and refill_period_us
-const RateLimiterRef rate_limiter =
-        std::shared_ptr<rocksdb::RateLimiter>(rocksdb::NewGenericRateLimiter(
-                10 * 1024 * 1024 /* rate_bytes_per_sec */, 100 * 1000 /* refill_period_us */,
-                10 /* fairness */, rocksdb::RateLimiter::Mode::kAllIo /* mode */,
-                true /* auto_tuned */));
-
 struct IOContext {
     ReaderType reader_type = ReaderType::UNKNOWN;
     // FIXME(plat1ko): Seems `is_disposable` can be inferred from the `reader_type`?
@@ -87,6 +79,8 @@ struct IOContext {
     // if is_dryrun, read IO will download data to cache but return no data to reader
     // useful to skip cache data read from local disk to accelarate warm up
     bool is_dryrun = false;
+    // use rate_limiter
+    bool is_limit_io = false;
 };
 
 } // namespace io

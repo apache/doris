@@ -436,13 +436,14 @@ Status ScalarColumnWriter::init() {
     DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
     _page_builder.reset(page_builder);
     // create ordinal builder
-    _ordinal_index_builder = std::make_unique<OrdinalIndexWriter>();
+    _ordinal_index_builder = std::make_unique<OrdinalIndexWriter>(_opts.is_limit_io);
     // create null bitmap builder
     if (is_nullable()) {
         _null_bitmap_builder = std::make_unique<NullBitmapBuilder>();
     }
     if (_opts.need_zone_map) {
-        RETURN_IF_ERROR(ZoneMapIndexWriter::create(get_field(), _zone_map_index_builder));
+        RETURN_IF_ERROR(ZoneMapIndexWriter::create(get_field(), _zone_map_index_builder,
+                                                   _opts.is_limit_io));
     }
     if (_opts.need_bitmap_index) {
         RETURN_IF_ERROR(
@@ -612,7 +613,7 @@ Status ScalarColumnWriter::write_data() {
         PagePointer dict_pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
                 _compress_codec, _opts.compression_min_space_saving, _file_writer,
-                {dict_body.slice()}, footer, &dict_pp));
+                {dict_body.slice()}, footer, &dict_pp, _opts.is_limit_io));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
     _page_builder.reset();
@@ -658,7 +659,8 @@ Status ScalarColumnWriter::_write_data_page(Page* page) {
     for (auto& data : page->data) {
         compressed_body.push_back(data.slice());
     }
-    RETURN_IF_ERROR(PageIO::write_page(_file_writer, compressed_body, page->footer, &pp));
+    RETURN_IF_ERROR(PageIO::write_page(_file_writer, compressed_body, page->footer, &pp,
+                                       _opts.is_limit_io));
     _ordinal_index_builder->append_entry(page->footer.data_page_footer().first_ordinal(), pp);
     return Status::OK();
 }

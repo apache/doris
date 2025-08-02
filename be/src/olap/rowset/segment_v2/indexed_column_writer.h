@@ -51,6 +51,7 @@ struct IndexedColumnWriterOptions {
     size_t data_page_size = 1024 * 1024;
     bool write_ordinal_index = false;
     bool write_value_index = false;
+    bool is_limit_io = false;
     EncodingTypePB encoding = DEFAULT_ENCODING;
     CompressionTypePB compression = NO_COMPRESSION;
     double compression_min_space_saving = 0.1;

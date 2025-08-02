@@ -52,7 +52,7 @@ public:
                  const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
-    Status appendv(const Slice* data, size_t data_cnt) override;
+    Status appendv(const Slice* data, size_t data_cnt, bool is_limit_io = false) override;
 
     const Path& path() const override { return _obj_storage_path_opts.path; }
     size_t bytes_appended() const override { return _bytes_appended; }
