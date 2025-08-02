@@ -993,7 +993,6 @@ TEST_F(IndexFileWriterTest, AddIntoSearcherCacheTest) {
                         auto close_directory = true;
                         auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
                                 directory, close_directory);
-                        _CLDECDELETE(directory)
                         return bkd_reader;
                     }));
 
