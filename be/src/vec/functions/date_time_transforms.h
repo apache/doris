@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 
 #include "common/status.h"
@@ -139,8 +140,7 @@ struct DateImpl : public ToDateImpl<ArgType> {
     static constexpr auto name = "date";
 };
 
-// TODO: This function look like no need do indeed copy here, we should optimize
-// this function
+// TODO: This function look like no need do indeed copy here, we should optimize this function
 template <PrimitiveType PType>
 struct TimeStampImpl {
     static constexpr PrimitiveType OpArgType = PType;
@@ -272,7 +272,6 @@ struct DateFormatImpl {
 
 template <bool WithStringArg, bool NewVersion = false>
 struct FromUnixTimeImpl {
-    using CppType = Int64;
     using ArgType = Int64;
     static constexpr PrimitiveType FromPType = TYPE_BIGINT;
 
@@ -341,7 +340,6 @@ struct FromUnixTimeImpl {
 // only new verison
 template <bool WithStringArg>
 struct FromUnixTimeDecimalImpl {
-    using CppType = Decimal64;
     using ArgType = Int64;
     static constexpr PrimitiveType FromPType = TYPE_DECIMAL64;
     constexpr static short Scale = 6; // same with argument's scale in FE's signature
@@ -377,7 +375,7 @@ struct FromUnixTimeDecimalImpl {
     static bool execute_decimal(const ArgType& interger, const ArgType& fraction, StringRef format,
                                 ColumnString::Chars& res_data, size_t& offset,
                                 const cctz::time_zone& time_zone) {
-        if (!check_valid(interger + bool(fraction))) {
+        if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) {
             return true;
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(interger, fraction, time_zone);

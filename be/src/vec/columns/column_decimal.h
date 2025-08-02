@@ -85,10 +85,11 @@ private:
     friend class COWHelper<IColumn, Self>;
 
 public:
-    using value_type =                                       // DecimalXX
+    // value_type is decimal32/64/128/256 type
+    using value_type =
             typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
     using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
-    using Container = DecimalPaddedPODArray<value_type>; // IntXX
+    using Container = DecimalPaddedPODArray<value_type>;
 
 private:
     ColumnDecimal(const size_t n, UInt32 scale_) : data(n, scale_), scale(scale_) {}
