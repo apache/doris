@@ -53,15 +53,15 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 InPredicateToEqualToRule.INSTANCE,
                 SimplifyNotExprRule.INSTANCE,
                 SimplifyArithmeticRule.INSTANCE,
+                LogToLn.INSTANCE,
+                ConcatWsMultiArrayToOne.INSTANCE,
                 FoldConstantRule.INSTANCE,
                 SimplifyCastRule.INSTANCE,
                 DigitalMaskingConvert.INSTANCE,
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
-                CheckCast.INSTANCE,
-                LogToLn.INSTANCE,
-                ConcatWsMultiArrayToOne.INSTANCE
+                CheckCast.INSTANCE
             )
     );
 
