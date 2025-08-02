@@ -54,7 +54,7 @@ private:
 
 struct MockTableFunctionOperatorX : public TableFunctionOperatorX {
     MockTableFunctionOperatorX() = default;
-    RowDescriptor& row_descriptor() override { return *_mock_row_descriptor; }
+    const RowDescriptor& row_descriptor() override { return *_mock_row_descriptor; }
     std::unique_ptr<MockRowDescriptor> _mock_row_descriptor;
 };
 
