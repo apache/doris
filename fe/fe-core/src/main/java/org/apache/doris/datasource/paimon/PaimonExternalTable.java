@@ -171,7 +171,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return getPaimonSchemaCacheValue(snapshot).getPartitionColumns();
     }
 
-    private boolean isPartitionInvalid(Optional<MvccSnapshot> snapshot) {
+    public boolean isPartitionInvalid(Optional<MvccSnapshot> snapshot) {
         PaimonSnapshotCacheValue paimonSnapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
         return paimonSnapshotCacheValue.getPartitionInfo().isPartitionInvalid();
     }
@@ -192,6 +192,13 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         return getTableSnapshot(snapshot);
+    }
+
+    public Map<String, Partition> getPartitionSnapshot(
+            Optional<MvccSnapshot> snapshot) {
+
+        return getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo()
+                .getNameToPartition();
     }
 
     @Override
