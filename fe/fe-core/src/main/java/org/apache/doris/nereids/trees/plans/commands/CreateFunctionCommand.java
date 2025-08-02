@@ -847,7 +847,6 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 typeBuilder.setId(Types.PGenericType.TypeId.DATEV2);
                 break;
             case DATETIME:
-            case TIME:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIME);
                 break;
             case DATETIMEV2:

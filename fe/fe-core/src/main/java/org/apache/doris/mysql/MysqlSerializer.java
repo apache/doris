@@ -279,7 +279,6 @@ public class MysqlSerializer {
                 return 12;
             case DOUBLE:
                 return 22;
-            case TIME:
             case DATEV2:
             case DATE:
                 return 10;
