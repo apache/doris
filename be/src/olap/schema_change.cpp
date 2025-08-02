@@ -552,7 +552,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     bool eof = false;
     do {
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
 
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
