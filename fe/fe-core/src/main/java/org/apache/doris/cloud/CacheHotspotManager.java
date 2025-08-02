@@ -642,12 +642,29 @@ public class CacheHotspotManager extends MasterDaemon {
         return jobId;
     }
 
+<<<<<<< HEAD
     public void cancel(CancelWarmUpJobCommand command) throws DdlException {
         CloudWarmUpJob job = cloudWarmUpJobs.get(command.getJobId());
+=======
+    public void cancel(CancelCloudWarmUpStmt stmt) throws DdlException {
+        cancel(stmt.getJobId());
+    }
+
+    public void cancel(long jobId) throws DdlException {
+        cancel(jobId, "user cancel");
+    }
+
+    public void cancel(long jobId, String msg) throws DdlException {
+        CloudWarmUpJob job = cloudWarmUpJobs.get(jobId);
+>>>>>>> b63425e3b9 ([opt](vcg) use "vcg cancel" as cancel message for warm up jobs)
         if (job == null) {
             throw new DdlException("job id: " + command.getJobId() + " does not exist.");
         }
+<<<<<<< HEAD
         if (!job.cancel("user cancel")) {
+=======
+        if (!job.cancel(msg, true)) {
+>>>>>>> b63425e3b9 ([opt](vcg) use "vcg cancel" as cancel message for warm up jobs)
             throw new DdlException("job can not be cancelled. State: " + job.getJobState());
         }
     }
