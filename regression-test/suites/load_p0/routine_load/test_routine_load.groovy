@@ -1884,6 +1884,14 @@ suite("test_routine_load","p0") {
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"fuzzy_parse\" = \"true\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"workload_group\" = \"alter_routine_load_group\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"max_filter_ratio\" = \"0.5\");"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} COLUMNS(k00, k01, k02, k03, k04, k05);"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} COLUMNS TERMINATED BY ',';"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PRECEDING FILTER k00 = 8;"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} WHERE k00 = 8;"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} DELETE ON k00 = 8;"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PARTITION(p1);"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} ORDER BY k00;"
+                
                 res = sql "show routine load for ${jobs[i]}"
                 log.info("routine load job properties: ${res[0][11].toString()}".toString())
 
@@ -1901,6 +1909,11 @@ suite("test_routine_load","p0") {
                 assertEquals("true", json.strip_outer_array.toString())
                 assertEquals("Asia/Shanghai", json.timezone.toString())
                 assertEquals("true", json.num_as_string.toString())
+                assertEquals("k00,k01,k02,k03,k04,k05", json.columnToColumnExpr.toString())
+                assertEquals(",", json.column_separator.toString())
+                assertEquals("k00 = 8", json.precedingFilter.toString())
+                assertEquals("k00 = 8", json.whereExpr.toString())
+                assertEquals("p1", json.partitions.toString())
                 sql "resume routine load for ${jobs[i]}"
                 i++
             }
