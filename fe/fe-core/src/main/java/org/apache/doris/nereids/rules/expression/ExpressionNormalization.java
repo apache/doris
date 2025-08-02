@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.rules.ConcatWsMultiArrayToOne;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateExtractNonConstant;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
+import org.apache.doris.nereids.rules.expression.rules.LogToLn;
 import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
@@ -57,7 +59,9 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
-                CheckCast.INSTANCE
+                CheckCast.INSTANCE,
+                LogToLn.INSTANCE,
+                ConcatWsMultiArrayToOne.INSTANCE
             )
     );
 
