@@ -860,6 +860,28 @@ message PGetFileCacheMetaResponse {
     repeated FileCacheBlockMeta file_cache_block_metas = 1;
 }
 
+message PWarmUpRowsetRequest {
+    repeated RowsetMetaPB rowset_metas = 1;
+    optional int64 unix_ts_us = 2;
+}
+
+message PWarmUpRowsetResponse {
+}
+
+message RecycleCacheMeta {
+    optional int64 tablet_id = 1;
+    optional string rowset_id = 2;
+    optional int64 num_segments = 3;
+    repeated string index_file_names = 4;
+}
+
+message PRecycleCacheRequest {
+    repeated RecycleCacheMeta cache_metas = 1;
+}
+
+message PRecycleCacheResponse {
+}
+
 message PReportStreamLoadStatusRequest {
     optional PUniqueId load_id = 1;
     optional PStatus status = 2;
@@ -1076,6 +1098,8 @@ service PBackendService {
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc multiget_data_v2(PMultiGetRequestV2) returns (PMultiGetResponseV2);
     rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
+    rpc warm_up_rowset(PWarmUpRowsetRequest) returns (PWarmUpRowsetResponse);
+    rpc recycle_cache(PRecycleCacheRequest) returns (PRecycleCacheResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
