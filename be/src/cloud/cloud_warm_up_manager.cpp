@@ -168,6 +168,7 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
 }
 
 void CloudWarmUpManager::handle_jobs() {
+#ifndef BE_TEST
     constexpr int WAIT_TIME_SECONDS = 600;
     while (true) {
         std::shared_ptr<JobMeta> cur_job = nullptr;
@@ -297,6 +298,7 @@ void CloudWarmUpManager::handle_jobs() {
             }
         }
     }
+#endif
 }
 
 JobMeta::JobMeta(const TJobMeta& meta)
