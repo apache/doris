@@ -859,6 +859,13 @@ struct TFetchSchemaTableDataRequest {
   4: optional TSchemaTableRequestParams schema_table_params // used for request db information_schema's table
 }
 
+struct TCheckCurrentUserPrivilegeRequest {
+}
+
+struct TCheckCurrentUserPrivilegeResult {
+  1: optional bool check_res
+}
+
 struct TFetchSchemaTableDataResult {
   1: required Status.TStatus status
   2: optional list<Data.TRow> data_batch;
@@ -1662,6 +1669,8 @@ service FrontendService {
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
+
+    TCheckCurrentUserPrivilegeResult checkCurrentUserPrivilege(1: TCheckCurrentUserPrivilegeRequest request)
 
     TMySqlLoadAcquireTokenResult acquireToken()
 

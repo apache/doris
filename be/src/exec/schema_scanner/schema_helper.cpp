@@ -62,6 +62,7 @@ Status SchemaHelper::list_table_status(const std::string& ip, const int32_t port
                 client->listTableStatus(*result, request);
             });
 }
+
 Status SchemaHelper::list_table_metadata_name_ids(const std::string& ip, const int32_t port,
                                                   const doris::TGetTablesParams& request,
                                                   TListTableMetadataNameIdsResult* result) {
@@ -157,6 +158,15 @@ Status SchemaHelper::fetch_schema_table_data(const std::string& ip, const int32_
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
             ip, port, [&request, &result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(*result, request);
+            });
+}
+
+Status SchemaHelper::check_current_user_privilege(const std::string& ip, const int32_t port,
+                                                  const TCheckCurrentUserPrivilegeRequest& request,
+                                                  TCheckCurrentUserPrivilegeResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->checkCurrentUserPrivilege(*result, request);
             });
 }
 

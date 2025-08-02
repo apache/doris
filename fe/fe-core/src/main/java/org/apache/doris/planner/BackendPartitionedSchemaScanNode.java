@@ -76,10 +76,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {
-        if (BACKEND_TABLE.contains(tableName.toLowerCase())) {
-            return true;
-        }
-        return false;
+        return BACKEND_TABLE.contains(tableName.toLowerCase());
     }
 
     // backendPartitionInfo is set in generatePartitionInfo().

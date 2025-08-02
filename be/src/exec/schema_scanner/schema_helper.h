@@ -43,6 +43,8 @@ class TShowProcessListRequest;
 class TShowProcessListResult;
 class TShowUserRequest;
 class TShowUserResult;
+class TCheckCurrentUserPrivilegeRequest;
+class TCheckCurrentUserPrivilegeResult;
 
 // this class is a helper for getting schema info from FE
 class SchemaHelper {
@@ -96,6 +98,10 @@ public:
     static Status fetch_schema_table_data(const std::string& ip, const int32_t port,
                                           const TFetchSchemaTableDataRequest& request,
                                           TFetchSchemaTableDataResult* result);
+
+    static Status check_current_user_privilege(const std::string& ip, const int32_t port,
+                                               const TCheckCurrentUserPrivilegeRequest& request,
+                                               TCheckCurrentUserPrivilegeResult* result);
 };
 
 } // namespace doris
