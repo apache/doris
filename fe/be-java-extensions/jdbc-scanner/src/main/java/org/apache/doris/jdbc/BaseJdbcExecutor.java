@@ -295,7 +295,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     protected void initializeBlock(int columnCount, String[] replaceStringList, int batchSizeNum,
             VectorTable outputTable) {
-        for (int i = 0; i < outputTable.getColumns().length; ++i) {
+        for (int i = 0; i < columnCount; ++i) {
             block.add(outputTable.getColumn(i).newObjectContainerArray(batchSizeNum));
         }
     }
