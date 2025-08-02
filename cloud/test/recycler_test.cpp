@@ -1288,6 +1288,7 @@ TEST(RecyclerTest, recycle_tablet) {
 
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
     auto obj_info = instance.add_obj_info();
     obj_info->set_id("recycle_tablet");
     obj_info->set_ak(config::test_s3_ak);
@@ -1357,6 +1358,13 @@ TEST(RecyclerTest, recycle_tablet) {
     end_key = recycle_key_prefix(instance_id + '\xff');
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
+    // recycle tablet index/inverted index keys
+    std::string idx_key = versioned::tablet_index_key({instance_id, table_id});
+    std::string inverted_idx_key = versioned::tablet_inverted_index_key(
+            {instance_id, db_id, table_id, index_id, partition_id, tablet_id});
+    std::string empty_value;
+    ASSERT_EQ(txn->get(idx_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(txn->get(inverted_idx_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(RecyclerTest, recycle_tablet_with_rowset_ref_count) {

@@ -63,6 +63,7 @@
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/codec.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -445,7 +446,8 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
 void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode& code,
                             std::string& msg, const doris::TabletMetaCloudPB& meta,
                             std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
-                            std::set<std::pair<int64_t, int32_t>>& saved_schema, KVStats& stats) {
+                            std::set<std::pair<int64_t, int32_t>>& saved_schema, KVStats& stats,
+                            bool is_versioned_write) {
     doris::TabletMetaCloudPB tablet_meta(meta);
     bool has_first_rowset = tablet_meta.rs_metas_size() > 0;
 
@@ -495,6 +497,20 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
             return;
         }
         txn->put(rs_key, rs_val);
+        if (is_versioned_write) {
+            std::string versioned_rs_key = versioned::meta_rowset_load_key(
+                    {instance_id, tablet_id, first_rowset->end_version()});
+            if (!versioned::document_put(txn.get(), versioned_rs_key, std::move(*first_rowset))) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format("failed to serialize versioned rowset meta, key={}",
+                                  hex(versioned_rs_key));
+                return;
+            }
+            LOG(INFO) << "put first versioned rowset meta, tablet_id=" << tablet_id
+                      << " end_version=" << first_rowset->end_version()
+                      << " key=" << hex(versioned_rs_key);
+        }
+
         tablet_meta.clear_rs_metas(); // Strip off rowset meta
     }
 
@@ -535,6 +551,16 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     }
     txn->put(key, val);
     LOG(INFO) << "xxx put tablet_key=" << hex(key) << " tablet id " << tablet_id;
+    if (is_versioned_write) {
+        std::string versioned_tablet_key = versioned::meta_tablet_key({instance_id, tablet_id});
+        if (!versioned::document_put(txn.get(), versioned_tablet_key, std::move(tablet_meta))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize versioned tablet meta, key={}", hex(key));
+            return;
+        }
+        LOG(INFO) << "put versioned tablet meta, tablet_id=" << tablet_id
+                  << " key=" << hex(versioned_tablet_key);
+    }
 
     // Index tablet_id -> table_id, index_id, partition_id
     std::string key1;
@@ -556,6 +582,17 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     }
     txn->put(key1, val1);
     LOG(INFO) << "put tablet_idx tablet_id=" << tablet_id << " key=" << hex(key1);
+    if (request->has_db_id() && is_versioned_write) {
+        int64_t db_id = request->db_id();
+        std::string tablet_idx_key = versioned::tablet_index_key({instance_id, tablet_id});
+        std::string tablet_inverted_idx_key = versioned::tablet_inverted_index_key(
+                {instance_id, db_id, table_id, index_id, partition_id, tablet_id});
+        txn->put(tablet_idx_key, val1);
+        txn->put(tablet_inverted_idx_key, "");
+        LOG(INFO) << "put versioned tablet index, tablet_id=" << tablet_id
+                  << " key=" << hex(tablet_idx_key)
+                  << " inverted_key=" << hex(tablet_inverted_idx_key);
+    }
 
     // Create stats info for the tablet
     auto stats_key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
@@ -575,6 +612,18 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     DCHECK(!stats_val.empty());
     txn->put(stats_key, stats_val);
     LOG(INFO) << "put tablet stats, tablet_id=" << tablet_id << " key=" << hex(stats_key);
+    if (is_versioned_write) {
+        std::string versioned_stats_key =
+                versioned::tablet_load_stats_key({instance_id, tablet_id});
+        if (!versioned::document_put(txn.get(), versioned_stats_key, std::move(stats_pb))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize versioned tablet stats, key={}",
+                              hex(versioned_stats_key));
+            return;
+        }
+        LOG(INFO) << "put versioned tablet stats, tablet_id=" << tablet_id
+                  << " key=" << hex(stats_key);
+    }
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -671,9 +720,10 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
     TEST_SYNC_POINT_RETURN_WITH_VOID("create_tablets");
+    bool is_versioned_write = is_version_write_enabled(instance_id);
     for (auto& tablet_meta : request->tablet_metas()) {
         internal_create_tablet(request, code, msg, tablet_meta, txn_kv_, instance_id, saved_schema,
-                               stats);
+                               stats, is_versioned_write);
         if (code != MetaServiceCode::OK) {
             return;
         }
