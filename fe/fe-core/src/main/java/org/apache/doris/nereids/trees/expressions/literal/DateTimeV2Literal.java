@@ -247,8 +247,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return plusMicroSeconds(microSeconds * 1000L);
     }
 
-    public long getScale() {
+    public int getScale() {
         return ((DateTimeV2Type) dataType).getScale();
+    }
+
+    public int commonScale(DateTimeV2Literal other) {
+        return (int) Math.max(getScale(), other.getScale());
     }
 
     /**

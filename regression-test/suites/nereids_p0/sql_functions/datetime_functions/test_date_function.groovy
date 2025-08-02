@@ -371,6 +371,84 @@ suite("test_date_function") {
     qt_sql """ SELECT TIMESTAMPDIFF(DAY,'2003-02-01','2003-05-01') """
     qt_sql """ SELECT TIMESTAMPDIFF(WEEK,'2003-02-01','2003-05-01') """
 
+    sql "set debug_skip_fold_constant = true"
+    // TIMESTAMPDIFF with QUARTER unit - comprehensive test cases
+    // Normal cases within same year
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01','2023-04-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-15','2023-07-20') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-03-31','2023-12-31') """
+    // Cross year cases
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2022-12-01','2023-03-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2022-10-15','2024-01-15') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2020-01-01','2023-01-01') """
+    // Negative differences (end date before start date)
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-07-01','2023-01-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2024-12-31','2023-03-01') """
+    // Same date (should return 0)
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-06-15','2023-06-15') """
+    // Quarter boundary test cases
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01','2023-03-31') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-04-01','2023-06-30') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-07-01','2023-09-30') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-10-01','2023-12-31') """
+    // Edge cases with leap year
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2024-01-01','2024-12-31') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2024-02-29','2024-05-29') """
+    // Test with datetime including time components
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01 00:00:00','2023-10-01 23:59:59') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-03-31 12:30:45','2023-07-01 08:15:20') """
+    // Large date ranges
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2000-01-01','2023-12-31') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'1990-06-15','2024-06-15') """
+    // Test with null values
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,NULL,'2023-01-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01',NULL) """
+    // Test constant folding with testFoldConst
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01','2023-10-01')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2022-12-01','2023-03-01')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2024-02-29','2024-11-30')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2023-06-15','2023-06-15')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2025-01-01','2020-01-01')")
+
+    // QUARTERS_DIFF - comprehensive test cases
+    // Normal cases within same year
+    qt_sql """ SELECT quarters_diff('2023-04-01','2023-01-01') """
+    qt_sql """ SELECT quarters_diff('2023-07-20','2023-01-15') """
+    qt_sql """ SELECT quarters_diff('2023-12-31','2023-03-31') """
+    // Cross year cases
+    qt_sql """ SELECT quarters_diff('2023-03-01','2022-12-01') """
+    qt_sql """ SELECT quarters_diff('2024-01-15','2022-10-15') """
+    qt_sql """ SELECT quarters_diff('2023-01-01','2020-01-01') """
+    // Negative differences (end date before start date)
+    qt_sql """ SELECT quarters_diff('2023-01-01','2023-07-01') """
+    qt_sql """ SELECT quarters_diff('2023-03-01','2024-12-31') """
+    // Same date (should return 0)
+    qt_sql """ SELECT quarters_diff('2023-06-15','2023-06-15') """
+    // Quarter boundary test cases
+    qt_sql """ SELECT quarters_diff('2023-03-31','2023-01-01') """
+    qt_sql """ SELECT quarters_diff('2023-06-30','2023-04-01') """
+    qt_sql """ SELECT quarters_diff('2023-09-30','2023-07-01') """
+    qt_sql """ SELECT quarters_diff('2023-12-31','2023-10-01') """
+    // Edge cases with leap year
+    qt_sql """ SELECT quarters_diff('2024-12-31','2024-01-01') """
+    qt_sql """ SELECT quarters_diff('2024-05-29','2024-02-29') """
+    // Test with datetime including time components
+    qt_sql """ SELECT quarters_diff('2023-10-01 23:59:59','2023-01-01 00:00:00') """
+    qt_sql """ SELECT quarters_diff('2023-07-01 08:15:20','2023-03-31 12:30:45') """
+    // Large date ranges
+    qt_sql """ SELECT quarters_diff('2023-12-31','2000-01-01') """
+    qt_sql """ SELECT quarters_diff('2024-06-15','1990-06-15') """
+    // Test with null values
+    qt_sql """ SELECT quarters_diff('2023-01-01',NULL) """
+    qt_sql """ SELECT quarters_diff(NULL,'2023-01-01') """
+    // Test constant folding with testFoldConst
+    testFoldConst("SELECT quarters_diff('2023-10-01','2023-01-01')")
+    testFoldConst("SELECT quarters_diff('2023-03-01','2022-12-01')")
+    testFoldConst("SELECT quarters_diff('2024-11-30','2024-02-29')")
+    testFoldConst("SELECT quarters_diff('2023-06-15','2023-06-15')")
+    testFoldConst("SELECT quarters_diff('2020-01-01','2025-01-01')")
+    sql "set debug_skip_fold_constant = false"
+
     // TO_DAYS
     qt_sql """ select to_days('2007-10-07') """
     qt_sql """ select to_days('2050-10-07') """

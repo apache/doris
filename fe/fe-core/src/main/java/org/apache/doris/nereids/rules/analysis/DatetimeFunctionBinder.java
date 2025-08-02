@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeDay
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeHourUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMinuteUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMonthUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeQuarterUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeSecondUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeWeekUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeYearUnit;
@@ -50,7 +51,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
@@ -257,6 +261,8 @@ public class DatetimeFunctionBinder {
         switch (unit) {
             case YEAR:
                 return new YearsDiff(end, start);
+            case QUARTER:
+                return new QuartersDiff(end, start);
             case MONTH:
                 return new MonthsDiff(end, start);
             case WEEK:
@@ -271,7 +277,7 @@ public class DatetimeFunctionBinder {
                 return new SecondsDiff(end, start);
             default:
                 throw new AnalysisException("Unsupported time stamp diff time unit: " + unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
         }
     }
 
@@ -328,6 +334,8 @@ public class DatetimeFunctionBinder {
         switch (unit) {
             case YEAR:
                 return new YearFloor(timeStamp, amount, e);
+            case QUARTER:
+                return new QuarterFloor(timeStamp, amount, e);
             case MONTH:
                 return new MonthFloor(timeStamp, amount, e);
             case WEEK:
@@ -342,7 +350,7 @@ public class DatetimeFunctionBinder {
                 return new SecondFloor(timeStamp, amount, e);
             default:
                 throw new AnalysisException("Unsupported time stamp floor time unit: " + unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
         }
     }
 
@@ -351,6 +359,8 @@ public class DatetimeFunctionBinder {
         switch (unit) {
             case YEAR:
                 return new YearCeil(timeStamp, amount, e);
+            case QUARTER:
+                return new QuarterCeil(timeStamp, amount, e);
             case MONTH:
                 return new MonthCeil(timeStamp, amount, e);
             case WEEK:
@@ -365,7 +375,7 @@ public class DatetimeFunctionBinder {
                 return new SecondCeil(timeStamp, amount, e);
             default:
                 throw new AnalysisException("Unsupported time stamp ceil time unit: " + unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
         }
     }
 
@@ -373,6 +383,8 @@ public class DatetimeFunctionBinder {
         switch (unit) {
             case YEAR:
                 return new ArrayRangeYearUnit(start, end, step);
+            case QUARTER:
+                return new ArrayRangeQuarterUnit(start, end, step);
             case MONTH:
                 return new ArrayRangeMonthUnit(start, end, step);
             case WEEK:
@@ -387,7 +399,7 @@ public class DatetimeFunctionBinder {
                 return new ArrayRangeSecondUnit(start, end, step);
             default:
                 throw new AnalysisException("Unsupported array range time unit: " + unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
         }
     }
 

@@ -283,6 +283,7 @@ struct TimeDiffImpl {
 
 // all these functions implemented by datediff
 TIME_DIFF_FUNCTION_IMPL(YearsDiffImpl, years_diff, YEAR);
+TIME_DIFF_FUNCTION_IMPL(QuartersDiffImpl, quarters_diff, QUARTER);
 TIME_DIFF_FUNCTION_IMPL(MonthsDiffImpl, months_diff, MONTH);
 TIME_DIFF_FUNCTION_IMPL(WeeksDiffImpl, weeks_diff, WEEK);
 TIME_DIFF_FUNCTION_IMPL(DaysDiffImpl, days_diff, DAY);
