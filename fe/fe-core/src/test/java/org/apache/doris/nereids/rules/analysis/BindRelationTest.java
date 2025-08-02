@@ -20,16 +20,27 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 class BindRelationTest extends TestWithFeService implements GeneratedPlanPatterns {
     private static final String DB1 = "db1";
@@ -91,6 +102,38 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         Assertions.assertEquals(
                 ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "tagg"),
                 plan.getOutput().get(1).getQualifier());
+    }
+
+    @Test
+    void testBindRandomAggTableExprIdSame() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getState().setIsQuery(true);
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select * from db1.tagg",
+                        planner -> {
+                            List<Alias> collectedAlias = new ArrayList<>();
+                            planner.getCascadesContext().getRewritePlan().accept(
+                                    new DefaultPlanVisitor<Void, List<Alias>>() {
+                                        @Override
+                                        public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
+                                                List<Alias> context) {
+                                            for (Expression expression : aggregate.getExpressions()) {
+                                                collectedAlias.addAll(
+                                                        expression.collectToList(Alias.class::isInstance));
+                                            }
+                                            return super.visitLogicalAggregate(aggregate, context);
+                                        }
+                                    }, collectedAlias);
+                            for (Alias alias : collectedAlias) {
+                                for (Expression child : alias.children()) {
+                                    Set<ExprId> childExpressionSet =
+                                            child.collectToSet(NamedExpression.class::isInstance).stream()
+                                                    .map(expr -> ((NamedExpression) expr).getExprId())
+                                                    .collect(Collectors.toSet());
+                                    Assertions.assertFalse(childExpressionSet.contains(alias.getExprId()));
+                                }
+                            }
+                        });
     }
 
     @Override
