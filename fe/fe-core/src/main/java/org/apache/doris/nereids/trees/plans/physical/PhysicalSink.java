@@ -21,10 +21,12 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -33,6 +35,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /** abstract physical sink */
 public abstract class PhysicalSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
@@ -78,5 +81,19 @@ public abstract class PhysicalSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public void computeFd(DataTrait.Builder builder) {
         // should not be invoked
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(getClass().getSimpleName());
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && (context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName()))
+                    || context.getSessionVariable().getDetailShapePlanNodesSet().contains("PhysicalSink")) {
+            builder.append(getOutputExprs().stream().map(Expression::shapeInfo)
+                    .collect(Collectors.joining(", ", "[", "]")));
+        }
+        return builder.toString();
     }
 }

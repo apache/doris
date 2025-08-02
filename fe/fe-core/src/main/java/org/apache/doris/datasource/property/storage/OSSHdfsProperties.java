@@ -50,7 +50,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     @Setter
     @ConnectorProperty(names = {"oss.hdfs.endpoint",
-            "dlf.endpoint", "dlf.catalog.endpoint", "oss.endpoint" },
+            "dlf.endpoint", "dlf.catalog.endpoint", "oss.endpoint"},
             description = "The endpoint of OSS.")
     protected String endpoint = "";
 
@@ -179,19 +179,12 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     private static final String DLF_ENDPOINT_KEY_WORDS = "dlf";
 
-    private boolean endpointIsValid(String endpoint) {
-        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
-        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
-        return StringUtils.isNotBlank(endpoint) && endpoint.endsWith(OSS_HDFS_ENDPOINT_SUFFIX);
-    }
-
     @Override
     public Map<String, String> getBackendConfigProperties() {
         return backendConfigProperties;
     }
 
     private void initConfigurationParams() {
-        Configuration conf = new Configuration();
         // TODO: Currently we load all config parameters and pass them to the BE directly.
         // In the future, we should pass the path to the configuration directory instead,
         // and let the BE load the config file on its own.
@@ -205,9 +198,9 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         if (StringUtils.isNotBlank(fsDefaultFS)) {
             config.put(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
         }
-        config.forEach(conf::set);
         this.backendConfigProperties = config;
-        this.configuration = conf;
+        this.hadoopStorageConfig = new Configuration();
+        this.backendConfigProperties.forEach(hadoopStorageConfig::set);
     }
 
     @Override
@@ -239,4 +232,5 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     public String getStorageName() {
         return "OSSHDFS";
     }
+
 }

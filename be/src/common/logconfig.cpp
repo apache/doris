@@ -36,6 +36,62 @@ static bool logging_initialized = false;
 
 static std::mutex logging_mutex;
 
+// Implement the custom log format: I20250118 10:53:06.239614 1318521 timezone_utils.cpp:115] Preloaded653 timezones.
+struct StdoutLogSink : google::LogSink {
+    void send(google::LogSeverity severity, const char* /*full_filename*/,
+              const char* base_filename, int line, const google::LogMessageTime& time,
+              const char* message, std::size_t message_len) override {
+        // 1.  Convert log severity to corresponding character (I/W/E/F)
+        char severity_char;
+        switch (severity) {
+        case google::GLOG_INFO:
+            severity_char = 'I';
+            break;
+        case google::GLOG_WARNING:
+            severity_char = 'W';
+            break;
+        case google::GLOG_ERROR:
+            severity_char = 'E';
+            break;
+        case google::GLOG_FATAL:
+            severity_char = 'F';
+            break;
+        default:
+            severity_char = '?';
+            break;
+        }
+        // Set output formatting flags
+        std::cout << std::setfill('0');
+
+        // 1. Log severity (I/W/E/F)
+        std::cout << severity_char;
+
+        // 2. Date (YYYYMMDD)
+        // Note: tm_year is years since 1900, tm_mon is 0-based (0-11)
+        std::cout << std::setw(4) << (time.year() + 1900) << std::setw(2) << std::setfill('0')
+                  << (time.month() + 1) << std::setw(2) << std::setfill('0') << time.day();
+
+        // 3. Time (HH:MM:SS.ffffff)
+        std::cout << " " << std::setw(2) << std::setfill('0') << time.hour() << ":" << std::setw(2)
+                  << std::setfill('0') << time.min() << ":" << std::setw(2) << std::setfill('0')
+                  << time.sec() << "." << std::setw(6) << std::setfill('0') << time.usec();
+
+        // 4. Process ID
+        std::cout << " " << getpid();
+
+        // 5. Filename and line number
+        std::cout << " " << base_filename << ":" << line << "] ";
+
+        // 6. Log message
+        std::cout.write(message, message_len);
+
+        // Add newline and flush
+        std::cout << std::endl;
+    }
+};
+
+static StdoutLogSink stdout_log_sink;
+
 static bool iequals(const std::string& a, const std::string& b) {
     unsigned int sz = a.size();
     if (b.size() != sz) {
@@ -99,10 +155,13 @@ bool init_glog(const char* basename) {
 
     bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
     if (log_to_console) {
-        if (config::enable_file_logger) {
-            FLAGS_alsologtostderr = true;
+        if (doris::config::enable_file_logger) {
+            // will output log to be.info and output log to stdout
+            google::AddLogSink(&stdout_log_sink);
         } else {
-            FLAGS_logtostderr = true;
+            // enable_file_logger is false, will only output log to stdout
+            // Not output to stderr because be.out will output log to stderr
+            FLAGS_logtostdout = true;
         }
     }
 
@@ -213,6 +272,7 @@ bool init_glog(const char* basename) {
 
 void shutdown_logging() {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
+    google::RemoveLogSink(&stdout_log_sink);
     google::ShutdownGoogleLogging();
 }
 

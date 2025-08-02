@@ -711,6 +711,8 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
+
+DECLARE_mInt64(min_write_buffer_size_for_partial_update);
 // max parallel flush task per memtable writer
 DECLARE_mInt32(memtable_flush_running_count_limit);
 
@@ -1386,9 +1388,6 @@ DECLARE_Int32(workload_group_metrics_interval_ms);
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
-// Remove predicate that is always true for a segment.
-DECLARE_Bool(ignore_always_true_predicate_for_segment);
-
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
 
@@ -1625,6 +1624,9 @@ DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 
 // p0, daily, rqg, external
 DECLARE_String(fuzzy_test_type);
+
+// The maximum number of threads supported when executing LLMFunction
+DECLARE_mInt32(llm_max_concurrent_requests);
 
 #ifdef BE_TEST
 // test s3

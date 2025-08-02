@@ -21,6 +21,14 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
@@ -193,6 +201,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsSmall
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
@@ -207,6 +216,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
@@ -274,6 +284,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
@@ -380,6 +391,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SignBit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sinh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -1220,6 +1232,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(esQuery, context);
     }
 
+    default R visitEven(Even even, C context) {
+        return visitScalarFunction(even, context);
+    }
+
     default R visitExp(Exp exp, C context) {
         return visitScalarFunction(exp, context);
     }
@@ -1270,6 +1286,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitG(G g, C context) {
         return visitScalarFunction(g, context);
+    }
+
+    default R visitGcd(Gcd gcd, C context) {
+        return visitScalarFunction(gcd, context);
     }
 
     default R visitGreatest(Greatest greatest, C context) {
@@ -1526,6 +1546,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLastDay(LastDay lastDay, C context) {
         return visitScalarFunction(lastDay, context);
+    }
+
+    default R visitLcm(Lcm lcm, C context) {
+        return visitScalarFunction(lcm, context);
     }
 
     default R visitLeast(Least least, C context) {
@@ -1894,6 +1918,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSign(Sign sign, C context) {
         return visitScalarFunction(sign, context);
+    }
+
+    default R visitSignBit(SignBit signbit, C context) {
+        return visitScalarFunction(signbit, context);
     }
 
     default R visitSin(Sin sin, C context) {
@@ -2394,5 +2422,37 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitNonNullable(NonNullable nonNullable, C context) {
         return visitScalarFunction(nonNullable, context);
+    }
+
+    default R visitLLMTranslate(LLMTranslate llmTranslate, C context) {
+        return visitScalarFunction(llmTranslate, context);
+    }
+
+    default R visitLLMSentiment(LLMSentiment llmSentiment, C context) {
+        return visitScalarFunction(llmSentiment, context);
+    }
+
+    default R visitLLMFixGrammar(LLMFixGrammar llmFixGrammar, C context) {
+        return visitScalarFunction(llmFixGrammar, context);
+    }
+
+    default R visitLLMExtract(LLMExtract llmExtract, C context) {
+        return visitScalarFunction(llmExtract, context);
+    }
+
+    default R visitLLMGenerate(LLMGenerate llmGenerate, C context) {
+        return visitScalarFunction(llmGenerate, context);
+    }
+
+    default R visitLLMClassify(LLMClassify llmClassify, C context) {
+        return visitScalarFunction(llmClassify, context);
+    }
+
+    default R visitLLMMask(LLMMask llmMask, C context) {
+        return visitScalarFunction(llmMask, context);
+    }
+
+    default R visitLLMSummarize(LLMSummarize llmSummarize, C context) {
+        return visitScalarFunction(llmSummarize, context);
     }
 }

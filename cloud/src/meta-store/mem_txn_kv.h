@@ -221,6 +221,10 @@ public:
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
+    TxnErrorCode batch_scan(std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+                            const std::vector<std::string>& keys,
+                            const BatchGetOptions& opts = BatchGetOptions()) override;
+
     size_t approximate_bytes() const override { return approximate_bytes_; }
 
     size_t num_get_keys() const override { return num_get_keys_; }

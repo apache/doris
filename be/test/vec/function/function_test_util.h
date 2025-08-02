@@ -168,10 +168,12 @@ struct ut_input_type<DataTypeHLL> {
 template <>
 struct ut_input_type<DataTypeIPv4> {
     using type = IPV4;
+    inline static type default_value = 0;
 };
 template <>
 struct ut_input_type<DataTypeIPv6> {
     using type = IPV6;
+    inline static type default_value = 0;
 };
 template <>
 struct ut_input_type<DataTypeArray> {
@@ -230,8 +232,14 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     if constexpr (std::is_same_v<ReturnType, DataTypeUInt8>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_BOOLEAN,
                                                             false);
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeInt8>) {
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_TINYINT,
+                                                            false);
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_INT, false);
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeInt64>) {
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_BIGINT,
+                                                            false);
     } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DOUBLE,
                                                             false);

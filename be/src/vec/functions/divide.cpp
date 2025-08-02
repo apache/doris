@@ -614,7 +614,7 @@ struct DivideDecimalImpl {
         auto result_scale = type_result.get_scale();
         DCHECK(orig_result_scale >= result_scale);
         auto scale_diff_multiplier =
-                DataTypeDecimal<PT>::get_scale_multiplier(orig_result_scale - result_scale).value;
+                DataTypeDecimal<PT>::get_scale_multiplier(orig_result_scale - result_scale);
         return {typename PrimitiveTypeTraits<PT>::CppType(max_result_number),
                 typename PrimitiveTypeTraits<PT>::CppType(scale_diff_multiplier)};
     }

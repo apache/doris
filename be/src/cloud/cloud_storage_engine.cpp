@@ -36,6 +36,7 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_snapshot_mgr.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
@@ -222,6 +223,8 @@ Status CloudStorageEngine::open() {
 
     _schema_cloud_dictionary_cache =
             std::make_unique<SchemaCloudDictionaryCache>(config::schema_dict_cache_capacity);
+
+    _cloud_snapshot_mgr = std::make_unique<CloudSnapshotMgr>(*this);
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),

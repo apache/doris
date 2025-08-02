@@ -147,20 +147,11 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) 
         }
 
         Block new_block;
-        int i = 0;
-        const auto& convert_nullable_flags = _vsort_exec_exprs.get_convert_nullable_flags();
         for (auto column_id : valid_column_ids) {
             if (column_id < 0) {
                 continue;
             }
-            if (i < convert_nullable_flags.size() && convert_nullable_flags[i]) {
-                auto column_ptr = make_nullable(src_block.get_by_position(column_id).column);
-                new_block.insert(
-                        {column_ptr, make_nullable(src_block.get_by_position(column_id).type), ""});
-            } else {
-                new_block.insert(src_block.get_by_position(column_id));
-            }
-            i++;
+            new_block.insert(src_block.get_by_position(column_id));
         }
         dest_block.swap(new_block);
     }
@@ -271,7 +262,12 @@ Status FullSorter::append_block(Block* block) {
     return Status::OK();
 }
 
-Status FullSorter::prepare_for_read() {
+Status FullSorter::prepare_for_read(bool is_spill) {
+    if (is_spill) {
+        _limit += _offset;
+        _offset = 0;
+        _state->ignore_offset();
+    }
     if (_state->unsorted_block()->rows() > 0) {
         RETURN_IF_ERROR(_do_sort());
     }

@@ -126,7 +126,7 @@ public class IcebergMetadataCache {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("load iceberg table {}", nameMapping, new Exception());
             }
-            return ((ExternalCatalog) catalog).getPreExecutionAuthenticator().execute(()
+            return ((ExternalCatalog) catalog).getExecutionAuthenticator().execute(()
                     -> ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -317,7 +317,7 @@ public class IcebergMetadataCache {
             return null;
         }
         try {
-            return ((ExternalCatalog) catalog).getPreExecutionAuthenticator().execute(() ->
+            return ((ExternalCatalog) catalog).getExecutionAuthenticator().execute(() ->
                     ops.loadView(key.nameMapping.getRemoteDbName(), key.nameMapping.getRemoteTblName()));
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);

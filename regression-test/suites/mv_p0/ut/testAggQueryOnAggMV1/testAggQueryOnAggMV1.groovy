@@ -19,6 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testAggQueryOnAggMV1") {
     sql """set enable_nereids_planner=true;"""
+    sql "set disable_nereids_rules='CONSTANT_PROPAGATION'"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -81,3 +82,4 @@ sql """alter table emps modify column time_col set stats ('row_count'='9');"""
     qt_select_mv "select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;"
 
 }
+

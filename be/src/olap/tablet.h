@@ -509,6 +509,10 @@ public:
         _compaction_score -= score;
     }
 
+    Status prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                       const PUniqueId& load_id, bool ingest);
+    // TODO: commit_txn
+
 private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);

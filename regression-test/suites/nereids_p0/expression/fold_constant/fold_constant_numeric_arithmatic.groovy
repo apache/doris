@@ -564,6 +564,52 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT 0 ^ 1 AS xor_case_2") //0 XOR 1 = 1
     testFoldConst("SELECT 255 ^ 128 AS xor_case_3") //255 XOR 128
 
+//SignBit function cases
+    testFoldConst("SELECT signbit(2.5) AS signbit_case_1") //signbit(2.5) = false
+    testFoldConst("SELECT signbit(0.0) AS signbit_case_2") //signbit(0.0) = false
+    testFoldConst("SELECT signbit(2.5) AS signbit_case_3") //signbit(-2.5) = true
+    testFoldConst("SELECT signbit(NULL)"); // NULL handling
+    testFoldConst("SELECT signbit(-10), signbit(0), signbit(10), signbit(-3.14), signbit(3.14)")
+
+//Even function cases
+    testFoldConst("SELECT even(-2.5) AS even_case_1") //even(-2.5) = -4
+    testFoldConst("SELECT even(0.0) AS even_case_2") //even(0.0) = 0
+    testFoldConst("SELECT even(2.5) AS even_case_3") //even(2.5) = 4
+    testFoldConst("SELECT even(NULL)"); // NULL handling
+
+// Gcd function cases
+    testFoldConst("SELECT gcd(2, 4) AS gcd_case_1") //gcd(2, 4) = 2
+    testFoldConst("SELECT gcd(0, 2) AS gcd_case_2") //gcd(0, 2) = 2
+    testFoldConst("SELECT gcd(-2, 4) AS gcd_case_3") //gcd(-2, 4) = 2
+    testFoldConst("SELECT gcd(-2, -4)") //gcd(-2, -4) = 2
+    testFoldConst("SELECT gcd(9, 11)") //gcd(9, 11) = 1
+    testFoldConst("SELECT gcd(256, 256)") //gcd(256, 256) = 256
+    testFoldConst("SELECT gcd(32767, 32767), gcd(-32768, 16384)") // smallint_test
+    testFoldConst("SELECT gcd(2147483647, 2), gcd(-1000000000, 500000000)") // int_test
+    testFoldConst("SELECT gcd(9223372036854775807, 2), gcd(-9223372036854775808, 2)") //bigint_test
+    testFoldConst("SELECT gcd(-170141183460469231731687303715884105728, 85070591730234615865843651857942052864)") //largeint_test
+    testFoldConst("SELECT gcd(-170141183460469231731687303715884105727, -170141183460469231731687303715884105727)") //largeint_test
+    testFoldConst("SELECT gcd(NULL, 4)") // NULL handling
+
+//Lcm function cases
+    testFoldConst("SELECT lcm(2, 4) AS lcm_case_1") //lcm(2, 4) = 4
+    testFoldConst("SELECT lcm(0, 2) AS lcm_case_2") //lcm(0, 2) = 0
+    testFoldConst("SELECT lcm(-2, 4) AS lcm_case_3") //lcm(-2, 4) = 4
+    testFoldConst("SELECT lcm(-2, -4)") //lcm(-2, -4) = 4
+    testFoldConst("SELECT lcm(11, 9)") //lcm(11, 9) = 99
+    testFoldConst("SELECT lcm(256, 256), lcm(-128, 64)") // tinyint_test
+    testFoldConst("SELECT lcm(32767, 32767), lcm(-32768, 16384)") // smallint_test
+    testFoldConst("SELECT lcm(2147483647, 2), lcm(-1000000000, 500000000), lcm(-2147483648, 1073741824)") // int_test
+    testFoldConst("SELECT lcm(9223372036854775807, 200000000), lcm(-9223372036854775808, 20000000)") //bigint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105726, 2)") //largeint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105727, 170141183460469231731687303715884105727)") //largeint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105727, -170141183460469231731687303715884105727)") //largeint_test
+    testFoldConst("SELECT lcm(127, 32767), lcm(127, 2147483647), lcm(127, 9223372036854775807), lcm(127, 9223372036854775808)") // tinyint_x_test
+    testFoldConst("SELECT lcm(32767, 2147483647), lcm(32767, 9223372036854775807), lcm(32767, 9223372036854775808)") // smallint_x_test
+    testFoldConst("SELECT lcm(2147483647, 9223372036854775807), lcm(2147483647, 9223372036854775808)") // int_x_test
+    testFoldConst("SELECT lcm(9223372036854775807, 9223372036854775807)") // bigint_x_test
+    testFoldConst("SELECT lcm(NULL, 4)") // NULL handling
+
     // ensure divide for decimal v3 could return correct type when divider is 0
     sql """ select if(random() > 0.5, cast(random() as decimal(38,10)), cast(0 as decimal(30, 10)) / cast(0 as decimal(30,10)))"""
 

@@ -54,20 +54,21 @@ public:
 
     Status _execute_tablet_migration(TabletSharedPtr tablet, DataDir* dest_store);
 
-    Status _check_param(HttpRequest* req, int64_t& tablet_id, int32_t& schema_hash,
+    Status _check_param(HttpRequest* req, int64_t& tablet_id, unsigned long& schema_hash,
                         std::string& dest_disk, std::string& goal);
-    Status _check_migrate_request(int64_t tablet_id, int32_t schema_hash, std::string dest_disk,
-                                  TabletSharedPtr& tablet, DataDir** dest_store);
+    Status _check_migrate_request(int64_t tablet_id, unsigned long schema_hash,
+                                  std::string dest_disk, TabletSharedPtr& tablet,
+                                  DataDir** dest_store);
 
 private:
     StorageEngine& _engine;
     std::unique_ptr<ThreadPool> _migration_thread_pool;
 
     struct MigrationTask {
-        MigrationTask(int64_t tablet_id, int32_t schema_hash)
+        MigrationTask(int64_t tablet_id, unsigned long schema_hash)
                 : _tablet_id(tablet_id), _schema_hash(schema_hash) {}
 
-        MigrationTask(int64_t tablet_id, int32_t schema_hash, std::string dest_disk)
+        MigrationTask(int64_t tablet_id, unsigned long schema_hash, std::string dest_disk)
                 : _tablet_id(tablet_id), _schema_hash(schema_hash), _dest_disk(dest_disk) {}
 
         bool operator<(const MigrationTask& right) const {
@@ -88,7 +89,7 @@ private:
         }
 
         int64_t _tablet_id;
-        int32_t _schema_hash;
+        unsigned long _schema_hash;
         std::string _dest_disk;
     };
 
