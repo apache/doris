@@ -35,7 +35,7 @@ suite ("agg_use_key_direct") {
         properties("replication_num" = "1");
     """
     sql "insert into ${tblName} select e1, -4, -4, -4, 'd' from (select 1 k1) as t lateral view explode_numbers(100) tmp1 as e1;"
-    create_sync_mv(db, tblName, "common_mv", """select k1, k3, sum(k2), count(k4) from ${tblName} group by k1, k3;""")
+    create_sync_mv(db, tblName, "common_mv", """select k1 as a1, k3 as a2, sum(k2), count(k4) from ${tblName} group by k1, k3;""")
 
     mv_rewrite_fail("""select count(k1) from agg_use_key_direct""", "common_mv")
     mv_rewrite_fail("""select sum(k1) from agg_use_key_direct""", "common_mv")

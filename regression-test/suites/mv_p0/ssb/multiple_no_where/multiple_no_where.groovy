@@ -78,14 +78,14 @@ suite ("multiple_no_where") {
 
     test {
         sql """create materialized view lineorder_q_1_1 as 
-                SELECT LO_ORDERKEY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT)
+                SELECT LO_ORDERKEY as a1, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) as a2
                 FROM lineorder_flat GROUP BY
                     LO_ORDERKEY, LO_ORDERDATE, LO_DISCOUNT, LO_QUANTITY;"""
         exception "not in select list"
     }
 
     createMV ("""create materialized view lineorder_q_1_1 as 
-                SELECT LO_ORDERKEY, LO_ORDERDATE, LO_DISCOUNT, LO_QUANTITY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT)
+                SELECT LO_ORDERKEY as a3, LO_ORDERDATE as a4, LO_DISCOUNT as a5, LO_QUANTITY as a6, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) as a7
                 FROM lineorder_flat GROUP BY
                     LO_ORDERKEY, LO_ORDERDATE, LO_DISCOUNT, LO_QUANTITY;""")
 

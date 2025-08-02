@@ -37,7 +37,7 @@ suite ("case_ignore") {
     sql "insert into case_ignore select 3,-3,null,'c';"
 
 
-    createMV ("create materialized view k12a as select K1,abs(K2) from case_ignore;")
+    createMV ("create materialized view k12a as select K1 as a1,abs(K2) from case_ignore;")
     sleep(3000)
 
     sql "insert into case_ignore select -4,-4,-4,'d';"

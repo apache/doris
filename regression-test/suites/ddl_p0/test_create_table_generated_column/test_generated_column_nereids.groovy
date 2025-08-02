@@ -74,7 +74,7 @@ suite("test_generated_column") {
     qt_gencol_refer_gencol_select "select * from gencol_refer_gencol order by 1,2,3,4;"
 
     sql "drop materialized view if exists test_mv_gen_col on gencol_refer_gencol"
-    createMV ("""create materialized view test_mv_gen_col as select a,sum(a),sum(c) ,sum(d) from gencol_refer_gencol group by a;""")
+    createMV ("""create materialized view test_mv_gen_col as select a as a1,sum(a),sum(c) ,sum(d) from gencol_refer_gencol group by a;""")
     qt_test_insert_mv "insert into gencol_refer_gencol(a,b) values(1,2),(3,5)"
     qt_test_select "select a,sum(a),sum(c),sum(d) from gencol_refer_gencol group by a order by 1,2,3,4"
     explain{

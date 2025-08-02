@@ -39,7 +39,7 @@ suite ("test_user_activity") {
     qt_select_base " select n_dx, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx; "
 
     sql """ drop materialized view IF EXISTS session_distribution_2 on u_axx;"""
-    createMV ("create materialized view session_distribution_2 as select n_dx, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx;")
+    createMV ("create materialized view session_distribution_2 as select n_dx as a1, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx;")
 
     sql """INSERT INTO u_axx VALUES (2, "2023-01-02", 600);"""
 

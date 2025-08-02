@@ -34,7 +34,7 @@ suite ("test_duplicate_mv") {
 
     sql "insert into duplicate_table select 1,2,3,4;"
 
-    createMV("create materialized view deduplicate as select k1, k2, k3, k4 from duplicate_table group by k1, k2, k3, k4;")
+    createMV("create materialized view deduplicate as select k1 as a1, k2 as a2, k3 as a3, k4 as a4 from duplicate_table group by k1, k2, k3, k4;")
 
    sql "insert into duplicate_table select 2,3,4,5;"
    sql "insert into duplicate_table select 1,2,3,4;"

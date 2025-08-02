@@ -43,9 +43,9 @@ suite ("test_mv_partition") {
 
     sql """insert into chh(event_id,time_stamp,device_id) values('ad_sdk_request','2024-03-04 00:00:00','a');"""
 
-    createMV("create materialized view m_view as select to_date(time_stamp),count(device_id) from chh group by to_date(time_stamp);")
+    createMV("create materialized view m_view as select to_date(time_stamp) as x,count(device_id) from chh group by to_date(time_stamp);")
 
     sql """insert into chh(event_id,time_stamp,device_id) values('ad_sdk_request','2024-03-04 00:00:00','a');"""
     
-    qt_select_mv "select * from chh index m_view where `mv_to_date(time_stamp)` = '2024-03-04';"
+    qt_select_mv "select * from chh index m_view where `x` = '2024-03-04';"
 }
