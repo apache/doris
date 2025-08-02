@@ -1488,7 +1488,7 @@ public class PropertyAnalyzer {
         if (properties.containsKey(propTagKey)) {
             properties.remove(propTagKey);
         }
-        properties.put(propTagKey,  Config.force_olap_table_replication_allocation);
+        properties.put(propTagKey, Config.force_olap_table_replication_allocation);
         return properties;
     }
 
@@ -1505,16 +1505,36 @@ public class PropertyAnalyzer {
         if (properties == null || properties.isEmpty()) {
             return ReplicaAllocation.NOT_SET;
         }
-        // if give "replication_num" property, return with default backend tag
         Short replicaNum = analyzeReplicationNum(properties, prefix, (short) 0);
+        ReplicaAllocation replicaAlloc = parseTagBasedReplicaAllocation(properties, prefix, checkBackends);
+
+        // both "replication_num" and "replication_allocation" are given
+        if (replicaNum > 0 && !replicaAlloc.isEmpty()) {
+            // if allocation only uses the default tag and matches the number, allow it
+            if (replicaAlloc.getAllocMap().size() == 1
+                    && replicaNum.equals(replicaAlloc.getAllocMap().get(Tag.DEFAULT_BACKEND_TAG))) {
+                return new ReplicaAllocation(replicaNum);
+            }
+            // otherwise, it's a conflict
+            throw new AnalysisException("duplicate properties: ["
+                + PROPERTIES_REPLICATION_NUM + "] and ["
+                + PROPERTIES_REPLICATION_ALLOCATION + "]");
+        }
+        // only "replication_num" property is given, return with default backend tag
         if (replicaNum > 0) {
             return new ReplicaAllocation(replicaNum);
         }
+        // return specified replica allocation
+        return replicaAlloc;
+    }
 
+    private static ReplicaAllocation parseTagBasedReplicaAllocation(Map<String, String> properties, String prefix,
+                                                                    boolean checkBackends)
+            throws AnalysisException {
         String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
                 : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
         // if not set, return default replication allocation
-        if (!properties.containsKey(propKey)) {
+        if (properties == null || !properties.containsKey(propKey)) {
             return ReplicaAllocation.NOT_SET;
         }
 
@@ -1559,10 +1579,6 @@ public class PropertyAnalyzer {
                 || totalReplicaNum > Config.max_replication_num_per_tablet) {
             throw new AnalysisException("Total replication num should between " + Config.min_replication_num_per_tablet
                     + " and " + Config.max_replication_num_per_tablet);
-        }
-
-        if (replicaAlloc.isEmpty()) {
-            throw new AnalysisException("Not specified replica allocation property");
         }
         return replicaAlloc;
     }
