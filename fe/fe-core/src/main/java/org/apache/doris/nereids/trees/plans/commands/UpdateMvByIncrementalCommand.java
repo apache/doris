@@ -15,37 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.paimon;
+package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.paimon.table.Table;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
-public class PaimonSnapshot {
-    public static long INVALID_SNAPSHOT_ID = -1;
-    private final long snapshotId;
-    private final long schemaId;
-    private final long timestamp;
-    private final Table table;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-    public PaimonSnapshot(long snapshotId, long schemaId, long timestamp, Table table) {
-        this.snapshotId = snapshotId;
-        this.schemaId = schemaId;
-        this.table = table;
-        this.timestamp = timestamp;
-    }
+import java.util.Optional;
 
-    public long getSnapshotId() {
-        return snapshotId;
-    }
+/**
+ * Update mv incrementally
+ */
+public class UpdateMvByIncrementalCommand extends InsertIntoTableCommand {
+    private static final Logger LOG = LogManager.getLogger(UpdateMvByIncrementalCommand.class);
 
-    public long getSchemaId() {
-        return schemaId;
-    }
-
-    public long getTimestamp() {
-        return timestamp;
-    }
-
-    public Table getTable() {
-        return table;
+    public UpdateMvByIncrementalCommand(LogicalPlan logicalQuery) {
+        super(logicalQuery, Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

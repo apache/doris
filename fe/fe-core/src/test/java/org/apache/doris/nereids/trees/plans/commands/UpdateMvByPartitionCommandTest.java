@@ -44,7 +44,7 @@ class UpdateMvByPartitionCommandTest {
         Range<PartitionKey> range1 = Range.lessThan(upper);
         RangePartitionItem item1 = new RangePartitionItem(range1);
 
-        Set<Expression> predicates = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(item1), "s");
+        Set<Expression> predicates = UpdateMvUtils.constructPredicates(Sets.newHashSet(item1), "s");
         Assertions.assertEquals("OR[(s < 1),s IS NULL]", predicates.iterator().next().toSql());
 
     }
@@ -58,7 +58,7 @@ class UpdateMvByPartitionCommandTest {
                 ImmutableList.of(column));
         Range<PartitionKey> range = Range.closedOpen(lower, upper);
         RangePartitionItem rangePartitionItem = new RangePartitionItem(range);
-        Set<Expression> predicates = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(rangePartitionItem),
+        Set<Expression> predicates = UpdateMvUtils.constructPredicates(Sets.newHashSet(rangePartitionItem),
                 "s");
         Expression expr = predicates.iterator().next();
         System.out.println(expr.toSql());
@@ -71,7 +71,7 @@ class UpdateMvByPartitionCommandTest {
         PartitionKey v = PartitionKey.createListPartitionKeyWithTypes(
                 ImmutableList.of(new PartitionValue("NULL", true)), ImmutableList.of(column.getType()), false);
         ListPartitionItem listPartitionItem = new ListPartitionItem(ImmutableList.of(v));
-        Expression expr = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(listPartitionItem), "s")
+        Expression expr = UpdateMvUtils.constructPredicates(Sets.newHashSet(listPartitionItem), "s")
                 .iterator().next();
         Assertions.assertTrue(expr instanceof IsNull);
 
@@ -80,7 +80,7 @@ class UpdateMvByPartitionCommandTest {
         PartitionKey v2 = PartitionKey.createListPartitionKeyWithTypes(ImmutableList.of(new PartitionValue("1", false)),
                 ImmutableList.of(column.getType()), false);
         listPartitionItem = new ListPartitionItem(ImmutableList.of(v1, v2));
-        expr = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(listPartitionItem), "s").iterator()
+        expr = UpdateMvUtils.constructPredicates(Sets.newHashSet(listPartitionItem), "s").iterator()
                 .next();
         Assertions.assertEquals("OR[s IS NULL,s IN (1)]", expr.toSql());
     }

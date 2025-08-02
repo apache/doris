@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -45,6 +46,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
+import org.apache.doris.mtmv.MTMVRefreshEnum;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
@@ -111,6 +113,10 @@ public class CreateMTMVInfo {
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
 
+    private boolean inremental;
+    private MaterializedViewUtils.MVAggInfo mvAggInfo;
+    private KeysType keysType = KeysType.DUP_KEYS;
+
     /**
      * constructor for create MTMV
      */
@@ -134,6 +140,7 @@ public class CreateMTMVInfo {
                 .requireNonNull(simpleColumnDefinitions, "require simpleColumnDefinitions object");
         this.mvPartitionDefinition = Objects
                 .requireNonNull(mvPartitionDefinition, "require mtmvPartitionInfo object");
+        this.inremental = refreshInfo.getRefreshMethod() == MTMVRefreshEnum.RefreshMethod.INCREMENTAL;
     }
 
     /**
@@ -258,6 +265,9 @@ public class CreateMTMVInfo {
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
+            if (this.inremental) {
+                mvAggInfo = MaterializedViewUtils.checkIncrementalMV(planner.getRewrittenPlan());
+            }
             // can not contain VIEW or MTMV
             analyzeBaseTables(planner.getAnalyzedPlan());
             // can not contain Random function
@@ -283,6 +293,33 @@ public class CreateMTMVInfo {
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
+            if (this.inremental) {
+                keys = mvAggInfo.keys;
+                if (!keys.isEmpty()) {
+                    keysType = KeysType.AGG_KEYS;
+                }
+                columns = columns.stream()
+                        .map(c -> {
+                            String funcName = mvAggInfo.aggFunctions.get(c.getName());
+                            if (funcName != null) {
+                                switch (funcName) {
+                                    case MaterializedViewUtils.MIN:
+                                        c.setAggType(AggregateType.MIN);
+                                        break;
+                                    case MaterializedViewUtils.MAX:
+                                        c.setAggType(AggregateType.MAX);
+                                        break;
+                                    case MaterializedViewUtils.SUM:
+                                        c.setAggType(AggregateType.SUM);
+                                        break;
+                                    default:
+                                        throw new RuntimeException("unsupported agg function: " + funcName);
+                                }
+                            }
+                            return c;
+                        })
+                        .collect(Collectors.toList());
+            }
             analyzeKeys();
         }
     }
@@ -407,7 +444,7 @@ public class CreateMTMVInfo {
      */
     public CreateMTMVStmt translateToLegacyStmt() {
         TableName tableName = mvName.transferToTableName();
-        KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, keys);
+        KeysDesc keysDesc = new KeysDesc(keysType, keys);
         List<Column> catalogColumns = columns.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());

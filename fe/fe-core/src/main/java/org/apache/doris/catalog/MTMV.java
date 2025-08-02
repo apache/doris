@@ -35,6 +35,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVRefreshEnum;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
@@ -219,7 +220,11 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
-            this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
+            Set<String> partitionNames = getPartitionNames();
+            if (getIncrementalRefresh()) {
+                partitionNames.add(this.name);
+            }
+            this.refreshSnapshot.updateSnapshots(partitionSnapshots, partitionNames);
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
         } finally {
@@ -348,6 +353,10 @@ public class MTMV extends OlapTable {
 
     public MTMVRefreshSnapshot getRefreshSnapshot() {
         return refreshSnapshot;
+    }
+
+    public boolean getIncrementalRefresh() {
+        return getRefreshInfo().getRefreshMethod() == MTMVRefreshEnum.RefreshMethod.INCREMENTAL;
     }
 
     /**

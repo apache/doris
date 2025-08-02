@@ -996,7 +996,7 @@ refreshSchedule
     ;
 
 refreshMethod
-    : COMPLETE | AUTO
+    : COMPLETE | AUTO | INCREMENTAL
     ;
 
 mvPartition

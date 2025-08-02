@@ -102,7 +102,8 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsManualComplete() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, true);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
+        MTMVTask.MTMVDataRefreshExec mtmvDataRefreshExec = task.getMTMVDataRefreshExec();
+        List<String> result = mtmvDataRefreshExec.calculateNeedRefreshPartitions(null);
         Assert.assertEquals(allPartitionNames, result);
     }
 
@@ -110,7 +111,7 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsManualPartitions() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName), false);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
+        List<String> result = task.getMTMVDataRefreshExec().calculateNeedRefreshPartitions(null);
         Assert.assertEquals(Lists.newArrayList(poneName), result);
     }
 
@@ -125,7 +126,7 @@ public class MTMVTaskTest {
         };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
+        List<String> result = task.getMTMVDataRefreshExec().calculateNeedRefreshPartitions(null);
         Assert.assertTrue(CollectionUtils.isEmpty(result));
     }
 
@@ -133,7 +134,7 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsSystemComplete() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
+        List<String> result = task.getMTMVDataRefreshExec().calculateNeedRefreshPartitions(null);
         Assert.assertEquals(allPartitionNames, result);
     }
 
@@ -148,7 +149,7 @@ public class MTMVTaskTest {
         };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
+        List<String> result = task.getMTMVDataRefreshExec().calculateNeedRefreshPartitions(null);
         Assert.assertEquals(allPartitionNames, result);
     }
 
@@ -173,7 +174,7 @@ public class MTMVTaskTest {
         };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
+        List<String> result = task.getMTMVDataRefreshExec().calculateNeedRefreshPartitions(null);
         Assert.assertEquals(Lists.newArrayList(ptwoName), result);
     }
 }

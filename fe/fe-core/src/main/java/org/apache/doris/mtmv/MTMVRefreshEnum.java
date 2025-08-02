@@ -27,6 +27,7 @@ public class MTMVRefreshEnum {
      */
     public enum RefreshMethod {
         COMPLETE, //complete
+        INCREMENTAL, //incremental
         AUTO //try to update incrementally, if not possible, update in full
     }
 

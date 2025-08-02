@@ -20,16 +20,26 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
+import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
@@ -42,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -63,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.HashMultimap;
@@ -72,10 +84,14 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -89,6 +105,225 @@ import java.util.stream.Collectors;
  * The common util for materialized view
  */
 public class MaterializedViewUtils {
+
+    public static final String MIN = "min";
+    public static final String MAX = "max";
+    public static final String SUM = "sum";
+
+    public static BaseTableInfo getIncrementalMVBaseTable(MTMV mtmv) {
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
+        if (baseTables.size() != 1) {
+            throw new RuntimeException("Only support incremental refresh for single table mv");
+        }
+        return baseTables.iterator().next();
+    }
+
+    public static MTMVSnapshotIf getIncrementalMVSnapshotInfo(MTMV mtmv) {
+        BaseTableInfo baseTableInfo = getIncrementalMVBaseTable(mtmv);
+        return mtmv.getRefreshSnapshot().getMVSnapshot(mtmv.getName(), baseTableInfo);
+    }
+
+    public static MTMVSnapshotIf getIncrementalMVTableSnapshotInfo(MTMV mtmv,
+            Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots) {
+        BaseTableInfo baseTableInfo = getIncrementalMVBaseTable(mtmv);
+        return execPartitionSnapshots.get(mtmv.getName())
+                .getTableSnapshot(baseTableInfo);
+    }
+
+    /**
+     * get incremental mv table snapshot
+     */
+    public static MTMVSnapshotIf getIncrementalMVTableSnapshotInfo(MTMV mtmv) throws AnalysisException {
+        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv);
+        BaseTableInfo baseTableInfo = getIncrementalMVBaseTable(mtmv);
+        MTMVRefreshPartitionSnapshot mtmvRefreshPartitionSnapshot = MTMVPartitionUtil.generatePartitionSnapshot(
+                context, mtmv.getRelation().getBaseTablesOneLevel(),
+                Collections.singleton(mtmv.getName()), true);
+        return mtmvRefreshPartitionSnapshot.getTableSnapshot(baseTableInfo);
+    }
+
+    /**
+     * paimon mv agg keys and functions
+     */
+    public static class MVAggInfo {
+        public List<String> keys = new ArrayList<>();
+        public Map<String, String> aggFunctions = new HashMap<>();
+    }
+
+    private static class MVAnalysis implements GeneratedPlanPatterns {
+        public static MVAnalysis instance = new MVAnalysis();
+        private static final ImmutableSet<String> ALLOW_MERGE_AGGREGATE_FUNCTIONS =
+                ImmutableSet.of(MIN, MAX, SUM);
+
+        /**
+         * Extract aggregation keys and aggregation functions according to the execution plan
+         */
+        public MVAggInfo checkAndGetAggInfo(Plan plan) {
+            if (plan instanceof LogicalResultSink) {
+                plan = plan.child(0);
+            }
+            boolean isAggMode = logicalAggregate(logicalProject(logicalFileScan()))
+                    .getPattern().matchPlanTree(plan);
+            if (!isAggMode) {
+                throw new NereidsException(new RuntimeException(
+                        "mv query must be agg mode on external table: " + plan));
+            }
+            LogicalAggregate<? extends Plan> aggregate = (LogicalAggregate) plan;
+            LogicalProject<? extends Plan> project = (LogicalProject) plan.child(0);
+            LogicalFileScan fileScan = (LogicalFileScan) project.child(0);
+
+            if (!(fileScan.getTable() instanceof PaimonExternalTable)) {
+                throw new NereidsException(new RuntimeException(
+                        "Only Paimon table support incremental mv: " + fileScan.getTable()));
+            }
+
+            // select a + 1 from t group a + 1  ->  a + 1 should has alias
+            project.getProjects().forEach(e -> {
+                if (e instanceof Alias) {
+                    Alias alias = (Alias) e;
+                    if (alias.isNameFromChild()) {
+                        throw new NereidsException(
+                                new RuntimeException("complex expression must has alias: " + e));
+                    }
+                }
+            });
+
+            // select a, sum(b) from t group a  ->  sum(b) should has alias
+            aggregate.getOutputExpressions().forEach(e -> {
+                if (e instanceof Alias) {
+                    Alias alias = (Alias) e;
+                    if (alias.isNameFromChild()) {
+                        throw new NereidsException(
+                                new RuntimeException("complex expression must has alias: " + e));
+                    }
+                }
+            });
+
+            PaimonExternalTable paimonExternalTable = (PaimonExternalTable) fileScan.getTable();
+
+            Table paimonTable = paimonExternalTable.getPaimonTable(Optional.empty());
+            Set<String> primaryKeys = new HashSet<>(paimonTable.primaryKeys());
+            List<Slot> projectInputSlots = project.getProjects().stream().map(NamedExpression::getInputSlots)
+                    .flatMap(Collection::stream).collect(Collectors.toList());
+
+            CoreOptions coreOptions = new CoreOptions(paimonTable.options());
+
+            Set<NamedExpression> primaryKeySlots = new HashSet<>();
+            Map<ExprId, String> exprIdToAggFunctionName = new HashMap<>();
+            List<Slot> fileScanOutputs = fileScan.getOutput();
+            for (Slot slot : fileScanOutputs) {
+                String fieldName = slot.getName();
+                if (primaryKeys.contains(fieldName)) {
+                    primaryKeySlots.add(slot);
+                    continue;
+                }
+
+                if (!projectInputSlots.contains(slot)) {
+                    continue;
+                }
+
+                String strAggFunc = coreOptions.fieldAggFunc(fieldName);
+                if (strAggFunc == null || strAggFunc.trim().isEmpty()) {
+                    String errorMsg = String.format(
+                            "column %s is not a aggregate column!",
+                            fieldName);
+                    throw new NereidsException(new RuntimeException(errorMsg));
+                }
+
+                switch (strAggFunc) {
+                    case SUM:
+                        exprIdToAggFunctionName.put(slot.getExprId(), SUM);
+                        break;
+                    case MAX:
+                        exprIdToAggFunctionName.put(slot.getExprId(), MAX);
+                        break;
+                    case MIN:
+                        exprIdToAggFunctionName.put(slot.getExprId(), MIN);
+                        break;
+                    default:
+                        String errorMsg = String.format(
+                                "Use unsupported aggregation: %s",
+                                strAggFunc);
+                        throw new NereidsException(new RuntimeException(errorMsg));
+                }
+            }
+
+            Set<Slot> replacedGroupBySlots = PlanUtils.replaceExpressionByProjections(
+                    project.getProjects(), new ArrayList<>(aggregate.getGroupByExpressions()))
+                    .stream().map(Expression::getInputSlots).flatMap(Collection::stream)
+                    .collect(Collectors.toSet());
+
+            if (!new HashSet<>(primaryKeySlots).containsAll(replacedGroupBySlots)) {
+                replacedGroupBySlots.removeAll(primaryKeySlots);
+                String errorMsg = String.format(
+                        "exist non-primary key group columns: %s",
+                        replacedGroupBySlots);
+                throw new NereidsException(new RuntimeException(errorMsg));
+            }
+
+            List<Expression> replacedAggFunctions = PlanUtils.replaceExpressionByProjections(
+                    project.getProjects(), new ArrayList<>(aggregate.getOutputExpressions()));
+
+            MVAggInfo mvAggInfo = new MVAggInfo();
+            for (Expression e : replacedAggFunctions) {
+                if (!(e instanceof Alias) || !(e.child(0) instanceof AggregateFunction)) {
+                    continue;
+                }
+                Alias alias = (Alias) e;
+                AggregateFunction aggFunc = (AggregateFunction) alias.child(0);
+                if (!(ALLOW_MERGE_AGGREGATE_FUNCTIONS.contains(aggFunc.getName()))) {
+                    String errorMsg = String.format(
+                            "Use unsupported aggregation: %s",
+                            aggFunc.getName());
+                    throw new NereidsException(new RuntimeException(errorMsg));
+                }
+                if (aggFunc.isDistinct()) {
+                    String errorMsg = String.format(
+                            "can not use distinct: %s",
+                            aggFunc);
+                    throw new NereidsException(new RuntimeException(errorMsg));
+                }
+                // not support outerAggFunc: sum(a+1),sum(a+b)
+                if (!(aggFunc.child(0) instanceof SlotReference)) {
+                    String errorMsg = String.format(
+                            "%s child is a complex expression",
+                            aggFunc);
+                    throw new NereidsException(new RuntimeException(errorMsg));
+                }
+                ExprId childExprId = ((SlotReference) aggFunc.child(0)).getExprId();
+                if (exprIdToAggFunctionName.containsKey(childExprId)) {
+                    String aggFunctionName = exprIdToAggFunctionName.get(childExprId);
+                    if (!aggFunctionName.equals(aggFunc.getName())) {
+                        String errorMsg = String.format(
+                                "sql agg function %s "
+                                + "is different from paimon agg function %s",
+                                aggFunc, aggFunctionName);
+                        throw new NereidsException(new RuntimeException(errorMsg));
+                    }
+                } else {
+                    String errorMsg = String.format(
+                            "Unable to find a reasonable "
+                            + "aggregation function for %s from paimon agg function",
+                            aggFunc);
+                    throw new NereidsException(new RuntimeException(errorMsg));
+                }
+                mvAggInfo.aggFunctions.put(alias.getName(), aggFunc.getName());
+            }
+
+            aggregate.getGroupByExpressions()
+                    .forEach(slot -> mvAggInfo.keys.add(((SlotReference) slot).getName()));
+            return mvAggInfo;
+        }
+
+        @Override
+        public RulePromise defaultPromise() {
+            return RulePromise.ANALYSIS;
+        }
+    }
+
+    public static MVAggInfo checkIncrementalMV(Plan plan) {
+        return MVAnalysis.instance.checkAndGetAggInfo(plan);
+    }
 
     /**
      * Get related base table info which materialized view plan column reference,
