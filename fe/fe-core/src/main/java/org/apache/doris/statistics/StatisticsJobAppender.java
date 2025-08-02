@@ -30,10 +30,12 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -160,8 +162,7 @@ public class StatisticsJobAppender extends MasterDaemon {
             if (!db.isPresent()) {
                 continue;
             }
-            List<Table> tables = db.get().getTables().stream()
-                    .sorted((t1, t2) -> (int) (t1.getId() - t2.getId())).collect(Collectors.toList());
+            List<Table> tables = sortTables(db.get().getTables());
             for (Table t : tables) {
                 if (!(t instanceof OlapTable) || t.getId() <= currentTableId) {
                     continue;
@@ -211,6 +212,13 @@ public class StatisticsJobAppender extends MasterDaemon {
         currentDbId = 0;
         currentTableId = 0;
         lastRoundFinishTime = System.currentTimeMillis();
+    }
+
+    protected List<Table> sortTables(List<Table> tables) {
+        if (tables == null) {
+            return Lists.newArrayList();
+        }
+        return tables.stream().sorted(Comparator.comparingLong(Table::getId)).collect(Collectors.toList());
     }
 
     @VisibleForTesting
