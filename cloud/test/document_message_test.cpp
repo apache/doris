@@ -709,7 +709,7 @@ TEST(DocumentMessageTest, VersionedDocumentPutAndGetWithVersionstamp) {
         ASSERT_EQ(read_meta.rowset_id_v2(), meta.rowset_id_v2());
         ASSERT_EQ(read_meta.end_version(), meta.end_version());
         ASSERT_EQ(read_meta.start_version(), meta.start_version());
-        ASSERT_EQ(read_meta.num_rows(), 200); // This should now be 200
+        ASSERT_EQ(read_meta.num_rows(), meta.num_rows());
         ASSERT_EQ(read_meta.num_segments(), meta.num_segments());
         ASSERT_EQ(read_meta.segments_key_bounds_size(), 2);
         ASSERT_EQ(read_meta.segments_key_bounds(0).min_key(), "min_key");
