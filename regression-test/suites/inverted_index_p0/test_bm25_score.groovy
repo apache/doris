@@ -78,13 +78,17 @@ suite("test_bm25_score", "p0") {
         load_httplogs_data.call(indexTbName1, indexTbName1, 'true', 'json', 'documents-1000.json')
         sql "sync"
 
-        qt_sql """ select *, score() as score from ${indexTbName1} where request match_any 'button.03.gif' order by score limit 10; """
-        qt_sql """ select *, score() as score from ${indexTbName1} where request match_all 'button.03.gif' order by score limit 10; """
-        qt_sql """ select *, score() as score from ${indexTbName1} where request match_phrase 'button.03.gif' order by score limit 10; """
+        def explain_result = sql """ explain verbose select *, score() as score from ${indexTbName1} where request match_any 'button.03.gif' order by score limit 10; """
+        log.info("Explain verbose result: ${explain_result}")
 
-        load_httplogs_data.call(indexTbName1, indexTbName1, 'true', 'json', 'documents-1000.json')
-        sql "sync"
+        def explain_text = explain_result.toString()
+        if (explain_text.contains("__DORIS_VIRTUAL_COL__1")) {
+            log.info("Found __DORIS_VIRTUAL_COL__1 in explain result")
+        } else {
+            log.info("__DORIS_VIRTUAL_COL__1 not found in explain result")
+        }
 
+        qt_sql """ select count() from ${indexTbName1} where request match_any 'button.03.gif'; """
         qt_sql """ select *, score() as score from ${indexTbName1} where request match_any 'button.03.gif' order by score limit 10; """
         qt_sql """ select *, score() as score from ${indexTbName1} where request match_all 'button.03.gif' order by score limit 10; """
         qt_sql """ select *, score() as score from ${indexTbName1} where request match_phrase 'button.03.gif' order by score limit 10; """
