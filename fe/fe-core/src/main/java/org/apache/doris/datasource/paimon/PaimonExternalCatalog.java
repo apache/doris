@@ -170,20 +170,28 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping, String queryType) {
-        return getPaimonSystemTable(nameMapping, null, queryType);
-    }
-
-    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping, String branch,
+    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping, String branch,
             String queryType) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> catalog.getTable(new Identifier(nameMapping.getRemoteDbName(),
-                    nameMapping.getRemoteTblName(), branch, queryType)));
+            Identifier identifier;
+            if (branch != null && queryType != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        branch, queryType);
+            } else if (branch != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        branch);
+            } else if (queryType != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        "main", queryType);
+            } else {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+            }
+            return hadoopAuthenticator.doAs(() -> catalog.getTable(identifier));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get Paimon system table:" + getName() + "."
-                    + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + "$" + queryType
-                    + ", because " + e.getMessage(), e);
+            throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
+                    + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName()
+                    + ", " + e.getMessage(), e);
         }
     }
 
