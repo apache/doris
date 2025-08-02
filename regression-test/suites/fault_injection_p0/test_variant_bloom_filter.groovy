@@ -110,7 +110,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")
 
         // number
-        qt_sql1 """ select cast(v['repo']['id'] as int) from ${index_table} where cast(v['repo']['id'] as int) = 20291263; """
+        qt_sql1 """ select cast(v['repo']['id'] as bigint) from ${index_table} where cast(v['repo']['id'] as bigint) = 20291263; """
 
         // string
         qt_sql2 """ select cast(v['repo']['name'] as text) from ${index_table} where cast(v['repo']['name'] as text) = "ridget/dotfiles"; """
