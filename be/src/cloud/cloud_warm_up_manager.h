@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "gen_cpp/BackendService.h"
 
@@ -69,6 +70,15 @@ public:
     // Cancel the job
     Status clear_job(int64_t job_id);
 
+<<<<<<< HEAD
+=======
+    Status set_event(int64_t job_id, TWarmUpEventType::type event, bool clear = false);
+
+    void warm_up_rowset(RowsetMeta& rs_meta);
+
+    void recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);
+
+>>>>>>> 0345f71f2d ([fix](warmup) avoid calling recycle_cache after rebalance (#4169))
 private:
     void handle_jobs();
     void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,
