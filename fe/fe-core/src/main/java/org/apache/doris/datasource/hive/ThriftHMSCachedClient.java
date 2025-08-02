@@ -28,6 +28,7 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -641,11 +642,14 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return builder.build();
     }
 
-    private class ThriftHMSClient implements AutoCloseable {
+    @VisibleForTesting
+    public class ThriftHMSClient implements AutoCloseable {
         private final IMetaStoreClient client;
         private volatile Throwable throwable;
+        private boolean isClosed = false;
+        private boolean isClientInPool = false;
 
-        private ThriftHMSClient(HiveConf hiveConf) throws MetaException {
+        public ThriftHMSClient(HiveConf hiveConf) throws MetaException {
             String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
             if (HMSProperties.DLF_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
@@ -653,6 +657,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             } else if (HMSProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         AWSCatalogMetastoreClient.class.getName());
+            } else if ("test".equalsIgnoreCase(type)) {
+                client = new TestIMetaStoreClient();
             } else {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         HiveMetaStoreClient.class.getName());
@@ -663,14 +669,43 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             this.throwable = throwable;
         }
 
+        public void setClientInPool(boolean clientInPool) {
+            isClientInPool = clientInPool;
+        }
+
+        // For testing only
+        public boolean isInPool() {
+            return isClientInPool;
+        }
+
+        // For testing only
+        public boolean isClosed() {
+            return isClosed;
+        }
+
+        // For testing only
+        public IMetaStoreClient getClient() {
+            return client;
+        }
+
         @Override
         public void close() throws Exception {
+            boolean returned = false;
             synchronized (clientPool) {
-                if (isClosed || throwable != null || clientPool.size() > poolSize) {
-                    client.close();
-                } else {
+                if (throwable == null && clientPool.size() < poolSize) {
                     clientPool.offer(this);
+                    this.isClientInPool = true;
+                    returned = true;
+                } else {
+                    this.isClientInPool = false;
+                    LOG.info("failed to return client to pool, close it. has throwable: {}, pool size: {}",
+                            (throwable != null), clientPool.size());
                 }
+            }
+            // close the client outside the lock because it may be time-consuming
+            if (!returned) {
+                client.close();
+                isClosed = true;
             }
         }
     }
@@ -682,7 +717,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             synchronized (clientPool) {
                 ThriftHMSClient client = clientPool.poll();
                 if (client == null) {
-                    return ugiDoAs(() -> new ThriftHMSClient(hiveConf));
+                    client = ugiDoAs(() -> new ThriftHMSClient(hiveConf));
                 }
                 return client;
             }
