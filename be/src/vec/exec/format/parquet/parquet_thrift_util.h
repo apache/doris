@@ -36,26 +36,54 @@ constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 constexpr size_t INIT_META_SIZE = 48 * 1024; // 48k
 
+static Status read_thrift_footer(io::FileReaderSPtr file, std::vector<uint8_t>& footer,
+                                 size_t& bytes_read, io::IOContext* io_ctx) {
+    size_t file_size = file->size();
+    bytes_read = std::min(file_size, INIT_META_SIZE);
+    footer.resize(bytes_read);
+    return file->read_at(file_size - bytes_read, Slice(footer.data(), bytes_read), &bytes_read,
+                         io_ctx);
+}
+
+static bool validate_magic_number(const std::vector<uint8_t>& footer, size_t bytes_read) {
+    if (bytes_read < PARQUET_FOOTER_SIZE) {
+        return false;
+    }
+    const uint8_t* magic_ptr = footer.data() + bytes_read - 4;
+    return memcmp(magic_ptr, PARQUET_VERSION_NUMBER, sizeof(PARQUET_VERSION_NUMBER)) == 0;
+}
+
 static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_metadata,
                                   size_t* meta_size, io::IOContext* io_ctx) {
-    size_t file_size = file->size();
-    size_t bytes_read = std::min(file_size, INIT_META_SIZE);
-    std::vector<uint8_t> footer(bytes_read);
-    RETURN_IF_ERROR(file->read_at(file_size - bytes_read, Slice(footer.data(), bytes_read),
-                                  &bytes_read, io_ctx));
-
-    // validate magic
-    uint8_t* magic_ptr = footer.data() + bytes_read - 4;
-    if (bytes_read < PARQUET_FOOTER_SIZE ||
-        memcmp(magic_ptr, PARQUET_VERSION_NUMBER, sizeof(PARQUET_VERSION_NUMBER)) != 0) {
-        return Status::Corruption(
-                "Invalid magic number in parquet file, bytes read: {}, file size: {}, path: {}, "
-                "read magic: {}",
-                bytes_read, file_size, file->path().native(),
-                std::string((char*)magic_ptr, sizeof(PARQUET_VERSION_NUMBER)));
+    std::vector<uint8_t> footer;
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(read_thrift_footer(file, footer, bytes_read, io_ctx));
+    if (!validate_magic_number(footer, bytes_read)) {
+        size_t before_file_size = file->size();
+        // try to get file length from filesystem and validate magic again
+        Status st = file->update_size();
+        Status error_status = Status::Corruption(
+                "Invalid magic number in parquet file, bytes read: {}, file size: {}, path: "
+                "{}, read magic: {}",
+                bytes_read, file->size(), file->path().native(),
+                std::string((char*)footer.data() + bytes_read - 4, sizeof(PARQUET_VERSION_NUMBER)));
+        if (st.ok()) {
+            LOG(WARNING) << "File length updated before reading footer, path: "
+                         << file->path().native() << ", before: " << before_file_size
+                         << ", after: " << file->size();
+            RETURN_IF_ERROR(read_thrift_footer(file, footer, bytes_read, io_ctx));
+            if (!validate_magic_number(footer, bytes_read)) {
+                return error_status;
+            }
+        } else {
+            LOG(WARNING) << "Failed to update file size before reading footer, path: "
+                         << file->path().native() << ", error: " << st.msg();
+            return error_status;
+        }
     }
 
     // get metadata_size
+    size_t file_size = file->size();
     uint32_t metadata_size = decode_fixed32_le(footer.data() + bytes_read - PARQUET_FOOTER_SIZE);
     if (metadata_size > file_size - PARQUET_FOOTER_SIZE) {
         return Status::Corruption("Parquet footer size({}) is large than file size({})",
