@@ -153,7 +153,7 @@ class IndexCompactionUtils {
         const auto& index_searcher_builder = std::make_unique<BKDIndexSearcherBuilder>();
         auto dir = index_file_reader->open(index);
         EXPECT_TRUE(dir.has_value());
-        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().release());
+        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().get());
         EXPECT_TRUE(searcher_result.has_value());
         auto bkd_searcher = std::get_if<BKDIndexSearcherPtr>(&searcher_result.value());
         EXPECT_TRUE(bkd_searcher != nullptr);
@@ -170,8 +170,12 @@ class IndexCompactionUtils {
                                 .ok());
             auto result = std::make_shared<roaring::Roaring>();
             OlapReaderStatistics stats;
+
+            IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+            context->stats = &stats;
+
             EXPECT_TRUE(idx_reader
-                                ->invoke_bkd_query(nullptr, &stats, query_param->get_value(),
+                                ->invoke_bkd_query(context, query_param->get_value(),
                                                    InvertedIndexQueryType::EQUAL_QUERY,
                                                    *bkd_searcher, result)
                                 .ok());
@@ -190,16 +194,23 @@ class IndexCompactionUtils {
         const auto& index_searcher_builder = std::make_unique<FulltextIndexSearcherBuilder>();
         auto dir = index_file_reader->open(index);
         EXPECT_TRUE(dir.has_value());
-        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().release());
+        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().get());
         EXPECT_TRUE(searcher_result.has_value());
         auto string_searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_result.value());
         EXPECT_TRUE(string_searcher != nullptr);
         std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
 
         for (int i = 0; i < query_data.size(); i++) {
-            TQueryOptions queryOptions;
+            OlapReaderStatistics stats;
+            RuntimeState runtime_state;
+            io::IOContext io_ctx;
+
+            IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
             auto query = QueryFactory::create(InvertedIndexQueryType::EQUAL_QUERY, *string_searcher,
-                                              queryOptions, nullptr);
+                                              context);
             EXPECT_TRUE(query != nullptr);
             InvertedIndexQueryInfo query_info;
             query_info.field_name = column_name_ws;
@@ -221,16 +232,23 @@ class IndexCompactionUtils {
         const auto& index_searcher_builder = std::make_unique<FulltextIndexSearcherBuilder>();
         auto dir = index_file_reader->open(index);
         EXPECT_TRUE(dir.has_value());
-        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().release());
+        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().get());
         EXPECT_TRUE(searcher_result.has_value());
         auto string_searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_result.value());
         EXPECT_TRUE(string_searcher != nullptr);
         std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
 
         for (int i = 0; i < query_data.size(); i++) {
-            TQueryOptions queryOptions;
+            OlapReaderStatistics stats;
+            RuntimeState runtime_state;
+            io::IOContext io_ctx;
+
+            IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
             auto query = QueryFactory::create(InvertedIndexQueryType::MATCH_ANY_QUERY,
-                                              *string_searcher, queryOptions, nullptr);
+                                              *string_searcher, context);
             EXPECT_TRUE(query != nullptr);
             InvertedIndexQueryInfo query_info;
             query_info.field_name = column_name_ws;
@@ -384,8 +402,10 @@ class IndexCompactionUtils {
     }
 
     static Status check_idx_file_correctness(
-            const std::vector<std::unique_ptr<DorisCompoundReader>>& index_readers,
-            const std::vector<std::unique_ptr<DorisCompoundReader>>& normal_index_readers) {
+            const std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>&
+                    index_readers,
+            const std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>&
+                    normal_index_readers) {
         ValueArray<lucene::index::IndexReader*> readers(index_readers.size());
         for (int i = 0; i < index_readers.size(); i++) {
             lucene::index::IndexReader* idx_reader =

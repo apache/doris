@@ -175,16 +175,20 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
     EXPECT_TRUE(rowset_writer->build(rowset).ok());
 
     auto check_result = [&](InvertedIndexReader* reader, bool is_null, int expected_result) {
-        StorageReadOptions read_options;
         OlapReaderStatistics stats;
-        read_options.stats = &stats;
         RuntimeState runtime_state;
-        read_options.runtime_state = &runtime_state;
+        io::IOContext io_ctx;
+
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         std::unique_ptr<IndexIterator> iter;
-        EXPECT_TRUE(reader->new_iterator(read_options.io_ctx, read_options.stats,
-                                         read_options.runtime_state, &iter)
-                            .ok());
+        EXPECT_TRUE(reader->new_iterator(&iter).ok());
         EXPECT_TRUE(iter);
+        iter->set_context(context);
+
         ColumnsWithTypeAndName arguments;
         std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
         std::vector<segment_v2::IndexIterator*> iterators;

@@ -123,6 +123,7 @@ void register_function_llm_generate(SimpleFunctionFactory& factory);
 void register_function_llm_mask(SimpleFunctionFactory& factory);
 void register_function_llm_classify(SimpleFunctionFactory& factory);
 void register_function_llm_summarize(SimpleFunctionFactory& factory);
+void register_function_score(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
 void register_function_throw_exception(SimpleFunctionFactory& factory);
@@ -340,6 +341,7 @@ public:
             register_function_llm_mask(instance);
             register_function_llm_classify(instance);
             register_function_llm_summarize(instance);
+            register_function_score(instance);
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
             register_function_throw_exception(instance);
 #endif
