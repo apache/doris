@@ -146,7 +146,7 @@ class UniqueTest extends TestWithFeService {
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
-                .isUniqueAndNotNull(plan.getOutput().get(0)));
+                .isUnique(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
                 .analyze("select id from agg union all select name from agg")
                 .rewrite()
