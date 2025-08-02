@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -302,7 +303,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             newStats = plan.accept(this, null);
         } catch (Exception e) {
             // throw exception in debug mode
-            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
+            if (SessionVariable.isFeDebug()) {
                 throw e;
             }
             LOG.warn("stats calculation failed, plan " + plan.toString(), e);
@@ -1258,7 +1259,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * computeTopN
      */
     public Statistics computeTopN(TopN topN, Statistics inputStats) {
-        return inputStats.withRowCountAndEnforceValid(Math.min(inputStats.getRowCount(), topN.getLimit()));
+        return inputStats.cleanHotValues().build()
+                .withRowCountAndEnforceValid(Math.min(inputStats.getRowCount(), topN.getLimit()));
     }
 
     /**
@@ -1293,14 +1295,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // TODO: for the filter push down window situation, we will prune the row count twice
         //  because we keep the pushed down filter. And it will be calculated twice, one of them in 'PartitionTopN'
         //  and the other is in 'Filter'. It's hard to dismiss.
-        return inputStats.withRowCountAndEnforceValid(rowCount);
+        StatisticsBuilder builder = inputStats.cleanHotValues();
+        return builder.build().withRowCountAndEnforceValid(rowCount);
     }
 
     /**
      * computeLimit
      */
     public Statistics computeLimit(Limit limit, Statistics inputStats) {
-        return inputStats.withRowCountAndEnforceValid(Math.min(inputStats.getRowCount(), limit.getLimit()));
+        StatisticsBuilder builder = inputStats.cleanHotValues();
+        return builder.build().withRowCountAndEnforceValid(Math.min(inputStats.getRowCount(), limit.getLimit()));
     }
 
     /**
@@ -1355,16 +1359,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
-        double factor = childStats.getRowCount() / rowCount;
         for (NamedExpression outputExpression : outputExpressions) {
             ColumnStatistic columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
-            ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
-            builder.setMinValue(columnStat.minValue / factor);
-            builder.setMaxValue(columnStat.maxValue / factor);
-            if (columnStat.ndv > rowCount) {
-                builder.setNdv(rowCount);
+            if (columnStat.getHotValues() != null) {
+                ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
+                builder.setHotValues(null);
+                columnStat = builder.build();
             }
-            builder.setDataSize(rowCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         Statistics aggOutputStats = new Statistics(rowCount, 1, slotToColumnStats);
@@ -1458,26 +1459,59 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
 
         head = childOutputs.get(0);
-        headStats = childStats.get(0);
+        headStats = new StatisticsBuilder(childStats.get(0)).build();
 
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
         List<NamedExpression> unionOutput = union.getOutputs();
+        double unionRowCount = childStats.stream().mapToDouble(Statistics::getRowCount).sum();
+        statisticsBuilder.setRowCount(unionRowCount);
+
         for (int i = 0; i < head.size(); i++) {
-            double leftRowCount = headStats.getRowCount();
             Slot headSlot = head.get(i);
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(
+                    headStats.findColumnStatistics(headSlot));
             for (int j = 1; j < childOutputs.size(); j++) {
                 Slot slot = childOutputs.get(j).get(i);
                 ColumnStatistic rightStatistic = childStats.get(j).findColumnStatistics(slot);
                 double rightRowCount = childStats.get(j).getRowCount();
-                ColumnStatistic estimatedColumnStatistics
-                        = unionColumn(headStats.findColumnStatistics(headSlot),
+                colStatsBuilder = unionColumn(colStatsBuilder,
                         headStats.getRowCount(), rightStatistic, rightRowCount, headSlot.getDataType());
-                headStats.addColumnStats(headSlot, estimatedColumnStatistics);
-                leftRowCount += childStats.get(j).getRowCount();
             }
-            statisticsBuilder.setRowCount(leftRowCount);
-            statisticsBuilder.putColumnStatistics(unionOutput.get(i), headStats.findColumnStatistics(headSlot));
+
+            //update hot values
+            Map<Literal, Float> unionHotValues = new HashMap<>();
+            for (int j = 0; j < childOutputs.size(); j++) {
+                Slot slot = childOutputs.get(j).get(i);
+                ColumnStatistic slotStats = childStats.get(j).findColumnStatistics(slot);
+                if (slotStats.getHotValues() != null) {
+                    for (Map.Entry<Literal, Float> entry : slotStats.getHotValues().entrySet()) {
+                        Float value = unionHotValues.get(entry.getKey());
+                        if (value == null) {
+                            unionHotValues.put(entry.getKey(),
+                                    (float) (entry.getValue()
+                                            / ColumnStatistic.ONE_HUNDRED * childStats.get(j).getRowCount()));
+                        } else {
+                            unionHotValues.put(entry.getKey(),
+                                    (float) (value + entry.getValue()
+                                            / ColumnStatistic.ONE_HUNDRED * childStats.get(j).getRowCount()));
+                        }
+                    }
+                }
+            }
+
+            Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
+            for (Literal hot : unionHotValues.keySet()) {
+                float ratio = (float) (ColumnStatistic.ONE_HUNDRED * unionHotValues.get(hot) / unionRowCount);
+                if (ratio > SessionVariable.getHotValueThreshold()) {
+                    resultHotValues.put(hot, ratio);
+                }
+            }
+            if (!resultHotValues.isEmpty()) {
+                colStatsBuilder.setHotValues(resultHotValues);
+            }
+            statisticsBuilder.putColumnStatistics(unionOutput.get(i), colStatsBuilder.build());
         }
+
         return statisticsBuilder.setWidthInJoinCluster(1).build();
     }
 
@@ -1618,33 +1652,35 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     return Pair.of(expr.toSlot(), colStatsBuilder.build());
                 }).collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         columnStatisticMap.putAll(childColumnStats);
-        return new Statistics(childStats.getRowCount(), 1, columnStatisticMap);
+        return new Statistics(childStats.getRowCount(), 1, columnStatisticMap).cleanHotValues().build();
     }
 
-    private ColumnStatistic unionColumn(ColumnStatistic leftStats, double leftRowCount, ColumnStatistic rightStats,
+    private ColumnStatisticBuilder unionColumn(ColumnStatisticBuilder leftStatsBuilder,
+            double leftRowCount, ColumnStatistic rightStats,
             double rightRowCount, DataType dataType) {
-        if (leftStats.isUnKnown() || rightStats.isUnKnown()) {
-            return new ColumnStatisticBuilder(leftStats).build();
+        if (leftStatsBuilder.isUnknown() || rightStats.isUnKnown()) {
+            return leftStatsBuilder;
         }
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-        columnStatisticBuilder.setMaxValue(Math.max(leftStats.maxValue, rightStats.maxValue));
-        columnStatisticBuilder.setMinValue(Math.min(leftStats.minValue, rightStats.minValue));
-        StatisticRange leftRange = StatisticRange.from(leftStats, dataType);
+        columnStatisticBuilder.setMaxValue(Math.max(leftStatsBuilder.getMaxValue(), rightStats.maxValue));
+        columnStatisticBuilder.setMinValue(Math.min(leftStatsBuilder.getMinValue(), rightStats.minValue));
+        StatisticRange leftRange = StatisticRange.from(leftStatsBuilder.build(), dataType);
         StatisticRange rightRange = StatisticRange.from(rightStats, dataType);
         StatisticRange newRange = leftRange.union(rightRange);
         double newRowCount = leftRowCount + rightRowCount;
-        double leftSize = (leftRowCount - leftStats.numNulls) * leftStats.avgSizeByte;
+        double leftSize = (leftRowCount - leftStatsBuilder.getNumNulls()) * leftStatsBuilder.getAvgSizeByte();
         double rightSize = (rightRowCount - rightStats.numNulls) * rightStats.avgSizeByte;
-        double newNullFraction = (leftStats.numNulls + rightStats.numNulls) / StatsMathUtil.maxNonNaN(1, newRowCount);
+        double newNullFraction = (leftStatsBuilder.getNumNulls() + rightStats.numNulls)
+                / StatsMathUtil.maxNonNaN(1, newRowCount);
         double newNonNullRowCount = newRowCount * (1 - newNullFraction);
 
         double newAverageRowSize = newNonNullRowCount == 0 ? 0 : (leftSize + rightSize) / newNonNullRowCount;
         columnStatisticBuilder.setMinValue(newRange.getLow())
                 .setMaxValue(newRange.getHigh())
                 .setNdv(newRange.getDistinctValues())
-                .setNumNulls(leftStats.numNulls + rightStats.numNulls)
+                .setNumNulls(leftStatsBuilder.getNumNulls() + rightStats.numNulls)
                 .setAvgSizeByte(newAverageRowSize);
-        return columnStatisticBuilder.build();
+        return columnStatisticBuilder;
     }
 
     @Override
