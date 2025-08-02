@@ -1659,6 +1659,119 @@ class Suite implements GroovyInterceptable {
         return debugPoint
     }
 
+    def runLdapProcessBuilder = { def cmdList ->
+        def processBuilder = new ProcessBuilder(cmdList)
+        logger.info("CurrentLdapCmd: ${cmdList.join(' ')}")
+
+        def proc = processBuilder.start()
+        def outputStream = new StringBuilder()
+        def errorStream = new StringBuilder()
+        def outputThread = Thread.start {
+            outputStream << proc.inputStream.getText('UTF-8')
+        }
+        def errorThread = Thread.start {
+            errorStream << proc.errorStream.getText('UTF-8')
+        }
+
+        def exitCode = proc.waitFor()
+        outputThread.join()
+        errorThread.join()
+
+        def output = outputStream.toString()
+        def errorOutput = errorStream.toString()
+
+        logger.info("output: " + output)
+        logger.info("errorOutput" + errorOutput)
+        logger.info("exitCode: " + exitCode)
+
+        return [output, errorOutput, exitCode]
+    }
+
+    def checkLdapEntryExist = { def ldapUrl, def bindDn, def password, def dn ->
+
+        def sLdapUrl = ldapUrl.toString()
+        def sBindDn = bindDn.toString()
+        def sPassword = password.toString()
+        def sDn = dn.toString()
+
+        def cmdList = [
+                "ldapsearch",
+                "-H", sLdapUrl,
+                "-D", sBindDn,
+                "-w", sPassword,
+                "-b", sDn,
+                "-s", "base",
+                "-LLL",
+                "objectClass=*"
+        ]
+
+        def (output, errorOutput, exitCode) = runLdapProcessBuilder(cmdList)
+
+        if (exitCode == 0) {
+            if (output.contains("dn: $dn")) {
+                logger.info("success find dn: '$dn'。")
+                return true
+            }
+        }
+
+        logger.info("can't find dn: '$dn'。")
+        return false
+    }
+
+    def addLdapEntry = { def ldapUrl, def bindDn, def password, def ldifContent ->
+        def sLdapUrl = ldapUrl.toString()
+        def sBindDn = bindDn.toString()
+        def sPassword = password.toString()
+        def sLdifContent = ldifContent.toString()
+
+        def cleanLdifContent = sLdifContent.readLines().collect { it.trim() }.join('\n')
+        def ldapAddCommandBase = "ldapadd -x -H ${sLdapUrl} -D \"${sBindDn}\" -w \"${sPassword}\""
+        def fullBashCommand = """
+                |cat <<EOF | ${ldapAddCommandBase}
+                |${cleanLdifContent}
+                |EOF""".stripMargin()
+
+        def cmdList = [
+                "bash",
+                "-c",
+                fullBashCommand
+        ]
+
+        def (output, errorOutput, exitCode) = runLdapProcessBuilder(cmdList)
+
+        if (exitCode == 0) {
+            logger.info("success ldap dn")
+            return true
+        }
+        logger.warning("Addldap for DN failed. Exit Code: ${exitCode}. Stderr: ${errorOutput}")
+        assert false
+    }
+
+    def deleteLdapEntry = { def ldapUrl, def bindDn, def password, def dnToDelete ->
+        def sLdapUrl = ldapUrl.toString()
+        def sBindDn = bindDn.toString()
+        def sPassword = password.toString()
+        def sDnToDelete = dnToDelete.toString()
+
+        def cmdList = [
+                "ldapdelete",
+                "-x",
+                "-H", sLdapUrl,
+                "-D", sBindDn,
+                "-w", sPassword,
+                sDnToDelete
+        ]
+
+        def (output, errorOutput, exitCode) = runLdapProcessBuilder(cmdList)
+
+        if (exitCode == 0) {
+            logger.info("delete success dn: '$dnToDelete'。")
+            return true
+        }
+        logger.warning("ldapdelete for DN '$dnToDelete' failed. Exit Code: ${exitCode}. Stderr: ${errorOutput}")
+        assert false
+    }
+
     def waitingMTMVTaskFinishedByMvName = { mvName, dbName = context.dbName ->
         Thread.sleep(2000);
         String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime ASC"
