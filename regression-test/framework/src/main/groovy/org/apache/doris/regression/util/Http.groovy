@@ -33,6 +33,7 @@ import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
 
 import java.nio.charset.Charset
+import java.util.Base64
 
 @Slf4j
 class Http {
@@ -47,10 +48,20 @@ class Http {
         }
     }
 
-    static Object GET(url, isJson = false, printText = true) {
+    static String getBasicAuth(String user, String password) {
+        def credentials = "${user}:${password}"
+        def encoded = Base64.getEncoder().encodeToString(credentials.getBytes())
+        return "Basic ${encoded}"
+    }
+
+    static Object GET(url, isJson = false, printText = true, user = null, password = null) {
         def conn = new URL(url).openConnection()
         conn.setRequestMethod('GET')
-        conn.setRequestProperty('Authorization', 'Basic cm9vdDo=') //token for root
+        
+        // Use provided credentials or default to root
+        def auth = getBasicAuth(user ?: 'root', password ?: '')
+        conn.setRequestProperty('Authorization', auth)
+        
         def code = conn.responseCode
         def text = conn.content.text
         if (printText) {
@@ -68,10 +79,14 @@ class Http {
         }
     }
 
-    static Object POST(url, data = null, isJson = false) {
+    static Object POST(url, data = null, isJson = false, user = null, password = null) {
         def conn = new URL(url).openConnection()
         conn.setRequestMethod('POST')
-        conn.setRequestProperty('Authorization', 'Basic cm9vdDo=') //token for root
+        
+        // Use provided credentials or default to root
+        def auth = getBasicAuth(user ?: 'root', password ?: '')
+        conn.setRequestProperty('Authorization', auth)
+        
         if (data) {
             if (isJson) {
                 conn.setRequestProperty('Content-Type', 'application/json')

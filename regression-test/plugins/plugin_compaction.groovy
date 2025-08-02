@@ -16,24 +16,36 @@
 // under the License.
 
 import org.apache.doris.regression.suite.Suite
+import org.apache.doris.regression.util.Http
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility;
 
 Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id))
+    def url = String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id)
+    // Use Http.GET with authentication parameters to get raw response
+    def result = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
+    return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
 }
 
 Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
+    def url = String.format("http://%s:%s/api/compaction/run_status", ip, port)
+    // Use Http.GET with authentication parameters to get raw response
+    def result = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
+    return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
 }
 
 Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id))
+    def url = String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id)
+    // Use Http.GET with authentication parameters to get raw response
+    def result = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
+    return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
 }
 
 Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
-            ip, port, tablet_id, compact_type))
+    def url = String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s", ip, port, tablet_id, compact_type)
+    // Use Http.POST with authentication parameters to get raw response
+    def result = Http.POST(url, null, false, context.config.feHttpUser, context.config.feHttpPassword)
+    return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
 }
 
 Suite.metaClass.be_run_base_compaction = { String ip, String port, String tablet_id  /* param */->
@@ -53,7 +65,10 @@ Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet
 }
 
 Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */->
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
+    def url = String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id)
+    // Use Http.POST with authentication parameters to get raw response
+    def result = Http.POST(url, null, false, context.config.feHttpUser, context.config.feHttpPassword)
+    return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")

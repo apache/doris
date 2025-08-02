@@ -65,7 +65,7 @@ suite('test_mow_agg_delete_bitmap', 'multi_cluster,docker') {
         def be_host = backendId_to_backendIP[trigger_backend_id]
         def be_http_port = backendId_to_backendHttpPort[trigger_backend_id]
         StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
+        sb.append("curl -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -X GET http://${be_host}:${be_http_port}")
         sb.append("/api/compaction/show?tablet_id=")
         sb.append(tablet_id)
 
@@ -89,7 +89,7 @@ suite('test_mow_agg_delete_bitmap', 'multi_cluster,docker') {
         do {
             Thread.sleep(1000)
             StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://${be_host}:${be_http_port}")
+            sb.append("curl -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -X GET http://${be_host}:${be_http_port}")
             sb.append("/api/compaction/run_status?tablet_id=")
             sb.append(tablet_id)
 
@@ -113,7 +113,7 @@ suite('test_mow_agg_delete_bitmap', 'multi_cluster,docker') {
         def be_http_port = backendId_to_backendHttpPort[trigger_backend_id]
         boolean running = true
         StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
+        sb.append("curl -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -X GET http://${be_host}:${be_http_port}")
         sb.append("/api/delete_bitmap/count_local?verbose=true&tablet_id=")
         sb.append(tablet_id)
 
@@ -135,7 +135,7 @@ suite('test_mow_agg_delete_bitmap', 'multi_cluster,docker') {
         def be_http_port = backendId_to_backendHttpPort[trigger_backend_id]
         boolean running = true
         StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
+        sb.append("curl -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -X GET http://${be_host}:${be_http_port}")
         sb.append("/api/delete_bitmap/count_ms?verbose=true&tablet_id=")
         sb.append(tablet_id)
 
