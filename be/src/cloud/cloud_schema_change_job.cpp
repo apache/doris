@@ -340,6 +340,17 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             }
         }
 
+        if (config::enable_mow_verbose_log) {
+            int64_t alter_version = job.schema_change().alter_version();
+            std::string msg;
+            static_cast<void>(_base_tablet->rowsets_delete_bitmap_digest(alter_version, msg));
+            LOG_INFO("[verbose] before convert historical data")
+                    .tag("base_tablet", _base_tablet->tablet_id())
+                    .tag("new_tablet", _new_tablet->tablet_id())
+                    .tag("alter_version", alter_version)
+                    .tag("delete_bitmap_digest", msg);
+        }
+
         st = sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet, _base_tablet,
                                    _base_tablet_schema, _new_tablet_schema);
         if (!st.ok()) {
