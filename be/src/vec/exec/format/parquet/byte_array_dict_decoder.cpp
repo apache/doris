@@ -17,6 +17,8 @@
 
 #include "vec/exec/format/parquet/byte_array_dict_decoder.h"
 
+#include <fmt/core.h>
+
 #include <utility>
 
 #include "util/coding.h"
@@ -41,8 +43,20 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
 
     size_t total_length = 0;
     for (int i = 0; i < num_values; ++i) {
+        if (offset_cursor + 4 > (uint32_t)length) {
+            return Status::Corruption(
+                    fmt::format("[DICT][get_length][decode length out of bounds] i={} "
+                                "offset_cursor={} length={} num_values={}",
+                                i, offset_cursor, length, num_values));
+        }
         uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
         offset_cursor += 4;
+        if (offset_cursor + l > (uint32_t)length) {
+            return Status::Corruption(
+                    fmt::format("[DICT][get_length][value out of bounds] i={} offset_cursor={} "
+                                "l={} length={} num_values={}",
+                                i, offset_cursor, l, length, num_values));
+        }
         offset_cursor += l;
         total_length += l;
     }
@@ -53,21 +67,32 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
     size_t offset = 0;
     offset_cursor = 0;
     for (int i = 0; i < num_values; ++i) {
+        if (offset_cursor + 4 > (uint32_t)length) {
+            return Status::Corruption(
+                    fmt::format("[DICT][copy][decode length out of bounds] i={} offset_cursor={} "
+                                "length={} num_values={}",
+                                i, offset_cursor, length, num_values));
+        }
         uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
         offset_cursor += 4;
+        if (offset_cursor + l > (uint32_t)length) {
+            return Status::Corruption(
+                    fmt::format("[DICT][copy][memcpy out of bounds] i={} offset_cursor={} l={} "
+                                "length={} num_values={}",
+                                i, offset_cursor, l, length, num_values));
+        }
         memcpy(&_dict_data[offset], dict_item_address + offset_cursor, l);
         _dict_items.emplace_back(&_dict_data[offset], l);
         offset_cursor += l;
         offset += l;
-        if (offset_cursor > length) {
-            return Status::Corruption("Wrong data length in dictionary");
-        }
         if (l > _max_value_length) {
             _max_value_length = l;
         }
     }
-    if (offset_cursor != length) {
-        return Status::Corruption("Wrong dictionary data for byte array type");
+    if (offset_cursor != (uint32_t)length) {
+        return Status::Corruption(fmt::format(
+                "[DICT][copy][final check failed] offset_cursor={} length={} num_values={}",
+                offset_cursor, length, num_values));
     }
     return Status::OK();
 }
